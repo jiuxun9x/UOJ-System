@@ -12,7 +12,14 @@
 		if ($judger == null) {
 			return false;
 		}
-		return $judger['password'] == $_POST['password'];
+		return hash_equals($judger['password'], $_POST['password']);
+	}
+	function requireJudgerAuthentication() {
+		if (!authenticateJudger()) {
+			// tell a rejected judger apart from a judger with nothing to judge
+			header($_SERVER['SERVER_PROTOCOL'] . " 403 Forbidden", true, 403);
+			die("judger authentication failed");
+		}
 	}
 	
 	function judgerCodeStr($code) {

@@ -33,8 +33,11 @@
 	}
 
 	class SyncProblemDataHandler {
+		// a sync that has not touched its staging folder for this long is considered dead
+		const STALE_SYNC_SECONDS = 1800;
+
 		private $problem, $user;
-		private $upload_dir, $data_dir, $prepare_dir;
+		private $upload_dir, $data_dir, $stage_dir, $prepare_dir;
 		private $requirement, $problem_extra_config;
 		private $problem_conf, $final_problem_conf;
 		private $allow_files;
@@ -169,16 +172,24 @@
 
 			$this->upload_dir = "/var/uoj_data/upload/$id";
 			$this->data_dir = "/var/uoj_data/$id";
-			$this->prepare_dir = "/var/uoj_data/prepare_$id";
+			// The data is prepared in a folder named after the problem inside a staging folder,
+			// so that the archive for the judgers can be built before anything is published.
+			$this->stage_dir = "/var/uoj_data/prepare_$id";
+			$this->prepare_dir = "{$this->stage_dir}/$id";
 
-			if (file_exists($this->prepare_dir)) {
-				return "please wait until the last sync finish";
+			if (file_exists($this->stage_dir)) {
+				if (!$this->is_stage_stale()) {
+					return "please wait until the last sync finish";
+				}
+				error_log("dataSyncProblemData: removing the staging folder of a dead sync of problem #$id");
+				exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
 			}
 
 			try {
 				$this->requirement = array();
 				$this->problem_extra_config = json_decode($this->problem['extra_config'], true);
 
+				mkdir($this->stage_dir, 0755);
 				mkdir($this->prepare_dir, 0755);
 				if (!is_file("{$this->upload_dir}/problem.conf")) {
 					throw new UOJFileNotFoundException("problem.conf");
@@ -336,17 +347,47 @@
 					$esc_requirement = DB::escape(json_encode($this->requirement));
 					DB::update("update problems set submission_requirement = '$esc_requirement' where id = $id");
 				}
+
+				$this->build_archive();
 			} catch (Exception $e) {
-				exec("rm {$this->prepare_dir} -r");
+				exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
 				return $e->getMessage();
 			}
 
-			exec("rm {$this->data_dir} -r");
-			rename($this->prepare_dir, $this->data_dir);
-
-			exec("cd /var/uoj_data; rm $id.zip; zip $id.zip $id -r -q");
+			$this->publish();
 
 			return '';
+		}
+
+		private function is_stage_stale() {
+			clearstatcache();
+			$last_touched = max((int)@filemtime($this->stage_dir), (int)@filemtime($this->prepare_dir));
+			return time() - $last_touched > self::STALE_SYNC_SECONDS;
+		}
+
+		private function build_archive() {
+			$id = $this->problem['id'];
+			exec("cd " . escapeshellarg($this->stage_dir) . " && zip data.zip $id -r -q", $output, $ret);
+			if ($ret !== 0 || !is_file("{$this->stage_dir}/data.zip")) {
+				throw new Exception("<strong>$id.zip</strong> : failed to create the archive for judgers");
+			}
+		}
+
+		private function publish() {
+			$id = $this->problem['id'];
+			// Judgers compare the modification time of the data they download with the one of
+			// the data folder, so the archive goes first: a judger may get data that is newer
+			// than expected, but never data that is older.
+			clearstatcache();
+			$mtime = filemtime($this->prepare_dir);
+			rename("{$this->stage_dir}/data.zip", "/var/uoj_data/$id.zip");
+			if (file_exists($this->data_dir)) {
+				rename($this->data_dir, "{$this->stage_dir}/old");
+			}
+			rename($this->prepare_dir, $this->data_dir);
+			// keep the modification time recorded in the archive whatever the file system does
+			touch($this->data_dir, $mtime);
+			exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
 		}
 	}
 

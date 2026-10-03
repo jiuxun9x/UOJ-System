@@ -9,6 +9,7 @@ from threading import Thread
 import fcntl
 import hashlib
 import shutil
+import tempfile
 
 import traceback
 import time
@@ -52,8 +53,17 @@ def freopen(f, g):
     g.close()
 
 
+def remove_tree(path):
+    quoted_path = pipes.quote(path)
+    os.system("chmod -R 700 %s && rm -rf %s" % (quoted_path, quoted_path))
+
+
 def log(*args):
     print("[" + time.asctime() + "]", *args, file=sys.stderr)
+
+
+class UOJAuthError(Exception):
+    pass
 
 
 # init
@@ -216,32 +226,80 @@ def get_judger_result():
     return res
 
 
+# how many times to download the problem data when the web server is still publishing it
+PROBLEM_DATA_DOWNLOAD_TRIES = 5
+
+
+def fetch_problem_data(problem_id, problem_mtime, tmp_dir):
+    """download and extract the problem data into tmp_dir, return the extracted folder"""
+    zip_name = os.path.join(tmp_dir, "data.zip")
+    extract_dir = os.path.join(tmp_dir, "extract")
+    new_copy_name = os.path.join(extract_dir, str(problem_id))
+
+    size, sha256 = uoj_download("/problem/%d" % problem_id, zip_name)
+    os.mkdir(extract_dir)
+    execute("unzip -q %s -d %s" % (pipes.quote(zip_name), pipes.quote(extract_dir)))
+    os.unlink(zip_name)
+
+    if not os.path.isfile(os.path.join(new_copy_name, "problem.conf")):
+        raise Exception("problem.conf is missing in the data of problem #%d" % problem_id)
+    if os.path.getmtime(new_copy_name) < problem_mtime:
+        raise Exception(
+            "the data of problem #%d on the web server is still out of date" % problem_id
+        )
+
+    log(
+        "downloaded problem data: problem=%d size=%d sha256=%s mtime=%d"
+        % (problem_id, size, sha256, os.path.getmtime(new_copy_name))
+    )
+    return new_copy_name
+
+
 def update_problem_data(problem_id, problem_mtime):
     try:
         if jconf["judger_name"] == "main_judger":
             return
-        copy_name = uoj_judger_path("/data/%d" % problem_id)
-        copy_zip_name = uoj_judger_path("/data/%d.zip" % problem_id)
-        if os.path.isdir(copy_name):
-            quoted_copy_name = pipes.quote(copy_name)
-            if os.path.getmtime(copy_name) >= problem_mtime:
-                execute("touch -a %s" % quoted_copy_name)
-                return
-            else:
-                execute("chmod 700 %s -R && rm -rf %s" % (quoted_copy_name, quoted_copy_name))
+        if isinstance(problem_mtime, bool) or not isinstance(problem_mtime, (int, float)):
+            raise Exception("the web server has no data for problem #%d" % problem_id)
+
+        data_root = uoj_judger_path("/data")
+        copy_name = os.path.join(data_root, str(problem_id))
+        if os.path.isdir(copy_name) and os.path.getmtime(copy_name) >= problem_mtime:
+            execute("touch -a %s" % pipes.quote(copy_name))
+            return
+
+        # folders starting with a dot are left by an interrupted update
+        for fname in os.listdir(data_root):
+            if fname.startswith("."):
+                remove_tree(os.path.join(data_root, fname))
         del_list = sorted(
-            os.listdir(uoj_judger_path("/data")),
-            key=lambda fname: os.path.getatime(uoj_judger_path("/data/%s" % fname)),
+            os.listdir(data_root),
+            key=lambda fname: os.path.getatime(os.path.join(data_root, fname)),
         )[:-99]
         for fname in del_list:
-            quoted_fname = pipes.quote(uoj_judger_path("/data/%s" % fname))
-            os.system("chmod 700 %s -R && rm -rf %s" % (quoted_fname, quoted_fname))
+            if fname != str(problem_id):
+                remove_tree(os.path.join(data_root, fname))
 
-        uoj_download("/problem/%d" % problem_id, copy_zip_name)
-        execute(
-            "cd %s && unzip -q %d.zip && rm %d.zip && chmod -w %d -R"
-            % (uoj_judger_path("/data"), problem_id, problem_id, problem_id)
-        )
+        # The data is downloaded and extracted in a temporary folder and only moved to its place
+        # when it is complete, so a failed update never leaves a broken copy behind.
+        for tries_left in range(PROBLEM_DATA_DOWNLOAD_TRIES - 1, -1, -1):
+            tmp_dir = tempfile.mkdtemp(prefix=".tmp_%d_" % problem_id, dir=data_root)
+            try:
+                new_copy_name = fetch_problem_data(problem_id, problem_mtime, tmp_dir)
+                if os.path.isdir(copy_name):
+                    # a folder must be writable to be moved to another folder
+                    os.chmod(copy_name, 0o700)
+                    os.rename(copy_name, os.path.join(tmp_dir, "old"))
+                os.rename(new_copy_name, copy_name)
+                execute("chmod -R a-w %s" % pipes.quote(copy_name))
+                break
+            except Exception:
+                if tries_left == 0:
+                    raise
+                traceback.print_exc()
+                time.sleep(2)
+            finally:
+                remove_tree(tmp_dir)
     except Exception:
         print_judge_client_status()
         traceback.print_exc()
@@ -297,19 +355,54 @@ def judge():
 
 
 # interact with uoj web server
+def uoj_check_response(r, uri):
+    if r.status_code == 403:
+        raise UOJAuthError(
+            "the web server rejected this judger (HTTP 403 from %s), "
+            "please check judger_name and judger_password" % uri
+        )
+    if r.status_code != 200:
+        raise Exception("HTTP %d from %s" % (r.status_code, uri))
+
+
 def uoj_interact(data, files={}):
     data = data.copy()
     data.update({"judger_name": jconf["judger_name"], "password": jconf["judger_password"]})
-    return requests.post(uoj_url("/judge/submit"), data=data, files=files).text
+    r = requests.post(uoj_url("/judge/submit"), data=data, files=files)
+    uoj_check_response(r, "/judge/submit")
+    return r.text
 
 
 def uoj_download(uri, filename):
+    """download a file from the web server, return its size and its SHA256"""
     data = {"judger_name": jconf["judger_name"], "password": jconf["judger_password"]}
-    with open(filename, "wb") as f:
-        r = requests.post(uoj_url("/judge/download" + uri), data=data, stream=True)
-        for chunk in r.iter_content(chunk_size=65536):
-            if chunk:
-                f.write(chunk)
+    size = 0
+    sha256 = hashlib.sha256()
+    r = requests.post(uoj_url("/judge/download" + uri), data=data, stream=True)
+    try:
+        uoj_check_response(r, "/judge/download" + uri)
+        with open(filename, "wb") as f:
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+                    size += len(chunk)
+                    sha256.update(chunk)
+        expected_size = r.headers.get("Content-Length")
+        expected_sha256 = r.headers.get("X-UOJ-SHA256")
+        encoded = r.headers.get("Content-Encoding", "identity") != "identity"
+    finally:
+        r.close()
+
+    if expected_size is not None and not encoded and int(expected_size) != size:
+        raise Exception(
+            "%s is truncated: got %d bytes, expected %s" % (uri, size, expected_size)
+        )
+    if expected_sha256 is not None and expected_sha256.lower() != sha256.hexdigest():
+        raise Exception(
+            "%s is corrupted: SHA256 is %s, expected %s"
+            % (uri, sha256.hexdigest(), expected_sha256)
+        )
+    return size, sha256.hexdigest()
 
 
 def uoj_sync_judge_client():
@@ -374,6 +467,10 @@ def send_and_fetch(result=None, fetch_new=True):
         try:
             ret = uoj_interact(data, files)
             print(ret)
+        except UOJAuthError as e:
+            log(e)
+            time.sleep(30)
+            continue
         except Exception:
             print_judge_client_status()
             traceback.print_exc()
@@ -385,6 +482,8 @@ def send_and_fetch(result=None, fetch_new=True):
         submission = json.loads(ret)
     except Exception as e:
         submission = None
+        if ret.strip() != "Nothing to judge":
+            log("unexpected response from the web server: %r" % ret[:200])
         return False
     else:
         return True

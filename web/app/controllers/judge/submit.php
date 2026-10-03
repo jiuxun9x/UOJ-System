@@ -2,9 +2,7 @@
 	requirePHPLib('judger');
 	requirePHPLib('data');
 	
-	if (!authenticateJudger()) {
-		become404Page();
-	}
+	requireJudgerAuthentication();
 	
 	function submissionJudged() {
 		$submission = DB::selectFirst("select submitter, status, content, result, problem_id from submissions where id = {$_POST['id']}");
@@ -116,6 +114,19 @@
 		die();
 	}
 	
+	function queryProblemDataMTime($problem_id) {
+		// While new data is being published the folder is missing for an instant.
+		for ($i = 0; $i < 20; $i++) {
+			clearstatcache();
+			$mtime = @filemtime("/var/uoj_data/$problem_id");
+			if ($mtime !== false) {
+				return $mtime;
+			}
+			usleep(50000);
+		}
+		return false;
+	}
+
 	$submission = null;
 	$hack = null;
 	function querySubmissionToJudge($status, $set_q) {
@@ -198,7 +209,7 @@
 	
 	$submission['id'] = (int)$submission['id'];
 	$submission['problem_id'] = (int)$submission['problem_id'];
-	$submission['problem_mtime'] = filemtime("/var/uoj_data/{$submission['problem_id']}");
+	$submission['problem_mtime'] = queryProblemDataMTime($submission['problem_id']);
 	$submission['content'] = json_decode($submission['content']);
 	
 	if ($hack) {
