@@ -7,272 +7,16 @@ They need the containers of docker-compose.yml and tests/e2e/docker-compose.e2e.
     python3 -m unittest discover -s tests/e2e -v
 """
 
+import io
 import json
 import os
-import re
 import time
 import unittest
 import zipfile
-import io
 
 import uoj
+from fixtures import *
 from uoj import conf, db, db_value, docker_exec, judge_api, sha256, wait_until
-
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# ---------------------------------------------------------------------- programs
-
-AB = r"""
-#include <cstdio>
-int main() {
-    long long a, b;
-    scanf("%lld%lld", &a, &b);
-    printf("%lld\n", a + b);
-}
-"""
-
-AB_WRONG = AB.replace("a + b", "a + b + 1")
-
-# gives a wrong answer for one value of a only, so it passes every test until it is hacked
-AB_HACKABLE = r"""
-#include <cstdio>
-int main() {
-    long long a, b;
-    scanf("%%lld%%lld", &a, &b);
-    printf("%%lld\n", a == %d ? 0 : a + b);
-}
-"""
-
-# burns a few tenths of a second on every test, to keep a judger busy
-AB_SLOW = r"""
-#include <cstdio>
-int main() {
-    long long a, b;
-    scanf("%lld%lld", &a, &b);
-    volatile unsigned long long x = 0;
-    for (int i = 0; i < 150000000; i++) x = x + 1;
-    printf("%lld\n", a + b);
-}
-"""
-
-# the three ways a program usually dies: SIGSEGV, SIGFPE and SIGABRT
-AB_NULL_POINTER = r"""
-#include <cstdio>
-int main() {
-    int * volatile p = nullptr;
-    printf("%d\n", *p);
-}
-"""
-
-AB_DIVISION_BY_ZERO = r"""
-#include <cstdio>
-int main() {
-    volatile int zero = 0;
-    printf("%d\n", 100 / zero);
-}
-"""
-
-AB_ABORT = r"""
-#include <cstdio>
-#include <cstdlib>
-int main() {
-    puts("0");
-    abort();
-}
-"""
-
-AB_TIME_LIMIT = r"""
-int main() {
-    volatile unsigned long long x = 0;
-    while (true) x = x + 1;
-}
-"""
-
-AB_COMPILE_ERROR = "int main() { return undeclared; }\n"
-
-# uses about 90 MiB of stack
-AB_DEEP_RECURSION = r"""
-#include <cstdio>
-int f(int n);
-int (* volatile fp)(int) = f;
-int f(int n) {
-    volatile char pad[200];
-    pad[0] = (char)n;
-    if (n == 0) return 0;
-    int r = fp(n - 1);
-    return r + (pad[0] & 0);
-}
-int main() {
-    long long a, b;
-    scanf("%lld%lld", &a, &b);
-    printf("%lld\n", a + b + f(400000));
-}
-"""
-
-# a local array of 100 MiB
-AB_LARGE_LOCAL_ARRAY = r"""
-#include <cstdio>
-int main() {
-    volatile char big[100 << 20];
-    for (int i = 0; i < (100 << 20); i += 4096) big[i] = 1;
-    long long a, b;
-    scanf("%lld%lld", &a, &b);
-    printf("%lld\n", a + b + big[4096] - 1);
-}
-"""
-
-AB_VALIDATOR = r"""
-#include "testlib.h"
-int main(int argc, char **argv) {
-    registerValidation(argc, argv);
-    inf.readInt(0, 1000000000, "a");
-    inf.readSpace();
-    inf.readInt(0, 1000000000, "b");
-    inf.readEoln();
-    inf.readEof();
-}
-"""
-
-# prints k, but first keeps allocating memory until it holds `megabytes` MiB when k is `trigger`
-ECHO_ALLOCATING = r"""
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-// the blocks are kept where the compiler can not prove that they are unused
-char * volatile blocks[128];
-int main() {
-    int k;
-    scanf("%%d", &k);
-    int n = 0, sum = 0;
-    if (k == %(trigger)d) {
-        for (; n < %(megabytes)d / 8; n++) {
-            char *p = (char *)malloc(8 << 20);
-            if (p == NULL) return 1;
-            memset(p, 1, 8 << 20);
-            blocks[n] = p;
-        }
-    }
-    for (int i = 0; i < n; i++) sum += blocks[i][4096];
-    printf("%%d\n", k + sum - n);
-}
-"""
-
-COUNT_BYTES = r"""
-#include <cstdio>
-int main() {
-    static char buf[1 << 16];
-    long long n = 0;
-    size_t got;
-    while ((got = fread(buf, 1, sizeof(buf), stdin)) > 0) n += got;
-    printf("%lld\n", n);
-}
-"""
-
-# stops at the first byte 0xff, which a signed char can not tell from EOF
-COUNT_BYTES_WRONG = r"""
-#include <cstdio>
-int main() {
-    long long n = 0;
-    char c;
-    while ((c = getchar()) != EOF) n++;
-    printf("%lld\n", n);
-}
-"""
-
-ACCEPT_ANYTHING = r"""
-#include <cstdio>
-int main() {
-    static char buf[1 << 16];
-    while (fread(buf, 1, sizeof(buf), stdin) > 0);
-    return 0;
-}
-"""
-
-CUSTOM_JUDGER_MAKEFILE = """INCLUDE_PATH ?= .
-CXXFLAGS = -I$(INCLUDE_PATH) -O2 -std=c++17
-
-all: judger std val
-
-%: %.cpp
-\t$(CXX) $(CXXFLAGS) $< -o $@
-"""
-
-# bytes that a text mode reader or the formatter would reject or rewrite
-BINARY_HACK = b"ab\x00cd\xff\xfe\r\nline\r\n\x80\xc3\x28 end  \n\x00"
-
-
-# ---------------------------------------------------------------------- problems
-
-
-def ab_problem_files(**overrides):
-    settings = dict(
-        use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=3, n_ex_tests=1, n_sample_tests=1,
-        input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
-        time_limit=1, memory_limit=256,
-    )  # fmt: skip
-    settings.update(overrides)
-    files = {"problem.conf": conf(**settings), "std.cpp": AB, "val.cpp": AB_VALIDATOR}
-    for num, (a, b) in enumerate([(1, 2), (1000, 2000), (999999999, 1)], start=1):
-        files["input%d.txt" % num] = "%d %d\n" % (a, b)
-        files["output%d.txt" % num] = "%d\n" % (a + b)
-    files["ex_input1.txt"] = "5 7\n"
-    files["ex_output1.txt"] = "12\n"
-    return files
-
-
-def echo_problem_files():
-    files = {
-        "problem.conf": conf(
-            use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=3, n_ex_tests=1, n_sample_tests=1,
-            input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
-            time_limit=1, memory_limit=64, stack_limit=8,
-        ),  # fmt: skip
-        "ex_input1.txt": "1000\n",
-        "ex_output1.txt": "1000\n",
-    }
-    for k in (1, 2, 3):
-        files["input%d.txt" % k] = "%d\n" % k
-        files["output%d.txt" % k] = "%d\n" % k
-    return files
-
-
-def count_bytes_problem_files():
-    files = {
-        "problem.conf": conf(
-            use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=2, n_ex_tests=1, n_sample_tests=0,
-            input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
-            time_limit=1, memory_limit=256,
-        ),  # fmt: skip
-        "std.cpp": COUNT_BYTES,
-        "val.cpp": ACCEPT_ANYTHING,
-    }
-    for name, data in (("input1.txt", "hello\n"), ("input2.txt", "a b c\nd e f\n"), ("ex_input1.txt", "x\n")):
-        files[name] = data
-        files[name.replace("input", "output")] = "%d\n" % len(data)
-    return files
-
-
-def custom_judger_problem_files():
-    files = ab_problem_files(use_builtin_judger="off")
-    with open(os.path.join(REPO, "judger/uoj_judger/builtin/judger/judger.cpp")) as f:
-        files["judger.cpp"] = f.read()
-    files["Makefile"] = CUSTOM_JUDGER_MAKEFILE
-    return files
-
-
-def published_conf(problem_id):
-    text = docker_exec(uoj.WEB, "cat /var/uoj_data/%d/problem.conf" % problem_id)
-    return dict(line.split(None, 1) for line in text.splitlines() if line.strip())
-
-
-def downloaded_sha256(judger, problem_id):
-    """the SHA256 of the data of a problem that a judger downloaded last, or None"""
-    found = re.findall(
-        r"downloaded problem data: problem=%d size=\d+ sha256=([0-9a-f]{64})" % problem_id,
-        uoj.judger_log(judger),
-    )
-    return found[-1] if found else None
-
 
 def setUpModule():
     uoj.admin()
@@ -285,9 +29,12 @@ class DatabaseUpgradeTest(unittest.TestCase):
     """2.5 and 2.6: upgrades run against a database on another host, and fail loudly"""
 
     CLI = "php /opt/uoj/web/app/cli.php"
+    UPGRADES = ["1001_expand_judgement_storage", "1002_problem_data_versions", "1003_judge_tracking"]
 
     def test_upgrades_were_applied_when_the_web_server_started(self):
-        self.assertEqual(db("select name, status from upgrades"), [["1001_expand_judgement_storage", "up"]])
+        self.assertEqual(
+            db("select name, status from upgrades order by name"), [[name, "up"] for name in self.UPGRADES]
+        )
 
     def test_judgement_columns_are_wide_enough(self):
         types = dict(
@@ -375,8 +122,8 @@ class DatabaseUpgradeTest(unittest.TestCase):
             self.assertEqual(p.returncode, 0, p.stdout.decode() + p.stderr.decode())
             self.assertIn("up 1001_expand_judgement_storage: DONE", p.stdout.decode())
             self.assertEqual(
-                alt_db("select name, status from upgrades").stdout.decode().split(),
-                ["1001_expand_judgement_storage", "up"],
+                alt_db("select name, status from upgrades order by name").stdout.decode().split(),
+                [word for name in self.UPGRADES for word in (name, "up")],
             )
 
             p = upgrade(2, "['host' => 'no-such-host', 'socket' => '/var/run/mysqld/mysqld.sock']")
@@ -442,53 +189,6 @@ class JudgeApiTest(unittest.TestCase):
         self.assertEqual(docker_exec(uoj.WEB, "ls /var/uoj_data | grep prepare || true").strip(), "")
 
 
-class VerdictTest(unittest.TestCase):
-    """2.1 and a first slice of the conformance tests"""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.problem_id = uoj.admin().create_problem(ab_problem_files())
-
-    def judge(self, code):
-        return uoj.wait_submission(uoj.admin().submit(self.problem_id, code))
-
-    def test_accepted(self):
-        j = self.judge(AB)
-        self.assertEqual(j.score, 100, j)
-        self.assertEqual(j.infos, ["Accepted"] * 3 + ["Extra Test Passed"], j)
-
-    def test_wrong_answer(self):
-        j = self.judge(AB_WRONG)
-        self.assertEqual(j.score, 0, j)
-        self.assertEqual(j.infos, ["Wrong Answer"] * 3, j)
-
-    def test_runtime_error(self):
-        for code in (AB_NULL_POINTER, AB_DIVISION_BY_ZERO, AB_ABORT):
-            j = self.judge(code)
-            self.assertEqual(j.infos, ["Runtime Error"] * 3, j)
-            self.assertEqual(j.score, 0, j)
-
-    def test_time_limit_exceeded(self):
-        j = self.judge(AB_TIME_LIMIT)
-        self.assertEqual(j.infos, ["Time Limit Exceeded"] * 3, j)
-
-    def test_memory_limit_exceeded(self):
-        j = self.judge(ECHO_ALLOCATING % {"trigger": 1, "megabytes": 400})
-        self.assertEqual(j.infos[0], "Memory Limit Exceeded", j)
-
-    def test_compile_error(self):
-        j = self.judge(AB_COMPILE_ERROR)
-        self.assertEqual(j.error, "Compile Error", j)
-        self.assertIsNone(j.score)
-
-    def test_stack_is_as_large_as_the_memory_limit_by_default(self):
-        j = self.judge(AB_DEEP_RECURSION)
-        self.assertEqual(j.score, 100, j)
-        j = self.judge(AB_LARGE_LOCAL_ARRAY)
-        self.assertEqual(j.score, 100, j)
-        self.assertGreater(j.used_memory, 100 << 10)
-
-
 class MemoryLimitTest(unittest.TestCase):
     """2.8: a submission, a custom test and an extra test enforce the same memory limit"""
 
@@ -534,8 +234,17 @@ class LargeResultTest(unittest.TestCase):
 
     N_TESTS = 800
 
+    def give_to_the_fake_judger(self, submission_id):
+        # a result is only taken from the judger that the submission was given to, and only
+        # while that judger is known to be alive
+        judge_api("/judge/submit", {"heartbeat": "1"})
+        db(
+            "update submissions set status = 'Judging', judger_name = '%s' where id = %d"
+            % (uoj.FAKE_JUDGER["judger_name"], submission_id)
+        )
+
     def post_result(self, submission_id, details):
-        db("update submissions set status = 'Judging' where id = %d" % submission_id)
+        self.give_to_the_fake_judger(submission_id)
         result = {"score": 100, "time": 1, "memory": 1, "details": details, "status": "Judged"}
         r = judge_api("/judge/submit", {
             "submit": "1", "fetch_new": "", "id": submission_id, "result": json.dumps(result),
@@ -591,7 +300,7 @@ class LargeResultTest(unittest.TestCase):
         submission_id = uoj.admin().submit(problem_id, AB)
         uoj.wait_submission(submission_id)
 
-        db("update submissions set status = 'Judging' where id = %d" % submission_id)
+        self.give_to_the_fake_judger(submission_id)
         r = judge_api("/judge/submit", {"submit": "1", "fetch_new": "", "id": submission_id, "result": "'; --"})
         self.assertEqual(r.status_code, 200)
         j = uoj.get_submission(submission_id)
@@ -689,17 +398,15 @@ class BinaryHackTest(unittest.TestCase):
         # nobody has to be told about a hack that was applied
         self.assertEqual(db_value("select count(*) from user_system_msg where title like 'Hack #%d %%'" % hack_id), "0")
 
-        # every judger that has the data has the same data as the web server
+        # every judger that has fetched the new data has the same data as the web server
         slow = [admin.submit(problem_id, COUNT_BYTES) for _ in range(6)]
         for submission_id in slow:
             self.assertEqual(uoj.wait_submission(submission_id).score, 100)
-        expected = uoj.tree_sha256(uoj.WEB, "/var/uoj_data/%d" % problem_id)
-        for judger in uoj.JUDGERS:
-            data = "/opt/uoj_judger/uoj_judger/data/%d" % problem_id
-            if docker_exec(judger, "test -d %s && echo yes || true" % data).strip() == "yes":
-                # a copy may be out of date until the judger gets a submission of the problem
-                if downloaded_sha256(judger, problem_id) == uoj.file_sha256(uoj.WEB, "/var/uoj_data/%d.zip" % problem_id):
-                    self.assertEqual(uoj.tree_sha256(judger, data), expected, judger)
+        current = uoj.file_sha256(uoj.WEB, "/var/uoj_data/%d.zip" % problem_id)
+        up_to_date = [judger for judger in uoj.JUDGERS if downloaded_sha256(judger, problem_id) == current]
+        self.assertTrue(up_to_date)
+        for judger in up_to_date:
+            assert_judger_has_data_of_web(self, judger, problem_id)
 
 
 class CustomJudgerHackTest(unittest.TestCase):
@@ -711,7 +418,7 @@ class CustomJudgerHackTest(unittest.TestCase):
 
         problem_id = admin.create_problem(custom_judger_problem_files())
 
-        # a super user can enable hacks
+        # a super user can enable hacks, they are on once a judger has built the data for them
         self.assertEqual(admin.toggle_hackable(problem_id), "")
         self.assertEqual(db_value("select hackable from problems where id = %d" % problem_id), "1")
         fingerprint = json.loads(db_value("select extra_config from problems where id = %d" % problem_id)).get(
@@ -786,27 +493,34 @@ class CustomJudgerHackTest(unittest.TestCase):
         self.assertEqual(docker_exec(uoj.WEB, "ls /var/uoj_data/%d" % problem_id).strip(), "")
 
 
-class TwoJudgersTest(unittest.TestCase):
+@unittest.skipUnless(len(uoj.JUDGERS) >= 2, "needs several judgers")
+class SeveralJudgersTest(unittest.TestCase):
     """2.7: every judger works, and all of them judge with the data of the web server"""
 
-    def test_both_judgers_judge_with_the_same_data(self):
-        admin = uoj.admin()
-        problem_id = admin.create_problem(ab_problem_files())
-
-        started = time.time()
-        submissions = [admin.submit(problem_id, AB_SLOW) for _ in range(10)]
+    def judge_on_every_judger(self, admin, problem_id):
+        submissions = [admin.submit(problem_id, AB_SLOW) for _ in range(4 * len(uoj.JUDGERS) + 2)]
         for submission_id in submissions:
             j = uoj.wait_submission(submission_id)
             self.assertEqual(j.score, 100, j)
-        elapsed = time.time() - started
+        return submissions
 
+    def test_all_judgers_judge_with_the_same_data(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+
+        submissions = self.judge_on_every_judger(admin, problem_id)
         expected = uoj.file_sha256(uoj.WEB, "/var/uoj_data/%d.zip" % problem_id)
-        tree = uoj.tree_sha256(uoj.WEB, "/var/uoj_data/%d" % problem_id)
         for judger in uoj.JUDGERS:
-            self.assertEqual(downloaded_sha256(judger, problem_id), expected, "%s after %ds" % (judger, elapsed))
-            self.assertEqual(
-                uoj.tree_sha256(judger, "/opt/uoj_judger/uoj_judger/data/%d" % problem_id), tree, judger
+            self.assertEqual(downloaded_sha256(judger, problem_id), expected, judger)
+            assert_judger_has_data_of_web(self, judger, problem_id)
+
+        # the work was shared, and it is known who judged what
+        judged_by = set(
+            row[0] for row in db(
+                "select judger_name from submissions where id in (%s)" % ", ".join(map(str, submissions))
             )
+        )  # fmt: skip
+        self.assertEqual(judged_by, set(uoj.JUDGER_NAMES))
 
         # new data reaches every judger that judges the problem again
         files = ab_problem_files()
@@ -815,16 +529,13 @@ class TwoJudgersTest(unittest.TestCase):
         self.assertIn("上传成功", admin.upload_data(problem_id, files).text)
         self.assertEqual(admin.sync(problem_id), "")
         expected = uoj.file_sha256(uoj.WEB, "/var/uoj_data/%d.zip" % problem_id)
-        tree = uoj.tree_sha256(uoj.WEB, "/var/uoj_data/%d" % problem_id)
 
-        submissions = [admin.submit(problem_id, AB_SLOW) for _ in range(10)]
-        for submission_id in submissions:
-            j = uoj.wait_submission(submission_id)
-            self.assertEqual(j.score, 100, j)
+        self.judge_on_every_judger(admin, problem_id)
         for judger in uoj.JUDGERS:
             self.assertEqual(downloaded_sha256(judger, problem_id), expected, judger)
+            assert_judger_has_data_of_web(self, judger, problem_id)
             self.assertEqual(
-                uoj.tree_sha256(judger, "/opt/uoj_judger/uoj_judger/data/%d" % problem_id), tree, judger
+                docker_exec(judger, "cat /opt/uoj_judger/uoj_judger/data/%d/input1.txt" % problem_id), "40 2\n"
             )
 
 

@@ -33,9 +33,23 @@ jobs:
         run: python3 -m unittest discover -s judger/tests -v
 
   e2e:
-    name: End-to-end tests
+    name: End-to-end tests (${{ matrix.judgers }} judgers)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+
+    strategy:
+      matrix:
+        include:
+          - judgers: 1
+            compose: -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml
+          - judgers: 2
+            compose: -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml -f tests/e2e/docker-compose.judger-2.yml
+          - judgers: 4
+            compose: -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml -f tests/e2e/docker-compose.judger-2.yml -f tests/e2e/docker-compose.judgers-3-4.yml
+      fail-fast: false
+
+    env:
+      UOJ_E2E_JUDGERS: ${{ matrix.judgers }}
 
     steps:
       - name: Checkout repository
@@ -69,10 +83,10 @@ jobs:
       - name: Install the dependencies of the tests
         run: pip install requests
 
-      - name: Start UOJ with two judgers
+      - name: Start UOJ
         run: |
           bash prepare.sh
-          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d
+          docker compose ${{ matrix.compose }} up -d
 
       - name: End-to-end tests
         run: python3 -m unittest discover -s tests/e2e -v
@@ -81,20 +95,23 @@ jobs:
         if: always()
         run: |
           mkdir -p e2e-logs
-          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml ps -a > e2e-logs/ps.txt 2>&1 || true
-          for c in uoj-db uoj-web uoj-judger uoj-judger-2; do
+          docker compose ${{ matrix.compose }} ps -a > e2e-logs/ps.txt 2>&1 || true
+          for c in uoj-db uoj-web uoj-judger uoj-judger-2 uoj-judger-3 uoj-judger-4; do
             docker logs "$c" > "e2e-logs/$c.log" 2>&1 || true
           done
           docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_error.log' > e2e-logs/apache_error.log 2>&1 || true
           docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_judge.log' > e2e-logs/apache_judge.log 2>&1 || true
           sudo cp uoj_data/judger/log/judge.log e2e-logs/judge-1.log 2>/dev/null || true
-          sudo cp uoj_data/judger2/log/judge.log e2e-logs/judge-2.log 2>/dev/null || true
+          for n in 2 3 4; do
+            sudo cp uoj_data/judger$n/log/judge.log e2e-logs/judge-$n.log 2>/dev/null || true
+          done
+          docker exec uoj-db mysql -uroot -proot app_uoj233 -e 'select * from judger_info; select id, problem_id, version, status, judger_name, attempts, reason, left(message, 300) from problem_data_versions order by id desc limit 40; select * from submission_judgements order by id desc limit 60; select id, problem_id, status, judger_name, judge_attempts, score, result_error from submissions order by id desc limit 60' > e2e-logs/db.txt 2>&1 || true
           sudo chmod -R a+r e2e-logs
-          tail -n 80 e2e-logs/judge-1.log e2e-logs/judge-2.log e2e-logs/apache_error.log 2>/dev/null || true
+          tail -n 60 e2e-logs/judge-1.log e2e-logs/apache_error.log 2>/dev/null || true
 
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs
+          name: e2e-logs-${{ matrix.judgers }}
           path: e2e-logs

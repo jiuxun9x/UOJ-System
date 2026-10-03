@@ -1,6 +1,7 @@
 """Helpers of the end-to-end tests: a client for the web interface of UOJ and access to
 the containers started by docker compose."""
 
+import contextlib
 import hashlib
 import hmac
 import io
@@ -16,8 +17,16 @@ import requests
 BASE_URL = os.environ.get("UOJ_URL", "http://localhost")
 WEB = "uoj-web"
 DB = "uoj-db"
-JUDGERS = ["uoj-judger", "uoj-judger-2"]
-JUDGER_LOGS = {"uoj-judger": "uoj_data/judger/log/judge.log", "uoj-judger-2": "uoj_data/judger2/log/judge.log"}
+# the judgers that were started: the containers, the names they log in with, and their logs
+N_JUDGERS = int(os.environ.get("UOJ_E2E_JUDGERS", "2"))
+JUDGERS = ["uoj-judger", "uoj-judger-2", "uoj-judger-3", "uoj-judger-4"][:N_JUDGERS]
+JUDGER_NAMES = ["compose_judger", "compose_judger_2", "compose_judger_3", "compose_judger_4"][:N_JUDGERS]
+JUDGER_LOGS = {
+    "uoj-judger": "uoj_data/judger/log/judge.log",
+    "uoj-judger-2": "uoj_data/judger2/log/judge.log",
+    "uoj-judger-3": "uoj_data/judger3/log/judge.log",
+    "uoj-judger-4": "uoj_data/judger4/log/judge.log",
+}
 FAKE_JUDGER = {"judger_name": "e2e_fake_judger", "password": "_fake_judger_password_"}
 
 ADMIN = ("e2e_admin", "admin-password")
@@ -75,6 +84,23 @@ def tree_sha256(container, path):
     ).split()[0]
 
 
+def files_sha256(container, path):
+    """the SHA256 of every file in a folder, by name"""
+    out = docker_exec(container, "cd %s && find . -type f | LC_ALL=C sort | xargs -r sha256sum" % path)
+    return dict(reversed(line.split(None, 1)) for line in out.splitlines())
+
+
+def data_syncs(judger, problem_id):
+    """what a judger logged every time it fetched the data of a problem"""
+    events = []
+    for line in judger_log(judger).splitlines():
+        if "] problem_data_sync {" in line:
+            event = json.loads(line[line.index("{") :])
+            if event["problem_id"] == problem_id:
+                events.append(event)
+    return events
+
+
 def judger_log(judger):
     p = run("sudo", "cat", JUDGER_LOGS[judger], check=False)
     return p.stdout.decode(errors="replace")
@@ -111,6 +137,43 @@ def judge_api(path, data=None, files=None, auth=FAKE_JUDGER):
     payload = dict(auth)
     payload.update(data or {})
     return requests.post(BASE_URL + path, data=payload, files=files)
+
+
+def fake_fetch(**fields):
+    """ask for work the way a judger does, return the task or None"""
+    data = {"protocol": "2", "judger_version": "e2e-fake", "toolchain": "{}"}
+    data.update(fields)
+    r = judge_api("/judge/submit", data)
+    if r.status_code != 200:
+        raise Exception("HTTP %d: %s" % (r.status_code, r.text[:300]))
+    return None if r.text == "Nothing to judge" else r.json()
+
+
+def wait_idle(timeout=600):
+    """wait until the judgers have nothing left to do"""
+
+    def idle():
+        return (
+            db_value("select count(*) from submissions where status != 'Judged'") == "0"
+            and db_value("select count(*) from custom_test_submissions where status != 'Judged'") == "0"
+            and db_value("select count(*) from hacks where success is null") == "0"
+            and db_value("select count(*) from problem_data_versions where status in ('pending', 'preparing')") == "0"
+        )
+
+    wait_until("the judgers are idle", idle, timeout)
+
+
+@contextlib.contextmanager
+def judgers_paused():
+    """freeze the judgers, so that what is submitted meanwhile waits for the test"""
+    wait_idle()
+    for judger in JUDGERS:
+        run("docker", "pause", judger)
+    try:
+        yield
+    finally:
+        for judger in JUDGERS:
+            run("docker", "unpause", judger)
 
 
 # ---------------------------------------------------------------------- web interface
@@ -183,11 +246,18 @@ class Client:
             token=token,
         )
 
-    def sync(self, problem_id):
-        return self.submit_form("/problem/%d/manage/data" % problem_id, "data")
+    def sync(self, problem_id, wait=True):
+        """sync the data of a problem, return '' or why there is no new version of the data"""
+        err = self.submit_form("/problem/%d/manage/data" % problem_id, "data")
+        if err or not wait:
+            return err
+        return wait_data_version(problem_id)
 
-    def toggle_hackable(self, problem_id):
-        return self.submit_form("/problem/%d/manage/data" % problem_id, "hackable")
+    def toggle_hackable(self, problem_id, wait=True):
+        err = self.submit_form("/problem/%d/manage/data" % problem_id, "hackable")
+        if err or not wait:
+            return err
+        return wait_data_version(problem_id)
 
     def create_problem(self, files, extra_config=None, hackable=False):
         """create a public problem with the given data, return its id"""
@@ -248,6 +318,23 @@ class Client:
         if err:
             raise Exception("failed to hack: " + err[-800:])
         return int(db_value("select max(id) from hacks where submission_id = %d" % submission_id))
+
+
+def wait_data_version(problem_id, timeout=600):
+    """wait until no version of the data of a problem waits for a judger any more, return '' when
+    the newest version is published and the message of the judger when it is not"""
+
+    def newest():
+        row = db(
+            "select status, ifnull(hex(message), '') from problem_data_versions"
+            " where problem_id = %d order by version desc limit 1" % problem_id
+        )[0]
+        return row if row[0] in ("ready", "failed") else None
+
+    status, message = wait_until("the data of problem #%d is checked" % problem_id, newest, timeout)
+    if status == "ready":
+        return ""
+    return bytes.fromhex(message).decode(errors="replace") or "the version was not published"
 
 
 def text_of(html):
@@ -315,6 +402,17 @@ def wait_hack(hack_id, timeout=300):
 
 
 # ---------------------------------------------------------------------- shared state
+
+
+def judgements(kind, target_id):
+    """who judged something: (judger, outcome) of every time it was given to a judger"""
+    return [
+        tuple(row)
+        for row in db(
+            "select judger_name, ifnull(outcome, 'NULL') from submission_judgements"
+            " where kind = '%s' and target_id = %d order by id" % (kind, target_id)
+        )
+    ]
 
 
 def wait_for_web(timeout=900):

@@ -1,0 +1,22 @@
+# a second judger for the end-to-end tests
+
+services:
+  uoj-judger-2:
+    image: ghcr.io/universaloj/uoj-judger:latest
+    container_name: uoj-judger-2
+    restart: always
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_PTRACE
+    depends_on:
+      - uoj-web
+    volumes:
+      - ./uoj_data/judger2/log:/opt/uoj_judger/log
+    environment:
+      - UOJ_PROTOCOL=http
+      - UOJ_HOST=uoj-web
+      - JUDGER_NAME=compose_judger_2
+      - JUDGER_PASSWORD=_judger_password_2_
+      - SOCKET_PORT=2333
+      - SOCKET_PASSWORD=_judger_socket_password_

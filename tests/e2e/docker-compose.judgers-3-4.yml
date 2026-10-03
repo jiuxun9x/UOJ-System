@@ -1,0 +1,42 @@
+# a third and a fourth judger for the end-to-end tests
+
+services:
+  uoj-judger-3:
+    image: ghcr.io/universaloj/uoj-judger:latest
+    container_name: uoj-judger-3
+    restart: always
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_PTRACE
+    depends_on:
+      - uoj-web
+    volumes:
+      - ./uoj_data/judger3/log:/opt/uoj_judger/log
+    environment:
+      - UOJ_PROTOCOL=http
+      - UOJ_HOST=uoj-web
+      - JUDGER_NAME=compose_judger_3
+      - JUDGER_PASSWORD=_judger_password_3_
+      - SOCKET_PORT=2333
+      - SOCKET_PASSWORD=_judger_socket_password_
+
+  uoj-judger-4:
+    image: ghcr.io/universaloj/uoj-judger:latest
+    container_name: uoj-judger-4
+    restart: always
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_PTRACE
+    depends_on:
+      - uoj-web
+    volumes:
+      - ./uoj_data/judger4/log:/opt/uoj_judger/log
+    environment:
+      - UOJ_PROTOCOL=http
+      - UOJ_HOST=uoj-web
+      - JUDGER_NAME=compose_judger_4
+      - JUDGER_PASSWORD=_judger_password_4_
+      - SOCKET_PORT=2333
+      - SOCKET_PASSWORD=_judger_socket_password_

@@ -1,29 +1,10 @@
-# Additions to docker-compose.yml for the end-to-end tests: a second judger, and a judger
-# account for the tests that talk to the judge API themselves.
+# Additions to docker-compose.yml for the end-to-end tests: the accounts of the judgers that the
+# tests may start, and of a judger for the tests that talk to the judge API themselves.
 #
-#   docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d
+#   docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml \
+#       -f tests/e2e/docker-compose.judger-2.yml up -d
 
 services:
   uoj-db:
     volumes:
-      - ./tests/e2e/add_judger_2.sql:/docker-entrypoint-initdb.d/003-add_judger_2.sql:ro
-
-  uoj-judger-2:
-    image: ghcr.io/universaloj/uoj-judger:latest
-    container_name: uoj-judger-2
-    restart: always
-    stdin_open: true
-    tty: true
-    cap_add:
-      - SYS_PTRACE
-    depends_on:
-      - uoj-web
-    volumes:
-      - ./uoj_data/judger2/log:/opt/uoj_judger/log
-    environment:
-      - UOJ_PROTOCOL=http
-      - UOJ_HOST=uoj-web
-      - JUDGER_NAME=compose_judger_2
-      - JUDGER_PASSWORD=_judger_password_2_
-      - SOCKET_PORT=2333
-      - SOCKET_PASSWORD=_judger_socket_password_
+      - ./tests/e2e/add_judgers.sql:/docker-entrypoint-initdb.d/003-add_judgers.sql:ro
