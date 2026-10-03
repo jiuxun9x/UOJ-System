@@ -32,6 +32,59 @@
 		dataNewProblem($id);
 	}
 
+	// Builds problem.conf from the values of the settings form, returns null when one of them is
+	// invalid. A value with a line break in it would add settings of its own to the file.
+	function dataProblemConfFromSettings($settings) {
+		$get = function($name) use ($settings) {
+			return isset($settings[$name]) && is_string($settings[$name]) ? $settings[$name] : '';
+		};
+		$is_file_name_part = function($str) {
+			return preg_match('/^[a-zA-Z0-9_.\-]{1,50}$/', $str) === 1;
+		};
+
+		$conf = array('use_builtin_judger' => 'on');
+
+		$checker = $get('use_builtin_checker');
+		if (!preg_match('/^[a-zA-Z0-9_]{1,20}$/', $checker)) {
+			return null;
+		}
+		if ($checker != 'ownchk') {
+			$conf['use_builtin_checker'] = $checker;
+		}
+
+		foreach (array('n_tests' => null, 'n_ex_tests' => '0', 'n_sample_tests' => '0') as $name => $default) {
+			$val = $get($name);
+			if ($val === '' && $default !== null) {
+				$val = $default;
+			}
+			if (!validateUInt($val)) {
+				return null;
+			}
+			$conf[$name] = $val;
+		}
+		if ($conf['n_tests'] == 0) {
+			return null;
+		}
+
+		foreach (array('input_pre', 'input_suf', 'output_pre', 'output_suf') as $name) {
+			if (!$is_file_name_part($get($name))) {
+				return null;
+			}
+			$conf[$name] = $get($name);
+		}
+
+		if (!preg_match('/^[0-9]{1,5}(\.[0-9]{1,3})?$/', $get('time_limit')) || $get('time_limit') == 0) {
+			return null;
+		}
+		$conf['time_limit'] = $get('time_limit');
+		if (!validateUInt($get('memory_limit')) || $get('memory_limit') == 0) {
+			return null;
+		}
+		$conf['memory_limit'] = $get('memory_limit');
+
+		return $conf;
+	}
+
 	// A fingerprint of everything the build of a custom judger can depend on: every uploaded
 	// file except the extra tests, and problem.conf without the number of extra tests. Adding an
 	// extra test, which is what a successful hack does, does not change it.

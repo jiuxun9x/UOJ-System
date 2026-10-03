@@ -45,13 +45,14 @@
 
 	//上传数据
 	if ($_POST['problem_data_file_submit']=='submit') {
+		crsf_defend();
 		if ($_FILES["problem_data_file"]["error"] > 0) {
 			$errmsg = "Error: ".$_FILES["problem_data_file"]["error"];
 			becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
 		} else {
 			$zip_mime_types = array('application/zip', 'application/x-zip', 'application/x-zip-compressed');
 			if (in_array($_FILES["problem_data_file"]["type"], $zip_mime_types) || $_FILES["problem_data_file"]["type"] == 'application/octet-stream' && substr($_FILES["problem_data_file"]["name"], -4) == '.zip') {
-				$up_filename="/tmp/".rand(0,100000000)."data.zip";
+				$up_filename = tempnam(sys_get_temp_dir(), 'uoj_data_');
 				move_uploaded_file($_FILES["problem_data_file"]["tmp_name"], $up_filename);
 				$zip = new ZipArchive;
 				if ($zip->open($up_filename) === TRUE) {
@@ -73,43 +74,23 @@
 
 	//添加配置文件
 	if ($_POST['problem_settings_file_submit']=='submit') {
-		if ($_POST['use_builtin_checker'] and $_POST['n_tests'] and $_POST['input_pre'] and $_POST['input_suf'] and $_POST['output_pre'] and $_POST['output_suf'] and $_POST['time_limit'] and $_POST['memory_limit']) {
+		crsf_defend();
+		$new_problem_conf = dataProblemConfFromSettings($_POST);
+		if ($new_problem_conf !== null) {
 			$set_filename="/var/uoj_data/upload/{$problem['id']}/problem.conf";
 			$has_legacy=false;
 			if (file_exists($set_filename)) {
 				$has_legacy=true;
 				unlink($set_filename);
 			}
-			$setfile = fopen($set_filename, "w");
-			fwrite($setfile, "use_builtin_judger on\n");
-			if ($_POST['use_builtin_checker'] != 'ownchk') {
-				fwrite($setfile, "use_builtin_checker ".$_POST['use_builtin_checker']."\n");
-			}
-			fwrite($setfile, "n_tests ".$_POST['n_tests']."\n");
-			if ($_POST['n_ex_tests']) {
-				fwrite($setfile, "n_ex_tests ".$_POST['n_ex_tests']."\n");
-			} else {
-				fwrite($setfile, "n_ex_tests 0\n");
-			}
-			if ($_POST['n_sample_tests']) {
-				fwrite($setfile, "n_sample_tests ".$_POST['n_sample_tests']."\n");
-			} else {
-				fwrite($setfile, "n_sample_tests 0\n");
-			}
-			fwrite($setfile, "input_pre ".$_POST['input_pre']."\n");
-			fwrite($setfile, "input_suf ".$_POST['input_suf']."\n");
-			fwrite($setfile, "output_pre ".$_POST['output_pre']."\n");
-			fwrite($setfile, "output_suf ".$_POST['output_suf']."\n");
-			fwrite($setfile, "time_limit ".$_POST['time_limit']."\n");
-			fwrite($setfile, "memory_limit ".$_POST['memory_limit']."\n");
-			fclose($setfile);
+			putUOJConf($set_filename, $new_problem_conf);
 			if (!$has_legacy) {
 				echo "<script>alert('添加成功！')</script>";
 			} else {
 				echo "<script>alert('替换成功!')</script>";
 			}
 		} else {
-			$errmsg = "添加配置文件失败，请检查是否所有输入框都已填写！";
+			$errmsg = "添加配置文件失败，请检查是否所有输入框都已填写，且填写的内容合法！";
 			becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
 		}
 	}
@@ -719,6 +700,7 @@ EOD
       				</div>
       				<div class="modal-body">
         				<form action="" method="post" enctype="multipart/form-data" role="form">
+							<?= HTML::hiddenToken() ?>
 							<div class="form-group">
 									<label for="exampleInputFile">上传zip文件</label>
 									<input type="file" name="problem_data_file" id="problem_data_file">
@@ -744,6 +726,7 @@ EOD
       				</div>
       				<div class="modal-body">
         				<form class="form-horizontal" action="" method="post" role="form">
+        					<?= HTML::hiddenToken() ?>
         					<div class="form-group row">
     							<label for="use_builtin_checker" class="col-sm-5 control-label">比对函数</label>
     							<div class="col-sm-7">

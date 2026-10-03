@@ -54,3 +54,35 @@ check_same(true, $changed($files + ['ex_input2.txt' => "1\n"], $conf), 'a file n
 check_same(true, $changed($files, ['time_limit' => '100'] + $conf), 'a changed limit');
 check_same(true, $changed($files, $conf + ['input_suf' => 'cpp']), 'a changed file name pattern');
 check_same(true, $changed(array_diff_key($files, ['std.cpp' => 0]), $conf), 'a removed file');
+
+// problem.conf built from the settings form
+$settings = [
+	'use_builtin_checker' => 'ncmp', 'n_tests' => '10', 'n_ex_tests' => '', 'n_sample_tests' => '2',
+	'input_pre' => 'data', 'input_suf' => 'in', 'output_pre' => 'data', 'output_suf' => 'out',
+	'time_limit' => '1', 'memory_limit' => '256',
+];
+check_same([
+	'use_builtin_judger' => 'on', 'use_builtin_checker' => 'ncmp', 'n_tests' => '10', 'n_ex_tests' => '0', 'n_sample_tests' => '2',
+	'input_pre' => 'data', 'input_suf' => 'in', 'output_pre' => 'data', 'output_suf' => 'out',
+	'time_limit' => '1', 'memory_limit' => '256',
+], dataProblemConfFromSettings($settings), 'settings of an ordinary problem');
+check_same(false, isset(dataProblemConfFromSettings(['use_builtin_checker' => 'ownchk'] + $settings)['use_builtin_checker']), 'a custom checker');
+check_same('0.5', dataProblemConfFromSettings(['time_limit' => '0.5'] + $settings)['time_limit'], 'a fractional time limit');
+
+$invalid = [
+	'a line break adds a setting' => ['input_pre' => "data\nuse_builtin_judger off"],
+	'a space adds a value' => ['output_suf' => 'out extra'],
+	'a carriage return' => ['memory_limit' => "256\rtime_limit 100"],
+	'a checker with a path' => ['use_builtin_checker' => '../../bin/sh'],
+	'a file name with a path' => ['input_pre' => '../data'],
+	'no tests' => ['n_tests' => '0'],
+	'a negative number of tests' => ['n_tests' => '-1'],
+	'a missing value' => ['input_suf' => ''],
+	'an array instead of a value' => ['time_limit' => ['1']],
+	'a time limit that is not a number' => ['time_limit' => '1s'],
+	'no time limit' => ['time_limit' => '0'],
+	'a memory limit that is not a number' => ['memory_limit' => '256MB'],
+];
+foreach ($invalid as $what => $override) {
+	check_same(null, dataProblemConfFromSettings($override + $settings), $what);
+}

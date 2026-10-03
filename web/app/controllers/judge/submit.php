@@ -4,6 +4,24 @@
 	
 	requireJudgerAuthentication();
 	
+	// The result is sent by a judger, which runs the code of problem setters, so every field is
+	// brought into the expected type before it is used in a query.
+	function getPostedJudgementResult() {
+		$result = isset($_POST['result']) ? json_decode($_POST['result'], true) : null;
+		if (!is_array($result)) {
+			$result = array('error' => 'Judgement Failed', 'details' => '<error>The judger sent an invalid result.</error>');
+		}
+		$result['status'] = 'Judged';
+		$result['score'] = isset($result['score']) && is_numeric($result['score']) ? $result['score'] + 0 : 0;
+		$result['time'] = isset($result['time']) && is_numeric($result['time']) ? (int)$result['time'] : 0;
+		$result['memory'] = isset($result['memory']) && is_numeric($result['memory']) ? (int)$result['memory'] : 0;
+		$result['details'] = uojTextEncode(isset($result['details']) && is_string($result['details']) ? $result['details'] : '');
+		if (isset($result['error'])) {
+			$result['error'] = is_string($result['error']) ? $result['error'] : 'Judgement Failed';
+		}
+		return $result;
+	}
+	
 	// Runs the update that stores a judgement result. $make_query builds it from the escaped JSON
 	// of the result. When the database refuses the update, which happens when the result is
 	// larger than max_allowed_packet, the details are dropped and the update is run again, so
@@ -38,8 +56,7 @@
 		
 		if (isset($content['first_test_config'])) {
 			$result = json_decode($submission['result'], true);
-			$result['final_result'] = json_decode($_POST['result'], true);
-			$result['final_result']['details'] = uojTextEncode($result['final_result']['details']);
+			$result['final_result'] = getPostedJudgementResult();
 			
 			$content['final_test_config'] = $content['config'];
 			$content['config'] = $content['first_test_config'];
@@ -50,13 +67,14 @@
 				return "update submissions set status = 'Judged', result = '$esc_result', content = '$esc_content' where id = {$_POST['id']}";
 			});
 		} else {
-			$result = json_decode($_POST['result'], true);
-			$result['details'] = uojTextEncode($result['details']);
+			$result = getPostedJudgementResult();
 			storeJudgementResult($result, function($esc_result) use ($result) {
 				if (isset($result["error"])) {
-					return "update submissions set status = '{$result['status']}', result_error = '{$result['error']}', result = '$esc_result', score = null, used_time = null, used_memory = null where id = {$_POST['id']}";
+					$esc_error = DB::escape($result['error']);
+					return "update submissions set status = 'Judged', result_error = '$esc_error', result = '$esc_result', score = null, used_time = null, used_memory = null where id = {$_POST['id']}";
 				} else {
-					return "update submissions set status = '{$result['status']}', result_error = null, result = '$esc_result', score = {$result['score']}, used_time = {$result['time']}, used_memory = {$result['memory']} where id = {$_POST['id']}";
+					$score = sprintf('%F', $result['score']);
+					return "update submissions set status = 'Judged', result_error = null, result = '$esc_result', score = $score, used_time = {$result['time']}, used_memory = {$result['memory']} where id = {$_POST['id']}";
 				}
 			});
 			
@@ -82,10 +100,9 @@
 			return;
 		}
 		$content = json_decode($submission['content'], true);
-		$result = json_decode($_POST['result'], true);
-		$result['details'] = uojTextEncode($result['details']);
-		storeJudgementResult($result, function($esc_result) use ($result) {
-			return "update custom_test_submissions set status = '{$result['status']}', result = '$esc_result' where id = {$_POST['id']}";
+		$result = getPostedJudgementResult();
+		storeJudgementResult($result, function($esc_result) {
+			return "update custom_test_submissions set status = 'Judged', result = '$esc_result' where id = {$_POST['id']}";
 		});
 		DB::update("update custom_test_submissions set status_details = '' where id = {$_POST['id']}");
 	}
@@ -113,17 +130,19 @@
 	}
 	
 	function hackJudged() {
-		$result = json_decode($_POST['result'], true);
-		$esc_details = DB::escape(uojTextEncode($result['details']));
-		$ok = DB::update("update hacks set success = {$result['score']}, details = '$esc_details' where id = {$_POST['id']}");
+		$result = getPostedJudgementResult();
+		$success = $result['score'] ? 1 : 0;
+		$esc_details = DB::escape($result['details']);
+		$ok = DB::update("update hacks set success = $success, details = '$esc_details' where id = {$_POST['id']} and success is null");
 		if (!$ok) {
 			error_log("judge/submit: failed to store hack details of " . strlen($esc_details) . " bytes: " . DB::error());
 			DB::init();
 			$esc_details = DB::escape("<error>The details of this judgement are too large to be stored.</error>");
-			$ok = DB::update("update hacks set success = {$result['score']}, details = '$esc_details' where id = {$_POST['id']}");
+			$ok = DB::update("update hacks set success = $success, details = '$esc_details' where id = {$_POST['id']} and success is null");
 		}
 		
-		if ($ok) {
+		// a judger sends a result again when it gets no answer: add the extra test only once
+		if ($ok && DB::affected_rows() == 1) {
 			list($hack_input) = DB::fetch(DB::query("select input from hacks where id = {$_POST['id']}"), MYSQLI_NUM);
 			unlink(UOJContext::storagePath().$hack_input);
 
