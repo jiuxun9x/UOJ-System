@@ -42,5 +42,12 @@ RUN sh web/install.sh -p && \
       'exec apache2ctl -D FOREGROUND' > /opt/up && \
     chmod +x /opt/up
 
+# The web server never compiles or runs anything that comes with a problem, the judgers do.
+# Once its own tools are built, nothing that could do so is left in the image.
+RUN apt-mark manual libyaml-0-2 && \
+    apt-get purge -y gcc-14 g++-14 make dpkg-dev re2c libyaml-dev libseccomp-dev php7.4-dev && \
+    apt-get autoremove -y && \
+    apt-get clean
+
 EXPOSE 80
 CMD ["/opt/up"]

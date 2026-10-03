@@ -58,9 +58,9 @@ setWebConf(){
 \$config['judger']['socket']['port']='$_judger_socket_port_';
 file_put_contents('/var/www/uoj/app/.config.php', "<?php\nreturn ".str_replace('\'_httpHost_\'','UOJContext::httpHost()',var_export(\$config, true)).";\n");
 UOJEOF
-    # Prepare local sandbox
+    # The web server formats test data, everything else of the judger runs on the judgers
     cd /opt/uoj/judger/uoj_judger
-    make -j$(($(nproc) + 1)) && cd /opt/uoj/web
+    make run/formatter && cd /opt/uoj/web
 }
 
 initData(){

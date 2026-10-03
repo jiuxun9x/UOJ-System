@@ -37,8 +37,6 @@ services:
     restart: always
     stdin_open: true
     tty: true
-    cap_add:
-      - SYS_PTRACE
     depends_on:
       uoj-db:
         condition: service_healthy
@@ -73,6 +71,11 @@ services:
     tty: true
     cap_add:
       - SYS_PTRACE
+    # A judger measures time and memory. It tolerates a busy machine, but its results are most
+    # stable with CPUs of its own, and it must not swap. Adapt these to the machine:
+    # cpuset: "2,3"
+    # mem_limit: 8g
+    # memswap_limit: 8g  # the same as mem_limit: no swap
     depends_on:
       - uoj-web
     volumes:
