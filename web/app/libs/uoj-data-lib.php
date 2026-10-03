@@ -32,6 +32,52 @@
 		dataNewProblem($id);
 	}
 
+	// A fingerprint of everything the build of a custom judger can depend on: every uploaded
+	// file except the extra tests, and problem.conf without the number of extra tests. Adding an
+	// extra test, which is what a successful hack does, does not change it.
+	function dataCustomJudgerFingerprint($upload_dir, $problem_conf) {
+		$skip = array('problem.conf' => true);
+		$n_ex_tests = getUOJConfVal($problem_conf, 'n_ex_tests', 0);
+		if (validateUInt((string)$n_ex_tests)) {
+			for ($num = 1; $num <= $n_ex_tests; $num++) {
+				$skip[getUOJProblemExtraInputFileName($problem_conf, $num)] = true;
+				$skip[getUOJProblemExtraOutputFileName($problem_conf, $num)] = true;
+			}
+		}
+
+		$conf = $problem_conf;
+		unset($conf['n_ex_tests']);
+		ksort($conf);
+
+		$ctx = hash_init('sha256');
+		hash_update($ctx, json_encode($conf));
+		$dirs = array('');
+		while ($dirs) {
+			$dir = array_shift($dirs);
+			$names = scandir("$upload_dir/$dir");
+			sort($names, SORT_STRING);
+			foreach ($names as $name) {
+				if ($name === '.' || $name === '..') {
+					continue;
+				}
+				$rel = $dir . $name;
+				if (isset($skip[$rel])) {
+					continue;
+				}
+				$path = "$upload_dir/$rel";
+				if (is_link($path)) {
+					hash_update($ctx, "\0link\0$rel\0" . readlink($path));
+				} elseif (is_dir($path)) {
+					hash_update($ctx, "\0dir\0$rel");
+					$dirs[] = "$rel/";
+				} else {
+					hash_update($ctx, "\0file\0$rel\0" . hash_file('sha256', $path));
+				}
+			}
+		}
+		return hash_final($ctx);
+	}
+
 	class SyncProblemDataHandler {
 		// a sync that has not touched its staging folder for this long is considered dead
 		const STALE_SYNC_SECONDS = 1800;
@@ -319,7 +365,7 @@
 						$this->requirement[] = array('name' => 'answer', 'type' => 'source code', 'file_name' => 'answer.code');
 					}
 				} else {
-					if (!isSuperUser($this->user)) {
+					if (!$this->may_use_custom_judger()) {
 						throw new UOJProblemConfException("use_builtin_judger must be on.");
 					} else {
 						foreach ($this->allow_files as $file_name => $file_num) {
@@ -355,8 +401,39 @@
 			}
 
 			$this->publish();
+			$this->update_custom_judger_fingerprint();
 
 			return '';
+		}
+
+		// A custom judger runs unrestricted on the judgers, so only a super user may sync one.
+		// Anybody else, including the sync after a successful hack that no user asked for, may
+		// only rebuild exactly what a super user synced before.
+		private function may_use_custom_judger() {
+			if (isSuperUser($this->user)) {
+				return true;
+			}
+			if (!isset($this->problem_extra_config['custom_judger_fingerprint'])) {
+				return false;
+			}
+			$approved = $this->problem_extra_config['custom_judger_fingerprint'];
+			return is_string($approved) && hash_equals($approved, dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf));
+		}
+
+		private function update_custom_judger_fingerprint() {
+			$extra_config = is_array($this->problem_extra_config) ? $this->problem_extra_config : array();
+			if ($this->check_conf_on('use_builtin_judger')) {
+				if (!isset($extra_config['custom_judger_fingerprint'])) {
+					return;
+				}
+				unset($extra_config['custom_judger_fingerprint']);
+			} elseif (isSuperUser($this->user)) {
+				$extra_config['custom_judger_fingerprint'] = dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf);
+			} else {
+				return;
+			}
+			$esc_extra_config = DB::escape(json_encode($extra_config));
+			DB::update("update problems set extra_config = '$esc_extra_config' where id = {$this->problem['id']}");
 		}
 
 		private function is_stage_stale() {
@@ -394,28 +471,43 @@
 	function dataSyncProblemData($problem, $user = null) {
 		return (new SyncProblemDataHandler($problem, $user))->handle();
 	}
+	// Adds the data of a successful hack as an extra test, syncs the problem and rejudges the
+	// accepted submissions. Returns '' or the reason why this could not be done.
 	function dataAddExtraTest($problem, $input_file_name, $output_file_name) {
 		$id = $problem['id'];
 
 		$cur_dir = "/var/uoj_data/upload/$id";
 
-		$problem_conf = getUOJConf("{$cur_dir}/problem.conf");
-		if ($problem_conf == -1 || $problem_conf == -2) {
-			return $problem_conf;
+		// two hacks of the same problem may succeed at the same time
+		$lock = fopen("/var/uoj_data/upload/$id.lock", 'c');
+		if ($lock === false || !flock($lock, LOCK_EX)) {
+			return 'failed to lock the data of the problem';
 		}
-		$problem_conf['n_ex_tests'] = getUOJConfVal($problem_conf, 'n_ex_tests', 0) + 1;
+		try {
+			$problem_conf = getUOJConf("{$cur_dir}/problem.conf");
+			if ($problem_conf === -1 || $problem_conf === -2) {
+				return 'problem.conf is missing or invalid';
+			}
+			$problem_conf['n_ex_tests'] = getUOJConfVal($problem_conf, 'n_ex_tests', 0) + 1;
 
-		$new_input_name = getUOJProblemExtraInputFileName($problem_conf, $problem_conf['n_ex_tests']);
-		$new_output_name = getUOJProblemExtraOutputFileName($problem_conf, $problem_conf['n_ex_tests']);
+			$new_input_name = getUOJProblemExtraInputFileName($problem_conf, $problem_conf['n_ex_tests']);
+			$new_output_name = getUOJProblemExtraOutputFileName($problem_conf, $problem_conf['n_ex_tests']);
 
-		putUOJConf("$cur_dir/problem.conf", $problem_conf);
-		move_uploaded_file($input_file_name, "$cur_dir/$new_input_name");
-		move_uploaded_file($output_file_name, "$cur_dir/$new_output_name");
+			if (!move_uploaded_file($input_file_name, "$cur_dir/$new_input_name") || !move_uploaded_file($output_file_name, "$cur_dir/$new_output_name")) {
+				return 'failed to save the data of the hack';
+			}
+			putUOJConf("$cur_dir/problem.conf", $problem_conf);
 
-		if (dataSyncProblemData($problem) === '') {
+			// nobody asked for this sync, so it runs without the permissions of any user
+			$ret = dataSyncProblemData($problem);
+			if ($ret !== '') {
+				return 'the extra test was saved but the sync failed: ' . $ret;
+			}
 			rejudgeProblemAC($problem);
-		} else {
-			error_log('hack successfully but sync failed.');
+			return '';
+		} finally {
+			flock($lock, LOCK_UN);
+			fclose($lock);
 		}
 	}
 ?>

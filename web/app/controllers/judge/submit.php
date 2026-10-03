@@ -90,6 +90,28 @@
 		DB::update("update custom_test_submissions set status_details = '' where id = {$_POST['id']}");
 	}
 	
+	// A successful hack that changes nothing must not go unnoticed: tell the people who can fix it.
+	function notifyHackNotApplied($problem, $hack_id, $err) {
+		$title = "Hack #$hack_id 成功，但题目 #{$problem['id']} 的数据未更新";
+		$reason = HTML::escape(mb_substr(trim(strip_tags($err)), 0, 150, 'UTF-8'));
+		if (mb_strlen($reason, 'UTF-8') > 200) {
+			// the message is stored in 300 characters, do not cut an entity in two
+			$reason = preg_replace('/&[^;]*$/', '', mb_substr($reason, 0, 200, 'UTF-8'));
+		}
+		$content = "新的 Extra Test 未生效，已通过的提交未重测。请检查数据后重新同步并重测。原因：$reason";
+		
+		$receivers = array();
+		foreach (DB::selectAll("select username from problems_permissions where problem_id = {$problem['id']}") as $row) {
+			$receivers[$row['username']] = true;
+		}
+		foreach (DB::selectAll("select username from user_info where usergroup = 'S'") as $row) {
+			$receivers[$row['username']] = true;
+		}
+		foreach (array_keys($receivers) as $username) {
+			sendSystemMsg($username, $title, $content);
+		}
+	}
+	
 	function hackJudged() {
 		$result = json_decode($_POST['result'], true);
 		$esc_details = DB::escape(uojTextEncode($result['details']));
@@ -106,11 +128,16 @@
 			unlink(UOJContext::storagePath().$hack_input);
 
 			if ($result['score']) {
-				list($problem_id) = DB::selectFirst("select problem_id from hacks where id = ${_POST['id']}", MYSQLI_NUM);
+				list($problem_id) = DB::selectFirst("select problem_id from hacks where id = {$_POST['id']}", MYSQLI_NUM);
+				$problem = queryProblemBrief($problem_id);
 				if (validateUploadedFile('hack_input') && validateUploadedFile('std_output')) {
-					dataAddExtraTest(queryProblemBrief($problem_id), $_FILES["hack_input"]["tmp_name"], $_FILES["std_output"]["tmp_name"]);
+					$err = dataAddExtraTest($problem, $_FILES["hack_input"]["tmp_name"], $_FILES["std_output"]["tmp_name"]);
 				} else {
-					error_log("hack successfully but received no data. id: ${_POST['id']}");
+					$err = 'the judger sent no data';
+				}
+				if ($err !== '') {
+					error_log("hack #{$_POST['id']} succeeded but its extra test was not added: $err");
+					notifyHackNotApplied($problem, $_POST['id'], $err);
 				}
 			}
 		}

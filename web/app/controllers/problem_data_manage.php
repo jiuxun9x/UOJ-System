@@ -464,10 +464,10 @@ EOD
 
 	$hackable_form = new UOJForm('hackable');
 	$hackable_form->handle = function() {
-		global $problem;
+		global $problem, $myUser;
 		$problem['hackable'] = !$problem['hackable'];
 		//$problem['hackable'] = 0;
-		$ret = dataSyncProblemData($problem);
+		$ret = dataSyncProblemData($problem, $myUser);
 		if ($ret) {
 			becomeMsgPage('<div>' . $ret . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
 		}

@@ -3,7 +3,8 @@
 // Dependency-free unit tests for the helpers of the web application that need no database.
 // Run with: php web/tests/run.php
 
-error_reporting(E_ALL);
+// the application still uses syntax that newer PHP versions deprecate
+error_reporting(E_ALL & ~E_DEPRECATED);
 
 $n_checks = 0;
 $failures = [];
