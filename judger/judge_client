@@ -7,6 +7,7 @@ import pipes
 import socket
 from threading import Thread
 import fcntl
+import hashlib
 import shutil
 
 import traceback
@@ -49,6 +50,10 @@ def execute(cmd):
 def freopen(f, g):
     os.dup2(g.fileno(), f.fileno())
     g.close()
+
+
+def log(*args):
+    print("[" + time.asctime() + "]", *args, file=sys.stderr)
 
 
 # init
@@ -314,6 +319,22 @@ def uoj_sync_judge_client():
         raise Exception("failed to sync judge clients: %s" % ret)
 
 
+def read_hack_files():
+    """read the data of a successful hack to send to the web server"""
+    # The data may be binary, and it is read into memory so that every retry of the request
+    # sends it again in full.
+    files = {}
+    for field, name in (("hack_input", "hack_input.txt"), ("std_output", "std_output.txt")):
+        with open(uoj_judger_path("/work/" + name), "rb") as f:
+            content = f.read()
+        log(
+            "hack data: %s size=%d sha256=%s"
+            % (name, len(content), hashlib.sha256(content).hexdigest())
+        )
+        files[field] = (name, content)
+    return files
+
+
 def send_and_fetch(result=None, fetch_new=True):
     global submission
 
@@ -333,10 +354,7 @@ def send_and_fetch(result=None, fetch_new=True):
             if result != False and result["score"]:
                 try:
                     print("succ hack!", file=sys.stderr)
-                    files = {
-                        ("hack_input", open("uoj_judger/work/hack_input.txt", "r")),
-                        ("std_output", open("uoj_judger/work/std_output.txt", "r")),
-                    }
+                    files = read_hack_files()
                 except Exception:
                     print_judge_client_status()
                     traceback.print_exc()
@@ -452,9 +470,10 @@ def main():
     raise Exception("invalid argument")
 
 
-try:
-    main()
-except Exception:
-    print_judge_client_status()
-    traceback.print_exc()
-    sys.exit(1)
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        print_judge_client_status()
+        traceback.print_exc()
+        sys.exit(1)
