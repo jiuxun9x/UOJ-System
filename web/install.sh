@@ -63,30 +63,23 @@ UOJEOF
     make -j$(($(nproc) + 1)) && cd /opt/uoj/web
 }
 
-initData(){
-    printf "\n\n==> Doing initial config\n"
+initProgress(){
+    printf "\n\n==> Doing initial config and start service\n"
     #Set uoj_data path
     mkdir -p /var/uoj_data/upload
     chown -R www-data:www-data /var/uoj_data
-    mkdir -p /opt/uoj/web/app/storage/submission
-    mkdir -p /opt/uoj/web/app/storage/tmp
-    mkdir -p /opt/uoj/web/app/storage/paste
-    chmod -R 777 /opt/uoj/web/app/storage
     #Using cli upgrade to latest
-    php /var/www/uoj/app/cli.php upgrade:latest || exit 1
-    #Touch SetupDone flag file
-    touch /var/uoj_data/.UOJSetupDone
-}
-
-startServices(){
-    printf "\n\n==> Starting services\n"
+    php /var/www/uoj/app/cli.php upgrade:latest
+    #Start services
     service ntpd restart
     service apache2 restart
+    #Touch SetupDone flag file
+    touch /var/uoj_data/.UOJSetupDone
+	mkdir -p /opt/uoj/web/app/storage/submission
+	mkdir -p /opt/uoj/web/app/storage/tmp
+	mkdir -p /opt/uoj/web/app/storage/paste
+	chmod -R 777 /opt/uoj/web/app/storage
     printf "\n\n***Installation complete. Enjoy!***\n"
-}
-
-initProgress(){
-    initData;startServices
 }
 
 prepProgress(){
@@ -106,11 +99,6 @@ while [ $# -gt 0 ]; do
         -i | --init)
             echo 'Initing UOJ System web...'
             initProgress
-        ;;
-        --init-data)
-            # for containers, which run the web server themselves once everything is ready
-            echo 'Initing UOJ System web data...'
-            initData
         ;;
         -? | --*)
             echo "Illegal option $1"

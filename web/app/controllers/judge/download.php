@@ -1,7 +1,9 @@
 <?php
 	requirePHPLib('judger');
 	
-	requireJudgerAuthentication();
+	if (!authenticateJudger()) {
+		become404Page();
+	}
 	
 	switch ($_GET['type']) {
 		case 'submission':		
@@ -35,7 +37,6 @@
 	}
 	finfo_close($finfo);
 	
-	header("X-UOJ-SHA256: " . hash_file('sha256', $file_name));
 	header("X-Sendfile: $file_name");
 	header("Content-type: $mimetype");
 	header("Content-Disposition: attachment; filename=$download_name");

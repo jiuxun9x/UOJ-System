@@ -1,7 +1,9 @@
 <?php
 	requirePHPLib('judger');
 	
-	requireJudgerAuthentication();
+	if (!authenticateJudger()) {
+		become404Page();
+	}
 	
 	foreach (DB::selectAll("select * from judger_info where ip != ''") as $judger) {
 		$socket = fsockopen($judger['ip'], UOJConfig::$data['judger']['socket']['port']);

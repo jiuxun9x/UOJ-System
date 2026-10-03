@@ -33,13 +33,10 @@ WORKDIR /opt/uoj
 # Install web environment and create startup script
 RUN sh web/install.sh -p && \
     printf '%s\n' '#!/bin/sh' \
-      'set -e' \
       'if [ ! -f "/var/uoj_data/.UOJSetupDone" ]; then' \
-      '  cd /opt/uoj/web && sh install.sh --init-data' \
+      '  cd /opt/uoj/web && sh install.sh -i' \
       'fi' \
-      'php /opt/uoj/web/app/cli.php upgrade:latest' \
-      'rm -f /var/run/apache2/apache2.pid' \
-      'exec apache2ctl -D FOREGROUND' > /opt/up && \
+      'apache2ctl -D FOREGROUND' > /opt/up && \
     chmod +x /opt/up
 
 EXPOSE 80

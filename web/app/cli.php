@@ -9,7 +9,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/app/libs/uoj-lib.php';
 $handlers = [
 	'upgrade:up' => function ($name) {
 		if (func_num_args() != 1) {
-			Upgrader::fail("php cli.php upgrade:up <name>\n");
+			die("php cli.php upgrade:up <name>\n");
 		}
 		Upgrader::transaction(function() use ($name) {
 			Upgrader::up($name);
@@ -18,7 +18,7 @@ $handlers = [
 	},
 	'upgrade:down' => function ($name) {
 		if (func_num_args() != 1) {
-			Upgrader::fail("php cli.php upgrade:down <name>\n");
+			die("php cli.php upgrade:down <name>\n");
 		}
 		Upgrader::transaction(function() use ($name) {
 			Upgrader::down($name);
@@ -27,7 +27,7 @@ $handlers = [
 	},
 	'upgrade:refresh' => function ($name) {
 		if (func_num_args() != 1) {
-			Upgrader::fail("php cli.php upgrade:refresh <name>\n");
+			die("php cli.php upgrade:refresh <name>\n");
 		}
 		Upgrader::transaction(function() use ($name) {
 			Upgrader::refresh($name);
@@ -36,7 +36,7 @@ $handlers = [
 	},
 	'upgrade:remove' => function ($name) {
 		if (func_num_args() != 1) {
-			Upgrader::fail("php cli.php upgrade:remove <name>\n");
+			die("php cli.php upgrade:remove <name>\n");
 		}
 		Upgrader::transaction(function() use ($name) {
 			Upgrader::remove($name);
@@ -45,7 +45,7 @@ $handlers = [
 	},
 	'upgrade:latest' => function () {
 		if (func_num_args() != 0) {
-			Upgrader::fail("php cli.php upgrade:latest\n");
+			die("php cli.php upgrade:latest\n");
 		}
 		Upgrader::transaction(function() {
 			Upgrader::upgradeToLatest();
@@ -54,7 +54,7 @@ $handlers = [
 	},
 	'upgrade:remove-all' => function () {
 		if (func_num_args() != 0) {
-			Upgrader::fail("php cli.php upgrade:remove-all\n");
+			die("php cli.php upgrade:remove-all\n");
 		}
 		Upgrader::transaction(function() {
 			Upgrader::removeAll();
@@ -83,7 +83,7 @@ if (count($argv) <= 1) {
 if (!isset($handlers[$argv[1]])) {
 	echo "Invalid parameters.\n";
 	showHelp();
-	exit(1);
+	die();
 }
 
 call_user_func_array($handlers[$argv[1]], array_slice($argv, 2));

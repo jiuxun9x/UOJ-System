@@ -5,45 +5,32 @@ class Upgrader {
 		return UOJContext::documentRoot().'/app/upgrade';
 	}
 		
-	// An upgrade that fails must stop whatever started it, so exit with a non-zero status.
-	public static function fail($msg) {
-		fwrite(STDERR, $msg);
-		exit(1);
-	}
-	
-	// The script runs on the connection of the web server, so it works with whatever host,
-	// port or socket is configured. It can not use the DELIMITER command of the mysql client.
 	public static function runSQL($filename) {
-		$sql = file_get_contents($filename);
-		if ($sql === false) {
-			self::fail("run sql failed: can not read $filename\n");
-		}
-		$err = DB::multiQuery($sql);
-		if ($err !== null) {
-			self::fail("run sql failed: $filename\n$err\n");
+		passthru('mysql '.escapeshellarg(UOJConfig::$data['database']['database'])
+		        .' -u '.escapeshellarg(UOJConfig::$data['database']['username'])
+		        .' --password='.escapeshellarg(UOJConfig::$data['database']['password'])
+		        .'<'.escapeshellarg($filename), $ret);
+		if ($ret !== 0) {
+			die("run sql failed: ".HTML::escape($filename)."\n");
 		}
 	}
 	public static function runShell($cmd) {
 		passthru("$cmd", $ret);
 		if ($ret !== 0) {
-			self::fail("run shell failed: $cmd\n");
+			die("run shell failed: ".HTML::escape($cmd)."\n");
 		}
 	}
 	
 	public static function transaction($fun) {
-		// a named lock, unlike LOCK TABLES, lets an upgrade use every table
-		$lock = DB::selectFirst("select get_lock('uoj_upgrade', 60)", MYSQLI_NUM);
-		if (!$lock || $lock[0] != 1) {
-			self::fail("another upgrade is running\n");
-		}
 		if (!DB::checkTableExists('upgrades')) {
 			self::runSQL(self::upgraderRoot().'/create_table_upgrades.sql');
 			echo "table upgrades created.\n";
 		}
+		DB::query('LOCK TABLES upgrades WRITE');
 		
 		$fun();
 		
-		DB::query("select release_lock('uoj_upgrade')");
+		DB::query('UNLOCK TABLES');
 	}
 	
 	public static function getStatus($name) {
@@ -57,7 +44,7 @@ class Upgrader {
 	
 	public static function upgrade($name, $type) {
 		if ($type != 'up' && $type != 'down') {
-			self::fail("invalid upgrade type\n");
+			die("invalid upgrade type\n");
 		}
 		
 		echo $type.' '.HTML::escape($name).': ';
@@ -65,7 +52,7 @@ class Upgrader {
 		$dir = self::upgraderRoot().'/'.$name;
 		
 		if (!is_dir($dir)) {
-			self::fail("invalid upgrade name\n");
+			die("invalid upgrade name\n");
 		}
 		
 		if (self::getStatus($name) == $type) {
@@ -84,9 +71,7 @@ class Upgrader {
 			self::runShell('/bin/bash'.' '.escapeshellarg($dir.'/upgrade.sh').' '.$type);
 		}
 		
-		if (!DB::insert("insert into upgrades (name, status, updated_at) values ('".DB::escape($name)."', '$type', now()) on duplicate key update status = '$type', updated_at = now()")) {
-			self::fail("failed to record the upgrade\n");
-		}
+		DB::insert("insert into upgrades (name, status, updated_at) values ('".DB::escape($name)."', '$type', now()) on duplicate key update status = '$type', updated_at = now()");
 		
 		echo "DONE\n";
 	}
@@ -131,7 +116,7 @@ class Upgrader {
 		$dres = DB::selectAll("select * from upgrades");
 		foreach ($dres as $u) {
 			if (!isset($names_table[$u['name']])) {
-				self::fail('missing: '.$u['name']."\n");
+				die('missing: '.HTML::escape($name)."\n");
 			}
 		}
 		

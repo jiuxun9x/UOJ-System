@@ -32,111 +32,9 @@
 		dataNewProblem($id);
 	}
 
-	// Builds problem.conf from the values of the settings form, returns null when one of them is
-	// invalid. A value with a line break in it would add settings of its own to the file.
-	function dataProblemConfFromSettings($settings) {
-		$get = function($name) use ($settings) {
-			return isset($settings[$name]) && is_string($settings[$name]) ? $settings[$name] : '';
-		};
-		$is_file_name_part = function($str) {
-			return preg_match('/^[a-zA-Z0-9_.\-]{1,50}$/', $str) === 1;
-		};
-
-		$conf = array('use_builtin_judger' => 'on');
-
-		$checker = $get('use_builtin_checker');
-		if (!preg_match('/^[a-zA-Z0-9_]{1,20}$/', $checker)) {
-			return null;
-		}
-		if ($checker != 'ownchk') {
-			$conf['use_builtin_checker'] = $checker;
-		}
-
-		foreach (array('n_tests' => null, 'n_ex_tests' => '0', 'n_sample_tests' => '0') as $name => $default) {
-			$val = $get($name);
-			if ($val === '' && $default !== null) {
-				$val = $default;
-			}
-			if (!validateUInt($val)) {
-				return null;
-			}
-			$conf[$name] = $val;
-		}
-		if ($conf['n_tests'] == 0) {
-			return null;
-		}
-
-		foreach (array('input_pre', 'input_suf', 'output_pre', 'output_suf') as $name) {
-			if (!$is_file_name_part($get($name))) {
-				return null;
-			}
-			$conf[$name] = $get($name);
-		}
-
-		if (!preg_match('/^[0-9]{1,5}(\.[0-9]{1,3})?$/', $get('time_limit')) || $get('time_limit') == 0) {
-			return null;
-		}
-		$conf['time_limit'] = $get('time_limit');
-		if (!validateUInt($get('memory_limit')) || $get('memory_limit') == 0) {
-			return null;
-		}
-		$conf['memory_limit'] = $get('memory_limit');
-
-		return $conf;
-	}
-
-	// A fingerprint of everything the build of a custom judger can depend on: every uploaded
-	// file except the extra tests, and problem.conf without the number of extra tests. Adding an
-	// extra test, which is what a successful hack does, does not change it.
-	function dataCustomJudgerFingerprint($upload_dir, $problem_conf) {
-		$skip = array('problem.conf' => true);
-		$n_ex_tests = getUOJConfVal($problem_conf, 'n_ex_tests', 0);
-		if (validateUInt((string)$n_ex_tests)) {
-			for ($num = 1; $num <= $n_ex_tests; $num++) {
-				$skip[getUOJProblemExtraInputFileName($problem_conf, $num)] = true;
-				$skip[getUOJProblemExtraOutputFileName($problem_conf, $num)] = true;
-			}
-		}
-
-		$conf = $problem_conf;
-		unset($conf['n_ex_tests']);
-		ksort($conf);
-
-		$ctx = hash_init('sha256');
-		hash_update($ctx, json_encode($conf));
-		$dirs = array('');
-		while ($dirs) {
-			$dir = array_shift($dirs);
-			$names = scandir("$upload_dir/$dir");
-			sort($names, SORT_STRING);
-			foreach ($names as $name) {
-				if ($name === '.' || $name === '..') {
-					continue;
-				}
-				$rel = $dir . $name;
-				if (isset($skip[$rel])) {
-					continue;
-				}
-				$path = "$upload_dir/$rel";
-				if (is_link($path)) {
-					hash_update($ctx, "\0link\0$rel\0" . readlink($path));
-				} elseif (is_dir($path)) {
-					hash_update($ctx, "\0dir\0$rel");
-					$dirs[] = "$rel/";
-				} else {
-					hash_update($ctx, "\0file\0$rel\0" . hash_file('sha256', $path));
-				}
-			}
-		}
-		return hash_final($ctx);
-	}
-
 	class SyncProblemDataHandler {
-		// a sync that has not touched its staging folder for this long is considered dead
-		const STALE_SYNC_SECONDS = 1800;
-
 		private $problem, $user;
-		private $upload_dir, $data_dir, $stage_dir, $prepare_dir;
+		private $upload_dir, $data_dir, $prepare_dir;
 		private $requirement, $problem_extra_config;
 		private $problem_conf, $final_problem_conf;
 		private $allow_files;
@@ -271,24 +169,16 @@
 
 			$this->upload_dir = "/var/uoj_data/upload/$id";
 			$this->data_dir = "/var/uoj_data/$id";
-			// The data is prepared in a folder named after the problem inside a staging folder,
-			// so that the archive for the judgers can be built before anything is published.
-			$this->stage_dir = "/var/uoj_data/prepare_$id";
-			$this->prepare_dir = "{$this->stage_dir}/$id";
+			$this->prepare_dir = "/var/uoj_data/prepare_$id";
 
-			if (file_exists($this->stage_dir)) {
-				if (!$this->is_stage_stale()) {
-					return "please wait until the last sync finish";
-				}
-				error_log("dataSyncProblemData: removing the staging folder of a dead sync of problem #$id");
-				exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
+			if (file_exists($this->prepare_dir)) {
+				return "please wait until the last sync finish";
 			}
 
 			try {
 				$this->requirement = array();
 				$this->problem_extra_config = json_decode($this->problem['extra_config'], true);
 
-				mkdir($this->stage_dir, 0755);
 				mkdir($this->prepare_dir, 0755);
 				if (!is_file("{$this->upload_dir}/problem.conf")) {
 					throw new UOJFileNotFoundException("problem.conf");
@@ -418,7 +308,7 @@
 						$this->requirement[] = array('name' => 'answer', 'type' => 'source code', 'file_name' => 'answer.code');
 					}
 				} else {
-					if (!$this->may_use_custom_judger()) {
+					if (!isSuperUser($this->user)) {
 						throw new UOJProblemConfException("use_builtin_judger must be on.");
 					} else {
 						foreach ($this->allow_files as $file_name => $file_num) {
@@ -446,121 +336,45 @@
 					$esc_requirement = DB::escape(json_encode($this->requirement));
 					DB::update("update problems set submission_requirement = '$esc_requirement' where id = $id");
 				}
-
-				$this->build_archive();
 			} catch (Exception $e) {
-				exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
+				exec("rm {$this->prepare_dir} -r");
 				return $e->getMessage();
 			}
 
-			$this->publish();
-			$this->update_custom_judger_fingerprint();
+			exec("rm {$this->data_dir} -r");
+			rename($this->prepare_dir, $this->data_dir);
+
+			exec("cd /var/uoj_data; rm $id.zip; zip $id.zip $id -r -q");
 
 			return '';
-		}
-
-		// A custom judger runs unrestricted on the judgers, so only a super user may sync one.
-		// Anybody else, including the sync after a successful hack that no user asked for, may
-		// only rebuild exactly what a super user synced before.
-		private function may_use_custom_judger() {
-			if (isSuperUser($this->user)) {
-				return true;
-			}
-			if (!isset($this->problem_extra_config['custom_judger_fingerprint'])) {
-				return false;
-			}
-			$approved = $this->problem_extra_config['custom_judger_fingerprint'];
-			return is_string($approved) && hash_equals($approved, dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf));
-		}
-
-		private function update_custom_judger_fingerprint() {
-			$extra_config = is_array($this->problem_extra_config) ? $this->problem_extra_config : array();
-			if ($this->check_conf_on('use_builtin_judger')) {
-				if (!isset($extra_config['custom_judger_fingerprint'])) {
-					return;
-				}
-				unset($extra_config['custom_judger_fingerprint']);
-			} elseif (isSuperUser($this->user)) {
-				$extra_config['custom_judger_fingerprint'] = dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf);
-			} else {
-				return;
-			}
-			$esc_extra_config = DB::escape(json_encode($extra_config));
-			DB::update("update problems set extra_config = '$esc_extra_config' where id = {$this->problem['id']}");
-		}
-
-		private function is_stage_stale() {
-			clearstatcache();
-			$last_touched = max((int)@filemtime($this->stage_dir), (int)@filemtime($this->prepare_dir));
-			return time() - $last_touched > self::STALE_SYNC_SECONDS;
-		}
-
-		private function build_archive() {
-			$id = $this->problem['id'];
-			exec("cd " . escapeshellarg($this->stage_dir) . " && zip data.zip $id -r -q", $output, $ret);
-			if ($ret !== 0 || !is_file("{$this->stage_dir}/data.zip")) {
-				throw new Exception("<strong>$id.zip</strong> : failed to create the archive for judgers");
-			}
-		}
-
-		private function publish() {
-			$id = $this->problem['id'];
-			// Judgers compare the modification time of the data they download with the one of
-			// the data folder, so the archive goes first: a judger may get data that is newer
-			// than expected, but never data that is older.
-			clearstatcache();
-			$mtime = filemtime($this->prepare_dir);
-			rename("{$this->stage_dir}/data.zip", "/var/uoj_data/$id.zip");
-			if (file_exists($this->data_dir)) {
-				rename($this->data_dir, "{$this->stage_dir}/old");
-			}
-			rename($this->prepare_dir, $this->data_dir);
-			// keep the modification time recorded in the archive whatever the file system does
-			touch($this->data_dir, $mtime);
-			exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
 		}
 	}
 
 	function dataSyncProblemData($problem, $user = null) {
 		return (new SyncProblemDataHandler($problem, $user))->handle();
 	}
-	// Adds the data of a successful hack as an extra test, syncs the problem and rejudges the
-	// accepted submissions. Returns '' or the reason why this could not be done.
 	function dataAddExtraTest($problem, $input_file_name, $output_file_name) {
 		$id = $problem['id'];
 
 		$cur_dir = "/var/uoj_data/upload/$id";
 
-		// two hacks of the same problem may succeed at the same time
-		$lock = fopen("/var/uoj_data/upload/$id.lock", 'c');
-		if ($lock === false || !flock($lock, LOCK_EX)) {
-			return 'failed to lock the data of the problem';
+		$problem_conf = getUOJConf("{$cur_dir}/problem.conf");
+		if ($problem_conf == -1 || $problem_conf == -2) {
+			return $problem_conf;
 		}
-		try {
-			$problem_conf = getUOJConf("{$cur_dir}/problem.conf");
-			if ($problem_conf === -1 || $problem_conf === -2) {
-				return 'problem.conf is missing or invalid';
-			}
-			$problem_conf['n_ex_tests'] = getUOJConfVal($problem_conf, 'n_ex_tests', 0) + 1;
+		$problem_conf['n_ex_tests'] = getUOJConfVal($problem_conf, 'n_ex_tests', 0) + 1;
 
-			$new_input_name = getUOJProblemExtraInputFileName($problem_conf, $problem_conf['n_ex_tests']);
-			$new_output_name = getUOJProblemExtraOutputFileName($problem_conf, $problem_conf['n_ex_tests']);
+		$new_input_name = getUOJProblemExtraInputFileName($problem_conf, $problem_conf['n_ex_tests']);
+		$new_output_name = getUOJProblemExtraOutputFileName($problem_conf, $problem_conf['n_ex_tests']);
 
-			if (!move_uploaded_file($input_file_name, "$cur_dir/$new_input_name") || !move_uploaded_file($output_file_name, "$cur_dir/$new_output_name")) {
-				return 'failed to save the data of the hack';
-			}
-			putUOJConf("$cur_dir/problem.conf", $problem_conf);
+		putUOJConf("$cur_dir/problem.conf", $problem_conf);
+		move_uploaded_file($input_file_name, "$cur_dir/$new_input_name");
+		move_uploaded_file($output_file_name, "$cur_dir/$new_output_name");
 
-			// nobody asked for this sync, so it runs without the permissions of any user
-			$ret = dataSyncProblemData($problem);
-			if ($ret !== '') {
-				return 'the extra test was saved but the sync failed: ' . $ret;
-			}
+		if (dataSyncProblemData($problem) === '') {
 			rejudgeProblemAC($problem);
-			return '';
-		} finally {
-			flock($lock, LOCK_UN);
-			fclose($lock);
+		} else {
+			error_log('hack successfully but sync failed.');
 		}
 	}
 ?>
