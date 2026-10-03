@@ -35,8 +35,7 @@ RUN sh web/install.sh -p && \
     printf '%s\n' '#!/bin/sh' \
       'set -e' \
       'if [ ! -f "/var/uoj_data/.UOJSetupDone" ]; then' \
-      '  cd /opt/uoj/web && sh install.sh -i' \
-      '  service apache2 stop || true' \
+      '  cd /opt/uoj/web && sh install.sh --init-data' \
       'fi' \
       'php /opt/uoj/web/app/cli.php upgrade:latest' \
       'rm -f /var/run/apache2/apache2.pid' \

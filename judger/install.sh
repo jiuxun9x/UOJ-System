@@ -61,9 +61,10 @@ dockerPrep(){
 	echo "#!/bin/sh
 if [ ! -f \"/opt/uoj_judger/.conf.json\" ]; then
   cd /opt/uoj_judger && sh install.sh -i
+else
+  service ntpd start
+  su judger -c \"/opt/uoj_judger/judge_client start\"
 fi
-service ntpd start
-su judger -c \"/opt/uoj_judger/judge_client start\"
 exec bash" >/opt/up
     chmod +x /opt/up
 }
