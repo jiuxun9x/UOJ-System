@@ -68,6 +68,7 @@ class JudgeClientTestCase(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.root, "uoj_judger", "data"))
         os.makedirs(os.path.join(self.root, "uoj_judger", "work"))
+        os.makedirs(os.path.join(self.root, "uoj_judger", "result"))
         os.chdir(self.root)
 
         patcher = mock.patch.object(self.jc.time, "sleep")
@@ -147,6 +148,38 @@ class HackFilesTest(JudgeClientTestCase):
         data, files = interact.call_args[0]
         self.assertEqual(files, {})
         self.assertEqual(json.loads(data["result"])["error"], "Judgement Failed")
+
+
+class JudgerResultTest(JudgeClientTestCase):
+    def read_result(self, content):
+        with open(os.path.join(self.root, "uoj_judger", "result", "result.txt"), "wb") as f:
+            f.write(content)
+        return self.jc.get_judger_result()
+
+    def test_result_is_parsed(self):
+        res = self.read_result(b"score 100\ntime 12\nmemory 3456\ndetails\n<tests>\n</tests>\n")
+        self.assertEqual(
+            res,
+            {"score": 100.0, "time": 12, "memory": 3456, "details": "<tests>\n</tests>\n", "status": "Judged"},
+        )
+
+    def test_error_is_parsed(self):
+        res = self.read_result(b"error Compile Error\ndetails\n<error>oops</error>\n")
+        self.assertEqual(res["error"], "Compile Error")
+        self.assertEqual(res["details"], "<error>oops</error>\n")
+
+    def test_details_with_binary_data_do_not_fail_the_judgement(self):
+        details = b"<tests><test><in>" + BINARY_DATA.replace(b"\x00", b"") + b"</in></test></tests>\n"
+        res = self.read_result(b"score 0\ntime 1\nmemory 1\ndetails\n" + details)
+        self.assertEqual(res["score"], 0)
+        self.assertIn("line1", res["details"])
+        # the result has to survive the encoding of the request that reports it
+        json.dumps(res, ensure_ascii=False).encode("utf-8")
+
+    def test_details_with_a_character_cut_in_two_do_not_fail_the_judgement(self):
+        cut = "I don\u2019t know".encode("utf-8")[:7]
+        res = self.read_result(b"score 0\ntime 1\nmemory 1\ndetails\n<out>" + cut + b"</out>\n")
+        self.assertEqual(res["details"], "<out>I don\ufffd</out>\n")
 
 
 class DownloadTest(JudgeClientTestCase):

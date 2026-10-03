@@ -199,7 +199,10 @@ def print_judge_client_status():
 # interact with uoj_judger
 def get_judger_result():
     res = {}
-    with open(uoj_judger_path("/result/result.txt"), "r") as fres:
+    # The details quote the data of the problem and the output of the program, which may be
+    # anything, including a multi-byte character cut in two by the preview.
+    result_file = uoj_judger_path("/result/result.txt")
+    with open(result_file, "r", encoding="utf-8", errors="replace") as fres:
         res["score"] = 0
         res["time"] = 0
         res["memory"] = 0
