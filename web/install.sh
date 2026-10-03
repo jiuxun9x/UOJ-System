@@ -69,7 +69,7 @@ initProgress(){
     mkdir -p /var/uoj_data/upload
     chown -R www-data:www-data /var/uoj_data
     #Using cli upgrade to latest
-    php /var/www/uoj/app/cli.php upgrade:latest
+    php /var/www/uoj/app/cli.php upgrade:latest || exit 1
     #Start services
     service ntpd restart
     service apache2 restart

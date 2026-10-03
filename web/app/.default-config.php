@@ -12,7 +12,11 @@ return [
 		'database' => 'app_uoj233',
 		'username' => 'root',
 		'password' => 'root',
-		'host' => 'uoj-db'
+		// write an IPv6 address without brackets
+		'host' => 'uoj-db',
+		'port' => 3306,
+		// set the path of a unix socket to connect through it instead of host and port
+		'socket' => ''
 	],
 	'web' => [
 		'domain' => null,
