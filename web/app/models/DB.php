@@ -96,6 +96,11 @@ class DB {
 		return null;
 	}
 
+	public static function error() {
+		global $uojMySQL;
+		return mysqli_error($uojMySQL);
+	}
+
 	public static function checkTableExists($name) {
 		global $uojMySQL;
 		return DB::query("select 1 from $name") !== false;
