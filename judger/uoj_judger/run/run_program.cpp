@@ -9,6 +9,7 @@ enum RUN_EVENT_TYPE {
     ET_EXIT,
     ET_SIGNALED,
     ET_REAL_TLE,
+    ET_OVERLOADED,
     ET_USER_CPU_TLE,
     ET_MLE,
     ET_OLE,
@@ -304,10 +305,71 @@ pid_t rp_timer_pid;
 std::vector<rp_child_proc> rp_children;
 struct rusage *ruse0p = NULL;
 
-bool has_real_TLE() {
+double elapsed_real_time() {
     struct timeval elapsed;
     timersub(&end_time, &start_time, &elapsed);
-    return elapsed.tv_sec + elapsed.tv_usec / 1'000'000. >= run_program_config.limits.real_time;
+    return elapsed.tv_sec + elapsed.tv_usec / 1'000'000.;
+}
+
+/**
+ * @brief the time in seconds that a thread was ready to run but had to wait for a CPU
+ */
+double run_delay_of(pid_t tid) {
+    // time spent on the CPU and time spent waiting on a run queue, both in nanoseconds
+    FILE *f = fopen(("/proc/" + std::to_string(tid) + "/schedstat").c_str(), "r");
+    if (f == NULL) {
+        return 0;
+    }
+    unsigned long long on_cpu, waiting;
+    int n = fscanf(f, "%llu %llu", &on_cpu, &waiting);
+    fclose(f);
+    return n == 2 ? waiting / 1e9 : 0;
+}
+
+/**
+ * @brief the part of the elapsed real time that the program could not have used, because other
+ * processes kept it, or this tracer that it has to wait for, from running
+ */
+double starved_time() {
+    double starved = 0;
+    for (size_t i = 1; i < rp_children.size(); i++) {
+        starved = std::max(starved, run_delay_of(rp_children[i].pid));
+    }
+    return starved + run_delay_of(getpid());
+}
+
+// The real time limit is for programs that sleep or wait for something. A program that only
+// waited for a CPU on a busy machine is not to blame, so that time does not count.
+bool has_real_TLE() {
+    double elapsed = elapsed_real_time();
+    if (elapsed < run_program_config.limits.real_time) {
+        return false;
+    }
+    return elapsed - starved_time() >= run_program_config.limits.real_time;
+}
+
+// Even so the program can not be watched forever: at some point the machine is too busy to judge.
+bool is_overloaded() {
+    return elapsed_real_time() >= run_program_config.limits.real_time * 20 + 60;
+}
+
+/**
+ * @brief start the process whose exit tells that the given real time has passed
+ */
+void start_real_timer(double seconds) {
+    rp_timer_pid = fork();
+    if (rp_timer_pid == -1) {
+        runp::result(runp::RS_JGF, "error code: FKFAL2").dump_and_exit();  // fork failed
+    } else if (rp_timer_pid == 0) {
+        struct timespec ts = runp::double_to_timespec(std::min(seconds, 900.0));
+        ts.tv_nsec += 100'000'000;
+        if (ts.tv_nsec >= 1'000'000'000) {
+            ts.tv_sec += 1;
+            ts.tv_nsec -= 1'000'000'000;
+        }
+        nanosleep(&ts, NULL);
+        exit(0);
+    }
 }
 
 int rp_children_pos(pid_t pid) {
@@ -436,7 +498,18 @@ run_event next_event() {
     }
 
     if (e.pid == rp_timer_pid) {
-        e.type = WIFEXITED(stat) || WIFSIGNALED(stat) ? ET_REAL_TLE : ET_SKIP;
+        if (!(WIFEXITED(stat) || WIFSIGNALED(stat))) {
+            e.type = ET_SKIP;
+        } else if (has_real_TLE()) {
+            e.type = ET_REAL_TLE;
+        } else if (is_overloaded()) {
+            e.type = ET_OVERLOADED;
+        } else {
+            // the program was kept waiting, give it the time it could not use
+            double used = elapsed_real_time() - starved_time();
+            start_real_timer(std::max(run_program_config.limits.real_time - used, 0.0));
+            e.type = ET_SKIP;
+        }
         return e;
     }
 
@@ -569,6 +642,19 @@ void dispatch_event(run_event &&e) {
             stop_all(runp::result(runp::RS_TLE,
                                   "elapsed real time limit exceeded: >"
                                       + std::to_string(run_program_config.limits.real_time) + "s"));
+        case ET_OVERLOADED: {
+            // Tell judge_client that nothing was judged, so that the task is tried again later
+            // instead of getting a verdict that depends on how busy this machine was.
+            const std::string &res_name = run_program_config.result_file_name;
+            if (res_name != "stdout" && res_name != "stderr") {
+                fs::path flag = fs::path(res_name).parent_path() / "uoj_overloaded";
+                FILE *f = fopen(flag.c_str(), "w");
+                if (f != NULL) {
+                    fclose(f);
+                }
+            }
+            stop_all(runp::result(runp::RS_JGF, "UOJ_OVERLOADED: the machine is too busy to judge"));
+        }
         case ET_USER_CPU_TLE:
             stop_all(runp::result(runp::RS_TLE, "user CPU time limit exceeded: >"
                                                     + std::to_string(run_program_config.limits.time)
@@ -649,19 +735,7 @@ void dispatch_event(run_event &&e) {
 }
 
 [[noreturn]] void trace_children() {
-    rp_timer_pid = fork();
-    if (rp_timer_pid == -1) {
-        runp::result(runp::RS_JGF, "error code: FKFAL2").dump_and_exit();  // fork failed
-    } else if (rp_timer_pid == 0) {
-        struct timespec ts = runp::double_to_timespec(run_program_config.limits.real_time);
-        ts.tv_nsec += 100'000'000;
-        if (ts.tv_nsec >= 1'000'000'000) {
-            ts.tv_sec += 1;
-            ts.tv_nsec -= 1'000'000'000;
-        }
-        nanosleep(&ts, NULL);
-        exit(0);
-    }
+    start_real_timer(run_program_config.limits.real_time);
 
     if (run_program_config.need_show_trace_details) {
         std::cerr << "timerpid " << rp_timer_pid << '\n';
