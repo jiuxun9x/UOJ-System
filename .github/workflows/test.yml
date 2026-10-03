@@ -1,0 +1,100 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+      - 'school/**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the dependencies of judge_client
+        run: pip install requests
+
+      - name: Judger unit tests
+        run: make -C judger/uoj_judger test
+
+      - name: judge_client unit tests
+        run: python3 -m unittest discover -s judger/tests -v
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build images
+        uses: docker/bake-action@v5
+        with:
+          source: .
+          files: docker-compose.yml
+          load: true
+          set: |
+            uoj-db.cache-from=type=gha,scope=uoj-db
+            uoj-db.cache-to=type=gha,mode=max,scope=uoj-db
+            uoj-web.cache-from=type=gha,scope=uoj-web
+            uoj-web.cache-to=type=gha,mode=max,scope=uoj-web
+            uoj-judger.cache-from=type=gha,scope=uoj-judger
+            uoj-judger.cache-to=type=gha,mode=max,scope=uoj-judger
+
+      - name: Web unit tests
+        run: docker run --rm ghcr.io/universaloj/uoj-web:latest php /opt/uoj/web/tests/run.php
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the dependencies of the tests
+        run: pip install requests
+
+      - name: Start UOJ with two judgers
+        run: |
+          bash prepare.sh
+          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d
+
+      - name: End-to-end tests
+        run: python3 -m unittest discover -s tests/e2e -v
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p e2e-logs
+          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml ps -a > e2e-logs/ps.txt 2>&1 || true
+          for c in uoj-db uoj-web uoj-judger uoj-judger-2; do
+            docker logs "$c" > "e2e-logs/$c.log" 2>&1 || true
+          done
+          docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_error.log' > e2e-logs/apache_error.log 2>&1 || true
+          docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_judge.log' > e2e-logs/apache_judge.log 2>&1 || true
+          sudo cp uoj_data/judger/log/judge.log e2e-logs/judge-1.log 2>/dev/null || true
+          sudo cp uoj_data/judger2/log/judge.log e2e-logs/judge-2.log 2>/dev/null || true
+          sudo chmod -R a+r e2e-logs
+          tail -n 80 e2e-logs/judge-1.log e2e-logs/judge-2.log e2e-logs/apache_error.log 2>/dev/null || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: e2e-logs

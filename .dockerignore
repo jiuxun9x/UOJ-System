@@ -4,3 +4,7 @@
 uoj_data/
 
 .config.local.php
+
+# only needed by the tests and the docs, keep them out of the image cache
+tests/
+docs/
