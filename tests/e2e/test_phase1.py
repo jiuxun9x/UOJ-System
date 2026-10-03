@@ -710,14 +710,14 @@ class CustomJudgerHackTest(unittest.TestCase):
         manager = uoj.manager()
 
         problem_id = admin.create_problem(custom_judger_problem_files())
-        fingerprint = json.loads(db_value("select extra_config from problems where id = %d" % problem_id)).get(
-            "custom_judger_fingerprint"
-        )
-        self.assertRegex(fingerprint or "", "^[0-9a-f]{64}$")
 
         # a super user can enable hacks
         self.assertEqual(admin.toggle_hackable(problem_id), "")
         self.assertEqual(db_value("select hackable from problems where id = %d" % problem_id), "1")
+        fingerprint = json.loads(db_value("select extra_config from problems where id = %d" % problem_id)).get(
+            "custom_judger_fingerprint"
+        )
+        self.assertRegex(fingerprint or "", "^[0-9a-f]{64}$")
 
         first = admin.submit(problem_id, AB_HACKABLE % 12345)
         second = admin.submit(problem_id, AB_HACKABLE % 777)

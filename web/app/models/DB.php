@@ -21,7 +21,7 @@ class DB {
 		list($host, $port, $socket) = self::connectParams(UOJConfig::$data['database']);
 		@$uojMySQL = mysqli_connect($host, UOJConfig::$data['database']['username'], UOJConfig::$data['database']['password'], UOJConfig::$data['database']['database'], $port, $socket);
 		if (!$uojMySQL) {
-			echo 'There is something wrong with database >_<.... ' . mysqli_connect_error();
+			echo 'There is something wrong with database >_<.... ' . mysqli_connect_error() . "\n";
 			exit(1);
 		}
 	}
