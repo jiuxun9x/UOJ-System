@@ -273,8 +273,8 @@ class Judgement:
         self.infos = re.findall(r'<(?:test|custom-test)\b[^>]*\binfo="([^"]*)"', self.details)
 
     def __repr__(self):
-        return "<Judgement %s score=%s error=%s infos=%s>" % (
-            self.status, self.score, self.error, self.infos[:8],
+        return "<Judgement %s score=%s error=%s infos=%s details=%r>" % (
+            self.status, self.score, self.error, self.infos[:8], self.details[:1500],
         )  # fmt: skip
 
 

@@ -55,12 +55,29 @@ int main() {
 }
 """
 
-AB_RUNTIME_ERROR = r"""
+# the three ways a program usually dies: SIGSEGV, SIGFPE and SIGABRT
+AB_NULL_POINTER = r"""
 #include <cstdio>
 int main() {
     int * volatile p = nullptr;
-    *p = 1;
+    printf("%d\n", *p);
+}
+"""
+
+AB_DIVISION_BY_ZERO = r"""
+#include <cstdio>
+int main() {
+    volatile int zero = 0;
+    printf("%d\n", 100 / zero);
+}
+"""
+
+AB_ABORT = r"""
+#include <cstdio>
+#include <cstdlib>
+int main() {
     puts("0");
+    abort();
 }
 """
 
@@ -446,8 +463,10 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(j.infos, ["Wrong Answer"] * 3, j)
 
     def test_runtime_error(self):
-        j = self.judge(AB_RUNTIME_ERROR)
-        self.assertEqual(j.infos, ["Runtime Error"] * 3, j)
+        for code in (AB_NULL_POINTER, AB_DIVISION_BY_ZERO, AB_ABORT):
+            j = self.judge(code)
+            self.assertEqual(j.infos, ["Runtime Error"] * 3, j)
+            self.assertEqual(j.score, 0, j)
 
     def test_time_limit_exceeded(self):
         j = self.judge(AB_TIME_LIMIT)
