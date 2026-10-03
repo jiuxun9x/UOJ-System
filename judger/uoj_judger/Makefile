@@ -30,7 +30,7 @@ EXE = main_judger \
 	builtin/judger/judger \
 	$(EXE_CHECKER)
 
-OBJ = tests/catch_amalgamated.o tests/test.o
+TESTS = tests/test_conf_run_limit_v1 tests/test_conf_run_limit_v2
 
 all: $(EXE)
 
@@ -49,12 +49,18 @@ run/run_interaction : run/run_interaction.cpp include/uoj_run.h
 builtin/judger/judger: include/*.h
 main_judger: include/*.h
 
-tests/test.o: include/*.h
+tests/test_conf_run_limit_v1: tests/test_conf_run_limit.cpp include/*.h
+	$(CXX) $(CXXFLAGS) $< -o $@
 
-tests/test: tests/catch_amalgamated.o tests/test.o
-	$(CXX) $(CXXFLAGS) $^ -o $@ -pthread
+tests/test_conf_run_limit_v2: tests/test_conf_run_limit.cpp include/*.h
+	$(CXX) $(CXXFLAGS) -DUOJ_TEST_JUDGER_V2 $< -o $@
+
+test: $(TESTS)
+	@for t in $(TESTS); do ./$$t || exit 1; done
 
 $(EXE_CHECKER): include/testlib.h
 
 clean:
-	rm -f $(EXE) $(OBJ)
+	rm -f $(EXE) $(TESTS)
+
+.PHONY: all test clean

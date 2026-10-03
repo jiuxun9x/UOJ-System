@@ -610,7 +610,7 @@ runp::limits_t conf_run_limit(string pre, const int &num, const runp::limits_t &
     limits.memory = conf_int(pre + "memory_limit", num, val.memory);
     limits.output = conf_int(pre + "output_limit", num, val.output);
     limits.real_time = conf_double(pre + "real_time_limit", num, val.real_time);
-    limits.stack = conf_int(pre + "stack_limit", num, val.real_time);
+    limits.stack = conf_int(pre + "stack_limit", num, val.stack);
     return limits;
 }
 runp::limits_t conf_run_limit(const int &num, const runp::limits_t &val) {

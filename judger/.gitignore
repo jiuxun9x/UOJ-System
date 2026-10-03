@@ -17,3 +17,5 @@ uoj_judger/result/*
 !uoj_judger/work/.gitkeep
 !uoj_judger/result/.gitkeep
 
+uoj_judger/tests/*
+!uoj_judger/tests/*.cpp
