@@ -245,6 +245,19 @@ class InteractTest(JudgeClientTestCase):
             self.assertFalse(self.jc.send_and_fetch())
         self.assertIsNone(self.jc.submission)
 
+    def test_judger_can_decline_new_work(self):
+        self.jc.submission = {"id": 5}
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""}, fetch_new=False)
+        # what the web server receives must be false for PHP, which the string "False" is not
+        sent = requests.Request("POST", "http://uoj-web/", data=interact.call_args[0][0]).prepare().body
+        self.assertIn("fetch_new=0", sent)
+
+    def test_judger_asks_for_new_work_by_default(self):
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch()
+        self.assertNotIn("fetch_new", interact.call_args[0][0])
+
     def test_new_submission(self):
         with mock.patch.object(self.jc, "uoj_interact", return_value='{"id": 5, "problem_id": 1}'):
             self.assertTrue(self.jc.send_and_fetch())

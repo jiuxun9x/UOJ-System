@@ -273,7 +273,8 @@
 	
 	
 	
-	if (isset($_POST['fetch_new']) && !$_POST['fetch_new']) {
+	// Older versions of judge_client send Python's False, which arrives as the string "False".
+	if (isset($_POST['fetch_new']) && in_array(strtolower($_POST['fetch_new']), array('', '0', 'false'), true)) {
 		die("Nothing to judge");
 	}
 	if (!findSubmissionToJudge()) {

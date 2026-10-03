@@ -440,7 +440,8 @@ def send_and_fetch(result=None, fetch_new=True):
     files = {}
 
     if not fetch_new:
-        data["fetch_new"] = False
+        # not False: it would be sent as the string "False", which PHP takes for true
+        data["fetch_new"] = "0"
 
     if result is not None:
         data["submit"] = True
