@@ -9,6 +9,235 @@
 		exec("cd /var/uoj_data; rm $id.zip; zip $id.zip $id -r -q");
 	}
 
+	// ---- versions of the data of a problem
+	//
+	// Every sync makes a new version. Its archive waits in the staging folder until a judger
+	// has built the programs it comes with, and is published at once when there is nothing to
+	// build. The web server itself never compiles or runs anything of a problem.
+
+	function dataStageDir($problem_id) {
+		return "/var/uoj_data/prepare_$problem_id";
+	}
+	function dataArchivePath($problem_id, $version) {
+		return "/var/uoj_data/archive/$problem_id/$version.zip";
+	}
+
+	// the files below a folder: name => [size, SHA256]
+	function dataManifest($dir) {
+		$manifest = array();
+		$dirs = array('');
+		while ($dirs) {
+			$cur = array_shift($dirs);
+			foreach (scandir("$dir/$cur") as $name) {
+				if ($name === '.' || $name === '..') {
+					continue;
+				}
+				$path = "$dir/$cur$name";
+				if (is_dir($path) && !is_link($path)) {
+					$dirs[] = "$cur$name/";
+				} elseif (is_file($path)) {
+					$manifest["$cur$name"] = array(filesize($path), hash_file('sha256', $path));
+				}
+			}
+		}
+		ksort($manifest, SORT_STRING);
+		return $manifest;
+	}
+
+	function queryProblemDataVersion($problem_id, $version) {
+		return DB::selectFirst("select * from problem_data_versions where problem_id = $problem_id and version = $version");
+	}
+	function queryProblemDataVersionById($id) {
+		return DB::selectFirst("select * from problem_data_versions where id = $id");
+	}
+
+	// Registers a new version of a problem and returns its row, or null when the archive is
+	// missing. $fields are the escaped values of the other columns.
+	function dataInsertVersion($problem_id, $archive, $manifest, $fields) {
+		clearstatcache();
+		if (!is_file($archive)) {
+			return null;
+		}
+		$fields['sha256'] = hash_file('sha256', $archive);
+		$fields['size'] = filesize($archive);
+		$fields['manifest'] = DB::escape(json_encode($manifest));
+		$fields['problem_id'] = $problem_id;
+		for ($tries = 0; $tries < 10; $tries++) {
+			$fields['version'] = 1 + (int)DB::selectFirst("select ifnull(max(version), 0) from problem_data_versions where problem_id = $problem_id", MYSQLI_NUM)[0];
+			$columns = join(', ', array_keys($fields));
+			$values = "'" . join("', '", array_values($fields)) . "'";
+			// the number is taken when two requests register a version at the same time
+			if (DB::insert("insert into problem_data_versions ($columns, created_at) values ($values, now())")) {
+				return queryProblemDataVersion($problem_id, $fields['version']);
+			}
+		}
+		return null;
+	}
+
+	// The version of the published data of a problem. Data that was published before versions
+	// existed, or outside of a sync, is registered as it is: its programs are already built.
+	function dataCurrentVersion($problem, $reason = 'legacy') {
+		$id = $problem['id'];
+		$data_version = DB::selectFirst("select data_version from problems where id = $id", MYSQLI_NUM)[0];
+		if ($data_version > 0) {
+			return queryProblemDataVersion($id, $data_version);
+		}
+		if (!is_dir("/var/uoj_data/$id")) {
+			return null;
+		}
+		$row = dataInsertVersion($id, "/var/uoj_data/$id.zip", dataManifest("/var/uoj_data/$id"), array(
+			'status' => 'ready',
+			'prepare' => '[]',
+			'created_by' => '',
+			'reason' => DB::escape($reason)
+		));
+		if ($row == null) {
+			return null;
+		}
+		DB::update("update problem_data_versions set published_at = created_at where id = {$row['id']}");
+		DB::update("update problems set data_version = {$row['version']} where id = $id and data_version = 0");
+		// another request may have registered the data at the same time
+		$data_version = DB::selectFirst("select data_version from problems where id = $id", MYSQLI_NUM)[0];
+		return queryProblemDataVersion($id, $data_version);
+	}
+
+	// the file to send to a judger that asks for a version of the data of a problem
+	function dataArchiveOfVersion($version_row) {
+		$id = $version_row['problem_id'];
+		$candidates = array(
+			"/var/uoj_data/$id.zip",
+			dataArchivePath($id, $version_row['version']),
+			dataStageDir($id) . "/data.zip"
+		);
+		// the files are moved while a version is published, so only the content tells them apart
+		clearstatcache();
+		foreach ($candidates as $file_name) {
+			if (is_file($file_name) && filesize($file_name) == $version_row['size'] && hash_file('sha256', $file_name) === $version_row['sha256']) {
+				return $file_name;
+			}
+		}
+		return null;
+	}
+
+	function dataKeptVersions() {
+		$kept = isset(UOJConfig::$data['data']['kept-versions']) ? (int)UOJConfig::$data['data']['kept-versions'] : 5;
+		return max($kept, 1);
+	}
+
+	// keeps the archives of the most recent versions of a problem, the current one included
+	function dataPruneArchives($problem_id) {
+		$files = glob("/var/uoj_data/archive/$problem_id/*.zip");
+		if (!$files) {
+			return;
+		}
+		usort($files, function($a, $b) {
+			return (int)basename($b, '.zip') - (int)basename($a, '.zip');
+		});
+		foreach (array_slice($files, dataKeptVersions() - 1) as $file_name) {
+			unlink($file_name);
+		}
+	}
+
+	// A successful hack that changes nothing must not go unnoticed: tell the people who can fix it.
+	function notifyHackNotApplied($problem, $hack_id, $err) {
+		$title = "Hack #$hack_id 成功，但题目 #{$problem['id']} 的数据未更新";
+		$reason = HTML::escape(mb_substr(trim(strip_tags($err)), 0, 150, 'UTF-8'));
+		if (mb_strlen($reason, 'UTF-8') > 200) {
+			// the message is stored in 300 characters, do not cut an entity in two
+			$reason = preg_replace('/&[^;]*$/', '', mb_substr($reason, 0, 200, 'UTF-8'));
+		}
+		$content = "新的 Extra Test 未生效，已通过的提交未重测。请检查数据后重新同步并重测。原因：$reason";
+
+		$receivers = array();
+		foreach (DB::selectAll("select username from problems_permissions where problem_id = {$problem['id']}") as $row) {
+			$receivers[$row['username']] = true;
+		}
+		foreach (DB::selectAll("select username from user_info where usergroup = 'S'") as $row) {
+			$receivers[$row['username']] = true;
+		}
+		foreach (array_keys($receivers) as $username) {
+			sendSystemMsg($username, $title, $content);
+		}
+	}
+
+	// Publishes a version that is waiting in the staging folder of its problem.
+	function dataPublishVersion($version_row) {
+		$id = $version_row['problem_id'];
+		$stage_dir = dataStageDir($id);
+		$prepare_dir = "$stage_dir/$id";
+		$data_dir = "/var/uoj_data/$id";
+		$pending = json_decode($version_row['pending'], true);
+
+		if (!DB::update("update problem_data_versions set status = 'ready', published_at = now(), pending = null where id = {$version_row['id']} and status in ('pending', 'preparing')") || DB::affected_rows() != 1) {
+			return;
+		}
+		$problem = queryProblemBrief($id);
+
+		// Judgers check what they download against the SHA256 of the version they were told to
+		// use, so they just try again when they ask in the middle of these renames.
+		clearstatcache();
+		$mtime = filemtime($prepare_dir);
+		if ($problem['data_version'] > 0 && is_file("/var/uoj_data/$id.zip")) {
+			if (!is_dir("/var/uoj_data/archive/$id")) {
+				mkdir("/var/uoj_data/archive/$id", 0755, true);
+			}
+			rename("/var/uoj_data/$id.zip", dataArchivePath($id, $problem['data_version']));
+		}
+		rename("$stage_dir/data.zip", "/var/uoj_data/$id.zip");
+		if (file_exists($data_dir)) {
+			rename($data_dir, "$stage_dir/old");
+		}
+		rename($prepare_dir, $data_dir);
+		// judgers that do not know versions yet compare modification times
+		touch($data_dir, $mtime);
+		exec("rm " . escapeshellarg($stage_dir) . " -rf");
+
+		$set = array("data_version = {$version_row['version']}");
+		if (isset($pending['hackable'])) {
+			$set[] = "hackable = " . ($pending['hackable'] ? 1 : 0);
+		}
+		if (isset($pending['requirement']) && !json_decode($problem['submission_requirement'], true)) {
+			$set[] = "submission_requirement = '" . DB::escape(json_encode($pending['requirement'])) . "'";
+		}
+		if (array_key_exists('custom_judger_fingerprint', (array)$pending)) {
+			$extra_config = json_decode($problem['extra_config'], true);
+			$extra_config = is_array($extra_config) ? $extra_config : array();
+			if ($pending['custom_judger_fingerprint'] === null) {
+				unset($extra_config['custom_judger_fingerprint']);
+			} else {
+				$extra_config['custom_judger_fingerprint'] = $pending['custom_judger_fingerprint'];
+			}
+			$set[] = "extra_config = '" . DB::escape(json_encode($extra_config)) . "'";
+		}
+		DB::update("update problems set " . join(', ', $set) . " where id = $id");
+
+		dataPruneArchives($id);
+
+		if (isset($pending['after']) && $pending['after'] == 'rejudge_ac') {
+			rejudgeProblemAC($problem);
+		}
+	}
+
+	// Gives up a version that is waiting in the staging folder of its problem.
+	function dataFailVersion($version_row, $message) {
+		if (!DB::update("update problem_data_versions set status = 'failed', pending = null, message = '" . DB::escape($message) . "' where id = {$version_row['id']} and status in ('pending', 'preparing')") || DB::affected_rows() != 1) {
+			return;
+		}
+		exec("rm " . escapeshellarg(dataStageDir($version_row['problem_id'])) . " -rf");
+
+		$pending = json_decode($version_row['pending'], true);
+		if (isset($pending['hack_id'])) {
+			$problem = queryProblemBrief($version_row['problem_id']);
+			error_log("hack #{$pending['hack_id']} succeeded but its extra test was not added: $message");
+			notifyHackNotApplied($problem, $pending['hack_id'], $message);
+		}
+	}
+
+	// the version of a problem that waits for a judger, if any
+	function dataWaitingVersion($problem_id) {
+		return DB::selectFirst("select * from problem_data_versions where problem_id = $problem_id and status in ('pending', 'preparing') order by id desc limit 1");
+	}
+
 	class UOJProblemConfException extends Exception {
 		public function __construct($message) {
 			parent::__construct("<strong>problem.conf</strong> : $message");
@@ -27,9 +256,18 @@
 			return "invalid problem id";
 		}
 
+		$waiting = dataWaitingVersion($id);
+		if ($waiting) {
+			dataFailVersion($waiting, 'the data of the problem was cleared');
+		}
+		exec("rm " . escapeshellarg(dataStageDir($id)) . " -rf");
 		exec("rm /var/uoj_data/upload/$id -r");
 		exec("rm /var/uoj_data/$id -r");
 		dataNewProblem($id);
+
+		// judgers must not go on with the copy they have
+		DB::update("update problems set data_version = 0 where id = $id");
+		dataCurrentVersion($problem, 'clear');
 	}
 
 	// Builds problem.conf from the values of the settings form, returns null when one of them is
@@ -135,15 +373,18 @@
 		// a sync that has not touched its staging folder for this long is considered dead
 		const STALE_SYNC_SECONDS = 1800;
 
-		private $problem, $user;
+		private $problem, $user, $options;
 		private $upload_dir, $data_dir, $stage_dir, $prepare_dir;
 		private $requirement, $problem_extra_config;
 		private $problem_conf, $final_problem_conf;
 		private $allow_files;
+		// what a judger has to build before the data can be used
+		private $prepare_steps = array();
 
-		public function __construct($problem, $user) {
+		public function __construct($problem, $user, $options = array()) {
 			$this->problem = $problem;
 			$this->user = $user;
+			$this->options = $options;
 		}
 
 		private function check_conf_on($name) {
@@ -186,80 +427,22 @@
 			}
 			$this->copy_to_prepare($file_name);
 		}
-		private function compile_at_prepare($name, $config = array()) {
-			global $uojMainJudgerWorkPath;
-			$include_path = "$uojMainJudgerWorkPath/include";
-
-			$work_path = $this->prepare_dir;
-			if (isset($config['path'])) {
-				$work_path .= '/' . $config['path'];
-			}
-
-			$cmd_prefix = "$uojMainJudgerWorkPath/run/run_program >{$this->prepare_dir}/run_compiler_result.txt --in=/dev/null --out=stderr --err={$this->prepare_dir}/compiler_result.txt --tl=15 --ml=2048 --ol=64 --type=compiler --add-readable-raw=$include_path/ --work-path=" . escapeshellarg($work_path);
-
-			$compile_cmd = "$uojMainJudgerWorkPath/run/compile";
-
+		// The programs are built by the judgers, in the sandbox that also compiles submissions.
+		private function need_compile($name, $config = array()) {
+			$step = array('type' => 'compile', 'name' => $name);
 			if (isset($config['need_include_header']) && $config['need_include_header']) {
-				$compile_cmd .= " --cinclude=" . escapeshellarg($include_path);
+				$step['include'] = true;
 			}
 			if (isset($config['impl'])) {
-				$compile_cmd .= " --impl=" . escapeshellarg($config['impl']);
+				$step['impl'] = $config['impl'];
 			}
-
-			$target_name = $name;
 			if (isset($config['path'])) {
-				$target_name = "../$name";
+				$step['path'] = $config['path'];
 			}
-			$compile_cmd .= " " . escapeshellarg($target_name);
-
-			exec("$cmd_prefix $compile_cmd", $output, $ret);
-
-			$fp = fopen("{$this->prepare_dir}/run_compiler_result.txt", "r");
-			if (fscanf($fp, '%d %d %d %d', $rs, $used_time, $used_memory, $exit_code) != 4) {
-				$rs = 7;
-			}
-			fclose($fp);
-
-			unlink("{$this->prepare_dir}/run_compiler_result.txt");
-
-			if ($rs != 0 || $exit_code != 0) {
-				if ($rs == 0) {
-					throw new Exception("<strong>$name</strong> : compile error<pre>\n" . uojFilePreview("{$this->prepare_dir}/compiler_result.txt", 4096) . "\n</pre>");
-				} elseif ($rs == 7) {
-					throw new Exception("<strong>$name</strong> : compile error. No comment");
-				} else {
-					throw new Exception("<strong>$name</strong> : compile error. Compiler " . judgerCodeStr($rs));
-				}
-			}
-
-			unlink("{$this->prepare_dir}/compiler_result.txt");
+			$this->prepare_steps[] = $step;
 		}
-		private function makefile_at_prepare() {
-			global $uojMainJudgerWorkPath;
-
-			$include_path = "$uojMainJudgerWorkPath/include";
-			$cmd_prefix = "$uojMainJudgerWorkPath/run/run_program >{$this->prepare_dir}/run_makefile_result.txt --in=/dev/null --out=stderr --err={$this->prepare_dir}/makefile_result.txt --tl=60 --ml=2048 --ol=64 --type=compiler --add-readable-raw=$include_path/ --work-path={$this->prepare_dir}";
-			exec("$cmd_prefix /usr/bin/make INCLUDE_PATH=$include_path");
-
-			$fp = fopen("{$this->prepare_dir}/run_makefile_result.txt", "r");
-			if (fscanf($fp, '%d %d %d %d', $rs, $used_time, $used_memory, $exit_code) != 4) {
-				$rs = 7;
-			}
-			fclose($fp);
-
-			unlink("{$this->prepare_dir}/run_makefile_result.txt");
-
-			if ($rs != 0 || $exit_code != 0) {
-				if ($rs == 0) {
-					throw new Exception("<strong>Makefile</strong> : compile error<pre>\n" . uojFilePreview("{$this->prepare_dir}/makefile_result.txt", 4096) . "\n</pre>");
-				} elseif ($rs == 7) {
-					throw new Exception("<strong>Makefile</strong> : compile error. No comment");
-				} else {
-					throw new Exception("<strong>Makefile</strong> : compile error. Compiler " . judgerCodeStr($rs));
-				}
-			}
-
-			unlink("{$this->prepare_dir}/makefile_result.txt");
+		private function need_make() {
+			$this->prepare_steps[] = array('type' => 'make');
 		}
 
 		public function handle() {
@@ -276,6 +459,13 @@
 			$this->stage_dir = "/var/uoj_data/prepare_$id";
 			$this->prepare_dir = "{$this->stage_dir}/$id";
 
+			$waiting = dataWaitingVersion($id);
+			if ($waiting) {
+				if (time() - strtotime($waiting['created_at']) <= self::STALE_SYNC_SECONDS) {
+					return "please wait until a judger has checked the data of the last sync";
+				}
+				dataFailVersion($waiting, 'no judger checked the data in time');
+			}
 			if (file_exists($this->stage_dir)) {
 				if (!$this->is_stage_stale()) {
 					return "please wait until the last sync finish";
@@ -284,11 +474,15 @@
 				exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
 			}
 
+			// creating the folder is what makes this sync the only one of the problem
+			if (!@mkdir($this->stage_dir, 0755)) {
+				return "please wait until the last sync finish";
+			}
+
 			try {
 				$this->requirement = array();
 				$this->problem_extra_config = json_decode($this->problem['extra_config'], true);
 
-				mkdir($this->stage_dir, 0755);
 				mkdir($this->prepare_dir, 0755);
 				if (!is_file("{$this->upload_dir}/problem.conf")) {
 					throw new UOJFileNotFoundException("problem.conf");
@@ -336,7 +530,7 @@
 							if (!$this->copy_source_files_to_prepare('chk')) {
 								throw new UOJFileNotFoundException('chk.*');
 							}
-							$this->compile_at_prepare('chk', array('need_include_header' => true));
+							$this->need_compile('chk', array('need_include_header' => true));
 						}
 					}
 
@@ -374,26 +568,26 @@
 								throw new UOJFileNotFoundException('std.*');
 							}
 							if (isset($this->problem_conf['with_implementer']) && $this->problem_conf['with_implementer'] == 'on') {
-								$this->compile_at_prepare('std',
+								$this->need_compile('std',
 									array(
 										'impl' => 'implementer',
 										'path' => 'require'
 									)
 								);
 							} else {
-								$this->compile_at_prepare('std');
+								$this->need_compile('std');
 							}
 							if (!$this->copy_source_files_to_prepare('val')) {
 								throw new UOJFileNotFoundException('val.*');
 							}
-							$this->compile_at_prepare('val', array('need_include_header' => true));
+							$this->need_compile('val', array('need_include_header' => true));
 						}
 
 						if ($this->check_conf_on('interaction_mode')) {
 							if (!$this->copy_source_files_to_prepare('interactor')) {
 								throw new UOJFileNotFoundException('interactor.*');
 							}
-							$this->compile_at_prepare('interactor', array('need_include_header' => true));
+							$this->need_compile('interactor', array('need_include_header' => true));
 						}
 
 						$n_sample_tests = getUOJConfVal($this->problem_conf, 'n_sample_tests', $n_tests);
@@ -424,7 +618,7 @@
 						foreach ($this->allow_files as $file_name => $file_num) {
 							$this->copy_to_prepare($file_name);
 						}
-						$this->makefile_at_prepare();
+						$this->need_make();
 
 						$this->requirement[] = array('name' => 'answer', 'type' => 'source code', 'file_name' => 'answer.code');
 					}
@@ -441,22 +635,53 @@
 
 				$zip_file->close();
 
-				$orig_requirement = json_decode($this->problem['submission_requirement'], true);
-				if (!$orig_requirement) {
-					$esc_requirement = DB::escape(json_encode($this->requirement));
-					DB::update("update problems set submission_requirement = '$esc_requirement' where id = $id");
-				}
-
 				$this->build_archive();
+				$version_row = $this->register_version();
 			} catch (Exception $e) {
 				exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
 				return $e->getMessage();
 			}
 
-			$this->publish();
-			$this->update_custom_judger_fingerprint();
+			if (!$this->prepare_steps) {
+				dataPublishVersion($version_row);
+			}
 
 			return '';
+		}
+
+		// everything that is applied to the problem when the version is published
+		private function pending_changes() {
+			$pending = array(
+				'hackable' => $this->problem['hackable'] ? 1 : 0,
+				'requirement' => $this->requirement
+			);
+			if ($this->check_conf_on('use_builtin_judger')) {
+				if (isset($this->problem_extra_config['custom_judger_fingerprint'])) {
+					$pending['custom_judger_fingerprint'] = null;
+				}
+			} elseif (isSuperUser($this->user)) {
+				$pending['custom_judger_fingerprint'] = dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf);
+			}
+			foreach (array('after', 'hack_id') as $name) {
+				if (isset($this->options[$name])) {
+					$pending[$name] = $this->options[$name];
+				}
+			}
+			return $pending;
+		}
+
+		private function register_version() {
+			$version_row = dataInsertVersion($this->problem['id'], "{$this->stage_dir}/data.zip", dataManifest($this->prepare_dir), array(
+				'status' => 'pending',
+				'prepare' => DB::escape(json_encode($this->prepare_steps)),
+				'pending' => DB::escape(json_encode($this->pending_changes())),
+				'created_by' => $this->user ? DB::escape($this->user['username']) : '',
+				'reason' => DB::escape(isset($this->options['reason']) ? $this->options['reason'] : 'sync')
+			));
+			if ($version_row == null) {
+				throw new Exception("failed to register the new version of the data");
+			}
+			return $version_row;
 		}
 
 		// A custom judger runs unrestricted on the judgers, so only a super user may sync one.
@@ -473,22 +698,6 @@
 			return is_string($approved) && hash_equals($approved, dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf));
 		}
 
-		private function update_custom_judger_fingerprint() {
-			$extra_config = is_array($this->problem_extra_config) ? $this->problem_extra_config : array();
-			if ($this->check_conf_on('use_builtin_judger')) {
-				if (!isset($extra_config['custom_judger_fingerprint'])) {
-					return;
-				}
-				unset($extra_config['custom_judger_fingerprint']);
-			} elseif (isSuperUser($this->user)) {
-				$extra_config['custom_judger_fingerprint'] = dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf);
-			} else {
-				return;
-			}
-			$esc_extra_config = DB::escape(json_encode($extra_config));
-			DB::update("update problems set extra_config = '$esc_extra_config' where id = {$this->problem['id']}");
-		}
-
 		private function is_stage_stale() {
 			clearstatcache();
 			$last_touched = max((int)@filemtime($this->stage_dir), (int)@filemtime($this->prepare_dir));
@@ -502,31 +711,18 @@
 				throw new Exception("<strong>$id.zip</strong> : failed to create the archive for judgers");
 			}
 		}
-
-		private function publish() {
-			$id = $this->problem['id'];
-			// Judgers compare the modification time of the data they download with the one of
-			// the data folder, so the archive goes first: a judger may get data that is newer
-			// than expected, but never data that is older.
-			clearstatcache();
-			$mtime = filemtime($this->prepare_dir);
-			rename("{$this->stage_dir}/data.zip", "/var/uoj_data/$id.zip");
-			if (file_exists($this->data_dir)) {
-				rename($this->data_dir, "{$this->stage_dir}/old");
-			}
-			rename($this->prepare_dir, $this->data_dir);
-			// keep the modification time recorded in the archive whatever the file system does
-			touch($this->data_dir, $mtime);
-			exec("rm " . escapeshellarg($this->stage_dir) . " -rf");
-		}
 	}
 
-	function dataSyncProblemData($problem, $user = null) {
-		return (new SyncProblemDataHandler($problem, $user))->handle();
+	// Makes a new version of the data of a problem from its upload folder. Returns '' when the
+	// version was published or is waiting for a judger to build its programs, or the reason
+	// why there is no new version.
+	function dataSyncProblemData($problem, $user = null, $options = array()) {
+		return (new SyncProblemDataHandler($problem, $user, $options))->handle();
 	}
-	// Adds the data of a successful hack as an extra test, syncs the problem and rejudges the
-	// accepted submissions. Returns '' or the reason why this could not be done.
-	function dataAddExtraTest($problem, $input_file_name, $output_file_name) {
+	// Adds the data of a successful hack as an extra test and syncs the problem. The accepted
+	// submissions are judged again once the new data is published. Returns '' or the reason why
+	// this could not be done.
+	function dataAddExtraTest($problem, $input_file_name, $output_file_name, $hack_id) {
 		$id = $problem['id'];
 
 		$cur_dir = "/var/uoj_data/upload/$id";
@@ -552,11 +748,10 @@
 			putUOJConf("$cur_dir/problem.conf", $problem_conf);
 
 			// nobody asked for this sync, so it runs without the permissions of any user
-			$ret = dataSyncProblemData($problem);
+			$ret = dataSyncProblemData($problem, null, array('reason' => 'hack', 'after' => 'rejudge_ac', 'hack_id' => (int)$hack_id));
 			if ($ret !== '') {
 				return 'the extra test was saved but the sync failed: ' . $ret;
 			}
-			rejudgeProblemAC($problem);
 			return '';
 		} finally {
 			flock($lock, LOCK_UN);

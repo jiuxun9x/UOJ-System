@@ -1,5 +1,6 @@
 <?php
 	requirePHPLib('judger');
+	requirePHPLib('data');
 	
 	requireJudgerAuthentication();
 	
@@ -17,7 +18,16 @@
 			if (!validateUInt($id) || !($problem = queryProblemBrief($id))) {
 				become404Page();
 			}
-			$file_name = "/var/uoj_data/$id.zip";
+			if (isset($_GET['version'])) {
+				// a version that is published, that waits for a judger, or whose archive was kept
+				$version_row = queryProblemDataVersion($id, $_GET['version']);
+				$file_name = $version_row ? dataArchiveOfVersion($version_row) : null;
+				if ($file_name === null) {
+					become404Page();
+				}
+			} else {
+				$file_name = "/var/uoj_data/$id.zip";
+			}
 			$download_name = "$id.zip";
 			break;
 		case 'judger':

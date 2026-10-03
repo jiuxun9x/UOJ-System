@@ -13,6 +13,12 @@
 	$oj_name = UOJConfig::$data['profile']['oj-name'];
 	$problem_extra_config = getProblemExtraConfig($problem);
 
+	// a version that no judger has checked for a long time will never be checked
+	$waiting_version = dataWaitingVersion($problem['id']);
+	if ($waiting_version && time() - strtotime($waiting_version['created_at']) > SyncProblemDataHandler::STALE_SYNC_SECONDS) {
+		dataFailVersion($waiting_version, 'no judger checked the data in time');
+	}
+
 	$data_dir = "/var/uoj_data/${problem['id']}";
 
 	function echoFileNotFound($file_name) {
@@ -316,10 +322,9 @@ EOD
 				} else {
 					echoFileNotFound($src_name);
 				}
+				// the program itself is built by the judgers, it is only part of data published long ago
 				if (isset($allow_files[$name])) {
 					echoFilePre($name);
-				} else {
-					echoFileNotFound($name);
 				}
 			};
 		};
@@ -448,13 +453,11 @@ EOD
 		global $problem, $myUser;
 		$problem['hackable'] = !$problem['hackable'];
 		//$problem['hackable'] = 0;
-		$ret = dataSyncProblemData($problem, $myUser);
+		// the switch takes effect when the data that was built for it is published
+		$ret = dataSyncProblemData($problem, $myUser, array('reason' => 'hackable'));
 		if ($ret) {
 			becomeMsgPage('<div>' . $ret . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
 		}
-		
-		$hackable = $problem['hackable'] ? 1 : 0;
-		DB::query("update problems set hackable = $hackable where id = ${problem['id']}");
 	};
 	$hackable_form->submit_button_config['class_str'] = 'btn btn-warning btn-block';
 	$hackable_form->submit_button_config['text'] = $problem['hackable'] ? '禁止使用hack' : '允许使用hack';
@@ -614,6 +617,21 @@ EOD
 	<li class="nav-item"><a class="nav-link" href="/problem/<?=$problem['id']?>" role="tab">返回</a></li>
 </ul>
 
+<?php
+	$data_versions = DB::selectAll("select version, status, sha256, size, created_at, created_by, reason, message, judger_name from problem_data_versions where problem_id = {$problem['id']} order by version desc limit 20");
+	$data_version_status_names = array('pending' => '等待评测机', 'preparing' => '评测机校验中', 'ready' => '已发布', 'failed' => '未发布');
+	$data_version_reason_names = array('sync' => '同步数据', 'hackable' => '切换 hack', 'hack' => 'hack 成功', 'clear' => '清空数据', 'legacy' => '已有数据');
+?>
+<?php if ($data_versions && in_array($data_versions[0]['status'], array('pending', 'preparing'))): ?>
+<div class="alert alert-info top-buffer-sm" role="alert">
+	数据版本 <?= $data_versions[0]['version'] ?> 正在等待评测机编译题目附带的程序，通过后自动发布。在此之前评测仍使用已发布的数据。
+</div>
+<?php elseif ($data_versions && $data_versions[0]['status'] == 'failed'): ?>
+<div class="alert alert-danger top-buffer-sm" role="alert">
+	数据版本 <?= $data_versions[0]['version'] ?> 未能发布，评测仍使用之前发布的数据。
+	<pre><?= HTML::escape($data_versions[0]['message']) ?></pre>
+</div>
+<?php endif ?>
 <div class="row">
 	<div class="col-md-10 top-buffer-sm">
 		<div class="row">
@@ -691,6 +709,41 @@ EOD
 		</div>
 	</div>
 
+	<div class="col-md-12 top-buffer-md">
+		<h4>数据版本</h4>
+		<table class="table table-bordered table-hover table-striped table-text-center">
+			<thead>
+				<tr>
+					<th>版本</th>
+					<th>状态</th>
+					<th>时间</th>
+					<th>操作者</th>
+					<th>原因</th>
+					<th>大小</th>
+					<th>SHA256</th>
+					<th>数据包</th>
+				</tr>
+			</thead>
+			<tbody>
+			<?php foreach ($data_versions as $data_version): ?>
+				<tr>
+					<td><?= $data_version['version'] ?><?= $data_version['version'] == $problem['data_version'] ? '（当前）' : '' ?></td>
+					<td><?= $data_version_status_names[$data_version['status']] ?></td>
+					<td><?= $data_version['created_at'] ?></td>
+					<td><?= $data_version['created_by'] !== '' ? HTML::escape($data_version['created_by']) : '系统' ?></td>
+					<td><?= isset($data_version_reason_names[$data_version['reason']]) ? $data_version_reason_names[$data_version['reason']] : HTML::escape($data_version['reason']) ?></td>
+					<td><?= $data_version['size'] ?></td>
+					<td><code><?= substr($data_version['sha256'], 0, 16) ?></code></td>
+					<td>
+					<?php if (dataArchiveOfVersion(array('problem_id' => $problem['id']) + $data_version) !== null): ?>
+						<a href="/download.php?type=problem-data&amp;id=<?= $problem['id'] ?>&amp;version=<?= $data_version['version'] ?>">下载</a>
+					<?php endif ?>
+					</td>
+				</tr>
+			<?php endforeach ?>
+			</tbody>
+		</table>
+	</div>
 	<div class="modal fade" id="UploadDataModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
   		<div class="modal-dialog">
     			<div class="modal-content">

@@ -265,6 +265,26 @@
 	};
 	$judger_deleter->runAtServer();
 
+	// a judger that is switched off finishes what it is judging and is given nothing new
+	$judger_switcher = new UOJForm('judger_switcher');
+	$judger_switcher->addInput('judger_switcher_name', 'text', '评测机名称', '',
+		function ($x, &$vdata) {
+			if (!validateUsername($x)) {
+				return '不合法';
+			}
+			if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
+				return '不合法';
+			}
+			$vdata['name'] = $x;
+			return '';
+		},
+		null
+	);
+	$judger_switcher->handle = function(&$vdata) {
+		DB::update("update judger_info set enabled = 1 - enabled where judger_name='{$vdata['name']}'");
+	};
+	$judger_switcher->runAtServer();
+
 	$paste_deleter = new UOJForm('paste_deleter');
 	$paste_deleter->addInput('paste_deleter_name', 'text', 'Paste ID', '',
 		function ($x, &$vdata) {
@@ -281,19 +301,44 @@
 	};
 	$paste_deleter->runAtServer();
 	
-	$judgerlist_cols = array('judger_name', 'password');
+	$judgerlist_cols = array('judger_name', 'password', 'enabled', 'last_heartbeat_at', 'version', 'timestampdiff(second, last_heartbeat_at, now()) as silent_seconds');
 	$judgerlist_config = array();
 	$judgerlist_header_row = <<<EOD
 	<tr>
 		<th>评测机名称</th>
 		<th>密码</th>
+		<th>状态</th>
+		<th>最近响应</th>
+		<th>版本</th>
+		<th>正在评测</th>
 	</tr>
 EOD;
 	$judgerlist_print_row = function($row) {
+		if ($row['last_heartbeat_at'] === null) {
+			$status = '从未连接';
+		} elseif ($row['silent_seconds'] <= 30) {
+			$status = '在线';
+		} else {
+			$status = '<span class="text-danger">离线</span>';
+		}
+		if (!$row['enabled']) {
+			$status .= '，已停用';
+		}
+		// a judger that reports no version is too old to be given work
+		$version = $row['version'] !== '' ? HTML::escape($row['version']) : '<span class="text-danger">未上报，需要升级</span>';
+		$judging = array();
+		foreach (DB::selectAll("select kind, target_id from submission_judgements where judger_name = '{$row['judger_name']}' and finished_at is null order by id desc limit 3") as $judgement) {
+			$judging[] = $judgement['kind'] . ' #' . $judgement['target_id'];
+		}
+		$judging = join(', ', $judging);
 		echo <<<EOD
 			<tr>
 				<td>{$row['judger_name']}</td>
 				<td>{$row['password']}</td>
+				<td>{$status}</td>
+				<td>{$row['last_heartbeat_at']}</td>
+				<td>{$version}</td>
+				<td>{$judging}</td>
 			</tr>
 EOD;
 	};
@@ -475,6 +520,10 @@ EOD;
 			<div>
 				<h4>删除评测机</h4>
 				<?php $judger_deleter->printHTML(); ?>
+			</div>
+			<div>
+				<h4>停用/启用评测机</h4>
+				<?php $judger_switcher->printHTML(); ?>
 			</div>
 			<h3>评测机列表</h3>
 			<?php echoLongTable($judgerlist_cols, 'judger_info', "1=1", '', $judgerlist_header_row, $judgerlist_print_row, $judgerlist_config) ?>

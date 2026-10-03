@@ -30,6 +30,40 @@ class Upgrader {
 		}
 	}
 	
+	// Helpers for upgrade.php: MySQL can not add a column or an index "if it does not exist",
+	// and an upgrade that failed half way has to be able to run again.
+	public static function columnExists($table, $column) {
+		return DB::selectFirst("select 1 from information_schema.columns where table_schema = database() and table_name = '$table' and column_name = '$column'") != null;
+	}
+	public static function indexExists($table, $index) {
+		return DB::selectFirst("select 1 from information_schema.statistics where table_schema = database() and table_name = '$table' and index_name = '$index'") != null;
+	}
+	public static function exec($sql) {
+		if (!DB::query($sql)) {
+			self::fail("upgrade failed: $sql\n".DB::error()."\n");
+		}
+	}
+	public static function addColumn($table, $column, $definition) {
+		if (!self::columnExists($table, $column)) {
+			self::exec("alter table `$table` add column `$column` $definition");
+		}
+	}
+	public static function dropColumn($table, $column) {
+		if (self::columnExists($table, $column)) {
+			self::exec("alter table `$table` drop column `$column`");
+		}
+	}
+	public static function addIndex($table, $index, $columns) {
+		if (!self::indexExists($table, $index)) {
+			self::exec("alter table `$table` add index `$index` ($columns)");
+		}
+	}
+	public static function dropIndex($table, $index) {
+		if (self::indexExists($table, $index)) {
+			self::exec("alter table `$table` drop index `$index`");
+		}
+	}
+	
 	public static function transaction($fun) {
 		// a named lock, unlike LOCK TABLES, lets an upgrade use every table
 		$lock = DB::selectFirst("select get_lock('uoj_upgrade', 60)", MYSQLI_NUM);

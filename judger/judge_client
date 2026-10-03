@@ -9,6 +9,7 @@ from threading import Thread
 import fcntl
 import hashlib
 import shutil
+import subprocess
 import tempfile
 
 import traceback
@@ -21,6 +22,10 @@ from queue import Queue, Empty
 
 taskQ = Queue()
 submission = None
+
+# The web server only gives work to judgers that know versions of problem data and build the
+# programs of a problem themselves.
+PROTOCOL = 2
 
 # path related function
 
@@ -62,7 +67,18 @@ def log(*args):
     print("[" + time.asctime() + "]", *args, file=sys.stderr)
 
 
+def log_event(event, **fields):
+    """write one line that can be found and parsed again, for what should be traceable"""
+    log(event, json.dumps(fields, sort_keys=True))
+
+
 class UOJAuthError(Exception):
+    pass
+
+
+class PrepareError(Exception):
+    """the programs that come with the data of a problem can not be built"""
+
     pass
 
 
@@ -78,6 +94,47 @@ def init():
         assert "judger_password" in jconf
         assert "socket_port" in jconf
         assert "socket_password" in jconf
+
+
+judger_identity = None
+
+
+def describe_judger():
+    """the version of this judger and of its tools, which the web server keeps with every result"""
+    global judger_identity
+    if judger_identity is None:
+        digest = hashlib.sha256()
+        programs = ["/main_judger", "/run/run_program", "/run/compile", "/builtin/judger/judger"]
+        for path in ["judge_client"] + [uoj_judger_path(name) for name in programs]:
+            try:
+                with open(path, "rb") as f:
+                    digest.update(f.read())
+            except OSError:
+                digest.update(b"missing")
+
+        toolchain = {}
+        commands = {
+            "g++": "g++ --version",
+            "gcc": "gcc --version",
+            "fpc": "fpc -iV",
+            "java": "java -version",
+            "python3": "python3 --version",
+            "kernel": "uname -sr",
+        }
+        for name, command in commands.items():
+            try:
+                p = subprocess.run(
+                    command, shell=True, timeout=20, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+                )
+                lines = p.stdout.decode(errors="replace").strip().splitlines()
+                toolchain[name] = lines[0][:100] if p.returncode == 0 and lines else "unavailable"
+            except Exception:
+                toolchain[name] = "unavailable"
+        judger_identity = {
+            "judger_version": digest.hexdigest()[:16],
+            "toolchain": json.dumps(toolchain, sort_keys=True),
+        }
+    return judger_identity
 
 
 # socket server
@@ -126,31 +183,64 @@ def start_judger_server():
 
 
 # report thread
-def report_loop():
-    if "is_hack" in submission:
-        return
-    while not submission_judged:
-        try:
-            with open(uoj_judger_path("/result/cur_status.txt"), "r") as f:
-                fcntl.flock(f, fcntl.LOCK_SH)
-                try:
-                    status = f.read(100)
-                except Exception:
-                    status = None
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+#
+# While a task is being done the web server is told every few seconds that this judger is alive,
+# otherwise it gives the task to another judger. The progress of a judgement counts as well.
+SIGN_OF_LIFE_INTERVAL = 5
 
-            if status is not None:
-                data = {}
-                data["update-status"] = True
-                data["id"] = submission["id"]
-                if "is_custom_test" in submission:
-                    data["is_custom_test"] = True
-                data["status"] = status
-                uoj_interact(data)
-            time.sleep(0.2)
+task_finished = True
+judging_started = False
+
+
+def read_judge_status():
+    with open(uoj_judger_path("/result/cur_status.txt"), "r") as f:
+        fcntl.flock(f, fcntl.LOCK_SH)
+        try:
+            return f.read(100)
+        except Exception:
+            return None
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def report_loop():
+    last_report = time.time()
+    while not task_finished:
+        try:
+            if judging_started and "is_hack" not in submission:
+                status = read_judge_status()
+                if status is not None:
+                    data = {}
+                    data["update-status"] = True
+                    data["id"] = submission["id"]
+                    if "is_custom_test" in submission:
+                        data["is_custom_test"] = True
+                    data["status"] = status
+                    uoj_interact(data)
+                    last_report = time.time()
+            if time.time() - last_report >= SIGN_OF_LIFE_INTERVAL:
+                last_report = time.time()
+                uoj_interact({"heartbeat": "1"})
         except Exception:
             pass
+        time.sleep(0.2)
+
+
+def run_task(task):
+    """run a function that does a task of the web server, reporting until it returns"""
+    global task_finished
+    global judging_started
+
+    task_finished = False
+    judging_started = False
+    report_thread = Thread(target=report_loop)
+    report_thread.daemon = True
+    report_thread.start()
+    try:
+        return task()
+    finally:
+        task_finished = True
+        report_thread.join()
 
 
 # handle task in main thread
@@ -232,70 +322,195 @@ def get_judger_result():
 # how many times to download the problem data when the web server is still publishing it
 PROBLEM_DATA_DOWNLOAD_TRIES = 5
 
+COMPILER_VERDICTS = [
+    "Accepted",
+    "Wrong Answer",
+    "Runtime Error",
+    "Memory Limit Exceeded",
+    "Time Limit Exceeded",
+    "Output Limit Exceeded",
+    "Dangerous Syscalls",
+    "Judgement Failed",
+]
 
-def fetch_problem_data(problem_id, problem_mtime, tmp_dir):
-    """download and extract the problem data into tmp_dir, return the extracted folder"""
+
+def data_version_file(problem_id):
+    return os.path.join(uoj_judger_path("/data"), "%d.version" % problem_id)
+
+
+def cached_data_version(problem_id):
+    """the version of the data of a problem in data/<problem_id>, None when it is not known"""
+    try:
+        with open(data_version_file(problem_id), "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def fetch_problem_data(problem_id, version, sha256, tmp_dir):
+    """download and extract a version of the problem data into tmp_dir, return the folder"""
     zip_name = os.path.join(tmp_dir, "data.zip")
     extract_dir = os.path.join(tmp_dir, "extract")
     new_copy_name = os.path.join(extract_dir, str(problem_id))
 
-    size, sha256 = uoj_download("/problem/%d" % problem_id, zip_name)
+    size, got_sha256 = uoj_download("/problem/%d/%d" % (problem_id, version), zip_name)
+    if got_sha256 != sha256:
+        raise Exception(
+            "the data of problem #%d is not version %d: SHA256 is %s, expected %s"
+            % (problem_id, version, got_sha256, sha256)
+        )
     os.mkdir(extract_dir)
     execute("unzip -q %s -d %s" % (pipes.quote(zip_name), pipes.quote(extract_dir)))
     os.unlink(zip_name)
 
     if not os.path.isfile(os.path.join(new_copy_name, "problem.conf")):
         raise Exception("problem.conf is missing in the data of problem #%d" % problem_id)
-    if os.path.getmtime(new_copy_name) < problem_mtime:
-        raise Exception(
-            "the data of problem #%d on the web server is still out of date" % problem_id
-        )
+    return new_copy_name, size
 
-    log(
-        "downloaded problem data: problem=%d size=%d sha256=%s mtime=%d"
-        % (problem_id, size, sha256, os.path.getmtime(new_copy_name))
+
+def run_compiler(scratch_dir, work_path, time_limit, command, what):
+    """run a compiler in the sandbox that also compiles submissions"""
+    main_path = os.path.abspath(uoj_judger_path())
+    result_file = os.path.join(scratch_dir, "compiler_result.txt")
+    message_file = os.path.join(scratch_dir, "compiler_message.txt")
+    for name in (result_file, message_file, os.path.join(scratch_dir, "uoj_overloaded")):
+        if os.path.exists(name):
+            os.unlink(name)
+
+    subprocess.call(
+        [
+            main_path + "/run/run_program",
+            "--res=" + result_file,
+            "--in=/dev/null",
+            "--out=stderr",
+            "--err=" + message_file,
+            "--tl=%d" % time_limit,
+            "--ml=2048",
+            "--ol=64",
+            "--type=compiler",
+            "--add-readable-raw=" + main_path + "/include/",
+            "--work-path=" + work_path,
+        ]
+        + command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    return new_copy_name
+    if os.path.exists(os.path.join(scratch_dir, "uoj_overloaded")):
+        raise Exception("this judger was too busy to build %s" % what)
 
-
-def update_problem_data(problem_id, problem_mtime):
     try:
-        if jconf["judger_name"] == "main_judger":
-            return
-        if isinstance(problem_mtime, bool) or not isinstance(problem_mtime, (int, float)):
+        with open(result_file, "r") as f:
+            verdict, _, _, exit_code = [int(x) for x in f.readline().split()]
+    except Exception:
+        raise Exception("failed to run the compiler of %s" % what)
+    if verdict == 0 and exit_code == 0:
+        return
+
+    if verdict != 0:
+        name = COMPILER_VERDICTS[verdict] if 0 <= verdict < len(COMPILER_VERDICTS) else "failed"
+        raise PrepareError("%s: compile error. Compiler %s" % (what, name))
+    try:
+        with open(message_file, "rb") as f:
+            message = f.read(4096).decode("utf-8", errors="replace")
+    except OSError:
+        message = ""
+    raise PrepareError("%s: compile error\n%s" % (what, message))
+
+
+def build_problem_programs(data_dir, steps, scratch_dir):
+    """build the programs that come with the data of a problem: checker, validator and so on"""
+    main_path = os.path.abspath(uoj_judger_path())
+    data_dir = os.path.abspath(data_dir)
+    for step in steps or []:
+        if step.get("type") == "compile":
+            name = step.get("name")
+            if name not in ("chk", "std", "val", "interactor"):
+                raise PrepareError("unknown program to build: %r" % (name,))
+            command = [main_path + "/run/compile"]
+            if step.get("include"):
+                command.append("--cinclude=" + main_path + "/include")
+            if step.get("impl") is not None:
+                if step["impl"] != "implementer":
+                    raise PrepareError("unknown implementer: %r" % (step["impl"],))
+                command.append("--impl=implementer")
+            work_path = data_dir
+            target = name
+            if step.get("path") is not None:
+                if step["path"] != "require":
+                    raise PrepareError("unknown folder to build in: %r" % (step["path"],))
+                work_path = os.path.join(data_dir, "require")
+                target = "../" + name
+            run_compiler(scratch_dir, work_path, 15, command + [target], name)
+        elif step.get("type") == "make":
+            command = ["/usr/bin/make", "INCLUDE_PATH=" + main_path + "/include"]
+            run_compiler(scratch_dir, data_dir, 60, command, "Makefile")
+        else:
+            raise PrepareError("unknown step to build the data: %r" % (step,))
+
+
+def evict_problem_data(keep):
+    """keep the data of the problems used last, and nothing an interrupted update left behind"""
+    data_root = uoj_judger_path("/data")
+    folders = []
+    for fname in os.listdir(data_root):
+        if fname.startswith("."):
+            remove_tree(os.path.join(data_root, fname))
+        elif os.path.isdir(os.path.join(data_root, fname)):
+            folders.append(fname)
+    folders.sort(key=lambda fname: os.path.getatime(os.path.join(data_root, fname)))
+    for fname in folders[:-99]:
+        if fname != keep:
+            remove_tree(os.path.join(data_root, fname))
+            if os.path.exists(os.path.join(data_root, fname + ".version")):
+                os.unlink(os.path.join(data_root, fname + ".version"))
+
+
+def update_problem_data(problem_id, version, sha256, steps):
+    """make data/<problem_id> the given version of the data of a problem, programs included"""
+    wanted = {"version": version, "sha256": sha256}
+    event = {
+        "judger": jconf["judger_name"],
+        "problem_id": problem_id,
+        "version": version,
+        "sha256": sha256,
+        "url": uoj_url("/judge/download/problem/%s/%s" % (problem_id, version)),
+        "path": os.path.abspath(os.path.join(uoj_judger_path("/data"), str(problem_id))),
+    }
+    try:
+        if isinstance(version, bool) or not isinstance(version, int) or not isinstance(sha256, str):
             raise Exception("the web server has no data for problem #%d" % problem_id)
 
         data_root = uoj_judger_path("/data")
         copy_name = os.path.join(data_root, str(problem_id))
-        if os.path.isdir(copy_name) and os.path.getmtime(copy_name) >= problem_mtime:
+        if os.path.isdir(copy_name) and cached_data_version(problem_id) == wanted:
             execute("touch -a %s" % pipes.quote(copy_name))
             return
 
-        # folders starting with a dot are left by an interrupted update
-        for fname in os.listdir(data_root):
-            if fname.startswith("."):
-                remove_tree(os.path.join(data_root, fname))
-        del_list = sorted(
-            os.listdir(data_root),
-            key=lambda fname: os.path.getatime(os.path.join(data_root, fname)),
-        )[:-99]
-        for fname in del_list:
-            if fname != str(problem_id):
-                remove_tree(os.path.join(data_root, fname))
+        evict_problem_data(str(problem_id))
 
-        # The data is downloaded and extracted in a temporary folder and only moved to its place
-        # when it is complete, so a failed update never leaves a broken copy behind.
+        # The data is downloaded, extracted and built in a temporary folder and only moved to
+        # its place when it is complete, so a failed update never leaves a broken copy behind.
         for tries_left in range(PROBLEM_DATA_DOWNLOAD_TRIES - 1, -1, -1):
             tmp_dir = tempfile.mkdtemp(prefix=".tmp_%d_" % problem_id, dir=data_root)
             try:
-                new_copy_name = fetch_problem_data(problem_id, problem_mtime, tmp_dir)
+                new_copy_name, event["size"] = fetch_problem_data(problem_id, version, sha256, tmp_dir)
+                build_problem_programs(new_copy_name, steps, tmp_dir)
+                # without this file the copy is not trusted, so it goes first and comes last
+                if os.path.exists(data_version_file(problem_id)):
+                    os.unlink(data_version_file(problem_id))
                 if os.path.isdir(copy_name):
                     # a folder must be writable to be moved to another folder
                     os.chmod(copy_name, 0o700)
                     os.rename(copy_name, os.path.join(tmp_dir, "old"))
                 os.rename(new_copy_name, copy_name)
                 execute("chmod -R a-w %s" % pipes.quote(copy_name))
+                with open(os.path.join(tmp_dir, "version"), "w") as f:
+                    json.dump(wanted, f)
+                os.rename(os.path.join(tmp_dir, "version"), data_version_file(problem_id))
                 break
+            except PrepareError:
+                # trying again would not build what does not build
+                raise
             except Exception:
                 if tries_left == 0:
                     raise
@@ -303,22 +518,43 @@ def update_problem_data(problem_id, problem_mtime):
                 time.sleep(2)
             finally:
                 remove_tree(tmp_dir)
-    except Exception:
+    except Exception as e:
+        log_event("problem_data_sync", result="%s: %s" % (type(e).__name__, e), **event)
+        raise
+    else:
+        log_event("problem_data_sync", result="ok", **event)
+
+
+def prepare():
+    """build a version of problem data that waits to be published, tell whether it can be used"""
+    report = {"prepare_result": "1", "id": submission["prepare"]["id"]}
+    try:
+        update_problem_data(
+            submission["problem_id"],
+            submission.get("problem_data_version"),
+            submission.get("problem_data_sha256"),
+            submission.get("problem_data_prepare"),
+        )
+    except Exception as e:
         print_judge_client_status()
         traceback.print_exc()
-        raise Exception("failed to update problem data of #%d" % problem_id)
+        report.update({"ok": "0", "message": str(e)})
     else:
-        print_judge_client_status()
-        print("updated problem data of #%d successfully" % problem_id, file=sys.stderr)
+        report.update({"ok": "1", "message": ""})
+    return report
 
 
 def judge():
-    global report_thread
-    global submission_judged
+    global judging_started
 
     clean_up_folder(uoj_judger_path("/work"))
     clean_up_folder(uoj_judger_path("/result"))
-    update_problem_data(submission["problem_id"], submission["problem_mtime"])
+    update_problem_data(
+        submission["problem_id"],
+        submission.get("problem_data_version"),
+        submission.get("problem_data_sha256"),
+        submission.get("problem_data_prepare"),
+    )
 
     with open(uoj_judger_path("/work/submission.conf"), "w") as fconf:
         uoj_download(submission["content"]["file_name"], uoj_judger_path("/work/all.zip"))
@@ -345,14 +581,13 @@ def judge():
         elif "is_custom_test" in submission:
             print("custom_test on", file=fconf)
 
-    report_thread = Thread(target=report_loop)
-    report_thread.setDaemon(True)
+    judging_started = True
+    execute("cd %s && ./main_judger" % (pipes.quote(uoj_judger_path())))
+    judging_started = False
 
-    submission_judged = False
-    report_thread.start()
-    execute('cd %s && ./main_judger' % (pipes.quote(uoj_judger_path())))
-    submission_judged = True
-    report_thread.join()
+    # run_program leaves this file when it gave up because the machine was too busy to judge
+    if os.path.exists(uoj_judger_path("/result/uoj_overloaded")):
+        raise Exception("this judger was too busy to judge")
 
     return get_judger_result()
 
@@ -431,7 +666,20 @@ def read_hack_files():
     return files
 
 
-def send_and_fetch(result=None, fetch_new=True):
+def give_back_report():
+    """what tells the web server that this judger could not do the task it was given"""
+    report = {"requeue": "1"}
+    if "is_hack" in submission:
+        report["is_hack"] = True
+        report["id"] = submission["hack"]["id"]
+    else:
+        report["id"] = submission["id"]
+        if "is_custom_test" in submission:
+            report["is_custom_test"] = True
+    return report
+
+
+def send_and_fetch(result=None, fetch_new=True, report=None):
     global submission
 
     """send judgement result, and fetch new submission to judge"""
@@ -442,9 +690,18 @@ def send_and_fetch(result=None, fetch_new=True):
     if not fetch_new:
         # not False: it would be sent as the string "False", which PHP takes for true
         data["fetch_new"] = "0"
+    else:
+        data["protocol"] = PROTOCOL
+        data.update(describe_judger())
+
+    if report is not None:
+        data.update(report)
 
     if result is not None:
         data["submit"] = True
+        # the data the judgement was made with
+        data["problem_data_version"] = submission.get("problem_data_version")
+        data["problem_data_sha256"] = submission.get("problem_data_sha256")
         if "is_hack" in submission:
             data["is_hack"] = True
             data["id"] = submission["hack"]["id"]
@@ -519,12 +776,22 @@ def judger_loop():
             print_judge_client_status()
             print("judging", file=sys.stderr)
 
+        if "prepare" in submission:
+            ok = send_and_fetch(fetch_new=fetch_new, report=run_task(prepare))
+            continue
+
         try:
-            res = judge()
+            res = run_task(judge)
         except Exception:
+            # Nothing was judged: the data could not be fetched or built here, or the machine was
+            # too busy. The submission is not to blame, so another judger gets to try.
             print_judge_client_status()
             traceback.print_exc()
-            res = False
+            send_and_fetch(fetch_new=False, report=give_back_report())
+            # leave the task to the other judgers for a moment
+            ok = False
+            time.sleep(5)
+            continue
 
         ok = send_and_fetch(result=res, fetch_new=fetch_new)
 

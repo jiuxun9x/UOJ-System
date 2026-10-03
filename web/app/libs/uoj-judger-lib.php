@@ -3,16 +3,25 @@
 	$uojSupportedLanguages = array('C89', 'C99', 'C11', 'C17', 'C23', 'C++98', 'C++03', 'C++11', 'C++14', 'C++17', 'C++20', 'C++23', 'C++26', 'Java8', 'Java11', 'Java17', 'Java21', 'Pascal', 'Python2', 'Python3');
 	$uojMainJudgerWorkPath = "/opt/uoj/judger/uoj_judger";
 	
+	// the judger that makes the request, set by requireJudgerAuthentication()
+	global $uojJudger;
+	$uojJudger = null;
+	
 	function authenticateJudger() {
+		global $uojJudger;
 		if (!is_string($_POST['judger_name']) || !is_string($_POST['password'])) {
 			return false;
 		}
 		$esc_judger_name = DB::escape($_POST['judger_name']);
-		$judger = DB::selectFirst("select password from judger_info where judger_name = '$esc_judger_name'");
+		$judger = DB::selectFirst("select * from judger_info where judger_name = '$esc_judger_name'");
 		if ($judger == null) {
 			return false;
 		}
-		return hash_equals($judger['password'], $_POST['password']);
+		if (!hash_equals($judger['password'], $_POST['password'])) {
+			return false;
+		}
+		$uojJudger = $judger;
+		return true;
 	}
 	function requireJudgerAuthentication() {
 		if (!authenticateJudger()) {
@@ -20,6 +29,10 @@
 			header($_SERVER['SERVER_PROTOCOL'] . " 403 Forbidden", true, 403);
 			die("judger authentication failed");
 		}
+		// Every request is a sign of life. A judger reports its progress several times a second,
+		// so the time is only written when it has become a few seconds old.
+		$esc_judger_name = DB::escape($_POST['judger_name']);
+		DB::update("update judger_info set last_heartbeat_at = now() where judger_name = '$esc_judger_name' and (last_heartbeat_at is null or last_heartbeat_at < now() - interval 3 second)");
 	}
 	
 	function judgerCodeStr($code) {

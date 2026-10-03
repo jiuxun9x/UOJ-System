@@ -131,6 +131,49 @@
 <?php echoUOJPageHeader(UOJLocale::get('problems::submission').' #'.$submission['id']) ?>
 <?php echoSubmissionsListOnlyOne($submission, array(), $myUser) ?>
 
+<?php if (hasProblemPermission($myUser, $problem)): ?>
+	<?php
+		// who judged the submission, with which data and which tools
+		$judgements = DB::selectAll("select * from submission_judgements where kind = 'submission' and target_id = {$submission['id']} order by id desc limit 10");
+		$judgement_outcome_names = array('judged' => '完成', 'reclaimed' => '评测机未完成，已重新排队', 'failed' => '多次未完成，判为失败', 'superseded' => '评测中被要求重测');
+	?>
+	<?php if ($judgements): ?>
+	<div class="card border-secondary mb-3">
+		<div class="card-header bg-secondary text-white">评测记录</div>
+		<div class="card-body table-responsive">
+			<table class="table table-bordered table-text-center mb-0">
+				<thead>
+					<tr>
+						<th>开始时间</th>
+						<th>结束时间</th>
+						<th>评测机</th>
+						<th>数据版本</th>
+						<th>数据 SHA256</th>
+						<th>评测机版本</th>
+						<th>结果</th>
+						<th>得分</th>
+					</tr>
+				</thead>
+				<tbody>
+				<?php foreach ($judgements as $judgement): ?>
+					<tr>
+						<td><?= $judgement['started_at'] ?></td>
+						<td><?= $judgement['finished_at'] ?></td>
+						<td><?= HTML::escape($judgement['judger_name']) ?></td>
+						<td><?= $judgement['problem_data_version'] ?></td>
+						<td><code><?= substr($judgement['problem_data_sha256'], 0, 16) ?></code></td>
+						<td><span title="<?= HTML::escape($judgement['toolchain']) ?>"><?= HTML::escape($judgement['judger_version']) ?></span></td>
+						<td><?= $judgement['outcome'] === null ? '评测中' : $judgement_outcome_names[$judgement['outcome']] ?></td>
+						<td><?= $judgement['score'] ?></td>
+					</tr>
+				<?php endforeach ?>
+				</tbody>
+			</table>
+		</div>
+	</div>
+	<?php endif ?>
+<?php endif ?>
+
 <?php if ($should_show_content): ?>
 	<?php echoSubmissionContent($submission, getProblemSubmissionRequirement($problem)) ?>
 	<?php if ($hackable): ?>

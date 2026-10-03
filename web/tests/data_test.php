@@ -86,3 +86,20 @@ $invalid = [
 foreach ($invalid as $what => $override) {
 	check_same(null, dataProblemConfFromSettings($override + $settings), $what);
 }
+
+// the files of a version of the data of a problem
+$dir = sys_get_temp_dir() . '/uoj_manifest_test_' . getmypid();
+exec('rm -rf ' . escapeshellarg($dir));
+mkdir("$dir/require", 0755, true);
+file_put_contents("$dir/problem.conf", "n_tests 1\n");
+file_put_contents("$dir/input1.txt", "1 2\n");
+file_put_contents("$dir/require/lib.h", "");
+check_same([
+	'input1.txt' => [4, hash('sha256', "1 2\n")],
+	'problem.conf' => [10, hash('sha256', "n_tests 1\n")],
+	'require/lib.h' => [0, hash('sha256', '')],
+], dataManifest($dir), 'the manifest of a folder');
+exec('rm -rf ' . escapeshellarg($dir));
+
+check_same('/var/uoj_data/prepare_7', dataStageDir(7), 'the staging folder of a problem');
+check_same('/var/uoj_data/archive/7/3.zip', dataArchivePath(7, 3), 'the archive of an old version');

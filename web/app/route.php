@@ -6,6 +6,7 @@ Route::pattern('contest_id', '[1-9][0-9]{0,9}');
 Route::pattern('tab', '\S{1,20}');
 Route::pattern('rand_str_id', '[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]{20}');
 Route::pattern('upgrade_name', '[a-zA-Z0-9_]{1,50}');
+Route::pattern('version', '[1-9][0-9]{0,8}');
 
 Route::group([
 		'domain' => '('.UOJConfig::$data['web']['main']['host'].'|127.0.0.1'.')'
@@ -79,4 +80,5 @@ Route::post('/judge/sync-judge-client', '/judge/sync_judge_client.php');
 Route::post('/judge/download/submission/{id}/{rand_str_id}', '/judge/download.php?type=submission');
 Route::post('/judge/download/tmp/{rand_str_id}', '/judge/download.php?type=tmp');
 Route::post('/judge/download/problem/{id}', '/judge/download.php?type=problem');
+Route::post('/judge/download/problem/{id}/{version}', '/judge/download.php?type=problem');
 Route::post('/judge/download/judger', '/judge/download.php?type=judger');

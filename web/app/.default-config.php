@@ -52,7 +52,13 @@ return [
 		'socket' => [
 			'port' => '233',
 			'password' => '_judger_socket_password_'
-		]
+		],
+		// seconds without a sign of life after which the tasks of a judger are given to others
+		'task-timeout' => 300
+	],
+	'data' => [
+		// how many versions of the data of a problem keep their archive, the current one included
+		'kept-versions' => 5
 	],
 	'switch' => [
 		// 请在 page-header.php 中修改统计代码后再启用
