@@ -14,7 +14,7 @@ import requests
 import mock_idp
 import uoj
 from fixtures import *
-from uoj import db, db_value, docker_exec
+from uoj import db, db_value, docker_exec, judge_api
 
 IDP = mock_idp.MockIdP()
 
@@ -483,6 +483,53 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertNotIn("evil.example", r.text)
         self.assertIn(uoj.BASE_URL + "/", r.text)
+
+
+class JudgerPasswordTest(unittest.TestCase):
+    """the passwords of the judgers are not readable anywhere"""
+
+    IDLE = {"protocol": "2", "judger_version": "e2e-fake", "toolchain": "{}", "fetch_new": "0"}
+
+    def stored(self, name):
+        return db_value("select password from judger_info where judger_name = '%s'" % name)
+
+    def test_passwords_are_kept_as_hashes(self):
+        passwords = [row[0] for row in db("select password from judger_info")]
+        self.assertGreaterEqual(len(passwords), 2)
+        for password in passwords:
+            self.assertRegex(password, r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(self.stored(uoj.FAKE_JUDGER["judger_name"]), "sha256:" + uoj.sha256(uoj.FAKE_JUDGER["password"].encode()))
+        # the judgers still log in with their passwords, and the hash is not one
+        self.assertEqual(judge_api("/judge/submit", self.IDLE).text, "Nothing to judge")
+        stolen = {"judger_name": uoj.FAKE_JUDGER["judger_name"], "password": self.stored(uoj.FAKE_JUDGER["judger_name"])}
+        self.assertEqual(judge_api("/judge/submit", self.IDLE, auth=stolen).status_code, 403)
+
+    def test_password_of_a_new_judger_is_shown_once(self):
+        admin = uoj.admin()
+        try:
+            r = admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "p3_new_judger"})
+            password = re.search(r'id="judger-password">([0-9a-zA-Z]{32})<', r.text).group(1)
+            self.assertEqual(self.stored("p3_new_judger"), "sha256:" + uoj.sha256(password.encode()))
+            listing = admin.get("/super-manage/judger").text
+            self.assertIn("p3_new_judger", listing)
+            self.assertNotIn(password, listing)
+            self.assertNotIn("sha256:", listing)
+            auth = {"judger_name": "p3_new_judger", "password": password}
+            self.assertEqual(judge_api("/judge/submit", self.IDLE, auth=auth).text, "Nothing to judge")
+        finally:
+            db("delete from judger_info where judger_name = 'p3_new_judger'")
+
+    def test_password_written_by_hand_is_hashed_when_it_is_first_used(self):
+        try:
+            db("insert into judger_info (judger_name, password, ip) values ('p3_manual_judger', 'written-by-hand-0123456789', '')")
+            auth = {"judger_name": "p3_manual_judger", "password": "written-by-hand-0123456789"}
+            self.assertEqual(judge_api("/judge/submit", self.IDLE, auth=dict(auth, password="wrong")).status_code, 403)
+            self.assertEqual(self.stored("p3_manual_judger"), "written-by-hand-0123456789")
+            self.assertEqual(judge_api("/judge/submit", self.IDLE, auth=auth).text, "Nothing to judge")
+            self.assertEqual(self.stored("p3_manual_judger"), "sha256:" + uoj.sha256(b"written-by-hand-0123456789"))
+            self.assertEqual(judge_api("/judge/submit", self.IDLE, auth=auth).text, "Nothing to judge")
+        finally:
+            db("delete from judger_info where judger_name = 'p3_manual_judger'")
 
 
 class AuditLogTest(unittest.TestCase):

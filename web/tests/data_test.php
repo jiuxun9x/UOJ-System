@@ -55,6 +55,22 @@ check_same(true, $changed($files, ['time_limit' => '100'] + $conf), 'a changed l
 check_same(true, $changed($files, $conf + ['input_suf' => 'cpp']), 'a changed file name pattern');
 check_same(true, $changed(array_diff_key($files, ['std.cpp' => 0]), $conf), 'a removed file');
 
+// ---- the password of a judger is kept as a hash
+$judger_password = 'Wd3kq0aFz7Jv9XuP2mYt8RcL5nHs1GbE';
+$stored = judgerPasswordToStore($judger_password);
+check_same('sha256:' . hash('sha256', $judger_password), $stored, 'the hash of a judger password');
+check_same(true, strlen($stored) <= 100, 'the hash fits the column');
+check_same(true, judgerPasswordMatches($stored, $judger_password), 'the password of a judger');
+check_same(false, judgerPasswordMatches($stored, $judger_password . 'x'), 'a wrong password');
+check_same(false, judgerPasswordMatches($stored, $stored), 'the hash is not the password');
+check_same(false, judgerPasswordMatches($stored, substr($stored, 7)), 'neither is the hash without its prefix');
+// a row that was written by hand is accepted once, and hashed then
+check_same(true, judgerPasswordMatches($judger_password, $judger_password), 'a password that is not hashed yet');
+check_same(false, judgerPasswordMatches($judger_password, 'something else'), 'a wrong password for one that is not hashed yet');
+check_same(false, judgerPasswordMatches('', ''), 'a judger without a password');
+check_same(false, judgerPasswordIsHashed($judger_password), 'a password is not a hash');
+check_same(true, judgerPasswordIsHashed($stored), 'a hash is a hash');
+
 // problem.conf built from the settings form
 $settings = [
 	'use_builtin_checker' => 'ncmp', 'n_tests' => '10', 'n_ex_tests' => '', 'n_sample_tests' => '2',

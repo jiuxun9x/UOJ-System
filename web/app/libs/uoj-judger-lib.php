@@ -17,11 +17,29 @@
 		if ($judger == null) {
 			return false;
 		}
-		if (!hash_equals($judger['password'], $_POST['password'])) {
+		if (!judgerPasswordMatches($judger['password'], $_POST['password'])) {
 			return false;
+		}
+		if (!judgerPasswordIsHashed($judger['password'])) {
+			// a password that was written to the table by hand is not left there
+			DB::update("update judger_info set password = '".judgerPasswordToStore($_POST['password'])."' where judger_name = '$esc_judger_name'");
 		}
 		$uojJudger = $judger;
 		return true;
+	}
+	// The password of a judger is a long random string, so a plain hash is enough to keep
+	// whoever reads the database from logging in as a judger.
+	function judgerPasswordToStore($password) {
+		return 'sha256:' . hash('sha256', $password);
+	}
+	function judgerPasswordIsHashed($stored) {
+		return strncmp($stored, 'sha256:', 7) === 0;
+	}
+	function judgerPasswordMatches($stored, $password) {
+		if (judgerPasswordIsHashed($stored)) {
+			return hash_equals($stored, judgerPasswordToStore($password));
+		}
+		return $stored !== '' && hash_equals($stored, $password);
 	}
 	function requireJudgerAuthentication() {
 		if (!authenticateJudger()) {

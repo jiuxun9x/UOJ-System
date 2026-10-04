@@ -272,8 +272,10 @@
 		);
 		$judger_adder->handle = function(&$vdata) {
 			$password=uojRandString(32);
-			DB::insert("insert into judger_info (judger_name,password) values('{$vdata['name']}','{$password}')");
+			DB::insert("insert into judger_info (judger_name,password) values('{$vdata['name']}','".judgerPasswordToStore($password)."')");
 			auditLog('judger.add', 'judger', $vdata['name']);
+			// only its hash is kept, so this is the one time the password can be shown
+			becomeMsgPage('<p>评测机 <strong>' . $vdata['name'] . '</strong> 已添加，密码为 <code id="judger-password">' . $password . '</code>。</p><p>密码只显示这一次，请立即写入评测机的配置；遗失后只能删除评测机重新添加。</p><p><a href="/super-manage/judger">返回</a></p>');
 		};
 		$judger_adder->runAtServer();
 	
@@ -335,12 +337,11 @@
 	};
 	$paste_deleter->runAtServer();
 	
-	$judgerlist_cols = array('judger_name', 'password', 'enabled', 'last_heartbeat_at', 'version', 'timestampdiff(second, last_heartbeat_at, now()) as silent_seconds');
+	$judgerlist_cols = array('judger_name', 'enabled', 'last_heartbeat_at', 'version', 'timestampdiff(second, last_heartbeat_at, now()) as silent_seconds');
 	$judgerlist_config = array();
 	$judgerlist_header_row = <<<EOD
 	<tr>
 		<th>评测机名称</th>
-		<th>密码</th>
 		<th>状态</th>
 		<th>最近响应</th>
 		<th>版本</th>
@@ -368,7 +369,6 @@ EOD;
 		echo <<<EOD
 			<tr>
 				<td>{$row['judger_name']}</td>
-				<td>{$row['password']}</td>
 				<td>{$status}</td>
 				<td>{$row['last_heartbeat_at']}</td>
 				<td>{$version}</td>

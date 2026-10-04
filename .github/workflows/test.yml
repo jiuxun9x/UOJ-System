@@ -106,7 +106,7 @@ jobs:
           for n in 2 3 4; do
             sudo cp uoj_data/judger$n/log/judge.log e2e-logs/judge-$n.log 2>/dev/null || true
           done
-          docker exec uoj-db mysql -uroot -proot app_uoj233 -e 'select * from judger_info; select id, problem_id, version, status, judger_name, attempts, reason, left(message, 300) from problem_data_versions order by id desc limit 40; select * from submission_judgements order by id desc limit 60; select id, problem_id, status, judger_name, judge_attempts, score, result_error from submissions order by id desc limit 60' > e2e-logs/db.txt 2>&1 || true
+          docker exec uoj-db mysql -uroot -proot app_uoj233 -e 'select * from judger_info; select id, problem_id, version, status, judger_name, attempts, reason, left(message, 300) from problem_data_versions order by id desc limit 40; select * from submission_judgements order by id desc limit 60; select id, problem_id, status, judger_name, judge_attempts, score, result_error from submissions order by id desc limit 60; select * from user_roles; select * from contests_permissions; select * from external_identities; select * from user_renames; select id, actor, actor_type, action, resource_type, resource_id, left(after_json, 200), created_at from audit_logs order by id desc limit 80' > e2e-logs/db.txt 2>&1 || true
           sudo chmod -R a+r e2e-logs
           tail -n 60 e2e-logs/judge-1.log e2e-logs/apache_error.log 2>/dev/null || true
 
