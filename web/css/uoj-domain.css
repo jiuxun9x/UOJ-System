@@ -132,8 +132,28 @@
 .uoj-penalty-rules input[type="text"] {
 	width: 5rem;
 }
+.uoj-penalty-rules select {
+	min-width: 4.5rem;
+}
 .uoj-penalty-text {
 	white-space: nowrap;
+}
+/* on a narrow screen a step does not fit in one line: let it wrap, and keep the steps apart */
+@media (max-width: 575.98px) {
+	.uoj-penalty-rules tr {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		padding-bottom: 0.35rem;
+		margin-bottom: 0.35rem;
+		border-bottom: 1px dashed #dee2e6;
+	}
+	.uoj-penalty-rules td {
+		padding: 0.15rem 0.2rem;
+	}
+	.uoj-penalty-rules input[type="text"] {
+		width: 4rem;
+	}
 }
 
 /* a table of scores: the names stay in place while the problems scroll */
