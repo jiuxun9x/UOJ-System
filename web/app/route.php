@@ -8,6 +8,7 @@ Route::pattern('rand_str_id', '[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL
 Route::pattern('upgrade_name', '[a-zA-Z0-9_]{1,50}');
 Route::pattern('version', '[1-9][0-9]{0,8}');
 Route::pattern('provider', '[a-zA-Z0-9_-]{1,20}');
+Route::pattern('slug', '[a-z0-9][a-z0-9-]{1,30}');
 
 Route::group([
 		'domain' => '('.UOJConfig::$data['web']['main']['host'].'|127.0.0.1'.')'
@@ -34,6 +35,13 @@ Route::group([
 		Route::any('/contest/{contest_id}/problem/{id}', '/problem.php');
 		Route::any('/contest/{contest_id}/problem/{id}/statistics', '/problem_statistics.php');
 		
+		Route::any('/domains', '/domain/list.php');
+		Route::any('/domain/new', '/domain/new.php');
+		Route::any('/domains/join', '/domain/join.php');
+		Route::any('/d/{slug}', '/domain/overview.php');
+		Route::any('/d/{slug}/settings', '/domain/settings.php');
+		Route::any('/d/{slug}/members', '/domain/members.php');
+
 		Route::any('/submissions', '/submissions_list.php');
 		Route::any('/submission/{id}', '/submission.php');
 		Route::any('/submission-status-details', '/submission_status_details.php');

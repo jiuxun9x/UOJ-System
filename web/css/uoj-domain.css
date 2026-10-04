@@ -1,0 +1,95 @@
+/* the pages of a domain */
+
+.uoj-domain-header {
+	margin-bottom: 1.25rem;
+}
+.uoj-domain-title {
+	font-size: 1.6rem;
+	margin-bottom: 0.25rem;
+}
+.uoj-domain-title a {
+	color: inherit;
+}
+.uoj-domain-title .badge {
+	font-size: 0.8rem;
+	font-weight: normal;
+	vertical-align: middle;
+}
+.uoj-domain-meta {
+	margin-bottom: 0.75rem;
+	font-size: 0.9rem;
+}
+.uoj-domain-actions {
+	white-space: nowrap;
+	margin-bottom: 0.5rem;
+}
+.uoj-domain-role {
+	font-size: 0.85rem;
+	font-weight: normal;
+	padding: 0.4em 0.7em;
+	vertical-align: middle;
+}
+/* on a narrow screen the tabs stay on one line and scroll sideways */
+.uoj-domain-tabs {
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	overflow-y: hidden;
+	white-space: nowrap;
+	-webkit-overflow-scrolling: touch;
+}
+.uoj-domain-tabs .nav-link {
+	padding: 0.5rem 0.95rem;
+}
+
+.uoj-domain-card {
+	height: 100%;
+	transition: box-shadow 0.15s ease-in-out;
+}
+.uoj-domain-card:hover {
+	box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+}
+.uoj-domain-card .card-title {
+	font-size: 1.1rem;
+	margin-bottom: 0.5rem;
+}
+.uoj-domain-card .card-text {
+	color: #6c757d;
+	font-size: 0.9rem;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+.uoj-domain-card-archived {
+	opacity: 0.65;
+}
+
+.uoj-domain-section-title {
+	font-size: 1.15rem;
+	margin: 1.5rem 0 0.75rem;
+	padding-bottom: 0.4rem;
+	border-bottom: 1px solid #dee2e6;
+}
+.uoj-domain-empty {
+	color: #6c757d;
+	text-align: center;
+	padding: 2rem 1rem;
+	border: 1px dashed #ced4da;
+	border-radius: 0.25rem;
+}
+.uoj-domain-description {
+	white-space: pre-wrap;
+	word-wrap: break-word;
+}
+
+.uoj-domain-members td, .uoj-domain-members th {
+	vertical-align: middle;
+}
+.uoj-domain-members form {
+	margin: 0;
+}
+.uoj-domain-secret {
+	font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	word-break: break-all;
+	user-select: all;
+}

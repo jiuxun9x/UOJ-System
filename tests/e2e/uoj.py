@@ -336,6 +336,27 @@ class Client:
             % (self.username, problem_id)
         ))  # fmt: skip
 
+    # ---- domains
+
+    def form(self, path, form, **fields):
+        """post one of the plain forms of the pages of the domains: '' when it went through and
+        the page was loaded again, else the status and the text of the page that refused it"""
+        fields["form"] = form
+        r = self.post(path, fields)
+        if r.status_code in (301, 302):
+            return ""
+        return "HTTP %d: %s" % (r.status_code, text_of(r.text))
+
+    def new_domain(self, slug, **settings):
+        """create a domain, private and joined through its managers unless told otherwise"""
+        fields = {"name": "域 " + slug, "slug": slug, "description": "", "type": "course",
+                  "visibility": "private", "join_method": "none"}  # fmt: skip
+        fields.update(settings)
+        err = self.form("/domain/new", "create", **fields)
+        if err:
+            raise Exception("failed to create the domain %s: %s" % (slug, err[-600:]))
+        return int(db_value("select id from domains where slug = '%s'" % slug))
+
     # ---- administration
 
     def change_user(self, username, operation):

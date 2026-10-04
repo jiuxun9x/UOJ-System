@@ -8,6 +8,25 @@
 			<li class="nav-item"><a class="nav-link" href="<?= HTML::url('/contests') ?>"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('contests') ?></a></li>
 			<li class="nav-item"><a class="nav-link" href="<?= HTML::url('/problems') ?>"><span class="glyphicon glyphicon-list-alt"></span> <?= UOJLocale::get('problems') ?></a></li>
 			<li class="nav-item"><a class="nav-link" href="<?= HTML::url('/submissions') ?>"><span class="glyphicon glyphicon-tasks"></span> <?= UOJLocale::get('submissions') ?></a></li>
+			<?php $nav_domains = Auth::check() ? domainsOfUser(Auth::id()) : array(); ?>
+			<?php if ($nav_domains): ?>
+			<li class="nav-item dropdown">
+				<a class="nav-link dropdown-toggle" href="#" id="domainsDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+					<span class="glyphicon glyphicon-education"></span> 域
+				</a>
+				<div class="dropdown-menu" aria-labelledby="domainsDropdown">
+					<?php foreach (array_slice($nav_domains, 0, 8) as $nav_domain): ?>
+					<?php if ($nav_domain['archived_at'] === null): ?>
+					<a class="dropdown-item" href="<?= HTML::url(domainUrl($nav_domain)) ?>"><?= HTML::escape($nav_domain['name']) ?></a>
+					<?php endif ?>
+					<?php endforeach ?>
+					<div class="dropdown-divider"></div>
+					<a class="dropdown-item" href="<?= HTML::url('/domains') ?>">全部域</a>
+				</div>
+			</li>
+			<?php else: ?>
+			<li class="nav-item"><a class="nav-link" href="<?= HTML::url('/domains') ?>"><span class="glyphicon glyphicon-education"></span> 域</a></li>
+			<?php endif ?>
 			<li class="nav-item"><a class="nav-link" href="<?= HTML::url('/hacks') ?>"><span class="glyphicon glyphicon-flag"></span> <?= UOJLocale::get('hacks') ?></a></li>
 			<li class="nav-item"><a class="nav-link" href="<?= HTML::blog_list_url() ?>"><span class="glyphicon glyphicon-edit"></span> <?= UOJLocale::get('blogs') ?></a></li>
 			<li class="nav-item"><a class="nav-link" href="<?= HTML::url('/faq') ?>"><span class="glyphicon glyphicon-info-sign"></span> <?= UOJLocale::get('help') ?></a></li>

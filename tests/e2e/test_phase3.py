@@ -323,6 +323,7 @@ class IdentityTest(unittest.TestCase):
         known |= {("user_renames", "renamed_by")}
         names = "'username', 'submitter', 'poster', 'hacker', 'owner', 'sender', 'receiver', 'creator'"
         names += ", 'created_by', 'granted_by', 'renamed_by', 'old_username', 'new_username'"
+        names += ", 'owner_username', 'added_by', 'imported_by', 'approved_by'"
         found = {
             (table, column)
             for table, column in db(

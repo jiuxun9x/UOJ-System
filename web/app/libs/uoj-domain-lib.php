@@ -230,3 +230,220 @@ function domainSetMember($domain, $target, $new_role, $actor) {
 	}
 	return '';
 }
+
+// ---- pages
+
+function domainUrl($domain, $path = '') {
+	return "/d/{$domain['slug']}$path";
+}
+
+// What every page inside a domain starts with: the domain of the address, for somebody who may
+// be inside. Everybody else is sent away without learning whether the domain exists.
+function domainOfPage() {
+	global $myUser;
+	$domain = isset($_GET['slug']) ? queryDomainBySlug($_GET['slug']) : null;
+	if ($domain && can($myUser, 'domain.view', $domain)) {
+		return $domain;
+	}
+	if ($myUser == null) {
+		redirectToLogin();
+	}
+	become404Page();
+}
+
+// a message for the next page the user sees
+function domainFlash($message, $type = 'success') {
+	$_SESSION['domain_flash'] = array($type, $message);
+}
+function domainTakeFlash() {
+	if (!isset($_SESSION['domain_flash'])) {
+		return null;
+	}
+	$flash = $_SESSION['domain_flash'];
+	unset($_SESSION['domain_flash']);
+	return $flash;
+}
+
+// Runs the handler of the form that was posted, if any. $forms maps the value of the field
+// "form" to a function that returns '' or why the form was refused. After a form that went
+// through the page is loaded again, so that reloading it does not post the form twice.
+// Returns the reason a form was refused, for the page to show.
+function domainHandleForms($forms, $redirect = null) {
+	if (!isset($_POST['form']) || !is_string($_POST['form']) || !isset($forms[$_POST['form']])) {
+		return '';
+	}
+	crsf_defend();
+	$err = $forms[$_POST['form']]();
+	if ($err === '') {
+		redirectTo($redirect !== null ? $redirect : UOJContext::requestPath());
+	}
+	return $err;
+}
+
+// the tabs of a domain for a user: 'tab' => array(label, address)
+function domainTabs($domain, $user) {
+	$tabs = array(
+		'overview' => array('概览', domainUrl($domain)),
+		'members' => array('成员', domainUrl($domain, '/members'))
+	);
+	return $tabs;
+}
+
+function echoDomainPageHeader($domain, $tab, $title) {
+	echoUOJPageHeader(HTML::escape($title) . ' - ' . HTML::escape($domain['name']));
+	uojIncludeView('domain-header', array('domain' => $domain, 'tab' => $tab));
+}
+function echoDomainError($err) {
+	if ($err !== '') {
+		echo '<div class="alert alert-danger" role="alert">', HTML::escape($err), '</div>';
+	}
+}
+
+// ---- invitations
+//
+// An invitation is a token that whoever holds may join the domain with, as a member and as
+// nothing more. It is a bearer secret: 144 random bits from the generator of the operating
+// system, shown once when it is made. Only its SHA256 is kept, so reading the database does
+// not let anybody in.
+
+function domainInviteTokenHash($token) {
+	return hash('sha256', $token);
+}
+function validateDomainInviteToken($token) {
+	return is_string($token) && preg_match('/^[A-Za-z0-9_-]{22,64}$/', $token);
+}
+function domainNewInviteToken() {
+	return rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
+}
+// how long an invitation may be good for: hours => label, 0 for no end
+function domainInviteLifetimes() {
+	return array(24 => '1 天', 168 => '7 天', 720 => '30 天', 0 => '不过期');
+}
+
+// Makes an invitation and returns its token, which is not stored and can not be shown again.
+function domainCreateInvite($domain, $actor, $label, $hours, $max_uses) {
+	$token = domainNewInviteToken();
+	$expires = $hours > 0 ? "date_add(now(), interval ".(int)$hours." hour)" : 'null';
+	$max_uses = $max_uses > 0 ? (int)$max_uses : 'null';
+	$esc_label = DB::escape(mb_substr(trim($label), 0, 50, 'UTF-8'));
+	if (!DB::insert("insert into domain_invites (domain_id, token_hash, label, expires_at, max_uses, created_by, created_at) values ({$domain['id']}, '".domainInviteTokenHash($token)."', '$esc_label', $expires, $max_uses, '".DB::escape($actor['username'])."', now())")) {
+		return null;
+	}
+	auditLog('domain.create_invite', 'domain', $domain['id'], null, array('invite_id' => DB::insert_id(), 'label' => trim($label), 'hours' => (int)$hours, 'max_uses' => $max_uses === 'null' ? null : $max_uses), $actor);
+	return $token;
+}
+function domainRevokeInvite($domain, $invite_id, $actor) {
+	DB::update("update domain_invites set revoked_at = now() where id = ".(int)$invite_id." and domain_id = {$domain['id']} and revoked_at is null");
+	if (DB::affected_rows() == 1) {
+		auditLog('domain.revoke_invite', 'domain', $domain['id'], array('invite_id' => (int)$invite_id), null, $actor);
+	}
+}
+// the invitations of a domain with 'state': valid, expired, used up or revoked
+function domainInvites($domain) {
+	return DB::selectAll("select *, case when revoked_at is not null then 'revoked' when expires_at is not null and expires_at <= now() then 'expired' when max_uses is not null and uses >= max_uses then 'used_up' else 'valid' end as state from domain_invites where domain_id = {$domain['id']} order by id desc");
+}
+
+// Lets a user join the domain of an invitation. Returns the domain, or null when the token
+// is not good for anything. Why it is not, whether it ever existed, and which domain it
+// belonged to is nobody's business.
+function domainRedeemInvite($token, $user) {
+	if (!validateDomainInviteToken($token)) {
+		return null;
+	}
+	$hash = domainInviteTokenHash($token);
+	$esc_username = DB::escape($user['username']);
+	$domain = null;
+	$joined = DB::transaction(function() use ($hash, $user, $esc_username, &$domain) {
+		$invite = DB::selectFirst("select * from domain_invites where token_hash = '$hash' for update");
+		if (!$invite) {
+			return false;
+		}
+		$domain = queryDomain($invite['domain_id']);
+		if (!$domain || $domain['archived_at'] !== null || $domain['join_method'] === 'none') {
+			$domain = null;
+			return false;
+		}
+		// somebody who is in already does not use the invitation up
+		if (domainRoleOf($user['username'], $domain) !== null) {
+			return false;
+		}
+		// One statement decides whether there is a use left and takes it: of two requests
+		// that arrive together, only one finds the row unchanged.
+		DB::update("update domain_invites set uses = uses + 1 where id = {$invite['id']} and revoked_at is null and (expires_at is null or expires_at > now()) and (max_uses is null or uses < max_uses)");
+		if (DB::affected_rows() != 1) {
+			$domain = null;
+			return false;
+		}
+		// if the user can not be added after all, the use is given back with the transaction
+		if (!DB::insert("insert into domain_members (domain_id, username, role, joined_at, added_by) values ({$domain['id']}, '$esc_username', 'member', now(), '')")) {
+			$domain = null;
+			return false;
+		}
+		return true;
+	});
+	if ($joined) {
+		auditLog('domain.join', 'domain', $domain['id'], null, array('username' => $user['username'], 'by' => 'invite'), $user);
+	}
+	return $domain;
+}
+
+// ---- rosters
+
+// Adds the users of a roster, one username or student number a line, to a domain. A student
+// number nobody has logged in with yet waits in domain_pending_members until its student
+// comes through the single sign-on. Returns what became of every line:
+// array('added' => names, 'present' => names, 'pending' => student numbers, 'refused' => array(line => reason))
+function domainImportRoster($domain, $text, $role, $actor) {
+	$report = array('added' => array(), 'present' => array(), 'pending' => array(), 'refused' => array());
+	$actor_role = domainRoleOf($actor['username'], $domain);
+	$is_site_manager = can($actor, 'domain.manage_all');
+	$err = domainMemberChangeRefusedReason($actor_role, $is_site_manager, null, $role);
+	if ($err !== '') {
+		$report['refused']['*'] = $err;
+		return $report;
+	}
+	$lines = array_slice(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,;]+/', $text)), 'strlen')), 0, 2000);
+	foreach ($lines as $line) {
+		$user = validateUsername($line) ? queryUser($line) : null;
+		if (!$user) {
+			$identity = DB::selectFirst("select username from external_identities where student_id = '".DB::escape($line)."' order by id limit 1");
+			$user = $identity ? queryUser($identity['username']) : null;
+		}
+		if ($user) {
+			if (domainRoleOf($user['username'], $domain) !== null) {
+				$report['present'][] = $user['username'];
+				continue;
+			}
+			$err = domainSetMember($domain, $user, $role, $actor);
+			if ($err === '') {
+				$report['added'][] = $user['username'];
+			} else {
+				$report['refused'][$line] = $err;
+			}
+		} elseif (preg_match('/^[A-Za-z0-9_-]{1,64}$/', $line)) {
+			DB::insert("insert into domain_pending_members (domain_id, student_id, role, created_by, created_at) values ({$domain['id']}, '".DB::escape($line)."', '$role', '".DB::escape($actor['username'])."', now()) on duplicate key update role = '$role'");
+			$report['pending'][] = $line;
+		} else {
+			$report['refused'][$line] = '不是用户名，也不是学号';
+		}
+	}
+	auditLog('domain.import_roster', 'domain', $domain['id'], null, array('role' => $role, 'added' => count($report['added']), 'pending' => count($report['pending']), 'refused' => count($report['refused'])), $actor);
+	return $report;
+}
+
+// Called when somebody came through the single sign-on: they join the domains whose rosters
+// their student number waits in. Only the school says whose student number it is, so nobody
+// gets into a class by registering a name that looks like one.
+function domainApplyPendingMemberships($user, $student_id) {
+	if (!is_string($student_id) || $student_id === '') {
+		return;
+	}
+	foreach (DB::selectAll("select * from domain_pending_members where student_id = '".DB::escape($student_id)."'") as $pending) {
+		$domain = queryDomain($pending['domain_id']);
+		if ($domain && $domain['archived_at'] === null && domainRoleOf($user['username'], $domain) === null && $user['usergroup'] != 'B') {
+			DB::insert("insert ignore into domain_members (domain_id, username, role, joined_at, added_by) values ({$domain['id']}, '".DB::escape($user['username'])."', '{$pending['role']}', now(), '".DB::escape($pending['created_by'])."')");
+			auditLog('domain.join', 'domain', $domain['id'], null, array('username' => $user['username'], 'by' => 'roster', 'role' => $pending['role']), $user);
+		}
+		DB::delete("delete from domain_pending_members where id = {$pending['id']}");
+	}
+}

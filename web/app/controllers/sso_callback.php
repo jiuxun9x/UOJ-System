@@ -31,5 +31,7 @@
 	if ($result['user']['usergroup'] == 'B') {
 		becomeMsgPage('该用户已被封停，请联系管理员。');
 	}
+	// the rosters of the domains know the students by the number the school gives them
+	domainApplyPendingMemberships($result['user'], $identity['student_id']);
 	Auth::login($result['user']['username']);
 	redirectTo('/');
