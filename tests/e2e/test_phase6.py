@@ -190,6 +190,21 @@ def last_submission(username):
     return int(db_value("select max(id) from submissions where submitter = '%s'" % username))
 
 
+def board(client, contest_id, query=""):
+    """the board of an ICPC contest as somebody sees it: username => rank, solved, penalty in
+    seconds, and the class of the cell of every problem that has one"""
+    page = client.get("/contest/%d/standings%s" % (contest_id, query))
+    assert page.status_code == 200, page.status_code
+    rows = {}
+    for name, rank, solved, penalty, cells in re.findall(
+        r'(?s)<tr data-username="([^"]+)" data-rank="(\d+)" data-solved="(\d+)" data-penalty="(\d+)">(.*?)</tr>', page.text
+    ):
+        rows[name] = (int(rank), int(solved), int(penalty), dict(
+            (letter, kind) for kind, letter in re.findall(r'<td class="uoj-icpc-(\w+)" data-problem="(\w)"', cells)
+        ))  # fmt: skip
+    return rows, page.text
+
+
 class AfterSubmittingTest(unittest.TestCase):
     """where somebody is taken after submitting: to what they submitted, where they submitted it"""
 
@@ -245,6 +260,239 @@ class AfterSubmittingTest(unittest.TestCase):
         self.assertIn('href="/submission/%d"' % practice, pupil.get("/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id).text)
         # and on the site as ever
         self.assertEqual(submit_and_follow(pupil, "/problem/%d" % site_problem, AB), "/submissions")
+        uoj.wait_idle()
+
+
+class ContestFeedbackTest(unittest.TestCase):
+    """what somebody is told about what they submitted: in a contest, in a homework, in a domain"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.problem_id = cls.admin.create_problem(ab_problem_files())
+
+    def contest(self, name, rule=None):
+        contest_id = self.admin.new_contest(name)
+        self.assertEqual(self.admin.contest_commands(contest_id, "problems", "+%d" % self.problem_id), "")
+        if rule:
+            db("update contests set extra_config = '{\"contest_type\": \"%s\"}' where id = %d" % (rule, contest_id))
+        return contest_id
+
+    def test_nobody_is_told_about_single_tests_while_a_contest_runs(self):
+        for rule in ("OI", "IOI"):
+            contest_id = self.contest("p6 反馈 " + rule, rule)
+            pupil = p3.account("p6_fb_" + rule.lower())
+            pupil.register_for_contest(contest_id)
+            uoj.move_contest(contest_id, -60, 600)
+            here = "/contest/%d" % contest_id
+            # after submitting, the list of what one submitted in the contest
+            self.assertEqual(submit_and_follow(pupil, "%s/problem/%d" % (here, self.problem_id), AB_WRONG), here + "/submissions")
+            wrong = last_submission(pupil.username)
+            broken = pupil.submit_in_contest(contest_id, self.problem_id, AB_COMPILE_ERROR)
+            for submission_id in (wrong, broken):
+                uoj.wait_submission(submission_id)
+            uoj.wait_idle()
+
+            listing = pupil.get(here + "/submissions").text
+            self.assertIn('href="/submission/%d"' % wrong, listing)
+            page = pupil.get("/submission/%d" % wrong).text
+            # the program is there, how it did on the tests is not
+            self.assertIn("a + b + 1", page)
+            self.assertIn('id="details-after-contest"', page)
+            for told in ("Wrong Answer", "details_details_accordion"):
+                self.assertNotIn(told, page, (rule, told))
+            # what the compiler said is
+            page = pupil.get("/submission/%d" % broken).text
+            self.assertIn('id="compile-error"', page)
+            self.assertIn("undeclared", page)
+            # the staff sees everything
+            self.assertIn("details_details_accordion", self.admin.get("/submission/%d" % wrong).text)
+            self.assertIn("此次比赛为 %s 赛制" % rule, uoj.text_of(pupil.get(here).text))
+
+            # when the contest is over, so does the owner
+            uoj.move_contest(contest_id, -7200, 60)
+            page = pupil.get("/submission/%d" % wrong).text
+            self.assertIn("details_details_accordion", page)
+            self.assertIn("Wrong Answer", page)
+            self.assertNotIn('id="details-after-contest"', page)
+
+    def test_final_test_is_for_contests_that_judged_with_the_samples(self):
+        # an OI contest judges with the samples while it runs, and with everything afterwards
+        oi, ioi = self.contest("p6 终测 OI"), self.contest("p6 终测 IOI", "IOI")
+        pupil = p3.account("p6_fb_final")
+        for contest_id in (oi, ioi):
+            pupil.register_for_contest(contest_id)
+            uoj.move_contest(contest_id, -60, 600)
+        in_oi = pupil.submit_in_contest(oi, self.problem_id, AB)
+        in_ioi = pupil.submit_in_contest(ioi, self.problem_id, AB)
+        self.assertIn("final_test_config", db_value("select content from submissions where id = %d" % in_oi))
+        self.assertNotIn("final_test_config", db_value("select content from submissions where id = %d" % in_ioi))
+        uoj.wait_idle()
+        self.assertEqual(len(uoj.get_submission(in_ioi).infos), 4)
+        for contest_id in (oi, ioi):
+            uoj.move_contest(contest_id, -7200, 60)
+        # the results of the one are published after its final test
+        page = self.admin.get("/contest/%d" % oi).text
+        self.assertIn('id="form-start_test"', page)
+        self.assertNotIn('id="form-publish_result"', page)
+        self.assertEqual(self.admin.submit_form("/contest/%d" % oi, "start_test"), "")
+        uoj.wait_idle()
+        self.assertEqual(self.admin.submit_form("/contest/%d" % oi, "publish_result"), "")
+        # the results of the other as they are
+        page = self.admin.get("/contest/%d" % ioi).text
+        self.assertNotIn('id="form-start_test"', page)
+        self.assertIn('id="form-publish_result"', page)
+        judged = db_value("select judge_time from submissions where id = %d" % in_ioi)
+        self.assertEqual(self.admin.submit_form("/contest/%d" % ioi, "publish_result"), "")
+        self.assertEqual(db_value("select judge_time from submissions where id = %d" % in_ioi), judged)
+        for contest_id in (oi, ioi):
+            self.assertEqual(db("select status from contests where id = %d" % contest_id), [["finished"]])
+            self.assertEqual(db("select score from contests_submissions where contest_id = %d" % contest_id), [["100"]])
+
+
+class IcpcTest(unittest.TestCase):
+    """the ICPC rule: solved problems and penalty, and a board that freezes"""
+
+    def test_icpc_contest_from_its_board_to_its_results(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p6 ICPC 校赛", minutes=300)
+        self.assertEqual(admin.contest_commands(contest_id, "problems", "+%d\n+%d" % (first, second)), "")
+        db("update contests set extra_config = '{\"contest_type\": \"ICPC\"}', freeze_minutes = 60 where id = %d" % contest_id)
+        ann, bob, cat, outsider = (p3.account("p6_icpc_" + name) for name in ("ann", "bob", "cat", "outsider"))
+        for client in (ann, bob, cat):
+            client.register_for_contest(contest_id)
+        here = "/contest/%d" % contest_id
+        # two hundred and fifty minutes into its three hundred: the last sixty are frozen
+        uoj.move_contest(contest_id, -250 * 60, 300)
+        self.assertIn("最后 60 分钟封榜", uoj.text_of(ann.get(here).text))
+
+        def at(minutes, submission_id):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
+               " where id = %d" % (contest_id, minutes, submission_id))  # fmt: skip
+            return submission_id
+
+        # before the board froze: ann fails A and solves it, bob solves A at once and fails B
+        ann_wrong = at(10, ann.submit_in_contest(contest_id, first, AB_WRONG))
+        ann_right = at(20, ann.submit_in_contest(contest_id, first, AB))
+        bob_first = at(30, bob.submit_in_contest(contest_id, first, AB))
+        at(50, bob.submit_in_contest(contest_id, second, AB_WRONG))
+        # after it froze: bob solves B, cat solves A
+        bob_second = bob.submit_in_contest(contest_id, second, AB)
+        cat_first = cat.submit_in_contest(contest_id, first, AB)
+        uoj.wait_idle()
+        # every submission was judged with all the data
+        self.assertNotIn("final_test_config", db_value("select content from submissions where id = %d" % ann_right))
+        self.assertEqual(uoj.get_submission(ann_right).infos, ["Accepted"] * 3 + ["Extra Test Passed"])
+
+        # ---- what a contestant is told: passed or not, and nothing about the tests
+        listing = ann.get(here + "/submissions").text
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success"><strong>Accepted' % ann_right)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger"><strong>Wrong Answer' % ann_wrong)
+        page = ann.get("/submission/%d" % ann_wrong).text
+        self.assertIn('id="details-after-contest"', page)
+        self.assertNotIn("Test #", page)
+        # also after the board froze, about what is one's own
+        self.assertRegex(cat.get(here + "/submissions").text, r'href="/submission/%d" class="uoj-verdict text-success"' % cat_first)
+
+        # ---- the board: frozen for the contestants, whole for the staff
+        for client in (ann, cat):
+            rows, page = board(client, contest_id)
+            self.assertIn('id="standings-frozen"', page)
+            self.assertIn('data-frozen="1"', page)
+            # bob is ahead with less penalty, though ann solved A before him
+            self.assertEqual(rows["p6_icpc_bob"], (1, 1, 30 * 60, {"A": "solved", "B": "pending"}), client.username)
+            self.assertEqual(rows["p6_icpc_ann"], (2, 1, 20 * 60 + 1200, {"A": "first"}))
+            self.assertEqual(rows["p6_icpc_cat"], (3, 0, 0, {"A": "pending"}))
+            self.assertIn("1 + 1", page)
+            self.assertNotIn("/submission/%d" % bob_second, page)
+        rows, page = board(admin, contest_id)
+        self.assertNotIn('data-frozen="1"', page)
+        self.assertEqual(rows["p6_icpc_bob"][:2], (1, 2))
+        self.assertEqual(rows["p6_icpc_bob"][3], {"A": "solved", "B": "first"})
+        self.assertEqual(rows["p6_icpc_ann"], (2, 1, 20 * 60 + 1200, {"A": "first"}))
+        self.assertEqual(rows["p6_icpc_cat"][:2], (3, 1))
+        # the staff can look at what the contestants see
+        rows, page = board(admin, contest_id, "?frozen=1")
+        self.assertEqual(rows["p6_icpc_cat"], (3, 0, 0, {"A": "pending"}))
+        # nobody sees what the others submitted
+        for client in (ann, outsider):
+            self.assertEqual(client.get("/submission/%d" % cat_first).status_code, 403)
+            self.assertNotIn('href="/submission/%d"' % cat_first, client.get("/submissions?problem_id=%d" % first).text)
+
+        # ---- the contest is over, and the board stays frozen until the results are published
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        for minutes, submission_id in ((10, ann_wrong), (20, ann_right), (30, bob_first), (251, bob_second), (252, cat_first)):
+            at(minutes, submission_id)
+        db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval 50 minute)"
+           " where contest_id = %d and submitter = 'p6_icpc_bob' and problem_id = %d and score < 100" % (contest_id, contest_id, second))  # fmt: skip
+        # the contest is open to everybody now, and the board is what it was for all of them
+        for client in (ann, outsider):
+            rows, page = board(client, contest_id)
+            self.assertEqual(rows["p6_icpc_cat"], (3, 0, 0, {"A": "pending"}), client.username)
+            self.assertEqual(rows["p6_icpc_bob"], (1, 1, 30 * 60, {"A": "solved", "B": "pending"}))
+            self.assertEqual(client.get("/submission/%d" % cat_first).status_code, 403)
+        self.assertIn("比赛尚未结束", ann.get("%s/problem/%d/statistics" % (here, first)).text)
+        # her own submissions are hers to look into now
+        self.assertIn("Test #", ann.get("/submission/%d" % ann_wrong).text)
+
+        # ---- publishing: there is no final test, and nothing is published before everything is judged
+        page = admin.get(here).text
+        self.assertNotIn('id="form-start_test"', page)
+        self.assertIn('id="form-publish_result"', page)
+        with uoj.judgers_paused():
+            db("update submissions set status = 'Waiting' where id = %d" % cat_first)
+            self.assertIn("还有 1 个提交没有评测完", admin.submit_form(here, "publish_result"))
+            self.assertEqual(db_value("select status from contests where id = %d" % contest_id), "unfinished")
+            db("update submissions set status = 'Judged' where id = %d" % cat_first)
+        self.assertEqual(admin.submit_form(here, "publish_result"), "")
+        self.assertEqual(db_value("select status from contests where id = %d" % contest_id), "finished")
+
+        # ---- the results: what counted is kept, with the attempts
+        kept = db("select submitter, problem_id, score, penalty, attempts, submission_id from contests_submissions"
+                  " where contest_id = %d order by submitter, problem_id" % contest_id)  # fmt: skip
+        self.assertEqual(kept, [
+            ["p6_icpc_ann", str(first), "100", str(20 * 60 + 1200), "1", str(ann_right)],
+            ["p6_icpc_bob", str(first), "100", str(30 * 60), "0", str(bob_first)],
+            ["p6_icpc_bob", str(second), "100", str(251 * 60 + 1200), "1", str(bob_second)],
+            ["p6_icpc_cat", str(first), "100", str(252 * 60), "0", str(cat_first)],
+        ])  # fmt: skip
+        self.assertEqual(
+            db("select username, `rank` from contests_registrants where contest_id = %d order by `rank`" % contest_id),
+            [["p6_icpc_bob", "1"], ["p6_icpc_ann", "2"], ["p6_icpc_cat", "3"]],
+        )
+        for client in (ann, outsider, admin):
+            rows, page = board(client, contest_id)
+            self.assertNotIn('id="standings-frozen"', page)
+            self.assertEqual(rows["p6_icpc_bob"], (1, 2, 30 * 60 + 251 * 60 + 1200, {"A": "solved", "B": "first"}))
+            self.assertEqual(rows["p6_icpc_ann"], (2, 1, 20 * 60 + 1200, {"A": "first"}))
+            self.assertEqual(rows["p6_icpc_cat"], (3, 1, 252 * 60, {"A": "solved"}))
+        self.assertEqual(ann.get("/submission/%d" % cat_first).status_code, 200)
+        self.assertNotIn("比赛尚未结束", ann.get("%s/problem/%d/statistics" % (here, first)).text)
+        export = admin.get(here + "/export_standings").text
+        self.assertIn("A_failed_attempts", export)
+
+        # ---- somebody who sits it again is counted by the same rule
+        sitter = p3.account("p6_icpc_sitter")
+        self.assertEqual(sitter.form(here + "/virtual", "start"), "")
+        again = "%s/problem/%d" % (here, first)
+        wrong = sitter.submit(first, AB_WRONG, path=again)
+        right = sitter.submit(first, AB, path=again)
+        for submission_id in (wrong, right):
+            uoj.wait_submission(submission_id)
+        # twenty five minutes into it, with the failed attempt five minutes before
+        db("update contest_virtuals set start_time = '%s' where contest_id = %d" % (uoj.web_time(-25 * 60), contest_id))
+        db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5 * 60), wrong))
+        db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-60), right))
+        page = sitter.get(here + "/virtual?tab=standings").text
+        self.assertIn("通过 / 罚时", page)
+        mine = re.search(r'(?s)<tr class="table-info" id="virtual-my-row"[^>]*data-rank="(\d+)">(.*?)</tr>', page)
+        self.assertEqual(mine.group(1), "2")
+        self.assertIn('class="uoj-icpc-solved"', mine.group(2))
+        self.assertIn(">+1<", mine.group(2))
+        # ann solved it after twenty minutes, bob will after thirty: he has nothing yet
+        self.assertRegex(page, r'data-username="p6_icpc_ann" data-rank="1"')
+        self.assertRegex(page, r'data-username="p6_icpc_bob" data-rank="3"')
         uoj.wait_idle()
 
 

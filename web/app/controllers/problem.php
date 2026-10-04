@@ -134,7 +134,7 @@
 		global $problem, $contest, $myUser, $is_in_contest, $homework, $is_in_homework;
 		
 		$content['config'][] = array('problem_id', $problem['id']);
-		if ($is_in_contest && $contest['extra_config']["contest_type"]!='IOI' && !isset($contest['extra_config']["problem_{$problem['id']}"])) {
+		if ($is_in_contest && contestJudgesSamplesOnly($contest, $problem['id'])) {
 			$content['final_test_config'] = $content['config'];
 			$content['config'][] = array('test_sample_only', 'on');
 		}

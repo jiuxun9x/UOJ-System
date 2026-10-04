@@ -70,6 +70,12 @@
 	$score_class = function($score) {
 		return $score >= 100 ? 'uoj-score-full' : ($score > 0 ? 'uoj-score-part' : 'uoj-score-zero');
 	};
+	// under the ICPC rule a problem is solved or not, and the board says so in its own way
+	$is_icpc = contestRule($contest) === 'ICPC';
+	$icpc_text = function($cell) {
+		list($says, $under) = contestIcpcCell($cell);
+		return $says . ($under !== '' ? ' <small class="text-muted">' . $under . '</small>' : '');
+	};
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 虚拟参赛') ?>
 <?php echoContestDomainLink($contest) ?>
@@ -181,14 +187,14 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 <div class="row">
 	<div class="col-lg-6">
 		<table class="table table-hover" id="table-virtual-problems">
-			<thead><tr><th style="width:3em">#</th><th>题目</th><th style="width:7em">我的得分</th></tr></thead>
+			<thead><tr><th style="width:3em">#</th><th>题目</th><th style="width:7em"><?= $is_icpc ? '我的结果' : '我的得分' ?></th></tr></thead>
 			<tbody>
 				<?php foreach ($problems as $index => $problem): ?>
 				<?php $cell = isset($my_row['cells'][$index]) ? $my_row['cells'][$index] : null; ?>
 				<tr>
 					<td><?= $problem['letter'] ?></td>
 					<td><a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['number'] ?>"><?= $problem['title'] ?></a></td>
-					<td data-problem="<?= $problem['id'] ?>"><?= $cell ? '<a href="/submission/' . $cell[2] . '">' . $cell[0] . '</a>' : '<span class="text-muted">—</span>' ?></td>
+					<td data-problem="<?= $problem['id'] ?>"><?= $cell ? '<a href="/submission/' . $cell[2] . '">' . ($is_icpc ? $icpc_text($cell) : $cell[0]) . '</a>' : '<span class="text-muted">—</span>' ?></td>
 				</tr>
 				<?php endforeach ?>
 			</tbody>
@@ -202,7 +208,7 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 				<tr>
 					<td><a href="/submission/<?= $submission['id'] ?>">#<?= $submission['id'] ?></a></td>
 					<td><?= $problems[$submission['pos']]['letter'] ?></td>
-					<td><?= $submission['score'] !== null ? $submission['score'] : '<span class="text-muted">' . HTML::escape($submission['status']) . '</span>' ?></td>
+					<td><?= $submission['score'] !== null ? ($is_icpc ? ($submission['score'] == 100 ? '<span class="text-success">通过</span>' : '<span class="text-danger">未通过</span>') : $submission['score']) : '<span class="text-muted">' . HTML::escape($submission['status']) . '</span>' ?></td>
 					<td><small><?= virtualClock($submission['offset']) ?></small></td>
 				</tr>
 				<?php endforeach ?>
@@ -227,7 +233,7 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 			<tr>
 				<th style="width:3em">#</th>
 				<th class="uoj-scoreboard-name">选手</th>
-				<th>总分</th>
+				<th><?= $is_icpc ? '通过 / 罚时' : '总分' ?></th>
 				<?php foreach ($problems as $problem): ?>
 				<th title="<?= HTML::escape(strip_tags($problem['title'])) ?>"><a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['number'] ?>"><?= $problem['letter'] ?></a></th>
 				<?php endforeach ?>
@@ -241,14 +247,27 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 					<span class="uoj-username" data-rating="<?= $row['rating'] ?>"<?= $row['nickname'] !== '' ? ' data-alias="' . HTML::escape($row['nickname']) . '"' : '' ?>><?= $row['username'] ?></span>
 					<?php if ($row['virtual']): ?><span class="badge badge-info">虚拟</span><?php endif ?>
 				</td>
+				<?php if ($is_icpc): ?>
+				<td><strong><?= $row['score'] / 100 ?></strong><br /><small class="text-muted"><?= floor($row['penalty'] / 60) ?></small></td>
+				<?php else: ?>
 				<td><strong><?= $row['score'] ?></strong><br /><small class="text-muted"><?= virtualClock($row['penalty']) ?></small></td>
+				<?php endif ?>
 				<?php foreach ($problems as $index => $problem): ?>
 				<?php $cell = isset($row['cells'][$index]) ? $row['cells'][$index] : null; ?>
+				<?php if ($is_icpc): ?>
+				<?php list($says, $under, $cell_class) = contestIcpcCell($cell); ?>
+				<td class="<?= $cell_class ?>">
+					<?php if ($says !== ''): ?>
+					<a href="/submission/<?= $cell[2] ?>" style="color:inherit"><?= $says ?></a><?php if ($under !== ''): ?><small><?= $under ?></small><?php endif ?>
+					<?php endif ?>
+				</td>
+				<?php else: ?>
 				<td class="<?= $cell ? $score_class($cell[0]) : '' ?>">
 					<?php if ($cell): ?>
 					<a href="/submission/<?= $cell[2] ?>"><?= $cell[0] ?></a><br /><small class="text-muted"><?= virtualClock($cell[1]) ?></small>
 					<?php endif ?>
 				</td>
+				<?php endif ?>
 				<?php endforeach ?>
 			</tr>
 			<?php endforeach ?>

@@ -211,14 +211,18 @@ check_ability('submission.hack', $restricted, array('nobody' => false, 'alice' =
 // ---- submissions of a contest that is running: closed to everybody but the owner and the staff
 $facts->problems_in_running_contests = array(1);
 $running = fake_submission('alice', 1, 10);
-foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+foreach (array('submission.view', 'submission.view_source') as $ability) {
 	check_ability($ability, $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'owner' => true, 'setter' => true, 'helper' => true, 'alice' => true, 'bob' => false), 'during the contest');
 }
-check_ability('submission.view_final_details', $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'owner' => true, 'setter' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during the contest');
-check_ability('submission.view_test_details', $running, array('root' => true, 'helper' => true, 'alice' => true), 'during the contest');
-check_ability('submission.view_test_details', fake_submission('alice', 1, 12), array('root' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during an IOI contest');
-$facts->contests[10]['extra_config']['problem_1'] = 'no-details';
-check_ability('submission.view_test_details', $running, array('root' => true, 'helper' => true, 'alice' => false), 'a problem without details, during the contest');
+// how it did on the single tests is told to nobody but the staff while the contest runs, under any rule
+foreach (array('submission.view_details', 'submission.view_test_details', 'submission.view_final_details') as $ability) {
+	check_ability($ability, $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'owner' => true, 'setter' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during the contest');
+	check_ability($ability, fake_submission('alice', 1, 12), array('root' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during an IOI contest');
+}
+foreach (array('full', 'no-details') as $setting) {
+	$facts->contests[10]['extra_config']['problem_1'] = $setting;
+	check_ability('submission.view_details', $running, array('root' => true, 'helper' => true, 'alice' => false), "a problem that is judged with everything ($setting), during the contest");
+}
 unset($facts->contests[10]['extra_config']['problem_1']);
 check_ability('submission.hack', $running, array('nobody' => false, 'root' => true, 'setter' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during the contest');
 
@@ -242,6 +246,51 @@ foreach (array('submission.view', 'submission.view_source', 'submission.view_det
 	check_ability($ability, $over, array('nobody' => true, 'helper' => true, 'alice' => true, 'bob' => true), 'after the contest');
 }
 check_ability('submission.hack', $over, array('nobody' => false, 'alice' => true, 'bob' => true), 'after the contest');
+
+// ---- a contest whose board froze keeps what was submitted to it until its results are published
+$facts->contests[14] = array('freeze_minutes' => 60, 'last_min' => 300) + fake_contest(14, CONTEST_PENDING_FINAL_TEST, array('contest_type' => 'ICPC'));
+$facts->contests[15] = array('freeze_minutes' => 60, 'last_min' => 300) + fake_contest(15, CONTEST_FINISHED, array('contest_type' => 'ICPC'));
+$facts->contests[16] = array('freeze_minutes' => 60, 'last_min' => 300) + fake_contest(16, CONTEST_PENDING_FINAL_TEST, array('contest_type' => 'OI'));
+$kept = fake_submission('alice', 1, 14);
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, $kept, array('nobody' => false, 'bob' => false, 'alice' => true, 'setter' => true, 'root' => true), 'a frozen contest that is over and not published');
+	check_ability($ability, fake_submission('alice', 1, 15), array('nobody' => true, 'bob' => true, 'alice' => true), 'a frozen contest whose results are published');
+	check_ability($ability, fake_submission('alice', 1, 16), array('nobody' => true, 'bob' => true, 'alice' => true), 'only the ICPC rule freezes a board');
+}
+check_same(array(true, false, false, true), array(contestKeepsResults($facts->contests[14]), contestKeepsResults($facts->contests[15]), contestKeepsResults($facts->contests[16]), contestKeepsResults($facts->contests[10])), 'which contests keep their results');
+
+// ---- the rules of a contest
+check_same(array('OI', 'IOI', 'ICPC', 'ICPC', 'OI'), array(contestRule(fake_contest(1, 0)), contestRule($facts->contests[12]), contestRule($facts->contests[14]), contestRule(fake_contest(1, 0, array('contest_type' => 'ACM'))), contestRule(fake_contest(1, 0, array('contest_type' => 'whatever')))), 'the rule of a contest, OI where nothing or nothing known is said');
+check_same(array(true, false, false, false), array(
+	contestJudgesSamplesOnly(fake_contest(1, 0), 7),
+	contestJudgesSamplesOnly(fake_contest(1, 0, array('problem_7' => 'full')), 7),
+	contestJudgesSamplesOnly($facts->contests[12], 7),
+	contestJudgesSamplesOnly($facts->contests[14], 7)
+), 'only an OI contest judges with the samples, and not the problems it was told to judge in full');
+check_same(array(60, 14400, 0, null), array(contestFreezeMinutes($facts->contests[14]), contestFreezeOffset($facts->contests[14]), contestFreezeMinutes($facts->contests[16]), contestFreezeOffset($facts->contests[16])), 'the last hour of five is frozen from four hours in');
+check_same(0, contestFreezeOffset(array('freeze_minutes' => 600, 'last_min' => 300) + fake_contest(1, 0, array('contest_type' => 'ICPC'))), 'a board can not freeze before the contest begins');
+
+// what the standings count: rows of id, seconds, name, problem, score
+$oi = array(array(1, 100, 'ann', 0, 100), array(2, 200, 'ann', 0, 40), array(3, 300, 'bob', 0, 0), array(4, 400, 'ann', 1, 0));
+check_same(array('ann' => array(0 => array(40, 200, 2), 1 => array(0, 0, 4)), 'bob' => array(0 => array(0, 0, 3))), contestCells('OI', 2, $oi), 'OI: the last submission to a problem counts, and a zero costs no time');
+check_same(array(0, 300, 3), contestCells('IOI', 1, $oi)['bob'][0], 'the old way of counting gives a zero its time');
+// ann: A wrong twice then right, then wrong again; B never right. bob: A right at once.
+$icpc = array(
+	array(1, 60, 'ann', 0, 0), array(2, 120, 'ann', 0, 70), array(3, 600, 'ann', 0, 100), array(4, 700, 'ann', 0, 0),
+	array(5, 800, 'ann', 1, 0), array(6, 900, 'bob', 0, 100), array(7, 1000, 'ann', 1, 0)
+);
+$cells = contestCells('ICPC', 2, $icpc);
+check_same(array(100, 600 + 2 * 1200, 3, 2, 0), $cells['ann'][0], 'ICPC: solved at ten minutes after two attempts in vain, which cost twenty minutes each');
+check_same(array(0, 0, 7, 2, 0), $cells['ann'][1], 'a problem that was only tried costs nothing');
+check_same(array(100, 900, 6, 0, 0), $cells['bob'][0], 'solved at the first attempt');
+// the board froze at 650 seconds: what came after it is counted, not judged
+$frozen = contestCells('ICPC', 2, $icpc, 650);
+check_same(array(100, 3000, 3, 2, 0), $frozen['ann'][0], 'what was solved before the board froze stays solved, whatever came after');
+check_same(array(0, 0, 5, 0, 2), $frozen['ann'][1], 'attempts after the board froze are counted and not told');
+check_same(array(0, 0, 6, 0, 1), $frozen['bob'][0], 'also the ones that solved the problem');
+check_same(array(0, 0, 1, 1, 3), contestCells('ICPC', 2, $icpc, 100)['ann'][0], 'attempts before and after the board froze');
+check_same(array(array('+2', '10', 'uoj-icpc-solved'), array('+', '15', 'uoj-icpc-solved'), array('-2', '', 'uoj-icpc-failed'), array('?', '0 + 2', 'uoj-icpc-pending'), array('', '', '')),
+	array(contestIcpcCell($cells['ann'][0]), contestIcpcCell($cells['bob'][0]), contestIcpcCell($cells['ann'][1]), contestIcpcCell($frozen['ann'][1]), contestIcpcCell(null)), 'how the cells of an ICPC board read');
 
 // ---- hacks
 $hack = array('hacker' => 'bob', 'problem_id' => 1, 'is_hidden' => 0, 'submission' => $open);
@@ -569,3 +618,12 @@ check_same("contests.join_mode != 'list'", visibleContestsCond(null), 'a visitor
 
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');
+
+// what an ICPC contest says of a submission: that it passed, or what went wrong first
+$details = '<tests><test num="1" score="50" info="Accepted" time="1" memory="2"><in>1</in></test><test num="2" score="0" info="Time Limit Exceeded" time="-1" memory="-1"></test><test num="3" score="0" info="Wrong Answer"></test></tests>';
+check_same('Accepted', submissionVerdictOf(100, $details), 'full marks are Accepted, whatever the details say');
+check_same('Time Limit Exceeded', submissionVerdictOf(50, $details), 'the first test that failed says what went wrong');
+check_same('Runtime Error', submissionVerdictOf(0, '<tests><subtask num="1" score="0" info="Wrong Answer"><test num="1" score="100" info="Accepted"></test><test num="2" score="0" info="Runtime Error"></test></subtask></tests>'), 'the tests of a subtask are looked at');
+check_same('Wrong Answer', submissionVerdictOf(99, '<tests><test num="1" score="99" info="Accepted"></test><test num="-1" score="0" info="Extra Test Passed"></test></tests>'), 'less than full marks with nothing that failed is a wrong answer');
+check_same('Wrong Answer', submissionVerdictOf(0, null), 'so is a result without details');
+

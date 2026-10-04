@@ -212,8 +212,8 @@
 	$contest_type_form = new UOJForm('contest_type');
 	$contest_type_form->addInput('contest_type', 'text', '赛制', $contest['extra_config']['contest_type'],
 		function ($x) {
-			if ($x != 'OI' && $x != 'ACM' && $x != 'IOI') {
-				return '不是合法的赛制名';
+			if (!isset(contestRules()[$x])) {
+				return '不是合法的赛制名：' . join('、', array_keys(contestRules()));
 			}
 			return '';
 		},

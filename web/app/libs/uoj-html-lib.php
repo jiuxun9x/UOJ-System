@@ -204,6 +204,28 @@ function getSubmissionStatusDetails($submission) {
 	return $html;
 }
 
+// the rule of the contest a submission was made in, looked up once a page
+function submissionContestRule($contest_id) {
+	static $rules = array();
+	$contest_id = (int)$contest_id;
+	if (!isset($rules[$contest_id])) {
+		$contest = queryContest($contest_id);
+		if ($contest) {
+			$contest['extra_config'] = json_decode($contest['extra_config'], true);
+		}
+		$rules[$contest_id] = $contest ? contestRule($contest) : 'OI';
+	}
+	return $rules[$contest_id];
+}
+function submissionVerdict($submission) {
+	if ($submission['score'] == 100) {
+		return 'Accepted';
+	}
+	$row = DB::selectFirst("select result from submissions where id = ".(int)$submission['id']);
+	$result = $row ? json_decode($row['result'], true) : null;
+	return submissionVerdictOf($submission['score'], is_array($result) && isset($result['details']) ? $result['details'] : '');
+}
+
 function echoSubmission($submission, $config, $user) {
 	$problem = queryProblemBrief($submission['problem_id']);
 	$submitterLink = getUserLink($submission['submitter']);
@@ -243,6 +265,10 @@ function echoSubmission($submission, $config, $user) {
 		if ($status == 'Judged') {
 			if ($submission['score'] == null) {
 				echo '<a href="/submission/', $submission['id'], '" class="small">', $submission['result_error'], '</a>';
+			} elseif (!empty($submission['contest_id']) && submissionContestRule($submission['contest_id']) === 'ICPC') {
+				// under the ICPC rule a submission passed or did not, and is said to
+				$verdict = submissionVerdict($submission);
+				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '"><strong>', HTML::escape($verdict), '</strong></a>';
 			} else {
 				echo '<a href="/submission/', $submission['id'], '" class="uoj-score">', $submission['score'], '</a>';
 			}
@@ -612,8 +638,6 @@ class JudgementDetailsPrinter {
 			echo '<div id="', $this->name, '_details_accordion">';
 			if ($this->styler->show_small_tip) {
 				echo '<div class="text-right text-muted">', '小提示：点击横条可展开更详细的信息', '</div>';
-			} elseif ($this->styler->ioi_contest_is_running) {
-				echo '<div class="text-right text-muted">', 'IOI赛制比赛中不支持显示详细信息', '</div>';
 			}
 			$this->_print_c($node);
 			echo '</div>';

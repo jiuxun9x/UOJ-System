@@ -63,7 +63,7 @@
 
 <h1 class="page-header text-center"><?= $problem['title'] ?> <?= UOJLocale::get('problems::statistics') ?></h1>
 
-<?php if ($contest && !can($myUser, 'contest.assist', $contest) && $contest['cur_progress'] <= CONTEST_IN_PROGRESS): ?>
+<?php if ($contest && !can($myUser, 'contest.assist', $contest) && contestKeepsResults($contest)): ?>
 <h2 class="text-center text-muted">比赛尚未结束</h2>
 <?php else: ?>
 <h2 class="text-center"><?= UOJLocale::get('problems::accepted submissions') ?></h2>

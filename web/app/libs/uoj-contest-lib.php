@@ -114,6 +114,147 @@ function contestCreate($name, $start_time_str, $last_min, $actor, $domain = null
 	return $contest_id;
 }
 
+// ---- the rules of a contest
+//
+// OI    while the contest runs a submission is judged with the samples, and its owner sees
+//       how it did on them; when it is over everything is judged again with all the data.
+//       The last submission to a problem counts.
+// IOI   judged with all the data at once, and the owner sees the score.
+//       The last submission to a problem counts.
+// ICPC  judged with all the data at once, and the owner sees whether it passed. A problem is
+//       solved or not; who solved more is ahead, then who has less penalty: the time of
+//       every solved problem plus twenty minutes for every failed attempt at it before.
+//       The board can be frozen for the last minutes.
+//
+// Under no rule does anybody but the staff see how a submission did on the single tests
+// while the contest runs.
+define('CONTEST_ICPC_PENALTY', 1200);
+
+function contestRules() {
+	return array(
+		'OI' => array(
+			'name' => 'OI',
+			'description' => '比赛中只用样例评测，选手看到样例的得分；比赛结束后用全部数据重新评测。按总分排名，每题以最后一次提交为准。'
+		),
+		'IOI' => array(
+			'name' => 'IOI',
+			'description' => '比赛中用全部数据评测，选手立刻看到得分。按总分排名，每题以最后一次提交为准。'
+		),
+		'ICPC' => array(
+			'name' => 'ICPC',
+			'description' => '比赛中用全部数据评测，选手立刻看到是否通过。按通过题数排名，题数相同按罚时：每道通过的题的通过时间，加上此前每次未通过的提交 20 分钟。可以封榜。'
+		)
+	);
+}
+function contestRule($contest) {
+	$rule = isset($contest['extra_config']['contest_type']) ? $contest['extra_config']['contest_type'] : 'OI';
+	if ($rule === 'ACM') {
+		// what the rule was called before it was one
+		$rule = 'ICPC';
+	}
+	return isset(contestRules()[$rule]) ? $rule : 'OI';
+}
+// whether a submission to a problem of the contest is judged with the samples only while it runs
+function contestJudgesSamplesOnly($contest, $problem_id) {
+	return contestRule($contest) === 'OI' && !isset($contest['extra_config']["problem_$problem_id"]);
+}
+
+// ---- a frozen board
+//
+// An ICPC contest may freeze its board for its last minutes: from then on, and until its
+// results are published, everybody but its staff sees the board as it was, with what was
+// submitted since counted but not judged, and nobody sees what others submitted.
+function contestFreezeMinutes($contest) {
+	return contestRule($contest) === 'ICPC' && isset($contest['freeze_minutes']) ? (int)$contest['freeze_minutes'] : 0;
+}
+// how many seconds into the contest its board freezes, or null
+function contestFreezeOffset($contest) {
+	$minutes = contestFreezeMinutes($contest);
+	return $minutes > 0 ? max(0, ((int)$contest['last_min'] - $minutes) * 60) : null;
+}
+// whether the board is frozen now: for the people who are not its staff
+function contestBoardIsFrozen($contest) {
+	$offset = contestFreezeOffset($contest);
+	return $offset !== null && $contest['cur_progress'] < CONTEST_FINISHED
+		&& UOJTime::$time_now->getTimestamp() >= $contest['start_time']->getTimestamp() + $offset;
+}
+// Whether what was submitted to a contest is still kept from everybody but its owner and the
+// staff: while it runs, and, where the board freezes, until the results are published.
+function contestKeepsResults($contest) {
+	return $contest['cur_progress'] <= CONTEST_IN_PROGRESS
+		|| ($contest['cur_progress'] < CONTEST_FINISHED && contestFreezeMinutes($contest) > 0);
+}
+
+// What the standings of a contest count of what was submitted to it.
+//   $rows           what was submitted and judged, the oldest first: rows of the id of the
+//                   submission, seconds since the start of the contest, username, position
+//                   of the problem, score
+//   $freeze_offset  under the ICPC rule: from how many seconds into the contest on
+//                   submissions are counted without being judged, or null
+// Returns username => position of the problem => array(score, penalty in seconds, id of the
+// submission that counts, failed attempts, attempts that are not judged). The last two are
+// there under the ICPC rule only.
+function contestCells($rule, $standings_version, $rows, $freeze_offset = null) {
+	$cells = array();
+	foreach ($rows as $row) {
+		list($id, $offset, $name, $pos, $score) = $row;
+		if ($rule !== 'ICPC') {
+			// the last submission to a problem is the one that counts
+			$cells[$name][$pos] = array((int)$score, $score == 0 && $standings_version >= 2 ? 0 : (int)$offset, (int)$id);
+			continue;
+		}
+		$cell = isset($cells[$name][$pos]) ? $cells[$name][$pos] : array(0, 0, (int)$id, 0, 0);
+		if ($cell[0] == 100) {
+			// solved: what comes afterwards changes nothing
+			continue;
+		}
+		if ($freeze_offset !== null && $offset >= $freeze_offset) {
+			$cell[4]++;
+		} elseif ($score == 100) {
+			$cell = array(100, (int)$offset + CONTEST_ICPC_PENALTY * $cell[3], (int)$id, $cell[3], 0);
+		} else {
+			$cell[2] = (int)$id;
+			$cell[3]++;
+		}
+		$cells[$name][$pos] = $cell;
+	}
+	return $cells;
+}
+
+// How a cell of an ICPC board reads: array(what it says, what stands under it, its class).
+// A solved problem says + and how often it was tried in vain, over the minute it was solved
+// in; a problem that was tried says - and how often; while the board is frozen a problem
+// says ?, over the attempts that count and the ones nobody was told about.
+function contestIcpcCell($cell) {
+	if (!$cell) {
+		return array('', '', '');
+	}
+	$failed = isset($cell[3]) ? (int)$cell[3] : 0;
+	$pending = isset($cell[4]) ? (int)$cell[4] : 0;
+	if ($cell[0] == 100) {
+		return array('+' . ($failed > 0 ? $failed : ''), (string)floor(($cell[1] - CONTEST_ICPC_PENALTY * $failed) / 60), 'uoj-icpc-solved');
+	}
+	if ($pending > 0) {
+		return array('?', $failed . ' + ' . $pending, 'uoj-icpc-pending');
+	}
+	return $failed > 0 ? array('-' . $failed, '', 'uoj-icpc-failed') : array('', '', '');
+}
+
+// What a submission that was judged is said to be where only passing counts: Accepted, or
+// what went wrong on the first test that it failed.
+function submissionVerdictOf($score, $details) {
+	if ($score == 100) {
+		return 'Accepted';
+	}
+	if (is_string($details) && preg_match_all('/<test\b[^>]*\binfo="([^"]*)"/', $details, $matches)) {
+		foreach ($matches[1] as $info) {
+			if ($info !== 'Accepted' && $info !== 'Extra Test Passed') {
+				return htmlspecialchars_decode($info);
+			}
+		}
+	}
+	return 'Wrong Answer';
+}
 // Whether the results of a contest change the ratings of the site. A contest of a domain
 // never does, whatever its settings say.
 function contestIsRated($contest) {
@@ -272,7 +413,7 @@ function queryContestData($contest, $config = array()) {
 				." where contest_id = {$contest['id']} and score is not null order by id");
 		} else {
 			$result = DB::query("select submission_id, date_add('{$contest['start_time_str']}', interval penalty second),"
-				." submitter, problem_id, score from contests_submissions where contest_id = {$contest['id']}");
+				." submitter, problem_id, score, attempts from contests_submissions where contest_id = {$contest['id']}");
 		}
 		while ($row = DB::fetch($result, MYSQLI_NUM)) {
 			$row[0] = (int)$row[0];
@@ -289,25 +430,32 @@ function queryContestData($contest, $config = array()) {
 		$people[] = $row;
 	}
 
-	return ['problems' => $problems, 'data' => $data, 'people' => $people];
+	// 'final': the rows are what counted in the end, one for a problem somebody tried
+	return ['problems' => $problems, 'data' => $data, 'people' => $people, 'final' => !$config['pre_final'] && $contest['cur_progress'] >= CONTEST_FINISHED];
 }
 
-function calcStandings($contest, $contest_data, &$score, &$standings, $update_contests_submissions = false) {
-	// score: username, problem_pos => score, penalty, id
-	$score = array();
+// $freeze_offset: the standings as the people see them who are kept from what was submitted
+// after so many seconds of the contest, see contestCells()
+function calcStandings($contest, $contest_data, &$score, &$standings, $update_contests_submissions = false, $freeze_offset = null) {
+	// score: username, problem_pos => score, penalty, id, and under the ICPC rule failed attempts, attempts that are not judged
+	$rule = contestRule($contest);
 	$n_people = count($contest_data['people']);
 	$n_problems = count($contest_data['problems']);
-	foreach ($contest_data['people'] as $person) {
-		$score[$person[0]] = array();
-	}
+	$rows = array();
+	$cells = array();
 	foreach ($contest_data['data'] as $submission) {
-		$penalty = (new DateTime($submission[1]))->getTimestamp() - $contest['start_time']->getTimestamp();
-		if ($contest['extra_config']['standings_version'] >= 2) {
-			if ($submission[4] == 0) {
-				$penalty = 0;
-			}
+		$offset = (new DateTime($submission[1]))->getTimestamp() - $contest['start_time']->getTimestamp();
+		if (!empty($contest_data['final']) && $rule === 'ICPC') {
+			// what counted in the end: the penalty is the offset, and the attempts were kept
+			$cells[$submission[2]][$submission[3]] = array($submission[4], $offset, $submission[0], isset($submission[5]) ? (int)$submission[5] : 0, 0);
+		} else {
+			$rows[] = array($submission[0], $offset, $submission[2], $submission[3], $submission[4]);
 		}
-		$score[$submission[2]][$submission[3]] = array($submission[4], $penalty, $submission[0]);
+	}
+	$cells += contestCells($rule, $contest['extra_config']['standings_version'], $rows, $freeze_offset);
+	$score = array();
+	foreach ($contest_data['people'] as $person) {
+		$score[$person[0]] = isset($cells[$person[0]]) ? $cells[$person[0]] : array();
 	}
 
 	// standings: rank => score, penalty, [username, user_rating, nickname], virtual_rank
@@ -320,7 +468,8 @@ function calcStandings($contest, $contest_data, &$score, &$standings, $update_co
 				$cur[0] += $cur_row[0];
 				$cur[1] += $cur_row[1];
 				if ($update_contests_submissions) {
-					DB::insert("insert into contests_submissions (contest_id, submitter, problem_id, submission_id, score, penalty) values ({$contest['id']}, '{$person[0]}', {$contest_data['problems'][$i]}, {$cur_row[2]}, {$cur_row[0]}, {$cur_row[1]})");
+					$attempts = isset($cur_row[3]) ? (int)$cur_row[3] : 0;
+					DB::insert("insert into contests_submissions (contest_id, submitter, problem_id, submission_id, score, penalty, attempts) values ({$contest['id']}, '{$person[0]}', {$contest_data['problems'][$i]}, {$cur_row[2]}, {$cur_row[0]}, {$cur_row[1]}, $attempts)");
 				}
 			}
 		}

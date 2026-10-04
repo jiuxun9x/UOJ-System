@@ -687,9 +687,10 @@ function can($user, $ability, $resource = null) {
 					return $name !== null && $resource['submitter'] === $name;
 				}
 			}
-			// what is submitted in a contest is nobody else's business while the contest runs
+			// What is submitted in a contest is nobody else's business while the contest runs,
+			// and where its board froze until its results are published.
 			$contest = $facts->contest($resource['contest_id']);
-			if ($contest != null && $contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
+			if ($contest != null && contestKeepsResults($contest)) {
 				return $name !== null && $resource['submitter'] === $name;
 			}
 			return true;
@@ -706,12 +707,18 @@ function can($user, $ability, $resource = null) {
 				return true;
 			}
 			return !permissionIsClosed($resource, $user) && permissionViewTypeAllows('view_content_type', $user, $resource);
-		// the verdict of every test
+		// The verdict of every test. While a contest runs nobody but its staff is told how a
+		// submission to it did on the single tests, under any rule: its owner learns what the
+		// rule of the contest says, and what the compiler said.
 		case 'submission.view_details':
 			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
 			if (!can($user, 'submission.view', $resource)) {
+				return false;
+			}
+			$contest = $facts->contest($resource['contest_id']);
+			if ($contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
 				return false;
 			}
 			if (permissionIsClosed($resource, $user) && !($name !== null && $resource['submitter'] === $name)) {
@@ -725,13 +732,7 @@ function can($user, $ability, $resource = null) {
 			}
 			$contest = $facts->contest($resource['contest_id']);
 			if ($contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
-				$contest_config = $contest['extra_config'];
-				if (isset($contest_config['contest_type']) && $contest_config['contest_type'] == 'IOI') {
-					return false;
-				}
-				if (isset($contest_config["problem_{$resource['problem_id']}"]) && $contest_config["problem_{$resource['problem_id']}"] === 'no-details') {
-					return false;
-				}
+				return false;
 			}
 			return permissionViewTypeAllows('view_details_type', $user, $resource);
 		// everything the judgers reported, whatever the contest shows to its participants
@@ -835,8 +836,9 @@ function permissionIsStaffOf($user, $submission) {
 // from stays open to the site, but not to the people who take part in the homework.
 function permissionIsClosed($submission, $user = null) {
 	$facts = permissionFacts();
+	// while the contest runs, and where its board freezes until its results are published
 	$contest = $facts->contest($submission['contest_id']);
-	if ($contest != null && $contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
+	if ($contest != null && contestKeepsResults($contest)) {
 		return true;
 	}
 	if ($facts->problemIsInRunningContest($submission['problem_id'])) {
@@ -864,6 +866,13 @@ function runningContestsCond() {
 	$now = UOJTime::$time_now_str;
 	return "contests.status = 'unfinished' and contests.start_time <= '$now' and date_add(contests.start_time, interval contests.last_min minute) > '$now'";
 }
+// The contests that keep what was submitted to them from everybody but its owners and their
+// staff, as contestKeepsResults() says it of one: the ones that run, and the ones with a
+// board that froze whose results are not published.
+function keepingContestsCond() {
+	$now = UOJTime::$time_now_str;
+	return "(".runningContestsCond().") or (contests.status != 'finished' and contests.freeze_minutes > 0 and contests.start_time <= '$now')";
+}
 
 // The condition that keeps the contests somebody may not see out of a list of contests: the
 // same rule as 'contest.view' for what is not a matter of domains.
@@ -887,7 +896,7 @@ function visibleSubmissionsCond($user) {
 		return '1';
 	}
 	// the same rules as 'submission.view'
-	$in_running_contest = "submissions.contest_id in (select id from contests where ".runningContestsCond().")";
+	$in_running_contest = "submissions.contest_id in (select id from contests where ".keepingContestsCond().")";
 	if ($user == null) {
 		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or not $in_running_contest)";
 	}

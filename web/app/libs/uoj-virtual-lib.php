@@ -49,35 +49,44 @@ function virtualClock($seconds) {
 // it virtually among the contestants.
 //   $people   the contestants of the contest: rows of username, rating, nickname
 //   $final    what counted for them in the end: rows of submitter, position of the problem,
-//             score, seconds into the contest, id of the submission
+//             score, penalty in seconds, id of the submission, failed attempts before it
 //   $me       array('username', 'nickname') of who sits it virtually
 //   $mine     what they submitted that was judged: rows of id, seconds into their
 //             participation, position of the problem, score, in the order of the ids
 //   $ended    whether the participation is over: only then is a zero shown, which says
 //             nothing about when it was earned
+//   $rule     the rule of the contest, which the participation is counted by as well
 // Returns rows of username, rating, nickname, virtual, score, penalty, cells (position of
-// the problem => array(score, seconds, id of the submission)) and rank, the best first.
-function virtualStandings($people, $final, $me, $mine, $elapsed, $ended, $standings_version = 2) {
+// the problem => what contestCells() says of it) and rank, the best first.
+function virtualStandings($people, $final, $me, $mine, $elapsed, $ended, $standings_version = 2, $rule = 'OI') {
 	$rows = array();
 	foreach ($people as $person) {
 		$rows['r/' . $person[0]] = array('username' => (string)$person[0], 'rating' => (int)$person[1], 'nickname' => isset($person[2]) ? $person[2] : '', 'virtual' => false, 'score' => 0, 'penalty' => 0, 'cells' => array());
 	}
 	foreach ($final as $result) {
 		list($submitter, $pos, $score, $penalty, $submission_id) = $result;
-		if (!isset($rows['r/' . $submitter]) || $penalty > $elapsed || ($score == 0 && !$ended)) {
+		$attempts = isset($result[5]) ? (int)$result[5] : 0;
+		// When it was earned. Under the ICPC rule the penalty of a solved problem is the
+		// time it was solved at and what the failed attempts before it cost.
+		$since = $rule === 'ICPC' && $score == 100 ? $penalty - CONTEST_ICPC_PENALTY * $attempts : $penalty;
+		if (!isset($rows['r/' . $submitter]) || $since > $elapsed || ($score == 0 && !$ended)) {
 			continue;
 		}
-		$rows['r/' . $submitter]['cells'][$pos] = array((int)$score, (int)$penalty, (int)$submission_id);
+		$rows['r/' . $submitter]['cells'][$pos] = $rule === 'ICPC'
+			? array((int)$score, (int)$penalty, (int)$submission_id, $attempts, 0)
+			: array((int)$score, (int)$penalty, (int)$submission_id);
 	}
 	$virtual = array('username' => (string)$me['username'], 'rating' => isset($me['rating']) ? (int)$me['rating'] : 0, 'nickname' => $me['nickname'], 'virtual' => true, 'score' => 0, 'penalty' => 0, 'cells' => array());
+	// what counts of it is what would have counted in the contest
+	$happened = array();
 	foreach ($mine as $submission) {
 		list($submission_id, $offset, $pos, $score) = $submission;
-		if ($offset > $elapsed) {
-			continue;
+		if ($offset <= $elapsed) {
+			$happened[] = array($submission_id, $offset, 'v', $pos, $score);
 		}
-		// as in a contest, the last submission to a problem is the one that counts
-		$virtual['cells'][$pos] = array((int)$score, $score == 0 && $standings_version >= 2 ? 0 : (int)$offset, (int)$submission_id);
 	}
+	$counted = contestCells($rule, $standings_version, $happened);
+	$virtual['cells'] = isset($counted['v']) ? $counted['v'] : array();
 	$rows['v'] = $virtual;
 	foreach ($rows as &$row) {
 		foreach ($row['cells'] as $cell) {
@@ -166,9 +175,9 @@ function virtualStandingsNow($contest, $virtual, $problems) {
 		$people[] = array($row['username'], (int)$row['user_rating'], $row['nickname']);
 	}
 	$final = array();
-	foreach (DB::selectAll("select submitter, problem_id, score, penalty, submission_id from contests_submissions where contest_id = {$contest['id']}") as $row) {
+	foreach (DB::selectAll("select submitter, problem_id, score, penalty, submission_id, attempts from contests_submissions where contest_id = {$contest['id']}") as $row) {
 		if (isset($pos[(int)$row['problem_id']])) {
-			$final[] = array($row['submitter'], $pos[(int)$row['problem_id']], (int)$row['score'], (int)$row['penalty'], (int)$row['submission_id']);
+			$final[] = array($row['submitter'], $pos[(int)$row['problem_id']], (int)$row['score'], (int)$row['penalty'], (int)$row['submission_id'], (int)$row['attempts']);
 		}
 	}
 	$mine = array();
@@ -180,7 +189,7 @@ function virtualStandingsNow($contest, $virtual, $problems) {
 	$user = queryUser($virtual['username']);
 	$now = UOJTime::$time_now->getTimestamp();
 	return virtualStandings($people, $final, array('username' => $virtual['username'], 'nickname' => $user ? $user['nickname'] : '', 'rating' => $user ? $user['rating'] : 0), $mine,
-		virtualElapsed($virtual, $now), virtualPhase($virtual, $now) === 'ended', $contest['extra_config']['standings_version']);
+		virtualElapsed($virtual, $now), virtualPhase($virtual, $now) === 'ended', $contest['extra_config']['standings_version'], contestRule($contest));
 }
 
 // ---- changes; each returns '' or why it was refused

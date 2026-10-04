@@ -89,14 +89,22 @@
 	}
 	
 	if (can($myUser, 'contest.manage', $contest)) {
-		if (CONTEST_PENDING_FINAL_TEST <= $contest['cur_progress'] && $contest['cur_progress'] <= CONTEST_TESTING) {
+		// A contest that judged with the samples while it ran has a final test with all the
+		// data before its results are published: an OI contest, and any contest that has
+		// such submissions from when it was one. A contest that judged with everything has
+		// nothing left to judge: its results are published as they are.
+		$needs_final_test = $contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST && (contestRule($contest) === 'OI'
+			|| DB::selectFirst("select 1 from submissions where contest_id = {$contest['id']} and content like '%\"final\\_test\\_config\"%' limit 1") != null);
+		if ($needs_final_test || $contest['cur_progress'] == CONTEST_TESTING) {
 			$start_test_form = new UOJForm('start_test');
 			$start_test_form->handle = function() {
 				global $contest;
+				// starting it again judges everything again, for the data that was corrected
+				$again = $contest['cur_progress'] == CONTEST_TESTING;
 				$result = DB::query("select id, problem_id, content from submissions where contest_id = {$contest['id']}");
 				while ($submission = DB::fetch($result, MYSQLI_ASSOC)) {
-					if (!isset($contest['extra_config']["problem_{$submission['problem_id']}"])) {
-						$content = json_decode($submission['content'], true);
+					$content = json_decode($submission['content'], true);
+					if (isset($content['final_test_config']) || ($again && !isset($contest['extra_config']["problem_{$submission['problem_id']}"]))) {
 						if (isset($content['final_test_config'])) {
 							$content['config'] = $content['final_test_config'];
 							unset($content['final_test_config']);
@@ -121,7 +129,7 @@
 
 			$start_test_form->runAtServer();
 		}
-		if ($contest['cur_progress'] >= CONTEST_TESTING) {
+		if ($contest['cur_progress'] >= CONTEST_TESTING || ($contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST && !$needs_final_test)) {
 			$publish_result_form = new UOJForm('publish_result');
 			$publish_result_form->handle = function() {
 				// time config
@@ -129,6 +137,11 @@
 				ignore_user_abort(true);
 
 				global $contest;
+				// what is not judged yet would count for nothing
+				$unjudged = DB::selectCount("select count(*) from submissions where contest_id = {$contest['id']} and status != 'Judged'");
+				if ($unjudged > 0) {
+					becomeMsgPage("<p>还有 $unjudged 个提交没有评测完，现在公布的话它们不会计入成绩。请等评测结束后再公布。</p><p><a href=\"/contest/{$contest['id']}\">返回</a></p>");
+				}
 				$contest_data = queryContestData($contest);
 				calcStandings($contest, $contest_data, $score, $standings, true);
 				$rated = contestIsRated($contest);
@@ -415,8 +428,27 @@ EOD;
 	function echoStandings() {
 		global $contest;
 		
+		// While the board is frozen everybody sees it as it was when it froze. The staff sees
+		// everything, and can ask for what the others see.
+		$is_staff = can(Auth::user(), 'contest.assist', $contest);
+		$board_is_frozen = contestBoardIsFrozen($contest);
+		$frozen = $board_is_frozen && (!$is_staff || isset($_GET['frozen']));
 		$contest_data = queryContestData($contest);
-		calcStandings($contest, $contest_data, $score, $standings);
+		calcStandings($contest, $contest_data, $score, $standings, false, $frozen ? contestFreezeOffset($contest) : null);
+		if ($board_is_frozen) {
+			$since = virtualClock(contestFreezeOffset($contest));
+			echo '<div class="alert alert-info" id="standings-frozen">';
+			if ($frozen) {
+				echo "榜单已封榜：这是比赛开始后 $since 时的榜单，此后的提交只显示次数，公布成绩时揭晓。";
+				if ($is_staff) {
+					echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings">看完整的榜单</a>';
+				}
+			} else {
+				echo "选手看到的榜单从比赛开始后 $since 起封榜，公布成绩时揭晓。这是只有工作人员能看到的完整榜单。";
+				echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings?frozen=1">看选手看到的榜单</a>';
+			}
+			echo '</div>';
+		}
 		
 		if ($contest['cur_progress'] >= CONTEST_FINISHED && can(Auth::user(), 'contest.assist', $contest)) {
 			echo <<<EOD
@@ -426,11 +458,12 @@ EOD;
 			EOD;
 		}
 		
-		uojIncludeView('contest-standings', [
+		uojIncludeView(contestRule($contest) === 'ICPC' ? 'contest-standings-icpc' : 'contest-standings', [
 			'contest' => $contest,
 			'standings' => $standings,
 			'score' => $score,
-			'contest_data' => $contest_data
+			'contest_data' => $contest_data,
+			'frozen' => $frozen
 		]);
 	}
 	
@@ -456,7 +489,8 @@ EOD;
 		global $contest;
 		if ($contest['cur_progress'] < CONTEST_TESTING) {
 			$rop = 0;
-			$title = UOJLocale::get('contests::contest pending final test');
+			// only a contest that judged with the samples has a final test to wait for
+			$title = contestRule($contest) === 'OI' ? UOJLocale::get('contests::contest pending final test') : '比赛已结束，等待公布成绩';
 		} else {
 			$total = DB::selectCount("select count(*) from submissions where contest_id = {$contest['id']}");
 			$n_judged = DB::selectCount("select count(*) from submissions where contest_id = {$contest['id']} and status = 'Judged'");
@@ -543,13 +577,14 @@ EOD;
 	</div>
 	<div class="col-sm-3">
 	<?php endif ?>
-	<?php if (!isset($contest['extra_config']['contest_type']) || $contest['extra_config']['contest_type']=='OI'):?>
-	<p>此次比赛为OI赛制。</p>
-	<p><strong>注意：比赛时只显示测样例的结果。</strong></p>
-	<?php elseif ($contest['extra_config']['contest_type']=='IOI'):?>
-	<p>此次比赛为IOI赛制。</p>
-	<p><strong>注意：比赛时显示测试所有数据的结果，但无法看到详细信息。</strong></p>
-	<?php endif?>
+	<?php $contest_rule = contestRule($contest); ?>
+	<div id="contest-rule" data-rule="<?= $contest_rule ?>">
+		<p>此次比赛为 <?= $contest_rule ?> 赛制。</p>
+		<p><small><?= contestRules()[$contest_rule]['description'] ?>比赛进行中不能查看每个测试点的结果。</small></p>
+		<?php if (contestFreezeMinutes($contest) > 0): ?>
+		<p><small><strong>最后 <?= contestFreezeMinutes($contest) ?> 分钟封榜</strong>，公布成绩时揭晓。</small></p>
+		<?php endif ?>
+	</div>
 	
 		<a href="/contest/<?=$contest['id']?>/registrants" class="btn btn-info btn-block"><?= UOJLocale::get('contests::contest registrants') ?></a>
 		<?php if (can($myUser, 'contest.manage', $contest)): ?>

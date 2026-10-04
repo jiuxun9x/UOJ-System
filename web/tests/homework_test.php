@@ -259,6 +259,7 @@ check_same(array('backup_failed', 'backup_overdue'), $problem_kinds(backupFindPr
 check_same(array('—', '512 B', '1.5 KB', '2.0 MB', '3.5 GB'), array(backupSize(null), backupSize(512), backupSize(1536), backupSize(2097152), backupSize(3758096384)), 'sizes for people');
 
 // ---- sitting a contest virtually: its phases, and the standings replayed
+require_once __DIR__ . '/../app/libs/uoj-contest-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-virtual-lib.php';
 
 $virtual = array('start_time' => '2026-10-10 14:00:00', 'last_min' => 180);
@@ -313,4 +314,28 @@ check_same('20260101', virtualStandings($people, $final, $me, array(), 0, false)
 // who sat the real contest and sits it again is there twice: as they were, and as they are now
 $again = virtualStandings($people, $final, array('username' => 'ann', 'nickname' => '', 'rating' => 1500), array(array(31, 100, 0, 100)), 600, false);
 check_same(array('ann', true, 'ann', false), array($again[0]['username'], $again[0]['virtual'], $again[1]['username'], $again[1]['virtual']), 'a contestant who sits the contest again');
+
+// under the ICPC rule the replay shows a solved problem from the moment it was solved, though
+// its penalty says more, and counts the participation as the contest would
+$icpc_final = array(array('ann', 0, 100, 300 + 2 * 1200, 11, 2), array('bob', 0, 100, 1800, 13, 0), array('bob', 1, 0, 0, 14, 3));
+$icpc_board = function($mine, $elapsed, $ended = false) use ($people, $icpc_final, $me) {
+	$lines = array();
+	foreach (virtualStandings($people, $icpc_final, $me, $mine, $elapsed, $ended, 2, 'ICPC') as $row) {
+		$lines[] = $row['rank'] . ' ' . $row['username'] . ($row['virtual'] ? '*' : '') . ' ' . $row['score'] . '/' . $row['penalty'];
+	}
+	return join(', ', $lines);
+};
+check_same('1 ann 100/2700, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $icpc_board(array(), 600), 'ann solved it after five minutes, with the penalty of her two attempts in vain');
+check_same('1 me* 0/0, 1 20260101 0/0, 1 ann 0/0, 1 bob 0/0', $icpc_board(array(), 200), 'and not before');
+check_same('1 me* 100/1700, 2 ann 100/2700, 3 20260101 0/0, 3 bob 0/0', $icpc_board(array(array(21, 100, 0, 0), array(22, 500, 0, 100), array(23, 550, 0, 0)), 600), 'one attempt in vain costs twenty minutes, and what comes after solving changes nothing');
+check_same('1 ann 100/2700, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $icpc_board(array(array(21, 100, 0, 0), array(22, 300, 0, 60)), 600), 'a problem that is not solved costs nothing');
+$icpc_cells = function($username, $ended) use ($people, $icpc_final, $me) {
+	foreach (virtualStandings($people, $icpc_final, $me, array(), 3600, $ended, 2, 'ICPC') as $row) {
+		if ($row['username'] === $username && !$row['virtual']) {
+			return $row['cells'];
+		}
+	}
+};
+check_same(array(0 => array(100, 1800, 13, 0, 0)), $icpc_cells('bob', false), 'what bob never solved is not shown while the participation runs');
+check_same(array(0, 0, 14, 3, 0), $icpc_cells('bob', true)[1], 'and is when it is over, with how often he tried');
 

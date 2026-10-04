@@ -41,6 +41,9 @@ function array2csv(array &$array) {
 $export_data = [];
 // whoever may know who the users are gets their student numbers and real names
 $with_identity = can(Auth::user(), 'user.view_identity');
+// under the ICPC rule the score is 100 for every problem that was solved, and the penalty,
+// in seconds, includes what the failed attempts cost
+$is_icpc = contestRule($contest) === 'ICPC';
 $csv_header = ['Rank', 'Username', 'Nickname', 'Score', 'Penalty'];
 if ($with_identity) {
 	array_splice($csv_header, 3, 0, ['StudentID', 'RealName']);
@@ -51,6 +54,9 @@ for ($i = 0; $i < $n_problems; $i++) {
 	$csv_header[] = chr(ord('A') + $i);
 	$csv_header[] = chr(ord('A') + $i) . '_penalty';
 	$csv_header[] = chr(ord('A') + $i) . '_submission_id';
+	if ($is_icpc) {
+		$csv_header[] = chr(ord('A') + $i) . '_failed_attempts';
+	}
 }
 
 $export_data[] = $csv_header;
@@ -68,6 +74,9 @@ foreach ($standings as $rank => $row) {
 		$res[] = isset($score[$row[2][0]][$i][0]) ? $score[$row[2][0]][$i][0] : "";
 		$res[] = isset($score[$row[2][0]][$i][1]) ? $score[$row[2][0]][$i][1] : "";
 		$res[] = isset($score[$row[2][0]][$i][2]) ? $score[$row[2][0]][$i][2] : "";
+		if ($is_icpc) {
+			$res[] = isset($score[$row[2][0]][$i][3]) ? $score[$row[2][0]][$i][3] : "";
+		}
 	}
 	$export_data[] = $res;
 }

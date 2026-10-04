@@ -112,11 +112,15 @@
 		if (!can($myUser, 'submission.view_test_details', $submission)) {
 			$styler->fade_all_details = true;
 			$styler->show_small_tip = false;
-			if ($contest['extra_config']['contest_type']=='IOI' && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
-				$styler->ioi_contest_is_running = true;
-			}
 		}
 	}
+	// While a contest runs, the owner of a submission is not told how it did on the single
+	// tests. What the compiler said of a program that did not compile is told all the same:
+	// it says nothing about the tests.
+	$is_owner = $myUser != null && $submission['submitter'] === $myUser['username'];
+	$details_wait_for_the_contest = !$should_show_all_details && $is_owner && $out_status == 'Judged'
+		&& $contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS;
+	$show_compile_error = $details_wait_for_the_contest && $submission['result_error'] === 'Compile Error';
 ?>
 <?php 
 	$REQUIRE_LIB['hljs'] = "";
@@ -205,6 +209,19 @@
 			<?php endif ?>
 		</div>
 	</div>
+<?php endif ?>
+
+<?php if ($show_compile_error): ?>
+	<div class="card border-info mb-3" id="compile-error">
+		<div class="card-header bg-info">
+			<h4 class="card-title"><?= UOJLocale::get('details') ?></h4>
+		</div>
+		<div class="card-body">
+			<?php echoJudgementDetails($submission_result['details'], new SubmissionDetailsStyler(), 'details') ?>
+		</div>
+	</div>
+<?php elseif ($details_wait_for_the_contest): ?>
+	<p class="text-muted text-center" id="details-after-contest">比赛进行中不显示每个测试点的结果，比赛结束后可以在这里看到。</p>
 <?php endif ?>
 
 <?php if (isset($rejudge_form)): ?>

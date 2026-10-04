@@ -194,3 +194,27 @@
 	color: #6c757d;
 	font-size: 0.875rem;
 }
+
+/* ---- the board of an ICPC contest */
+.uoj-scoreboard .uoj-icpc-solved {
+	background-color: #d4edda;
+	color: #155724;
+	font-weight: bold;
+}
+.uoj-scoreboard .uoj-icpc-first {
+	background-color: #7bd389;
+	color: #0b2e13;
+	font-weight: bold;
+}
+.uoj-scoreboard .uoj-icpc-failed {
+	background-color: #f8d7da;
+	color: #721c24;
+}
+.uoj-scoreboard .uoj-icpc-pending {
+	background-color: #d6e4f5;
+	color: #1b3a5c;
+}
+.uoj-scoreboard .uoj-icpc-solved small, .uoj-scoreboard .uoj-icpc-first small, .uoj-scoreboard .uoj-icpc-pending small {
+	display: block;
+	font-weight: normal;
+}
