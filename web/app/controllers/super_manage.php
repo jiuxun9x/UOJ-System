@@ -432,6 +432,12 @@ EOD;
 	if (!$can_manage_judgers) {
 		unset($tabs_info['judger']);
 	}
+	if (can($myUser, 'site.manage_settings')) {
+		$tabs_info['settings'] = array(
+			'name' => '站点设置',
+			'url' => '/super-manage/settings'
+		);
+	}
 	if (can($myUser, 'audit.view')) {
 		$tabs_info['audit'] = array(
 			'name' => '审计日志',
@@ -441,6 +447,27 @@ EOD;
 	
 	if (!isset($tabs_info[$cur_tab])) {
 		become404Page();
+	}
+	
+	// the switches of the site: a box that is not ticked is not posted, which switches it off
+	$site_settings_error = '';
+	if ($cur_tab === 'settings') {
+		$site_settings_error = domainHandleForms(array(
+			'site_settings' => function() {
+				global $myUser;
+				if (!can($myUser, 'site.manage_settings')) {
+					return '没有权限';
+				}
+				foreach (siteSettings() as $name => $setting) {
+					$err = setSiteSetting($name, isset($_POST['setting'][$name]), $myUser);
+					if ($err !== '') {
+						return $err;
+					}
+				}
+				domainFlash('设置已保存。');
+				return '';
+			}
+		));
 	}
 ?>
 <?php
@@ -591,6 +618,26 @@ EOD;
 			</div>
 			<h3>评测机列表</h3>
 			<?php echoLongTable($judgerlist_cols, 'judger_info', "1=1", '', $judgerlist_header_row, $judgerlist_print_row, $judgerlist_config) ?>
+		<?php elseif ($cur_tab === 'settings'): ?>
+			<?php $flash = domainTakeFlash(); ?>
+			<?php if ($flash): ?>
+			<div class="alert alert-<?= $flash[0] ?>" role="alert"><?= HTML::escape($flash[1]) ?></div>
+			<?php endif ?>
+			<?php echoDomainError($site_settings_error) ?>
+			<h3>站点设置</h3>
+			<form method="post" id="form-site-settings">
+				<?= HTML::hiddenToken() ?>
+				<input type="hidden" name="form" value="site_settings" />
+				<?php foreach (siteSettings() as $name => $setting): ?>
+				<?php $input_id = 'input-setting-' . str_replace('.', '-', $name); ?>
+				<div class="custom-control custom-switch text-left mb-3">
+					<input type="checkbox" class="custom-control-input" id="<?= $input_id ?>" name="setting[<?= $name ?>]"<?= siteSettingIsOn($name) ? ' checked="checked"' : '' ?> />
+					<label class="custom-control-label" for="<?= $input_id ?>"><?= $setting['label'] ?></label>
+					<small class="form-text text-muted"><?= $setting['help'] ?></small>
+				</div>
+				<?php endforeach ?>
+				<button type="submit" class="btn btn-primary" id="button-save-site-settings">保存</button>
+			</form>
 		<?php elseif ($cur_tab === 'audit'): ?>
 			<?php
 				// who changed what: the newest first, of one user or one kind of thing if asked for

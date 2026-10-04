@@ -99,6 +99,53 @@ class DomainTest(unittest.TestCase):
         self.assertIn("域 p4-of-a-teacher", page)
         self.assertIn("所有者", page)
 
+    def test_system_administrator_lets_everybody_create_domains(self):
+        page, switch = "/super-manage/settings", {"setting[domain.open_creation]": "on"}
+        opener, oj_admin = account("p4_open_student"), account("p4_open_ojadmin")
+        self.assertEqual(self.admin.change_user("p4_open_ojadmin", "grant:oj_admin"), "")
+        self.teacher.new_domain("p4-open-other")
+
+        # the switch is of the system administrators alone
+        self.assertEqual(self.admin.get(page).status_code, 200)
+        self.assertNotIn('checked="checked"', self.admin.get(page).text)
+        for client in (oj_admin, self.teacher, opener):
+            self.assertIn(client.get(page).status_code, (403, 404))
+            self.assertNotEqual(client.form(page, "site_settings", **switch), "")
+        self.assertEqual(db_value("select count(*) from site_settings"), "0")
+        self.assertEqual(opener.get("/domain/new").status_code, 403)
+        self.assertNotIn('id="button-new-domain"', opener.get("/domains").text)
+
+        try:
+            self.assertEqual(self.admin.form(page, "site_settings", **switch), "")
+            self.assertEqual(db("select value, updated_by from site_settings where name = 'domain.open_creation'"),
+                             [["1", uoj.ADMIN[0]]])  # fmt: skip
+            self.assertIn('checked="checked"', self.admin.get(page).text)
+            # now whoever is logged in creates a domain, and owns it
+            self.assertIn('id="button-new-domain"', opener.get("/domains").text)
+            self.assertEqual(opener.get("/domain/new").status_code, 200)
+            opener.new_domain("p4-of-a-student")
+            self.assertEqual(role_in("p4-of-a-student", "p4_open_student"), "owner")
+            self.assertEqual(uoj.Client().get("/domain/new").status_code, 302)
+            # the switch opens nothing else: not the problems of the site, not the domains of others
+            problems = db_value("select count(*) from problems where owner_domain_id is null")
+            opener.submit_form("/problems", "new_problem")
+            self.assertEqual(db_value("select count(*) from problems where owner_domain_id is null"), problems)
+            self.assertEqual(opener.get("/d/p4-open-other").status_code, 404)
+            self.assertNotIn('id="table-all-domains"', opener.get("/domains").text)
+        finally:
+            # a box that is not ticked switches it off
+            self.assertEqual(self.admin.form(page, "site_settings"), "")
+        self.assertEqual(db_value("select value from site_settings where name = 'domain.open_creation'"), "0")
+        self.assertEqual(opener.get("/domain/new").status_code, 403)
+        self.assertNotEqual(opener.form("/domain/new", "create", name="x", slug="p4-too-late", description="", type="course"), "")
+        self.assertEqual(db_value("select count(*) from domains where slug = 'p4-too-late'"), "0")
+        # what was created stays with whoever created it, and the roles work as before
+        self.assertEqual(opener.get("/d/p4-of-a-student/settings").status_code, 200)
+        self.assertEqual(self.teacher.get("/domain/new").status_code, 200)
+        log = db("select action, actor, after_json from audit_logs where resource_type = 'site_setting' order by id")
+        self.assertEqual([row[:2] for row in log], [["site.edit_setting", uoj.ADMIN[0]]] * 2)
+        self.assertEqual([json.loads(row[2])["on"] for row in log], [True, False])
+
     def test_settings_are_checked(self):
         self.teacher.new_domain("p4-settings")
         base = dict(name="x", description="", type="course")

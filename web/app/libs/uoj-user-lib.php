@@ -54,6 +54,7 @@ function usernameColumns() {
 		'homework_snapshot_scores' => array('username'),
 		'homework_snapshots' => array('created_by'),
 		'homeworks' => array('created_by', 'publish_requested_by'),
+		'site_settings' => array('updated_by'),
 		'trainings' => array('created_by'),
 		'hacks' => array('hacker', 'owner'),
 		'pastes' => array('creator'),

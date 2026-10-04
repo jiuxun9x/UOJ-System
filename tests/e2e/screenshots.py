@@ -149,6 +149,7 @@ def pages(seeded):
         ("domains-teacher", "teacher", "/domains"),
         ("domains-outsider", "outsider", "/domains"),
         ("domains-admin", "admin", "/domains"),
+        ("site-settings", "admin", "/super-manage/settings"),
         ("domain-new", "teacher", "/domain/new"),
         ("domain-join", "outsider", "/domains/join"),
         ("overview-teacher", "teacher", d),

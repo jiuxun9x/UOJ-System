@@ -18,6 +18,7 @@ class FakePermissionFacts {
 	public $problems_in_running_contests = array();
 	public $domain_members = array();
 	public $domains = array();
+	public $site_settings = array();
 	public $now = 0;
 	public $homeworks = array();
 	public $homework_participants = array();
@@ -25,6 +26,9 @@ class FakePermissionFacts {
 	public $problems_in_running_homeworks = array();
 	public $running_homework_sources = array();
 
+	public function siteSetting($name) {
+		return isset($this->site_settings[$name]) ? $this->site_settings[$name] : null;
+	}
 	public function managesProblem($username, $problem_id) {
 		return in_array(array($username, $problem_id), $this->problem_managers);
 	}
@@ -264,6 +268,21 @@ check_ability('domain.manage_all', null, array('nobody' => false, 'root' => true
 foreach (array('problem.create', 'contest.create') as $ability) {
 	check_ability($ability, null, array('creator' => false), 'whoever may create domains may create nothing else');
 }
+// The system administrators may let everybody create domains. It is a switch of theirs alone.
+check_ability('site.manage_settings', null, array('nobody' => false, 'root' => true, 'ojadmin' => false, 'teacher' => false, 'lead' => false), 'site');
+check_same(false, siteSettingIsOn('domain.open_creation'), 'nobody has touched the switch');
+$facts->site_settings['domain.open_creation'] = '1';
+check_same(true, siteSettingIsOn('domain.open_creation'), 'the switch is on');
+$permission_test_users['banned'] = fake_user('banned', 'B');
+check_ability('domain.create', null, array('nobody' => false, 'banned' => false, 'alice' => true, 'lead' => true, 'teacher' => true, 'creator' => true, 'root' => true), 'a site where everybody may create domains');
+foreach (array('problem.create', 'contest.create', 'domain.manage_all') as $ability) {
+	check_ability($ability, null, array('alice' => false), 'the switch opens nothing else');
+}
+check_ability('domain.view', $facts->domains[1], array('alice' => false), 'nor the domains of other people');
+$facts->site_settings['domain.open_creation'] = '0';
+check_ability('domain.create', null, array('alice' => false, 'lead' => false, 'teacher' => true, 'creator' => true), 'a site where the switch was turned off again');
+$facts->site_settings = array();
+check_same(false, siteSettingIsOn('no.such.setting'), 'a setting that does not exist');
 
 // the owner is the user the domain names, and has no role as a member
 check_same('owner', permissionDomainRole($permission_test_users['lead'], $facts->domains[1]), 'the owner of a domain');

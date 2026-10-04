@@ -53,6 +53,21 @@ class UOJPermissionFacts {
 		}
 		return $this->roles[$username];
 	}
+	private $site_settings = null;
+
+	// what a setting of the site was set to, null when nobody has set it
+	public function siteSetting($name) {
+		if ($this->site_settings === null) {
+			$this->site_settings = array();
+			foreach (DB::selectAll("select name, value from site_settings") as $row) {
+				$this->site_settings[$row['name']] = $row['value'];
+			}
+		}
+		return isset($this->site_settings[$name]) ? $this->site_settings[$name] : null;
+	}
+	public function forgetSiteSettings() {
+		$this->site_settings = null;
+	}
 	private $domains = array();
 	private $domain_roles = array();
 
@@ -164,6 +179,39 @@ function permissionFacts($replacement = null) {
 	return $facts;
 }
 
+// The settings of the site that the system administrators change while it runs, each a
+// switch: 'name' => array('label', 'help', what it is when nobody has touched it).
+function siteSettings() {
+	return array(
+		'domain.open_creation' => array(
+			'label' => '允许所有登录用户创建域',
+			'help' => '关闭时，只有管理员、教师和被授予“可创建域”角色的用户能创建域。开启后，任何登录用户都能创建域，并在自己的域里新建题目、上传数据、布置作业和举办比赛。',
+			'default' => false
+		)
+	);
+}
+function siteSettingIsOn($name) {
+	$settings = siteSettings();
+	if (!isset($settings[$name])) {
+		return false;
+	}
+	$value = permissionFacts()->siteSetting($name);
+	return $value === null ? $settings[$name]['default'] : $value === '1';
+}
+// Switches a setting of the site on or off. Returns '' or why it was refused.
+function setSiteSetting($name, $on, $actor) {
+	if (!isset(siteSettings()[$name])) {
+		return '没有这个设置';
+	}
+	$before = siteSettingIsOn($name);
+	DB::insert("insert into site_settings (name, value, updated_by, updated_at) values ('".DB::escape($name)."', '".($on ? 1 : 0)."', '".DB::escape($actor['username'])."', now()) on duplicate key update value = values(value), updated_by = values(updated_by), updated_at = values(updated_at)");
+	permissionFacts()->forgetSiteSettings();
+	if ($before != (bool)$on) {
+		auditLog('site.edit_setting', 'site_setting', $name, array('on' => $before), array('on' => (bool)$on), $actor);
+	}
+	return '';
+}
+
 function userRoles($user) {
 	if ($user == null) {
 		return array();
@@ -208,8 +256,13 @@ function can($user, $ability, $resource = null) {
 
 	switch ($ability) {
 		// ---- domains, the resource is the domain
+		// Whether everybody may create domains is a switch of the system administrators.
+		// While it is off, the people who may are the ones who were given a role for it.
 		case 'domain.create':
-			return $is_admin || userHasRole($user, UOJ_ROLE_TEACHER) || userHasRole($user, UOJ_ROLE_DOMAIN_CREATOR);
+			if ($is_admin || userHasRole($user, UOJ_ROLE_TEACHER) || userHasRole($user, UOJ_ROLE_DOMAIN_CREATOR)) {
+				return true;
+			}
+			return $name !== null && $user['usergroup'] != 'B' && siteSettingIsOn('domain.open_creation');
 		case 'domain.manage_all':
 			return $is_admin;
 		// A domain is seen by the people in it and by the administrators of the site. To
@@ -234,6 +287,7 @@ function can($user, $ability, $resource = null) {
 		// ---- the site
 		case 'user.manage_roles':
 		case 'user.rename':
+		case 'site.manage_settings':
 		case 'audit.view':
 		case 'judger.manage':
 		case 'problem.edit_raw_config':
