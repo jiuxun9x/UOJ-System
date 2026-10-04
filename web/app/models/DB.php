@@ -79,6 +79,19 @@ class DB {
 	}
 	
 	// runs a script of several statements, returns null or the message of the first error
+	// Runs $fun in a transaction. It is committed unless $fun returns false or throws. Only the
+	// InnoDB tables take part: what $fun changes in a MyISAM table stays changed.
+	public static function transaction($fun) {
+		self::query('start transaction');
+		try {
+			$result = $fun();
+		} catch (Exception $e) {
+			self::query('rollback');
+			throw $e;
+		}
+		self::query($result === false ? 'rollback' : 'commit');
+		return $result;
+	}
 	public static function multiQuery($q) {
 		global $uojMySQL;
 		if (!mysqli_multi_query($uojMySQL, $q)) {

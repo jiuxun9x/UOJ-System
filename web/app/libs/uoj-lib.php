@@ -21,6 +21,7 @@
 	requirePHPLib('contest');
 	requirePHPLib('permission');
 	requirePHPLib('user');
+	requirePHPLib('domain');
 	requirePHPLib('html');
 	
 	Session::init();

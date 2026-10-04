@@ -11,22 +11,28 @@
 //   system_admin  everything, including roles, judgers and programs that run unrestricted
 //                 on the judgers. These are the users with usergroup 'S', as before.
 //   oj_admin      every problem, contest, submission and blog, but not the above
-//   teacher       may create problems and contests, and manages the ones they created
+//   teacher       may create problems, contests and domains, and manages the ones they created
+//   domain_creator  may create domains, and nothing else
 // Roles of one problem or contest:
 //   manager of a problem (problems_permissions)
 //   owner of a contest: settings, problems, staff, final test, results
 //   assistant of a contest: sees everything behind the scenes and answers questions
+// Roles in one domain (see uoj-domain-lib.php): its owner, and the members who are admin,
+// teacher, ta or member there. What happens inside a domain is decided by these alone; the
+// administrators of the site can do in every domain what its owner can.
 // Everybody else is a student.
 
 define('UOJ_ROLE_SYSTEM_ADMIN', 'system_admin');
 define('UOJ_ROLE_OJ_ADMIN', 'oj_admin');
 define('UOJ_ROLE_TEACHER', 'teacher');
+define('UOJ_ROLE_DOMAIN_CREATOR', 'domain_creator');
 
 // the roles that are stored in user_roles, with their names for the pages
 function grantableRoles() {
 	return array(
 		UOJ_ROLE_OJ_ADMIN => 'OJ 管理员',
-		UOJ_ROLE_TEACHER => '教师'
+		UOJ_ROLE_TEACHER => '教师',
+		UOJ_ROLE_DOMAIN_CREATOR => '可创建域'
 	);
 }
 
@@ -46,6 +52,28 @@ class UOJPermissionFacts {
 			}
 		}
 		return $this->roles[$username];
+	}
+	private $domains = array();
+	private $domain_roles = array();
+
+	// the role a user was given in a domain, null for the owner and for strangers
+	public function domainMemberRole($username, $domain_id) {
+		$key = $username . '/' . (int)$domain_id;
+		if (!array_key_exists($key, $this->domain_roles)) {
+			$row = DB::selectFirst("select role from domain_members where domain_id = ".(int)$domain_id." and username = '".DB::escape($username)."'");
+			$this->domain_roles[$key] = $row ? $row['role'] : null;
+		}
+		return $this->domain_roles[$key];
+	}
+	public function domain($domain_id) {
+		$domain_id = (int)$domain_id;
+		if (!$domain_id) {
+			return null;
+		}
+		if (!array_key_exists($domain_id, $this->domains)) {
+			$this->domains[$domain_id] = queryDomain($domain_id);
+		}
+		return $this->domains[$domain_id];
 	}
 	public function managesProblem($username, $problem_id) {
 		return DB::selectFirst("select 1 from problems_permissions where username = '".DB::escape($username)."' and problem_id = ".(int)$problem_id) != null;
@@ -122,12 +150,60 @@ function isSiteAdmin($user) {
 	return userHasRole($user, UOJ_ROLE_SYSTEM_ADMIN) || userHasRole($user, UOJ_ROLE_OJ_ADMIN);
 }
 
+// The role of a user in a domain: 'owner' for the user the domain names as its owner, the role
+// they were given as a member, null for everybody else.
+function permissionDomainRole($user, $domain) {
+	if ($user == null || $domain == null) {
+		return null;
+	}
+	if ($domain['owner_username'] === $user['username']) {
+		return 'owner';
+	}
+	return permissionFacts()->domainMemberRole($user['username'], $domain['id']);
+}
+// whether a user has at least this role in a domain; the administrators of the site have every role
+function permissionDomainRoleAtLeast($user, $domain, $role) {
+	if ($domain == null) {
+		return false;
+	}
+	return isSiteAdmin($user) || domainRoleRank(permissionDomainRole($user, $domain)) >= domainRoleRank($role);
+}
+
 function can($user, $ability, $resource = null) {
 	$facts = permissionFacts();
 	$name = $user != null ? $user['username'] : null;
 	$is_admin = isSiteAdmin($user);
 
 	switch ($ability) {
+		// ---- domains, the resource is the domain
+		case 'domain.create':
+			return $is_admin || userHasRole($user, UOJ_ROLE_TEACHER) || userHasRole($user, UOJ_ROLE_DOMAIN_CREATOR);
+		case 'domain.manage_all':
+			return $is_admin;
+		// the page that says what the domain is and how to join it
+		case 'domain.view_landing':
+			return $resource['visibility'] !== 'private' || permissionDomainRoleAtLeast($user, $resource, 'member');
+		// what is inside
+		case 'domain.view':
+			return permissionDomainRoleAtLeast($user, $resource, 'member');
+		case 'domain.join':
+			return $name !== null && $resource['archived_at'] === null && $resource['visibility'] !== 'private'
+				&& $resource['join_method'] === 'all' && permissionDomainRole($user, $resource) === null;
+		// reading the grades and every submission
+		case 'domain.assist':
+			return permissionDomainRoleAtLeast($user, $resource, 'ta');
+		// An archived domain is read only, until its owner brings it back.
+		// problems, homework, trainings, contests, announcements and grades
+		case 'domain.teach':
+			return $resource['archived_at'] === null && permissionDomainRoleAtLeast($user, $resource, 'teacher');
+		// its settings, how to join it, and who is in it
+		case 'domain.manage':
+		case 'member.manage':
+			return $resource['archived_at'] === null && permissionDomainRoleAtLeast($user, $resource, 'admin');
+		// handing it over, archiving it and bringing it back
+		case 'domain.own':
+			return permissionDomainRoleAtLeast($user, $resource, 'owner');
+
 		// ---- the site
 		case 'user.manage_roles':
 		case 'user.rename':
