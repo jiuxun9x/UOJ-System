@@ -5,6 +5,8 @@
 	if (!can($myUser, 'site.manage')) {
 		become403Page();
 	}
+	$can_manage_roles = can($myUser, 'user.manage_roles');
+	$can_manage_judgers = can($myUser, 'judger.manage');
 	
 	$user_form = new UOJForm('user');
 	$user_form->addInput('username', 'text', '用户名', '',
@@ -21,24 +23,22 @@
 	);
 	$options = array(
 		'banneduser' => '设为封禁用户',
-		'normaluser' => '设为普通用户',
-		'superuser' => '设为超级用户'
+		'normaluser' => '设为普通用户（解除封禁或取消系统管理员）'
 	);
+	if ($can_manage_roles) {
+		$options['superuser'] = '设为系统管理员';
+		foreach (grantableRoles() as $role => $role_name) {
+			$options["grant:$role"] = "授予角色：$role_name";
+			$options["revoke:$role"] = "收回角色：$role_name";
+		}
+	}
 	$user_form->addSelect('op-type', $options, '操作类型', '');
 	$user_form->handle = function() {
-		global $user_form;
+		global $myUser;
 		
-		$username = $_POST['username'];
-		switch ($_POST['op-type']) {
-			case 'banneduser':
-				DB::update("update user_info set usergroup = 'B' where username = '{$username}'");
-				break;
-			case 'normaluser':
-				DB::update("update user_info set usergroup = 'U' where username = '{$username}'");
-				break;
-			case 'superuser':
-				DB::update("update user_info set usergroup = 'S' where username = '{$username}'");
-				break;
+		$err = changeUserStanding($myUser, queryUser($_POST['username']), $_POST['op-type']);
+		if ($err !== '') {
+			becomeMsgPage(HTML::escape($err));
 		}
 	};
 	$user_form->runAtServer();
@@ -226,64 +226,66 @@
 	};
 	$custom_test_deleter->runAtServer();
 
-	$judger_adder = new UOJForm('judger_adder');
-	$judger_adder->addInput('judger_adder_name', 'text', '评测机名称', '',
-		function ($x, &$vdata) {
-			if (!validateUsername($x)) {
-				return '不合法';
-			}
-			if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=0) {
-				return '不合法';
-			}
-			$vdata['name'] = $x;
-			return '';
-		},
-		null
-	);
-	$judger_adder->handle = function(&$vdata) {
-		$password=uojRandString(32);
-		DB::insert("insert into judger_info (judger_name,password) values('{$vdata['name']}','{$password}')");
-	};
-	$judger_adder->runAtServer();
+	if ($can_manage_judgers) {
+		$judger_adder = new UOJForm('judger_adder');
+		$judger_adder->addInput('judger_adder_name', 'text', '评测机名称', '',
+			function ($x, &$vdata) {
+				if (!validateUsername($x)) {
+					return '不合法';
+				}
+				if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=0) {
+					return '不合法';
+				}
+				$vdata['name'] = $x;
+				return '';
+			},
+			null
+		);
+		$judger_adder->handle = function(&$vdata) {
+			$password=uojRandString(32);
+			DB::insert("insert into judger_info (judger_name,password) values('{$vdata['name']}','{$password}')");
+		};
+		$judger_adder->runAtServer();
 	
-	$judger_deleter = new UOJForm('judger_deleter');
-	$judger_deleter->addInput('judger_deleter_name', 'text', '评测机名称', '',
-		function ($x, &$vdata) {
-			if (!validateUsername($x)) {
-				return '不合法';
-			}
-			if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
-				return '不合法';
-			}
-			$vdata['name'] = $x;
-			return '';
-		},
-		null
-	);
-	$judger_deleter->handle = function(&$vdata) {
-		DB::delete("delete from judger_info where judger_name='{$vdata['name']}'");
-	};
-	$judger_deleter->runAtServer();
+		$judger_deleter = new UOJForm('judger_deleter');
+		$judger_deleter->addInput('judger_deleter_name', 'text', '评测机名称', '',
+			function ($x, &$vdata) {
+				if (!validateUsername($x)) {
+					return '不合法';
+				}
+				if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
+					return '不合法';
+				}
+				$vdata['name'] = $x;
+				return '';
+			},
+			null
+		);
+		$judger_deleter->handle = function(&$vdata) {
+			DB::delete("delete from judger_info where judger_name='{$vdata['name']}'");
+		};
+		$judger_deleter->runAtServer();
 
-	// a judger that is switched off finishes what it is judging and is given nothing new
-	$judger_switcher = new UOJForm('judger_switcher');
-	$judger_switcher->addInput('judger_switcher_name', 'text', '评测机名称', '',
-		function ($x, &$vdata) {
-			if (!validateUsername($x)) {
-				return '不合法';
-			}
-			if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
-				return '不合法';
-			}
-			$vdata['name'] = $x;
-			return '';
-		},
-		null
-	);
-	$judger_switcher->handle = function(&$vdata) {
-		DB::update("update judger_info set enabled = 1 - enabled where judger_name='{$vdata['name']}'");
-	};
-	$judger_switcher->runAtServer();
+		// a judger that is switched off finishes what it is judging and is given nothing new
+		$judger_switcher = new UOJForm('judger_switcher');
+		$judger_switcher->addInput('judger_switcher_name', 'text', '评测机名称', '',
+			function ($x, &$vdata) {
+				if (!validateUsername($x)) {
+					return '不合法';
+				}
+				if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
+					return '不合法';
+				}
+				$vdata['name'] = $x;
+				return '';
+			},
+			null
+		);
+		$judger_switcher->handle = function(&$vdata) {
+			DB::update("update judger_info set enabled = 1 - enabled where judger_name='{$vdata['name']}'");
+		};
+		$judger_switcher->runAtServer();
+	}
 
 	$paste_deleter = new UOJForm('paste_deleter');
 	$paste_deleter->addInput('paste_deleter_name', 'text', 'Paste ID', '',
@@ -395,6 +397,9 @@ EOD;
 			'url' => '/super-manage/paste'
 		)
 	);
+	if (!$can_manage_judgers) {
+		unset($tabs_info['judger']);
+	}
 	
 	if (!isset($tabs_info[$cur_tab])) {
 		become404Page();
@@ -413,6 +418,23 @@ EOD;
 	<div class="col-sm-9">
 		<?php if ($cur_tab === 'users'): ?>
 			<?php $user_form->printHTML(); ?>
+			<h3>角色名单</h3>
+			<table class="table table-bordered table-hover table-striped table-text-center">
+				<thead><tr><th>用户名</th><th>角色</th><th>授予者</th><th>授予时间</th></tr></thead>
+				<tbody>
+				<?php foreach (DB::selectAll("select username from user_info where usergroup = 'S' order by username") as $row): ?>
+					<tr><td><?= getUserLink($row['username']) ?></td><td>系统管理员</td><td></td><td></td></tr>
+				<?php endforeach ?>
+				<?php foreach (DB::selectAll("select * from user_roles order by role, username") as $row): ?>
+					<tr>
+						<td><?= getUserLink($row['username']) ?></td>
+						<td><?= HTML::escape(isset(grantableRoles()[$row['role']]) ? grantableRoles()[$row['role']] : $row['role']) ?></td>
+						<td><?= getUserLink($row['granted_by']) ?></td>
+						<td><?= $row['granted_at'] ?></td>
+					</tr>
+				<?php endforeach ?>
+				</tbody>
+			</table>
 			<h3>封禁名单</h3>
 			<?php echoLongTable($banlist_cols, 'user_info', "usergroup='B'", '', $banlist_header_row, $banlist_print_row, $banlist_config) ?>
 		<?php elseif ($cur_tab === 'blogs'): ?>

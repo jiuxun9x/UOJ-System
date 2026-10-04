@@ -40,7 +40,12 @@
 		$esc_name = $purifier->purify($esc_name);
 		$esc_name = DB::escape($esc_name);
 		
-		DB::query("insert into contests (name, start_time, last_min, status) values ('$esc_name', '$start_time_str', ${_POST['last_min']}, 'unfinished')");
+		// The ratings belong to the whole site: a contest only counts for them when an
+		// administrator created it, or says so later.
+		$esc_extra_config = DB::escape(json_encode(can(Auth::user(), 'contest.rate') ? new stdClass() : array('unrated' => '')));
+		DB::query("insert into contests (name, start_time, last_min, status, extra_config) values ('$esc_name', '$start_time_str', ${_POST['last_min']}, 'unfinished', '$esc_extra_config')");
+		$contest_id = DB::insert_id();
+		DB::insert("insert into contests_permissions (username, contest_id, role) values ('".Auth::id()."', $contest_id, 'owner')");
 	};
 	$time_form->succ_href="/contests";
 	$time_form->runAtServer();

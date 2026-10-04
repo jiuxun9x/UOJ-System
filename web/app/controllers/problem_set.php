@@ -9,6 +9,7 @@
 			DB::query("insert into problems (title, is_hidden, submission_requirement) values ('New Problem', 1, '{}')");
 			$id = DB::insert_id();
 			DB::query("insert into problems_contents (id, statement, statement_md) values ($id, '', '')");
+			DB::insert("insert ignore into problems_permissions (username, problem_id) values ('".Auth::id()."', $id)");
 			dataNewProblem($id);
 		};
 		$new_problem_form->submit_button_config['align'] = 'right';

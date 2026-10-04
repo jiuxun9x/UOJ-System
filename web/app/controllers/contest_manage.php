@@ -50,17 +50,29 @@
 		DB::update("update contests set start_time = '$start_time_str', last_min = {$_POST['last_min']}, name = '$esc_name' where id = {$contest['id']}");
 	};
 	
+	// "+mike" makes mike an assistant, "+mike [owner]" an owner, "-mike" takes mike off the staff
+	$parse_manager_cmd = function($cmd) {
+		if (!preg_match('/^([a-zA-Z0-9_]{1,20})\s*(\[(owner|assistant)\])?$/', $cmd, $matches)) {
+			return null;
+		}
+		return array($matches[1], isset($matches[3]) ? $matches[3] : 'assistant');
+	};
 	$managers_form = newAddDelCmdForm('managers',
-		function($username) {
-			if (!validateUsername($username) || !queryUser($username)) {
-				return "不存在名为{$username}的用户";
+		function($cmd) use ($parse_manager_cmd) {
+			$parsed = $parse_manager_cmd($cmd);
+			if ($parsed === null) {
+				return '格式错误';
+			}
+			if (!queryUser($parsed[0])) {
+				return "不存在名为{$parsed[0]}的用户";
 			}
 			return '';
 		},
-		function($type, $username) {
+		function($type, $cmd) use ($parse_manager_cmd) {
 			global $contest;
+			list($username, $role) = $parse_manager_cmd($cmd);
 			if ($type == '+') {
-				DB::query("insert into contests_permissions (contest_id, username) values (${contest['id']}, '$username')");
+				DB::query("insert into contests_permissions (contest_id, username, role) values (${contest['id']}, '$username', '$role') on duplicate key update role = '$role'");
 			} elseif ($type == '-') {
 				DB::query("delete from contests_permissions where contest_id = ${contest['id']} and username = '$username'");
 			}
@@ -218,20 +230,22 @@
 				<tr>
 					<th>#</th>
 					<th>用户名</th>
+					<th>角色</th>
 				</tr>
 			</thead>
 			<tbody>
 <?php
 	$row_id = 0;
-	$result = DB::query("select username from contests_permissions where contest_id = {$contest['id']}");
+	$result = DB::query("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
 	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
 		$row_id++;
-		echo '<tr>', '<td>', $row_id, '</td>', '<td>', getUserLink($row['username']), '</td>', '</tr>';
+		echo '<tr>', '<td>', $row_id, '</td>', '<td>', getUserLink($row['username']), '</td>', '<td>', $row['role'] == 'owner' ? '负责人' : '助理', '</td>', '</tr>';
 	}
 ?>
 			</tbody>
 		</table>
-		<p class="text-center">命令格式：命令一行一个，+mike表示把mike加入管理者，-mike表示把mike从管理者中移除</p>
+		<p class="text-center">命令格式：命令一行一个，+mike表示把mike加为助理，+mike [owner]表示把mike加为负责人，-mike表示把mike移除</p>
+		<p class="text-center">负责人可以修改比赛设置、试题和人员，开始最终测试并公布成绩；助理可以进入后台、查看所有提交并回答提问。</p>
 		<?php $managers_form->printHTML(); ?>
 	</div>
 	

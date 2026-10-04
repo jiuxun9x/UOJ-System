@@ -219,6 +219,9 @@ class Client:
             data["_token"] = self.token
         return self.http.post(BASE_URL + path, data=data, files=files, allow_redirects=False)
 
+    def get(self, path, **kwargs):
+        return self.http.get(BASE_URL + path, allow_redirects=False, **kwargs)
+
     def submit_form(self, path, form, fields=None, files=None):
         """submit a UOJForm, return '' on success or the text of the page that reports the error"""
         data = dict(fields or {})
@@ -277,6 +280,47 @@ class Client:
                 raise Exception("failed to enable hacks of problem #%d: %s" % (problem_id, err[-800:]))
         return problem_id
 
+    # ---- contests
+
+    def new_contest(self, name, starts_in=3600, minutes=60):
+        """create a contest that starts so many seconds from now, return its id"""
+        err = self.submit_form("/contest/new", "time", {
+            "name": name,
+            "start_time": web_time(starts_in),
+            "last_min": str(minutes),
+        })  # fmt: skip
+        if err:
+            raise Exception("failed to create a contest: " + err[-800:])
+        return int(db_value("select max(id) from contests"))
+
+    def contest_commands(self, contest_id, form, commands):
+        """the forms of the page that manages a contest which take one command per line"""
+        return self.submit_form("/contest/%d/manage" % contest_id, form, {form + "_cmds": commands})
+
+    def register_for_contest(self, contest_id):
+        err = self.submit_form("/contest/%d/register" % contest_id, "register")
+        if err:
+            raise Exception("failed to register for contest #%d: %s" % (contest_id, err[-800:]))
+
+    def submit_in_contest(self, contest_id, problem_id, code, language="C++17"):
+        err = self.submit_form("/contest/%d/problem/%d" % (contest_id, problem_id), "answer", {
+            "answer_answer_upload_type": "editor",
+            "answer_answer_editor": code,
+            "answer_answer_language": language,
+        })  # fmt: skip
+        if err:
+            raise Exception("failed to submit: " + err[-800:])
+        return int(db_value(
+            "select max(id) from submissions where submitter = '%s' and problem_id = %d"
+            % (self.username, problem_id)
+        ))  # fmt: skip
+
+    # ---- administration
+
+    def change_user(self, username, operation):
+        """the user form of the administrators, returns '' or why it was refused"""
+        return self.submit_form("/super-manage/users", "user", {"username": username, "op-type": operation})
+
     # ---- submissions
 
     def submit(self, problem_id, code, language="C++17"):
@@ -318,6 +362,19 @@ class Client:
         if err:
             raise Exception("failed to hack: " + err[-800:])
         return int(db_value("select max(id) from hacks where submission_id = %d" % submission_id))
+
+
+def web_time(offset=0):
+    """a time on the clock of the web server, the way the forms and the database write it"""
+    return docker_exec(WEB, "php -r 'echo date(\"Y-m-d H:i:s\", time() + (%d));'" % offset).strip()
+
+
+def move_contest(contest_id, starts_in, minutes=60):
+    """move a contest in time: a negative start is in the past"""
+    db(
+        "update contests set start_time = '%s', last_min = %d where id = %d"
+        % (web_time(starts_in), minutes, contest_id)
+    )
 
 
 def wait_data_version(problem_id, timeout=600):
