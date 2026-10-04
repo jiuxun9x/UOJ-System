@@ -65,7 +65,8 @@ foreach (array('', 'a b', str_repeat('1', 21), -5, 1.5, null, array('x')) as $ba
 // looks like, which is not always a number
 $default_config = require __DIR__ . '/../app/.default-config.php';
 $reserved = $default_config['sso']['reserved-username-pattern'];
-foreach (array('20260101', '2021E8013282009', 'PB21000001', 'pb21000001', 'S2021001', '2021b1234', '202601011234567890', '0123456') as $number) {
+// two capital letters and eight digits is what the numbers of the school this was written for look like
+foreach (array('CS26010001', 'AB00000123', 'XY00000000', 'cs26010001', '20260101', '2021E8013282009', 'PB21000001', 'pb21000001', 'S2021001', '2021b1234', '202601011234567890', '0123456') as $number) {
 	check_same(1, preg_match($reserved, $number), "$number is kept for the student it belongs to");
 }
 foreach (array('alice', 'alice2024', 'zhang3', 'abcdef', '12345', 'bob_20260101', 'e2e_admin', str_repeat('1', 21)) as $name) {

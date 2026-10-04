@@ -21,8 +21,9 @@ from uoj import db, db_value
 
 SLUG = "ds-2026-a"
 VIEWPORTS = {"desktop": {"width": 1280, "height": 900}, "mobile": {"width": 390, "height": 844}}
-STUDENTS = [("20260101", "陈一鸣"), ("20260102", "林晓雨"), ("20260103", "王子涵"), ("20260104", "赵思远"),
-            ("20260105", "刘欣怡"), ("20260106", "黄浩然")]  # fmt: skip
+# student numbers as the school writes them: two capital letters and eight digits
+STUDENTS = [("CS26010001", "陈一鸣"), ("CS26010002", "林晓雨"), ("CS26010003", "王子涵"), ("CS26010004", "赵思远"),
+            ("CS26010005", "刘欣怡"), ("CS26010006", "黄浩然")]  # fmt: skip
 
 
 def seed():

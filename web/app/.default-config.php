@@ -69,8 +69,9 @@ return [
 		// Usernames that only the single sign-on hands out, so that nobody registers a name
 		// that looks like a student number before its student arrives. It applies once a
 		// provider is configured; '' turns it off. The default takes for a student number
-		// 6 to 20 letters and digits of which at least 5 are digits, as 20260101, 2021E8013282009,
-		// PB21000001 or S2021001 are. Set it to what the numbers of your school look like.
+		// 6 to 20 letters and digits of which at least 5 are digits, as CS26010001, 20260101,
+		// 2021E8013282009 or S2021001 are. Where every number is two letters and eight digits,
+		// '/^[A-Za-z]{2}[0-9]{8}$/' says so exactly.
 		'reserved-username-pattern' => '/^(?=(?:[A-Za-z]*[0-9]){5})[A-Za-z0-9]{6,20}$/'
 	],
 	'homework' => [
