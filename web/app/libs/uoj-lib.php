@@ -24,6 +24,7 @@
 	requirePHPLib('user');
 	requirePHPLib('domain');
 	requirePHPLib('homework');
+	requirePHPLib('training');
 	requirePHPLib('html');
 	
 	Session::init();

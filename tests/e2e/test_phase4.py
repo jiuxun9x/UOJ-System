@@ -1387,3 +1387,117 @@ class HomeworkStateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrainingTest(unittest.TestCase):
+    """trainings: lists of problems, and what the members have done of them"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher = account("p4_tr_teacher")
+        assert cls.admin.change_user("p4_tr_teacher", "grant:teacher") == ""
+        cls.slug = "p4-trainings"
+        cls.did = cls.teacher.new_domain(cls.slug)
+        cls.pupil, cls.other, cls.tutor, cls.stranger = (account("p4_tr_" + name) for name in ("pupil", "other", "tutor", "stranger"))
+        for name, role in (("pupil", "member"), ("other", "member"), ("tutor", "ta")):
+            assert member_form(cls.teacher, cls.slug, "add", username="p4_tr_" + name, role=role) == ""
+        assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
+        cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
+        assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
+        assert cls.teacher.sync(cls.own_id) == ""
+        db("update problems set is_hidden = 0 where id = %d" % cls.own_id)
+        cls.public_id = cls.admin.create_problem(ab_problem_files())
+
+    def progress(self, client, training_id):
+        """what the people who look after the domain export: username => row"""
+        r = client.get("/d/%s/training/%d?view=progress&export=1" % (self.slug, training_id))
+        self.assertEqual(r.status_code, 200)
+        if "text/csv" not in r.headers.get("Content-Type", ""):
+            return None
+        rows = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig"))))
+        return {row[0]: dict(zip(rows[0], row)) for row in rows[1:]}
+
+    def test_training_from_a_draft_to_what_everybody_has_done(self):
+        new, count = "/d/%s/training/new" % self.slug, "select count(*) from trainings where domain_id = %d" % self.did
+        # students do not write trainings
+        self.assertEqual(self.pupil.get(new).status_code, 403)
+        self.pupil.form(new, "save", title="x", description_md="", status="published")
+        self.tutor.form(new, "save", title="x", description_md="", status="published")
+        self.assertEqual(db_value(count), "0")
+        self.assertNotEqual(self.teacher.form(new, "save", title=" ", description_md="", status="draft"), "")
+        self.assertEqual(self.teacher.form(new, "save", title="p4 第一章 线性表", description_md="先做**必做题**。", status="draft"), "")
+        training_id = int(db_value("select max(id) from trainings where domain_id = %d" % self.did))
+        here = "/d/%s/training/%d" % (self.slug, training_id)
+        manage, trainings = here + "/manage", "/d/%s/trainings" % self.slug
+
+        # its problems are problems of the domain and public problems of the site, as they are
+        hidden_id = self.admin.new_problem()
+        self.teacher.new_domain("p4-trainings-other")
+        self.assertEqual(self.teacher.form("/d/p4-trainings-other/problems", "new"), "")
+        foreign_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % domain_id("p4-trainings-other")))
+        problems = db_value("select count(*) from problems")
+        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(self.own_id)), "")
+        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(self.public_id), optional="on"), "")
+        for refused in (self.own_id, hidden_id, foreign_id, 99999999):
+            self.assertNotEqual(self.teacher.form(manage, "add_problem", problem_id=str(refused)), "", refused)
+        self.assertNotEqual(self.pupil.form(manage, "add_problem", problem_id=str(self.public_id)), "")
+        order = lambda: db("select problem_id, required from training_problems where training_id = %d order by position" % training_id)
+        self.assertEqual(order(), [[str(self.own_id), "1"], [str(self.public_id), "0"]])
+        self.assertEqual(db_value("select count(*) from problems"), problems)
+        self.assertEqual(self.teacher.form(manage, "move_problem", problem_id=str(self.public_id)), "")
+        self.assertEqual(order(), [[str(self.public_id), "0"], [str(self.own_id), "1"]])
+        self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.public_id)), "")
+        self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.public_id), optional="on"), "")
+        self.assertEqual(self.teacher.form(manage, "remove_problem", problem_id=str(self.own_id)), "")
+        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(self.own_id)), "")
+        self.assertEqual(order(), [[str(self.public_id), "0"], [str(self.own_id), "1"]])
+
+        # a draft is for the people who teach
+        self.assertEqual(self.teacher.get(here).status_code, 200)
+        for client in (self.pupil, self.tutor, self.stranger):
+            self.assertEqual(client.get(here).status_code, 404)
+        self.assertNotIn("p4 第一章", self.pupil.get(trainings).text)
+        self.assertIn("p4 第一章", self.teacher.get(trainings).text)
+        self.assertEqual(self.teacher.form(manage, "save", title="p4 第一章 线性表", description_md="先做**必做题**。", status="published"), "")
+        page = self.pupil.get(here)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("<strong>必做题</strong>", page.text)
+        self.assertIn('href="/problem/%d"' % self.public_id, page.text)
+        self.assertIn('href="/d/%s/problem/%d"' % (self.slug, self.own_id), page.text)
+        self.assertIn("p4 第一章", self.pupil.get(trainings).text)
+        self.assertEqual(self.stranger.get(here).status_code, 404)
+        self.assertEqual(self.stranger.get(trainings).status_code, 404)
+        self.assertEqual(self.pupil.get(manage).status_code, 403)
+
+        # what counts is the best score on a problem, wherever it was submitted
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.public_id, AB)).score, 100)
+        own = "/d/%s/problem/%d" % (self.slug, self.own_id)
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.own_id, AB_WRONG, path=own)).score, 0)
+        self.assertIn("已通过 <strong>1</strong> / 2 题", self.pupil.get(here).text)
+        self.assertIn("已通过 <strong>0</strong> / 2 题", self.other.get(here).text)
+        self.assertNotIn("已完成", self.pupil.get(here).text)
+
+        # the people who look after the domain see what every student has done
+        self.assertIn('id="table-training-progress"', self.tutor.get(here + "?view=progress").text)
+        self.assertNotIn('id="table-training-progress"', self.pupil.get(here + "?view=progress").text)
+        self.assertIsNone(self.progress(self.pupil, training_id))
+        public, mine = "#%d" % self.public_id, "#%d" % self.own_id
+        rows = self.progress(self.tutor, training_id)
+        self.assertEqual(sorted(rows), ["p4_tr_other", "p4_tr_pupil"])
+        self.assertEqual([rows["p4_tr_pupil"][key] for key in (public, mine, "solved", "done")], ["100", "0", "1", "no"])
+        self.assertEqual([rows["p4_tr_other"][key] for key in (public, mine, "solved", "done")], ["", "", "0", "no"])
+
+        # the problem that has to be solved is solved: the training is done
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.own_id, AB, path=own)).score, 100)
+        self.assertIn("已完成", self.pupil.get(here).text)
+        self.assertIn("已完成", self.pupil.get(trainings).text)
+        self.assertEqual(self.progress(self.teacher, training_id)["p4_tr_pupil"]["done"], "yes")
+
+        # a training that is thrown away takes nothing with it
+        self.assertNotEqual(self.pupil.form(manage, "delete"), "")
+        self.assertEqual(self.teacher.form(manage, "delete"), "")
+        self.assertEqual(db_value("select count(*) from trainings where id = %d" % training_id), "0")
+        self.assertEqual(db_value("select count(*) from training_problems where training_id = %d" % training_id), "0")
+        self.assertEqual(self.teacher.get(here).status_code, 404)
+        self.assertEqual(db_value("select count(*) from submissions where submitter = 'p4_tr_pupil'"), "3")

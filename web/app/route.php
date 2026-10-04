@@ -10,6 +10,7 @@ Route::pattern('version', '[1-9][0-9]{0,8}');
 Route::pattern('provider', '[a-zA-Z0-9_-]{1,20}');
 Route::pattern('slug', '[a-z0-9][a-z0-9-]{1,30}');
 Route::pattern('homework_id', '[1-9][0-9]{0,9}');
+Route::pattern('training_id', '[1-9][0-9]{0,9}');
 
 Route::group([
 		'domain' => '('.UOJConfig::$data['web']['main']['host'].'|127.0.0.1'.')'
@@ -45,6 +46,10 @@ Route::group([
 		Route::any('/d/{slug}/announcements', '/domain/announcements.php');
 		Route::any('/d/{slug}/problems', '/domain/problems.php');
 		Route::any('/d/{slug}/contests', '/domain/contests.php');
+		Route::any('/d/{slug}/trainings', '/domain/trainings.php');
+		Route::any('/d/{slug}/training/new', '/domain/training_manage.php');
+		Route::any('/d/{slug}/training/{training_id}', '/domain/training.php');
+		Route::any('/d/{slug}/training/{training_id}/manage', '/domain/training_manage.php');
 		Route::any('/d/{slug}/homeworks', '/domain/homeworks.php');
 		Route::any('/d/{slug}/homework/new', '/domain/homework_manage.php');
 		Route::any('/d/{slug}/homework/{homework_id}', '/domain/homework.php');

@@ -271,6 +271,7 @@ function domainTabs($domain, $user) {
 	$tabs = array(
 		'overview' => array('概览', domainUrl($domain)),
 		'homeworks' => array('作业', domainUrl($domain, '/homeworks')),
+		'trainings' => array('训练', domainUrl($domain, '/trainings')),
 		'problems' => array('题目', domainUrl($domain, '/problems')),
 		'contests' => array('比赛', domainUrl($domain, '/contests')),
 		'members' => array('成员', domainUrl($domain, '/members')),

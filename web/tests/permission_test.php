@@ -461,5 +461,17 @@ check_ability('submission.view_details', $open, array('pupil' => false, 'bob' =>
 check_ability('submission.view', $open, array('pupil' => true), 'a submission to the public problem a running homework was copied from');
 $facts->running_homework_sources = array();
 
+// ---- trainings: the people of the domain see them once they are published
+$published_training = array('id' => 1, 'domain_id' => 1, 'status' => 'published');
+$draft_training = array('id' => 2, 'domain_id' => 1, 'status' => 'draft');
+$strangers = array('nobody' => false, 'alice' => false, 'teacher' => false);
+check_ability('training.view', $published_training, $strangers + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => true), 'a published training');
+check_ability('training.view', $draft_training, $strangers + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false), 'a draft of a training');
+check_ability('training.manage', $published_training, $strangers + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false), 'a training');
+check_ability('training.view_progress', $published_training, $strangers + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a training');
+$archived_training = array('id' => 3, 'domain_id' => 4, 'status' => 'published');
+check_ability('training.view', $archived_training, array('pupil' => true, 'lecturer' => true, 'alice' => false), 'a training of an archived domain');
+check_ability('training.manage', $archived_training, array('lead' => false, 'lecturer' => false), 'a training of an archived domain');
+
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');

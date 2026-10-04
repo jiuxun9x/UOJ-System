@@ -156,3 +156,29 @@ $wrong = array(
 foreach ($wrong as $what => $changed) {
 	check_same(true, homeworkSettingsError($changed + $settings) !== '', "$what is refused");
 }
+
+// ---- trainings: what somebody has done of a list of problems
+require_once __DIR__ . '/../app/libs/uoj-training-lib.php';
+
+$training_problems = array(
+	array('problem_id' => '11', 'required' => '1'),
+	array('problem_id' => '12', 'required' => '1'),
+	array('problem_id' => '13', 'required' => '0'),
+);
+$progress = trainingProgress($training_problems, array());
+check_same(array(3, 0, 0, 2, 0, false), array($progress['total'], $progress['solved'], $progress['tried'], $progress['required'], $progress['required_solved'], $progress['done']), 'nothing done');
+$progress = trainingProgress($training_problems, array(11 => 100, 12 => 60));
+check_same(array(1, 2, 1, false), array($progress['solved'], $progress['tried'], $progress['required_solved'], $progress['done']), 'one solved and one tried');
+$progress = trainingProgress($training_problems, array(11 => 100, 12 => 100));
+check_same(array(2, true), array($progress['solved'], $progress['done']), 'done without the problem that does not have to be solved');
+$progress = trainingProgress($training_problems, array(11 => 100, 13 => 100));
+check_same(false, $progress['done'], 'the problem that does not have to be solved does not stand in for one that has to');
+$optional = array(array('problem_id' => '11', 'required' => '0'), array('problem_id' => '12', 'required' => '0'));
+check_same(false, trainingProgress($optional, array(11 => 100))['done'], 'when nothing has to be solved, everything has to');
+check_same(true, trainingProgress($optional, array(11 => 100, 12 => 100))['done'], 'all of a training nothing of which has to be solved');
+check_same(false, trainingProgress(array(), array())['done'], 'a training without problems is never done');
+
+check_same('', trainingSettingsError(array('title' => '第一章 线性表', 'description_md' => '', 'status' => 'published')), 'the settings of a training');
+foreach (array('no title' => array('title' => ' '), 'a title that is too long' => array('title' => str_repeat('长', 101)), 'an unknown status' => array('status' => 'secret')) as $what => $changed) {
+	check_same(true, trainingSettingsError($changed + array('title' => 'x', 'description_md' => '', 'status' => 'draft')) !== '', "$what is refused");
+}

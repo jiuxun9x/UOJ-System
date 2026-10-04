@@ -260,6 +260,17 @@ function can($user, $ability, $resource = null) {
 			}
 			return $name !== null && $resource != null && $resource['username'] === $name;
 
+		// ---- trainings, the resource is the training
+		case 'training.manage':
+			return can($user, 'domain.teach', $facts->domain($resource['domain_id']));
+		// a draft is for the people who write it
+		case 'training.view':
+			$domain = $facts->domain($resource['domain_id']);
+			return can($user, 'domain.teach', $domain) || ($resource['status'] === 'published' && can($user, 'domain.view', $domain));
+		// what every member has done of it
+		case 'training.view_progress':
+			return can($user, 'domain.assist', $facts->domain($resource['domain_id']));
+
 		// ---- homework, the resource is the homework
 		// changing it, publishing it, deciding who takes part and what the scores are; and
 		// reading the scores and everything that was submitted
