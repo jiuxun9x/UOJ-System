@@ -153,7 +153,7 @@
     			}
 			});
 		</script>
-		<script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.7/MathJax.js?config=TeX-AMS_HTML"></script>
+		<script src="<?= HTML::mathjax_url() ?>?config=TeX-AMS_HTML"></script>
 		<?php endif ?>
 
 		<?php if (isset($REQUIRE_LIB['jquery.form'])): ?>

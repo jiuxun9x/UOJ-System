@@ -7,8 +7,31 @@ class HTML {
 	public static function stripTags($str) {
 		return strip_tags($str);
 	}
+	// The picture of a user. The site draws it itself: the first character of the name on a
+	// colour that is the user's own. Nothing is fetched from another site, and no other site
+	// learns who looks at whom. With switch.gravatar the pictures come from Gravatar as they
+	// used to.
 	public static function avatar_addr($user, $size) {
-		return '//cn.gravatar.com/avatar/' . md5(strtolower(trim($user['email']))) . "?d=mm&amp;s=$size";
+		if (!empty(UOJConfig::$data['switch']['gravatar'])) {
+			return '//cn.gravatar.com/avatar/' . md5(strtolower(trim($user['email']))) . "?d=mm&amp;s=$size";
+		}
+		$name = isset($user['nickname']) && $user['nickname'] !== '' ? $user['nickname'] : $user['username'];
+		$letter = mb_strtoupper(mb_substr($name, 0, 1, 'UTF-8'), 'UTF-8');
+		$hue = hexdec(substr(md5($user['username']), 0, 4)) % 360;
+		$size = (int)$size;
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' . $size . '" height="' . $size . '" viewBox="0 0 100 100">'
+			. '<rect width="100" height="100" fill="hsl(' . $hue . ',45%,55%)"/>'
+			. '<text x="50" y="50" dy="0.35em" text-anchor="middle" font-family="sans-serif" font-size="52" fill="#fff">' . htmlspecialchars($letter, ENT_QUOTES | ENT_XML1) . '</text>'
+			. '</svg>';
+		return 'data:image/svg+xml;base64,' . base64_encode($svg);
+	}
+	// where MathJax is loaded from: the copy that comes with the site, or the one out there
+	// where the site was set up without it
+	public static function mathjax_url() {
+		if (is_file($_SERVER['DOCUMENT_ROOT'] . '/js/mathjax/MathJax.js')) {
+			return self::url('/js/mathjax/MathJax.js');
+		}
+		return 'https://cdn.jsdelivr.net/npm/mathjax@2.7.7/MathJax.js';
 	}
 		
 	public static function tablist($tabs_info, $cur, $type = 'nav-tabs') {

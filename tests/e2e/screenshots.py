@@ -71,6 +71,13 @@ def seed():
     teacher.upload_data(own_id, ab_problem_files())
     teacher.sync(own_id)
     db("update problems set title = '链表的中间结点', is_hidden = 0 where id = %d" % own_id)
+    # a statement with formulas, to see that they are typeset without anything from elsewhere
+    statement = (
+        r"<h3>题目描述</h3><p>给定 $n$ 个整数 $a_1, a_2, \dots, a_n$，求下面的值对 $10^9+7$ 取模的结果：</p>"
+        r"<p>$$\sum_{i=1}^{n} a_i^2 + \left\lfloor \frac{n}{2} \right\rfloor$$</p>"
+        r"<h3>数据范围</h3><p>$1 \le n \le 10^5$，$|a_i| \le 10^9$。</p>"
+    )
+    db("update problems_contents set statement = '%s' where id = %d" % (statement.replace("\\", "\\\\"), own_id))
     public_id = admin.create_problem(ab_problem_files())
     db("update problems set title = 'A + B Problem' where id = %d" % public_id)
     teacher.form("/d/%s/problems" % SLUG, "copy", problem_id=str(public_id))
@@ -120,7 +127,7 @@ def seed():
     uoj.wait_submission(students[2].submit(public_id, AB_WRONG))
     uoj.wait_idle()
     return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
-            "admin": admin, "past": past, "current": current, "training": training}  # fmt: skip
+            "admin": admin, "past": past, "current": current, "training": training, "problem": own_id}  # fmt: skip
 
 
 def pages(seeded):
@@ -130,6 +137,9 @@ def pages(seeded):
     training = d + "/training/%d" % seeded["training"]
     return [
         ("grades", "teacher", d + "/grades"),
+        ("problem-statement", "student", d + "/problem/%d" % seeded["problem"]),
+        ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
+        ("monitor", "admin", "/super-manage/monitor"),
         ("trainings-student", "student", d + "/trainings"),
         ("trainings-teacher", "teacher", d + "/trainings"),
         ("training-student", "student", training),

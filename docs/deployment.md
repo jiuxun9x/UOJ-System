@@ -95,6 +95,15 @@ bash prepare.sh
 docker compose build
 ```
 
+构建时需要联网（系统软件包、Python 2.7 源码、MathJax）。构建好之后，网站运行时不依赖任何外部站点：
+公式渲染用的 MathJax 已经打进镜像，头像由网站自己生成。访问 npm 官方源慢的话，可以换镜像源构建：
+
+```bash
+docker compose build --build-arg MATHJAX_URL=https://registry.npmmirror.com/mathjax/-/mathjax-2.7.7.tgz uoj-web
+```
+
+（下载的文件会校验 SHA-256，换源不影响安全。）
+
 **这一步不能省。** `docker-compose.yml` 里写的镜像名是 `ghcr.io/universaloj/uoj-*`，如果不先构建，
 `docker compose up` 会去下载上游的官方镜像，那里面没有本仓库的任何改动。构建完成后，本机就有了
 同名的本地镜像。评测机镜像要编译 Python 2.7，第一次构建需要十几分钟。
@@ -324,6 +333,7 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 | 键 | 默认 | 含义 |
 |---|---|---|
 | `switch.blog-domain-mode` | `3` | 博客地址的形式。`3`：主站下的 `/blog/用户名`（推荐，不需要额外的域名）；`2`：独立的博客域名加路径 `blog域名/用户名`；`1`：每个用户一个子域名 `用户名.blog域名`（需要泛域名解析和泛域名证书） |
+| `switch.gravatar` | `false` | 头像从哪来。`false`：网站自己画（别名或用户名的第一个字，加每个用户固定的颜色），不访问任何外部站点。`true`：从 Gravatar 取，需要用户的浏览器能访问 Gravatar，并且 Gravatar 会知道谁在看谁 |
 | `switch.web-analytics` | `false` | 是否在页面里加入统计代码。要先把 `web/app/views/page-header.php` 里的统计代码换成自己的再开启 |
 | `tools.map-copy-enabled` | `false` | 工具页里的“复制”按钮。浏览器只允许在 HTTPS 下复制，所以只在 HTTPS 下开启 |
 

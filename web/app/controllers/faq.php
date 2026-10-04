@@ -36,8 +36,12 @@
 			</div>
 			<div id="collapseTwo" class="collapse">
 				<div class="card-body">
+					<?php if (empty(UOJConfig::$data['switch']['gravatar'])): ?>
+					<p><?= UOJConfig::$data['profile']['oj-name-short'] ?> 不提供头像上传。头像由系统自动生成：用别名（没有别名就用用户名）的第一个字，配上每个用户自己的颜色。</p>
+					<?php else: ?>
 					<p><?= UOJConfig::$data['profile']['oj-name-short'] ?> 不提供头像存储服务。每到一个网站都要上传一个头像挺烦的对不对？我们支持 Gravatar，请使用 Gravatar 吧！Gravatar 是一个全球的头像存储服务，你的头像将会与你的电子邮箱绑定。在各大网站比如各种 Wordpress 还有各种 OJ 比如 Vijos、Contest Hunter 上，只要你电子邮箱填对了，那么你的头像也就立即能显示了！</p>
 					<p>快使用 Gravatar 吧！Gravatar 地址：<a href="https://cn.gravatar.com/">https://cn.gravatar.com/</a>。进去后注册个帐号然后与邮箱绑定并上传头像，就 OK 啦！</p>
+					<?php endif ?>
 				</div>
 			</div>
 		</div>

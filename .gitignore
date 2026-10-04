@@ -3,3 +3,4 @@ uoj_data/
 .php-cs-fixer.cache
 .config.local.php
 shell.nix
+web/js/mathjax/

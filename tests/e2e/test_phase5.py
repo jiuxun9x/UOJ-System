@@ -3,9 +3,11 @@
 See test_phase1.py for how to start the containers.
 """
 
+import base64
 import json
 import re
 import unittest
+from urllib.parse import urlparse
 
 import mock_smtp
 import test_phase3 as p3
@@ -187,6 +189,63 @@ class BackupTest(unittest.TestCase):
             self.assertIn("每天 %d 点自动备份，保留 3 天" % hour, self.admin.get(monitor).text)
         finally:
             db("delete from site_settings where name like 'backup.%'")
+
+
+class LocalResourcesTest(unittest.TestCase):
+    """a page of the site needs nothing from anywhere else"""
+
+    def test_mathjax_comes_with_the_site(self):
+        client = uoj.Client()
+        needed = ("MathJax.js", "config/TeX-AMS_HTML.js", "extensions/tex2jax.js", "extensions/MathMenu.js",
+                  "jax/input/TeX/jax.js", "jax/element/mml/jax.js", "jax/output/HTML-CSS/jax.js",
+                  "jax/output/HTML-CSS/fonts/TeX/fontdata.js", "jax/output/PreviewHTML/jax.js",
+                  "fonts/HTML-CSS/TeX/woff/MathJax_Main-Regular.woff", "fonts/HTML-CSS/TeX/otf/MathJax_Math-Italic.otf")  # fmt: skip
+        for path in needed:
+            r = client.get("/js/mathjax/" + path)
+            self.assertEqual(r.status_code, 200, path)
+            self.assertGreater(len(r.content), 1000, path)
+        # what the site does not use did not come along
+        for path in ("jax/output/SVG/jax.js", "jax/output/HTML-CSS/fonts/STIX-Web/fontdata.js", "unpacked/MathJax.js"):
+            self.assertEqual(client.get("/js/mathjax/" + path).status_code, 404, path)
+        problem_id = uoj.admin().create_problem(ab_problem_files())
+        page = client.get("/problem/%d" % problem_id).text
+        self.assertIn("/js/mathjax/MathJax.js?config=TeX-AMS_HTML", page)
+        self.assertNotIn("jsdelivr", page)
+
+    def test_pages_load_nothing_from_other_sites(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        host = urlparse(uoj.BASE_URL).netloc
+        pages = ["/", "/problems", "/problem/%d" % problem_id, "/contests", "/submissions", "/hacks", "/blogs", "/ranklist",
+                 "/faq", "/domains", "/user/profile/" + uoj.ADMIN[0], "/user/modify-profile", "/user/msg", "/user/system-msg",
+                 "/super-manage/users", "/super-manage/monitor", "/super-manage/settings",
+                 "/problem/%d/manage/statement" % problem_id, "/problem/%d/manage/data" % problem_id]  # fmt: skip
+        loaded = re.compile(r"""<(?:script|img|iframe|link|source|embed|audio|video)\b[^>]*?\b(?:src|href)\s*=\s*["']([^"']+)""")
+        for client, paths in ((admin, pages), (uoj.Client(), ["/", "/login", "/register", "/forgot-password", "/problems", "/faq"])):
+            for path in paths:
+                r = client.get(path)
+                self.assertEqual(r.status_code, 200, path)
+                for url in loaded.findall(r.text):
+                    if url.startswith(("http://", "https://", "//")):
+                        self.assertEqual(urlparse(url).netloc, host, "%s loads %s" % (path, url))
+                self.assertNotIn("googleapis", r.text, path)
+        # the slides do not wait for fonts from elsewhere either
+        for theme in ("beige", "blood", "default", "league", "moon", "night", "serif", "simple", "sky", "solarized"):
+            css = admin.get("/css/reveal/theme/%s.css" % theme)
+            if css.status_code == 200:
+                self.assertNotRegex(css.text, r"@import url\((https?:)?//")
+
+    def test_picture_of_a_user_is_drawn_by_the_site(self):
+        user, other = account("p5_avatar_user"), account("p5_avatar_other")
+        self.assertEqual(user.update_profile(nickname="晓雨"), "ok")
+        picture = lambda name: re.search(r'<img[^>]*src="(data:image/svg\+xml;base64,[^"]+)"', other.get("/user/profile/" + name).text).group(1)
+        svg = lambda name: base64.b64decode(picture(name).split(",", 1)[1]).decode()
+        self.assertIn(">晓</text>", svg("p5_avatar_user"))
+        self.assertIn(">P</text>", svg("p5_avatar_other"))
+        # each has a colour of their own, and it stays theirs
+        self.assertNotEqual(re.search(r"hsl\([^)]*\)", svg("p5_avatar_user")).group(0), re.search(r"hsl\([^)]*\)", svg("p5_avatar_other")).group(0))
+        self.assertEqual(picture("p5_avatar_other"), picture("p5_avatar_other"))
+        self.assertNotIn("gravatar", other.get("/user/profile/p5_avatar_user").text)
 
 
 class MailTest(unittest.TestCase):

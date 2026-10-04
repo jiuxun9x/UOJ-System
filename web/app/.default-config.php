@@ -89,6 +89,9 @@ return [
 	'switch' => [
 		// 请在 page-header.php 中修改统计代码后再启用
 		'web-analytics' => false,
+		// false: the site draws the pictures of its users itself. true: they are fetched from
+		// Gravatar, which tells Gravatar who looks at whom and needs it to be reachable.
+		'gravatar' => false,
 		'blog-domain-mode' => 3
 	],
 	'tools' => [
