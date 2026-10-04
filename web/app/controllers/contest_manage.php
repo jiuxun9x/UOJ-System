@@ -173,47 +173,48 @@
 		$rated_form->submit_button_config['smart_confirm'] = '';
 	
 		$rated_form->runAtServer();
-		
-		$version_form = new UOJForm('version');
-		$version_form->addInput('standings_version', 'text', '排名版本', $contest['extra_config']['standings_version'],
-			function ($x) {
-				if (!validateUInt($x) || $x < 1 || $x > 2) {
-					return '不是合法的版本号';
-				}
-				return '';
-			},
-			null
-		);
-		$version_form->handle = function() {
-			global $contest;
-			$contest['extra_config']['standings_version'] = $_POST['standings_version'];
-			$esc_extra_config = json_encode($contest['extra_config']);
-			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
-			$esc_extra_config = DB::escape($esc_extra_config);
-			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-		};
-		$version_form->runAtServer();
-
-		$contest_type_form = new UOJForm('contest_type');
-		$contest_type_form->addInput('contest_type', 'text', '赛制', $contest['extra_config']['contest_type'],
-			function ($x) {
-				if ($x != 'OI' && $x != 'ACM' && $x != 'IOI') {
-					return '不是合法的赛制名';
-				}
-				return '';
-			},
-			null
-		);
-		$contest_type_form->handle = function() {
-			global $contest;
-			$contest['extra_config']['contest_type'] = $_POST['contest_type'];
-			$esc_extra_config = json_encode($contest['extra_config']);
-			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
-			$esc_extra_config = DB::escape($esc_extra_config);
-			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-		};
-		$contest_type_form->runAtServer();
 	}
+	
+	// the rules of the contest are its owner's to choose
+	$version_form = new UOJForm('version');
+	$version_form->addInput('standings_version', 'text', '排名版本', $contest['extra_config']['standings_version'],
+		function ($x) {
+			if (!validateUInt($x) || $x < 1 || $x > 2) {
+				return '不是合法的版本号';
+			}
+			return '';
+		},
+		null
+	);
+	$version_form->handle = function() {
+		global $contest;
+		$contest['extra_config']['standings_version'] = $_POST['standings_version'];
+		$esc_extra_config = json_encode($contest['extra_config']);
+		auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
+		$esc_extra_config = DB::escape($esc_extra_config);
+		DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
+	};
+	$version_form->runAtServer();
+
+	$contest_type_form = new UOJForm('contest_type');
+	$contest_type_form->addInput('contest_type', 'text', '赛制', $contest['extra_config']['contest_type'],
+		function ($x) {
+			if ($x != 'OI' && $x != 'ACM' && $x != 'IOI') {
+				return '不是合法的赛制名';
+			}
+			return '';
+		},
+		null
+	);
+	$contest_type_form->handle = function() {
+		global $contest;
+		$contest['extra_config']['contest_type'] = $_POST['contest_type'];
+		$esc_extra_config = json_encode($contest['extra_config']);
+		auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
+		$esc_extra_config = DB::escape($esc_extra_config);
+		DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
+	};
+	$contest_type_form->runAtServer();
 	
 	$time_form->runAtServer();
 	$managers_form->runAtServer();
@@ -225,9 +226,7 @@
 	<li class="nav-item"><a class="nav-link active" href="#tab-time" role="tab" data-toggle="tab">比赛时间</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-managers" role="tab" data-toggle="tab">管理者</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-problems" role="tab" data-toggle="tab">试题</a></li>
-	<?php if (can($myUser, 'contest.rate', $contest)): ?>
 	<li class="nav-item"><a class="nav-link" href="#tab-others" role="tab" data-toggle="tab">其它</a></li>
-	<?php endif ?>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?=$contest['id']?>" role="tab">返回</a></li>
 </ul>
 <div class="tab-content top-buffer-sm">
@@ -282,9 +281,9 @@
 		<p class="text-center">命令格式：命令一行一个，+233表示把题号为233的试题加入比赛，-233表示把题号为233的试题从比赛中移除</p>
 		<?php $problems_form->printHTML(); ?>
 	</div>
-	<?php if (can($myUser, 'contest.rate', $contest)): ?>
 	<div class="tab-pane" id="tab-others">
 		<div class="row">
+			<?php if (can($myUser, 'contest.rate', $contest)): ?>
 			<div class="col-sm-12">
 				<h3>Rating控制</h3>
 				<div class="row">
@@ -295,6 +294,11 @@
 				<div class="top-buffer-sm"></div>
 				<?php $rating_k_form->printHTML(); ?>
 			</div>
+			<?php else: ?>
+			<div class="col-sm-12">
+				<p class="text-muted">此比赛<?= isset($contest['extra_config']['unrated']) ? '不计入' : '计入' ?> Rating。是否计入 Rating 由管理员设置。</p>
+			</div>
+			<?php endif ?>
 			<div class="col-sm-12 top-buffer-sm">
 				<h3>版本控制</h3>
 				<?php $version_form->printHTML(); ?>
@@ -305,6 +309,5 @@
 			</div>
 		</div>
 	</div>
-	<?php endif ?>
 </div>
 <?php echoUOJPageFooter() ?>

@@ -111,6 +111,18 @@ class RolesTest(unittest.TestCase):
         self.assertEqual(self.colleague.get("/contest/%d/manage" % contest_id).status_code, 403)
         self.assertEqual(self.oj_admin.get("/contest/%d/manage" % contest_id).status_code, 200)
 
+        # the owner chooses the rules of the contest, the administrators whether it is rated
+        manage = "/contest/%d/manage" % contest_id
+        config = lambda: json.loads(db_value("select extra_config from contests where id = %d" % contest_id))
+        self.assertEqual(self.teacher.submit_form(manage, "contest_type", {"contest_type": "IOI"}), "")
+        self.assertEqual(config()["contest_type"], "IOI")
+        self.teacher.submit_form(manage, "rated")
+        self.assertIn("unrated", config())
+        self.assertEqual(self.admin.submit_form(manage, "rated"), "")
+        self.assertNotIn("unrated", config())
+        self.assertEqual(self.admin.submit_form(manage, "rated"), "")
+        self.assertIn("unrated", config())
+
         # the owner sets the problems, but only problems they manage
         problem_id = self.teacher.new_problem()
         foreign_problem_id = self.admin.new_problem()
