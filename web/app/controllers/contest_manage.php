@@ -1,6 +1,4 @@
 <?php
-	requirePHPLib('form');
-	
 	if (!validateUInt($_GET['id']) || !($contest = queryContest($_GET['id']))) {
 		become404Page();
 	}
@@ -12,347 +10,276 @@
 		}
 		become404Page();
 	}
-	
+
 	if (!can($myUser, 'contest.manage', $contest)) {
 		become403Page();
 	}
-	
-	$time_form = new UOJForm('time');
-	$time_form->addInput(
-		'name', 'text', '比赛标题', $contest['name'],
-		function($str) {
-			return '';
-		},
-		null
-	);
-	$time_form->addInput(
-		'start_time', 'text', '开始时间', $contest['start_time_str'],
-		function($str, &$vdata) {
-			try {
-				$vdata['start_time'] = new DateTime($str);
-			} catch (Exception $e) {
-				return '无效时间格式';
-			}
-			return '';
-		},
-		null
-	);
-	$time_form->addInput(
-		'last_min', 'text', '时长（单位：分钟）', $contest['last_min'],
-		function($str) {
-			return !validateUInt($str) ? '必须为一个整数' : '';
-		},
-		null
-	);
-	$time_form->handle = function(&$vdata) {
-		global $contest;
-		$start_time_str = $vdata['start_time']->format('Y-m-d H:i:s');
-		
-		$purifier = HTML::pruifier();
-		
-		$esc_name = $_POST['name'];
-		$esc_name = $purifier->purify($esc_name);
-		$esc_name = DB::escape($esc_name);
-		
-		DB::update("update contests set start_time = '$start_time_str', last_min = {$_POST['last_min']}, name = '$esc_name' where id = {$contest['id']}");
-		auditLog('contest.edit', 'contest', $contest['id'],
-			array('name' => $contest['name'], 'start_time' => $contest['start_time_str'], 'last_min' => (int)$contest['last_min']),
-			array('name' => $_POST['name'], 'start_time' => $start_time_str, 'last_min' => (int)$_POST['last_min']));
-	};
-	
-	// "+mike" makes mike an assistant, "+mike [owner]" an owner, "-mike" takes mike off the staff
-	$parse_manager_cmd = function($cmd) {
-		if (!preg_match('/^([a-zA-Z0-9_]{1,20})\s*(\[(owner|assistant)\])?$/', $cmd, $matches)) {
-			return null;
-		}
-		return array($matches[1], isset($matches[3]) ? $matches[3] : 'assistant');
-	};
-	$managers_form = newAddDelCmdForm('managers',
-		function($cmd) use ($parse_manager_cmd) {
-			$parsed = $parse_manager_cmd($cmd);
-			if ($parsed === null) {
-				return '格式错误';
-			}
-			if (!queryUser($parsed[0])) {
-				return "不存在名为{$parsed[0]}的用户";
-			}
-			return '';
-		},
-		function($type, $cmd) use ($parse_manager_cmd) {
-			global $contest;
-			list($username, $role) = $parse_manager_cmd($cmd);
-			if ($type == '+') {
-				DB::query("insert into contests_permissions (contest_id, username, role) values (${contest['id']}, '$username', '$role') on duplicate key update role = '$role'");
-				auditLog('contest.add_staff', 'contest', $contest['id'], null, array('username' => $username, 'role' => $role));
-			} elseif ($type == '-') {
-				DB::query("delete from contests_permissions where contest_id = ${contest['id']} and username = '$username'");
-				auditLog('contest.remove_staff', 'contest', $contest['id'], array('username' => $username), null);
-			}
-		}
-	);
-	
-	$problems_form = newAddDelCmdForm('problems',
-		function($cmd) {
-			if (!preg_match('/^(\d+)\s*(\[\S+\])?$/', $cmd, $matches)) {
-				return "无效题号";
-			}
-			global $contest;
-			$problem_id = $matches[1];
-			if (!validateUInt($problem_id) || !($problem = contestProblemByNumber($contest, $problem_id))) {
-				return $contest['domain_id'] ? "本域没有题号为{$problem_id}的题。主站的题目要先在域的“题目”页复制到本域" : "不存在题号为{$problem_id}的题";
-			}
-			if (!can(Auth::user(), 'problem.manage', $problem)) {
-				return "无权添加题号为{$problem_id}的题";
-			}
-			return '';
-		},
-		function($type, $cmd) {
-			global $contest;
-			
-			if (!preg_match('/^(\d+)\s*(\[\S+\])?$/', $cmd, $matches)) {
-				return "无效题号";
-			}
-			
-			// the number that was typed is the number the problem is known by
-			$problem = contestProblemByNumber($contest, $matches[1]);
-			if (!$problem) {
-				return;
-			}
-			$problem_id = $problem['id'];
-			
-			if ($type == '+') {
-				DB::insert("insert into contests_problems (contest_id, problem_id) values ({$contest['id']}, '$problem_id')");
-				auditLog('contest.add_problem', 'contest', $contest['id'], null, array('problem_id' => (int)$problem_id, 'setting' => isset($matches[2]) ? $matches[2] : ''));
-			} elseif ($type == '-') {
-				DB::delete("delete from contests_problems where contest_id = {$contest['id']} and problem_id = '$problem_id'");
-				auditLog('contest.remove_problem', 'contest', $contest['id'], array('problem_id' => (int)$problem_id), null);
-			}
-			
-			if (isset($matches[2])) {
-				switch ($matches[2]) {
-					case '[sample]':
-						unset($contest['extra_config']["problem_$problem_id"]);
-						break;
-					case '[full]':
-						$contest['extra_config']["problem_$problem_id"] = 'full';
-						break;
-					case '[no-details]':
-						$contest['extra_config']["problem_$problem_id"] = 'no-details';
-						break;
-				}
-				$esc_extra_config = json_encode($contest['extra_config']);
-				$esc_extra_config = DB::escape($esc_extra_config);
-				DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-			}
-		}
-	);
-	
-	if (can($myUser, 'contest.rate', $contest)) {
-		$rating_k_form = new UOJForm('rating_k');
-		$rating_k_form->addInput('rating_k', 'text', 'rating 变化上限', isset($contest['extra_config']['rating_k']) ? $contest['extra_config']['rating_k'] : 400,
-			function ($x) {
-				if (!validateUInt($x) || $x < 1 || $x > 1000) {
-					return '不合法的上限';
-				}
-				return '';
-			},
-			null
-		);
-		$rating_k_form->handle = function() {
-			global $contest;
-			$contest['extra_config']['rating_k'] = $_POST['rating_k'];
-			$esc_extra_config = json_encode($contest['extra_config']);
-			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
-			$esc_extra_config = DB::escape($esc_extra_config);
-			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-		};
-		$rating_k_form->runAtServer();
-		
-		$rated_form = new UOJForm('rated');
-		$rated_form->handle = function() {
-			global $contest;
-			if (isset($contest['extra_config']['unrated'])) {
-				unset($contest['extra_config']['unrated']);
-			} else {
-				$contest['extra_config']['unrated'] = '';
-			}
-			$esc_extra_config = json_encode($contest['extra_config']);
-			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
-			$esc_extra_config = DB::escape($esc_extra_config);
-			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-		};
-		$rated_form->submit_button_config['class_str'] = 'btn btn-warning btn-block';
-		$rated_form->submit_button_config['text'] = isset($contest['extra_config']['unrated']) ? '设置比赛为rated' : '设置比赛为unrated';
-		$rated_form->submit_button_config['smart_confirm'] = '';
-	
-		$rated_form->runAtServer();
-	}
-	
-	// the rules of the contest are its owner's to choose
-	$version_form = new UOJForm('version');
-	$version_form->addInput('standings_version', 'text', '排名版本', $contest['extra_config']['standings_version'],
-		function ($x) {
-			if (!validateUInt($x) || $x < 1 || $x > 2) {
-				return '不是合法的版本号';
-			}
-			return '';
-		},
-		null
-	);
-	$version_form->handle = function() {
-		global $contest;
-		$contest['extra_config']['standings_version'] = $_POST['standings_version'];
-		$esc_extra_config = json_encode($contest['extra_config']);
-		auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
-		$esc_extra_config = DB::escape($esc_extra_config);
-		DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-	};
-	$version_form->runAtServer();
 
-	$contest_type_form = new UOJForm('contest_type');
-	$contest_type_form->addInput('contest_type', 'text', '赛制', $contest['extra_config']['contest_type'],
-		function ($x) {
-			if (!isset(contestRules()[$x])) {
-				return '不是合法的赛制名：' . join('、', array_keys(contestRules()));
-			}
-			return '';
-		},
-		null
-	);
-	$contest_type_form->handle = function() {
-		global $contest;
-		$contest['extra_config']['contest_type'] = $_POST['contest_type'];
-		$esc_extra_config = json_encode($contest['extra_config']);
-		auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
-		$esc_extra_config = DB::escape($esc_extra_config);
-		DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
-	};
-	$contest_type_form->runAtServer();
-	
-	$time_form->runAtServer();
-	$managers_form->runAtServer();
-	$problems_form->runAtServer();
+	$manage = "/contest/{$contest['id']}/manage";
+	$may_rate = can($myUser, 'contest.rate', $contest);
+	$settings = contestSettings($contest);
 
-	// who may take part
-	$access_error = domainHandleForms(array(
-		'join_mode' => function() use ($contest) {
+	$posted = function($name) {
+		return isset($_POST[$name]) && is_string($_POST[$name]) ? trim($_POST[$name]) : '';
+	};
+	// every form is on a tab: a form that went through leads back to its tab
+	$done = function($tab, $message, $type = 'success') use ($manage) {
+		domainFlash($message, $type);
+		redirectTo("$manage#tab-$tab");
+	};
+
+	$error = domainHandleForms(array(
+		// ---- what the contest is
+		'settings' => function() use ($contest, $settings, $may_rate, $done) {
 			global $myUser;
-			$err = contestSetJoinMode($contest, isset($_POST['join_mode']) && is_string($_POST['join_mode']) ? $_POST['join_mode'] : '', isset($_POST['join_password']) ? $_POST['join_password'] : '', $myUser);
-			if ($err === '') {
-				domainFlash('参加方式已保存。');
+			list($checked, $err) = contestSettingsFromForm($_POST, $settings, $may_rate, $contest['join_password'] !== '');
+			if ($err !== '') {
+				return $err;
 			}
-			return $err;
+			contestSaveSettings($contest, $checked, $myUser);
+			$done('settings', '设置已保存。');
 		},
-		'allow' => function() use ($contest) {
+
+		// ---- its problems
+		'add_problem' => function() use ($contest, $posted, $done) {
+			global $myUser;
+			list($problems, $err) = contestProblemsByNumbers($contest, $posted('number'), $myUser);
+			if ($err !== '') {
+				return $err;
+			}
+			if (!$problems) {
+				return '请填写题号';
+			}
+			foreach ($problems as $problem) {
+				$err = contestAddProblem($contest, $problem, $myUser);
+				if ($err !== '') {
+					return '题目 #' . problemNumber($problem) . '：' . $err;
+				}
+			}
+			$done('problems', '已添加 ' . count($problems) . ' 道题。');
+		},
+		'remove_problem' => function() use ($contest, $posted, $done) {
+			global $myUser;
+			$err = contestRemoveProblem($contest, validateUInt($posted('problem_id')) ? $posted('problem_id') : 0, $myUser);
+			if ($err !== '') {
+				return $err;
+			}
+			$done('problems', '已把这道题从比赛里移除。');
+		},
+		'move_problem' => function() use ($contest, $posted, $done) {
+			global $myUser;
+			$err = contestMoveProblemUp($contest, validateUInt($posted('problem_id')) ? $posted('problem_id') : 0, $myUser);
+			if ($err !== '') {
+				return $err;
+			}
+			$done('problems', '顺序已调整。');
+		},
+		'judge_problem' => function() use ($contest, $posted, $done) {
+			global $myUser;
+			if (!validateUInt($posted('problem_id')) || !in_array((int)$posted('problem_id'), contestProblemIds($contest['id']), true)) {
+				return '比赛里没有这道题';
+			}
+			contestSetProblemJudging($contest, $posted('problem_id'), $posted('judged_with') === 'everything', $myUser);
+			$done('problems', '已保存。');
+		},
+
+		// ---- the list of the people who may take part
+		'allow' => function() use ($contest, $done) {
 			global $myUser;
 			list($added, $refused) = contestAllowUsers($contest, isset($_POST['names']) && is_string($_POST['names']) ? $_POST['names'] : '', $myUser);
-			domainFlash("名单里新增了 $added 人。" . ($refused ? '无法识别：' . join('、', array_slice($refused, 0, 10)) : ''), $refused ? 'warning' : 'success');
-			return '';
+			$done('access', "名单里新增了 $added 人。" . ($refused ? '无法识别：' . join('、', array_slice($refused, 0, 10)) : ''), $refused ? 'warning' : 'success');
 		},
-		'disallow' => function() use ($contest) {
+		'disallow' => function() use ($contest, $posted, $done) {
 			global $myUser;
-			return contestDisallowUser($contest, isset($_POST['username']) && is_string($_POST['username']) ? $_POST['username'] : '', $myUser);
+			$err = contestDisallowUser($contest, $posted('username'), $myUser);
+			if ($err !== '') {
+				return $err;
+			}
+			$done('access', '已从名单里移除。');
+		},
+
+		// ---- the people who run it
+		'add_manager' => function() use ($contest, $posted, $done) {
+			$role = $posted('role') === 'owner' ? 'owner' : 'assistant';
+			$user = validateUsername($posted('username')) ? queryUser($posted('username')) : null;
+			if (!$user) {
+				return '没有这个用户';
+			}
+			$esc_username = DB::escape($user['username']);
+			DB::insert("insert into contests_permissions (contest_id, username, role) values ({$contest['id']}, '$esc_username', '$role') on duplicate key update role = '$role'");
+			auditLog('contest.add_staff', 'contest', $contest['id'], null, array('username' => $user['username'], 'role' => $role));
+			$done('managers', '已把 ' . $user['username'] . ' 设为' . ($role === 'owner' ? '负责人' : '助理') . '。');
+		},
+		'remove_manager' => function() use ($contest, $posted, $done) {
+			if (!validateUsername($posted('username'))) {
+				return '没有这个用户';
+			}
+			$esc_username = DB::escape($posted('username'));
+			$row = DB::selectFirst("select role from contests_permissions where contest_id = {$contest['id']} and username = '$esc_username'");
+			if (!$row) {
+				return '这个用户不是这场比赛的管理者';
+			}
+			// a contest of the site is somebody's: its last owner hands it over before leaving
+			if ($row['role'] === 'owner' && !$contest['domain_id']
+					&& DB::selectCount("select count(*) from contests_permissions where contest_id = {$contest['id']} and role = 'owner'") <= 1) {
+				return '这是最后一位负责人。先把另一个人设为负责人，再移除他';
+			}
+			DB::delete("delete from contests_permissions where contest_id = {$contest['id']} and username = '$esc_username'");
+			auditLog('contest.remove_staff', 'contest', $contest['id'], array('username' => $posted('username')), null);
+			$done('managers', '已移除。');
 		}
-	), "/contest/{$contest['id']}/manage#tab-access");
-	$access_flash = domainTakeFlash();
+	));
+	$flash = domainTakeFlash();
+
+	// a form that was refused is shown again on its tab, with what was typed into it
+	$tabs = array('settings' => '设置', 'problems' => '试题', 'access' => '名单', 'managers' => '管理者');
+	$active_tab = isset($_POST['tab']) && is_string($_POST['tab']) && isset($tabs[$_POST['tab']]) ? $_POST['tab'] : 'settings';
+	if ($error !== '' && $active_tab === 'settings') {
+		foreach (array('name', 'start_time', 'last_min', 'rule', 'freeze_minutes', 'standings_version', 'rating_k', 'join_mode') as $field) {
+			if (isset($_POST[$field]) && is_string($_POST[$field])) {
+				$settings[$field] = $_POST[$field];
+			}
+		}
+		if ($may_rate) {
+			$settings['rated'] = isset($_POST['rated']);
+		}
+	}
+
+	$rule = contestRule($contest);
+	$problems = array();
+	foreach (contestProblemIds($contest['id']) as $index => $problem_id) {
+		$problem = queryProblemBrief($problem_id);
+		if ($problem) {
+			$problems[] = array('letter' => chr(ord('A') + $index % 26), 'everything' => !contestJudgesSamplesOnly($contest, $problem_id)) + $problem;
+		}
+	}
+	$managers = DB::selectAll("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
 	$allowed_users = contestAllowedUsers($contest);
+	$has_begun = $contest['cur_progress'] > CONTEST_NOT_STARTED;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 比赛管理') ?>
 <?php echoContestDomainLink($contest) ?>
-<h1 class="page-header" align="center"><?=$contest['name']?> 管理</h1>
-<ul class="nav nav-tabs mb-3" role="tablist">
-	<li class="nav-item"><a class="nav-link active" href="#tab-time" role="tab" data-toggle="tab">比赛时间</a></li>
-	<li class="nav-item"><a class="nav-link" href="#tab-managers" role="tab" data-toggle="tab">管理者</a></li>
-	<li class="nav-item"><a class="nav-link" href="#tab-problems" role="tab" data-toggle="tab">试题</a></li>
-	<li class="nav-item"><a class="nav-link" href="#tab-access" role="tab" data-toggle="tab">参加方式</a></li>
-	<li class="nav-item"><a class="nav-link" href="#tab-others" role="tab" data-toggle="tab">其它</a></li>
-	<li class="nav-item"><a class="nav-link" href="/contest/<?=$contest['id']?>" role="tab">返回</a></li>
+<h1 class="page-header" align="center"><?= $contest['name'] ?> 管理</h1>
+<?php if ($flash): ?>
+<div class="alert alert-<?= $flash[0] ?>" role="alert" id="contest-manage-flash"><?= HTML::escape($flash[1]) ?></div>
+<?php endif ?>
+<?php echoDomainError($error) ?>
+<ul class="nav nav-tabs mb-3" role="tablist" id="contest-manage-tabs">
+	<?php foreach ($tabs as $tab => $label): ?>
+	<li class="nav-item"><a class="nav-link<?= $tab === $active_tab ? ' active' : '' ?>" href="#tab-<?= $tab ?>" role="tab" data-toggle="tab"><?= $label ?><?php if ($tab === 'problems'): ?> <span class="badge badge-secondary"><?= count($problems) ?></span><?php endif ?></a></li>
+	<?php endforeach ?>
+	<li class="nav-item"><a class="nav-link" href="/contest/<?= $contest['id'] ?>" role="tab">返回比赛</a></li>
 </ul>
-<div class="tab-content top-buffer-sm">
-	<div class="tab-pane active" id="tab-time">
-		<?php $time_form->printHTML(); ?>
-	</div>
-	
-	<div class="tab-pane" id="tab-managers">
-		<table class="table table-hover">
-			<thead>
-				<tr>
-					<th>#</th>
-					<th>用户名</th>
-					<th>角色</th>
-				</tr>
-			</thead>
-			<tbody>
-<?php
-	$row_id = 0;
-	$result = DB::query("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
-	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
-		$row_id++;
-		echo '<tr>', '<td>', $row_id, '</td>', '<td>', getUserLink($row['username']), '</td>', '<td>', $row['role'] == 'owner' ? '负责人' : '助理', '</td>', '</tr>';
-	}
-?>
-			</tbody>
-		</table>
-		<p class="text-center">命令格式：命令一行一个，+mike表示把mike加为助理，+mike [owner]表示把mike加为负责人，-mike表示把mike移除</p>
-		<p class="text-center">负责人可以修改比赛设置、试题和人员，开始最终测试并公布成绩；助理可以进入后台、查看所有提交并回答提问。</p>
-		<?php $managers_form->printHTML(); ?>
-	</div>
-	
-	<div class="tab-pane" id="tab-problems">
-		<table class="table table-hover">
-			<thead>
-				<tr>
-					<th>#</th>
-					<th>试题名</th>
-				</tr>
-			</thead>
-			<tbody>
-<?php
-	$result = DB::query("select problem_id from contests_problems where contest_id = ${contest['id']} order by problem_id asc");
-	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
-		$problem = queryProblemBrief($row['problem_id']);
-		$problem_config_str = isset($contest['extra_config']["problem_{$problem['id']}"]) ? $contest['extra_config']["problem_{$problem['id']}"] : 'sample';
-		echo '<tr>', '<td>', problemNumber($problem), '</td>', '<td>', getProblemLink($problem), ' ', "[$problem_config_str]", '</td>', '</tr>';
-	}
-?>
-			</tbody>
-		</table>
-		<p class="text-center">命令格式：命令一行一个，+233表示把题号为233的试题加入比赛，-233表示把题号为233的试题从比赛中移除</p>
-		<?php $problems_form->printHTML(); ?>
-	</div>
-	<div class="tab-pane text-left" id="tab-access">
-		<?php if ($access_flash): ?>
-		<div class="alert alert-<?= $access_flash[0] ?>" role="alert"><?= HTML::escape($access_flash[1]) ?></div>
-		<?php endif ?>
-		<?php echoDomainError($access_error) ?>
-		<form method="post" id="form-join-mode" class="mb-4">
+<div class="tab-content text-left">
+	<div class="tab-pane<?= $active_tab === 'settings' ? ' active' : '' ?>" id="tab-settings">
+		<form method="post" id="form-contest-settings" style="max-width:52em">
 			<?= HTML::hiddenToken() ?>
-			<input type="hidden" name="form" value="join_mode" />
-			<?php foreach (contestJoinModes() as $mode => $mode_label): ?>
-			<div class="custom-control custom-radio mb-2">
-				<input type="radio" class="custom-control-input" id="input-join_mode-<?= $mode ?>" name="join_mode" value="<?= $mode ?>"<?= $contest['join_mode'] === $mode ? ' checked="checked"' : '' ?> />
-				<label class="custom-control-label" for="input-join_mode-<?= $mode ?>"><?= $mode_label ?></label>
-			</div>
-			<?php endforeach ?>
-			<div class="form-group mt-2" style="max-width:24em">
-				<label for="input-join_password">参赛密码</label>
-				<input type="password" class="form-control" id="input-join_password" name="join_password" maxlength="64" autocomplete="new-password" placeholder="<?= $contest['join_password'] !== '' ? '已设置，留空表示不修改' : '选择“密码限制”时填写' ?>" />
-				<small class="form-text text-muted">密码保存后不再显示，4 到 64 个字符。把它告诉要参加的人。</small>
-			</div>
-			<button type="submit" class="btn btn-primary" id="button-save-join-mode">保存</button>
-			<small class="form-text text-muted">
-				名单限制和密码限制的比赛，开始后它的题目、榜单和提交只有报名成功的选手和工作人员能看到，结束后也是如此；要对所有人开放，把参加方式改回“自由参加”。已经报名的人不受改动影响。
-				<?php if ($contest['domain_id']): ?>这场比赛属于一个域，无论哪种方式，都只有域的成员能参加。<?php endif ?>
-			</small>
+			<input type="hidden" name="form" value="settings" />
+			<input type="hidden" name="tab" value="settings" />
+			<?php uojIncludeView('contest-settings-form', array('settings' => $settings, 'may_rate' => $may_rate, 'in_domain' => !empty($contest['domain_id']), 'has_password' => $contest['join_password'] !== '')) ?>
+			<?php if ($has_begun): ?>
+			<div class="alert alert-warning py-2">比赛已经开始。改变时间、赛制或封榜会影响正在比赛的选手和已经算出的榜单，请确认后再保存。</div>
+			<?php endif ?>
+			<button type="submit" class="btn btn-primary" id="button-save-contest-settings">保存</button>
 		</form>
+	</div>
 
-		<h4>名单 <small class="text-muted">（<?= count($allowed_users) ?> 人，选择“名单限制”时生效）</small></h4>
+	<div class="tab-pane<?= $active_tab === 'problems' ? ' active' : '' ?>" id="tab-problems">
+		<?php if ($has_begun && $contest['cur_progress'] < CONTEST_FINISHED): ?>
+		<div class="alert alert-warning py-2">比赛已经开始。增删题目或调整顺序会改变题目的字母编号。</div>
+		<?php endif ?>
+		<?php if ($problems): ?>
+		<div class="table-responsive">
+			<table class="table table-hover" id="table-contest-problems">
+				<thead>
+					<tr>
+						<th style="width:3em"></th>
+						<th style="width:6em">题号</th>
+						<th>试题</th>
+						<?php if ($rule === 'OI'): ?>
+						<th style="width:16em">比赛中怎么评测</th>
+						<?php endif ?>
+						<th style="width:11em"></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ($problems as $index => $problem): ?>
+					<tr data-problem="<?= $problem['id'] ?>">
+						<td><strong><?= $problem['letter'] ?></strong></td>
+						<td>#<?= problemNumber($problem) ?></td>
+						<td><a href="<?= problemUrl($problem) ?>"><?= $problem['title'] ?></a><?php if ($problem['is_hidden']): ?> <span class="badge badge-secondary">隐藏</span><?php endif ?></td>
+						<?php if ($rule === 'OI'): ?>
+						<td>
+							<form method="post" class="form-inline">
+								<?= HTML::hiddenToken() ?>
+								<input type="hidden" name="form" value="judge_problem" />
+								<input type="hidden" name="tab" value="problems" />
+								<input type="hidden" name="problem_id" value="<?= $problem['id'] ?>" />
+								<select class="form-control form-control-sm" name="judged_with" onchange="this.form.submit()">
+									<option value="samples"<?= $problem['everything'] ? '' : ' selected="selected"' ?>>只测样例</option>
+									<option value="everything"<?= $problem['everything'] ? ' selected="selected"' : '' ?>>测全部数据</option>
+								</select>
+								<noscript><button type="submit" class="btn btn-sm btn-outline-secondary ml-1">保存</button></noscript>
+							</form>
+						</td>
+						<?php endif ?>
+						<td class="text-right">
+							<?php if ($index > 0): ?>
+							<form method="post" class="d-inline">
+								<?= HTML::hiddenToken() ?>
+								<input type="hidden" name="form" value="move_problem" />
+								<input type="hidden" name="tab" value="problems" />
+								<input type="hidden" name="problem_id" value="<?= $problem['id'] ?>" />
+								<button type="submit" class="btn btn-sm btn-outline-secondary" title="上移一位">上移</button>
+							</form>
+							<?php endif ?>
+							<form method="post" class="d-inline" onsubmit="return confirm('把这道题从比赛里移除？');">
+								<?= HTML::hiddenToken() ?>
+								<input type="hidden" name="form" value="remove_problem" />
+								<input type="hidden" name="tab" value="problems" />
+								<input type="hidden" name="problem_id" value="<?= $problem['id'] ?>" />
+								<button type="submit" class="btn btn-sm btn-outline-danger">移除</button>
+							</form>
+						</td>
+					</tr>
+					<?php endforeach ?>
+				</tbody>
+			</table>
+		</div>
+		<?php else: ?>
+		<div class="uoj-domain-empty" id="contest-no-problems">这场比赛还没有试题。</div>
+		<?php endif ?>
+		<form method="post" class="form-inline" id="form-add-contest-problem">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="add_problem" />
+			<input type="hidden" name="tab" value="problems" />
+			<label class="mr-2 mb-2" for="input-contest-problem-number">添加试题</label>
+			<input type="text" class="form-control mr-2 mb-2" id="input-contest-problem-number" name="number" required="required" placeholder="<?= $contest['domain_id'] ? '本域题号' : '题号' ?>，可以一次填几个" style="width:16em" />
+			<button type="submit" class="btn btn-primary mb-2">添加</button>
+		</form>
+		<small class="form-text text-muted">
+			只能添加你管理的题目，几个题号之间用空格或逗号分开。题目按表里的顺序编为 A、B、C……
+			<?php if ($contest['domain_id']): ?>这是域内的比赛，用的是本域的题目：主站的题目要先在域的“题目”页复制到本域。<?php endif ?>
+			<?php if ($rule === 'OI'): ?>OI 赛制下比赛中只用样例评测，结束后再用全部数据重测；个别题目可以在这里改成比赛中就用全部数据评测。<?php endif ?>
+			比赛用的题目通常是隐藏的：比赛开始后选手能在比赛里看到它们；公布成绩之后要让所有人都能做，到题目的管理页把它设为公开。
+		</small>
+	</div>
+
+	<div class="tab-pane<?= $active_tab === 'access' ? ' active' : '' ?>" id="tab-access">
+		<p>
+			当前的参加方式：<strong id="contest-join-mode"><?= HTML::escape(explode('：', contestJoinModes()[$contest['join_mode']])[0]) ?></strong>。
+			<?php if ($contest['join_mode'] !== 'list'): ?>
+			<span class="text-muted">名单只在“名单限制”时起作用，参加方式在“设置”页里选择。</span>
+			<?php endif ?>
+		</p>
+		<h5>名单 <small class="text-muted">（<?= count($allowed_users) ?> 人）</small></h5>
 		<?php if ($allowed_users): ?>
 		<div class="mb-3" id="list-allowed-users">
 			<?php foreach ($allowed_users as $allowed): ?>
 			<form method="post" class="d-inline">
 				<?= HTML::hiddenToken() ?>
 				<input type="hidden" name="form" value="disallow" />
+				<input type="hidden" name="tab" value="access" />
 				<input type="hidden" name="username" value="<?= HTML::escape($allowed['username']) ?>" />
 				<span class="badge badge-light border p-2 mr-1 mb-1">
 					<?= $allowed['user'] !== null ? getUserLink($allowed['user']) : HTML::escape($allowed['username']) . ' <small class="text-muted">还没有登录过</small>' ?>
@@ -365,48 +292,73 @@
 		<form method="post" id="form-allow-users">
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="allow" />
+			<input type="hidden" name="tab" value="access" />
 			<div class="form-group">
 				<textarea class="form-control" name="names" rows="5" placeholder="每行一个用户名或学号"></textarea>
-				<small class="form-text text-muted">写学号时，这个学号的学生不论用户名是什么、现在有没有登录过，都在名单里。</small>
+				<small class="form-text text-muted">写学号时，这个学号的学生不论用户名是什么、现在有没有登录过，都在名单里。把人从名单里移除不影响已经报名的人。</small>
 			</div>
 			<button type="submit" class="btn btn-outline-primary">加入名单</button>
 		</form>
 	</div>
-	<div class="tab-pane" id="tab-others">
-		<div class="row">
-			<?php if (can($myUser, 'contest.rate', $contest)): ?>
-			<div class="col-sm-12">
-				<h3>Rating控制</h3>
-				<div class="row">
-					<div class="col-sm-3">
-						<?php $rated_form->printHTML(); ?>
-					</div>
-				</div>
-				<div class="top-buffer-sm"></div>
-				<?php $rating_k_form->printHTML(); ?>
-			</div>
-			<?php else: ?>
-			<div class="col-sm-12">
-				<p class="text-muted" id="contest-rated-note">此比赛<?= contestIsRated($contest) ? '计入' : '不计入' ?> Rating。<?= $contest['domain_id'] ? '域内的比赛都不计入 Rating。' : '是否计入 Rating 由管理员设置。' ?></p>
-			</div>
-			<?php endif ?>
-			<div class="col-sm-12 top-buffer-sm">
-				<h3>版本控制</h3>
-				<?php $version_form->printHTML(); ?>
-			</div>
-			<div class="col-sm-12 top-buffer-sm">
-				<h3>赛制</h3>
-				<?php $contest_type_form->printHTML(); ?>
-			</div>
-		</div>
+
+	<div class="tab-pane<?= $active_tab === 'managers' ? ' active' : '' ?>" id="tab-managers">
+		<?php if ($contest['domain_id']): ?>
+		<p class="text-muted">这是域内的比赛：域的所有者、管理员和教师都能管理它，助教能进入后台。下面是另外指定的人。</p>
+		<?php endif ?>
+		<?php if ($managers): ?>
+		<table class="table table-hover" id="table-contest-managers" style="max-width:40em">
+			<thead>
+				<tr>
+					<th>用户</th>
+					<th style="width:8em">角色</th>
+					<th style="width:6em"></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ($managers as $manager): ?>
+				<tr>
+					<td><?= getUserLink($manager['username']) ?></td>
+					<td><?= $manager['role'] == 'owner' ? '负责人' : '助理' ?></td>
+					<td class="text-right">
+						<form method="post" class="d-inline" onsubmit="return confirm('移除这位管理者？');">
+							<?= HTML::hiddenToken() ?>
+							<input type="hidden" name="form" value="remove_manager" />
+							<input type="hidden" name="tab" value="managers" />
+							<input type="hidden" name="username" value="<?= HTML::escape($manager['username']) ?>" />
+							<button type="submit" class="btn btn-sm btn-outline-danger">移除</button>
+						</form>
+					</td>
+				</tr>
+				<?php endforeach ?>
+			</tbody>
+		</table>
+		<?php endif ?>
+		<form method="post" class="form-inline" id="form-add-contest-manager">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="add_manager" />
+			<input type="hidden" name="tab" value="managers" />
+			<label class="mr-2 mb-2" for="input-contest-manager">添加管理者</label>
+			<input type="text" class="form-control mr-2 mb-2" id="input-contest-manager" name="username" required="required" maxlength="20" placeholder="用户名" style="width:12em" />
+			<select class="form-control mr-2 mb-2" name="role">
+				<option value="assistant">助理</option>
+				<option value="owner">负责人</option>
+			</select>
+			<button type="submit" class="btn btn-primary mb-2">添加</button>
+		</form>
+		<small class="form-text text-muted">负责人可以修改比赛的设置、试题和人员，开始最终测试并公布成绩；助理可以进入后台、查看所有提交并回答提问。对已经在表里的人再添加一次，就是改他的角色。</small>
 	</div>
 </div>
 <script type="text/javascript">
-// the tab the address names is the one that is open, as after saving who may take part
+// the tab the address names is the one that is open, as after a form on it went through
 $(document).ready(function() {
 	if (/^#tab-[a-z]+$/.test(window.location.hash)) {
-		$('a[href="' + window.location.hash + '"]').tab('show');
+		$('#contest-manage-tabs a[href="' + window.location.hash + '"]').tab('show');
 	}
+	$('#contest-manage-tabs a[data-toggle="tab"]').on('shown.bs.tab', function(e) {
+		if (window.history && window.history.replaceState) {
+			window.history.replaceState(null, '', $(e.target).attr('href'));
+		}
+	});
 });
 </script>
 <?php echoUOJPageFooter() ?>

@@ -2,33 +2,6 @@
 	$domain = domainOfPage();
 	$can_teach = can($myUser, 'domain.teach', $domain);
 	
-	$draft = array(
-		'name' => isset($_POST['name']) && is_string($_POST['name']) ? $_POST['name'] : '',
-		'start_time' => isset($_POST['start_time']) && is_string($_POST['start_time']) ? $_POST['start_time'] : date('Y-m-d H:00:00', time() + 86400),
-		'last_min' => isset($_POST['last_min']) && is_string($_POST['last_min']) ? $_POST['last_min'] : '180'
-	);
-	$error = domainHandleForms(array(
-		'new' => function() use ($domain, $can_teach, $draft) {
-			global $myUser;
-			if (!$can_teach) {
-				return '没有权限';
-			}
-			if (trim($draft['name']) === '' || mb_strlen($draft['name'], 'UTF-8') > 100) {
-				return '比赛标题不能为空，且不超过 100 个字符';
-			}
-			try {
-				$start_time = new DateTime($draft['start_time']);
-			} catch (Exception $e) {
-				return '无效的开始时间';
-			}
-			if (!validateUInt($draft['last_min']) || $draft['last_min'] < 1 || $draft['last_min'] > 525600) {
-				return '时长必须是正整数（分钟）';
-			}
-			$contest_id = contestCreate(trim($draft['name']), $start_time->format('Y-m-d H:i:s'), $draft['last_min'], $myUser, $domain);
-			redirectTo("/contest/$contest_id/manage");
-		}
-	));
-	
 	$contests = array();
 	foreach (DB::selectAll("select * from contests where domain_id = {$domain['id']} order by start_time desc, id desc") as $contest) {
 		// a contest for the people on a list is shown to them
@@ -45,31 +18,11 @@
 	);
 ?>
 <?php echoDomainPageHeader($domain, 'contests', '比赛') ?>
-<?php echoDomainError($error) ?>
-
 <?php if ($can_teach): ?>
 <div class="card mb-3">
-	<div class="card-body">
-		<form method="post" class="form-row align-items-end" id="form-new-domain-contest">
-			<?= HTML::hiddenToken() ?>
-			<input type="hidden" name="form" value="new" />
-			<div class="form-group col-md-5">
-				<label for="input-contest-name">比赛标题</label>
-				<input type="text" class="form-control" id="input-contest-name" name="name" maxlength="100" required="required" value="<?= HTML::escape($draft['name']) ?>" />
-			</div>
-			<div class="form-group col-md-3">
-				<label for="input-contest-start">开始时间</label>
-				<input type="text" class="form-control" id="input-contest-start" name="start_time" required="required" value="<?= HTML::escape($draft['start_time']) ?>" placeholder="2026-10-12 14:00:00" />
-			</div>
-			<div class="form-group col-md-2">
-				<label for="input-contest-minutes">时长（分钟）</label>
-				<input type="number" class="form-control" id="input-contest-minutes" name="last_min" min="1" required="required" value="<?= HTML::escape($draft['last_min']) ?>" />
-			</div>
-			<div class="form-group col-md-2">
-				<button type="submit" class="btn btn-primary btn-block">新建比赛</button>
-			</div>
-		</form>
-		<small class="text-muted">域内的比赛只有成员能看到和报名，不计入全站 Rating。创建后在比赛管理里添加试题：可以用本域的题目，也可以用全站公开的题目。</small>
+	<div class="card-body d-flex flex-wrap align-items-center">
+		<a class="btn btn-primary mr-3" id="button-new-domain-contest" href="<?= domainUrl($domain, '/contest/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建比赛</a>
+		<small class="text-muted">域内的比赛只有成员能看到和报名，不计入全站 Rating，用的是本域的题目。</small>
 	</div>
 </div>
 <?php endif ?>

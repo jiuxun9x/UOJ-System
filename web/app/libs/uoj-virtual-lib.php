@@ -132,7 +132,7 @@ function runningVirtual($contest_id, $user) {
 // the problems of a contest in their order: rows of id, title and the letter they go by
 function virtualProblems($contest) {
 	$problems = array();
-	foreach (DB::selectAll("select problems.id, problems.title, problems.owner_domain_id, problems.domain_pid from contests_problems join problems on problems.id = contests_problems.problem_id where contests_problems.contest_id = {$contest['id']} order by problems.id") as $index => $row) {
+	foreach (DB::selectAll("select problems.id, problems.title, problems.owner_domain_id, problems.domain_pid from contests_problems join problems on problems.id = contests_problems.problem_id where contests_problems.contest_id = {$contest['id']} order by contests_problems.position, problems.id") as $index => $row) {
 		// 'number' is what the address of the problem in the contest says
 		$problems[] = array('id' => (int)$row['id'], 'number' => problemNumber($row), 'title' => $row['title'], 'letter' => chr(ord('A') + $index % 26));
 	}

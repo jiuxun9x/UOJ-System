@@ -98,20 +98,105 @@ function calcRatingSelfTest() {
 	}
 }
 
-// Creates a contest that belongs to the user who creates it, and returns its id. A contest of
-// a domain is run by the people who teach in the domain. The ratings belong to the whole
-// site: a contest only counts for them when an administrator created it for the whole site,
-// or says so later.
-function contestCreate($name, $start_time_str, $last_min, $actor, $domain = null) {
-	$esc_name = DB::escape(HTML::pruifier()->purify($name));
-	$rated = $domain === null && can($actor, 'contest.rate');
-	$esc_extra_config = DB::escape(json_encode($rated ? new stdClass() : array('unrated' => '')));
-	$domain_id = $domain === null ? 'null' : (int)$domain['id'];
-	DB::insert("insert into contests (name, start_time, last_min, status, extra_config, domain_id) values ('$esc_name', '".DB::escape($start_time_str)."', ".(int)$last_min.", 'unfinished', '$esc_extra_config', $domain_id)");
-	$contest_id = DB::insert_id();
-	DB::insert("insert into contests_permissions (username, contest_id, role) values ('".DB::escape($actor['username'])."', $contest_id, 'owner')");
-	auditLog('contest.create', 'contest', $contest_id, null, array('name' => $name, 'start_time' => $start_time_str, 'last_min' => (int)$last_min) + ($domain === null ? array() : array('domain_id' => (int)$domain['id'])), $actor);
-	return $contest_id;
+// ---- the problems of a contest
+//
+// They are lettered A, B, C in the order the contest puts them in.
+
+// the ids of the problems of a contest in their order
+function contestProblemIds($contest_id) {
+	$ids = array();
+	foreach (DB::selectAll("select problem_id from contests_problems where contest_id = ".(int)$contest_id." order by position, problem_id") as $row) {
+		$ids[] = (int)$row['problem_id'];
+	}
+	return $ids;
+}
+// The problems that numbers name to the people who run a contest: array(the problems, '') or
+// array(null, why not). $numbers is what was typed: numbers with blanks or commas between.
+function contestProblemsByNumbers($contest, $numbers, $actor) {
+	$problems = array();
+	foreach (preg_split('/[\s,，;；、]+/u', trim($numbers), -1, PREG_SPLIT_NO_EMPTY) as $number) {
+		$number = ltrim($number, '#');
+		$problem = contestProblemByNumber($contest, $number);
+		if (!$problem) {
+			return array(null, !empty($contest['domain_id']) ? "本域没有题号为 $number 的题。主站的题目要先在域的“题目”页复制到本域" : "没有题号为 $number 的题");
+		}
+		if (!can($actor, 'problem.manage', $problem)) {
+			return array(null, "你不是题目 #$number 的管理者，不能把它加入比赛");
+		}
+		if (isset($problems[(int)$problem['id']])) {
+			return array(null, "题号 $number 写了两次");
+		}
+		$problems[(int)$problem['id']] = $problem;
+	}
+	if (count($problems) > 26) {
+		return array(null, '一场比赛最多 26 道题');
+	}
+	return array(array_values($problems), '');
+}
+// each of these returns '' or why it was refused
+function contestAddProblem($contest, $problem, $actor) {
+	$ids = contestProblemIds($contest['id']);
+	if (in_array((int)$problem['id'], $ids, true)) {
+		return '这道题已经在比赛里了';
+	}
+	if (count($ids) >= 26) {
+		return '一场比赛最多 26 道题';
+	}
+	contestRenumberProblems($contest['id'], array_merge($ids, array((int)$problem['id'])));
+	auditLog('contest.add_problem', 'contest', $contest['id'], null, array('problem_id' => (int)$problem['id']), $actor);
+	return '';
+}
+function contestRemoveProblem($contest, $problem_id, $actor) {
+	$problem_id = (int)$problem_id;
+	DB::delete("delete from contests_problems where contest_id = {$contest['id']} and problem_id = $problem_id");
+	if (DB::affected_rows() != 1) {
+		return '比赛里没有这道题';
+	}
+	contestSetProblemJudging($contest, $problem_id, false, null);
+	auditLog('contest.remove_problem', 'contest', $contest['id'], array('problem_id' => $problem_id), null, $actor);
+	return '';
+}
+// moves a problem one place up in the order
+function contestMoveProblemUp($contest, $problem_id, $actor) {
+	$ids = contestProblemIds($contest['id']);
+	$index = array_search((int)$problem_id, $ids, true);
+	if ($index === false) {
+		return '比赛里没有这道题';
+	}
+	if ($index > 0) {
+		$ids[$index] = $ids[$index - 1];
+		$ids[$index - 1] = (int)$problem_id;
+		contestRenumberProblems($contest['id'], $ids);
+		auditLog('contest.order_problems', 'contest', $contest['id'], null, array('problems' => $ids), $actor);
+	}
+	return '';
+}
+// writes down the order of the problems of a contest, adding the ones that are not in it yet
+function contestRenumberProblems($contest_id, $ids) {
+	foreach (array_values($ids) as $index => $problem_id) {
+		DB::insert("insert into contests_problems (contest_id, problem_id, position) values (".(int)$contest_id.", ".(int)$problem_id.", ".($index + 1).") on duplicate key update position = ".($index + 1));
+	}
+}
+// Under the OI rule a problem can be judged with all its data while the contest runs,
+// instead of with its samples.
+function contestSetProblemJudging($contest, $problem_id, $full, $actor) {
+	$config = queryContest($contest['id'])['extra_config'];
+	$config = json_decode($config, true);
+	$config = is_array($config) ? $config : array();
+	$key = 'problem_' . (int)$problem_id;
+	if (!$full && !isset($config[$key])) {
+		return '';
+	}
+	if ($full) {
+		$config[$key] = 'full';
+	} else {
+		unset($config[$key]);
+	}
+	DB::update("update contests set extra_config = '".DB::escape(json_encode($config ? $config : new stdClass()))."' where id = {$contest['id']}");
+	if ($actor !== null) {
+		auditLog('contest.edit_problem', 'contest', $contest['id'], null, array('problem_id' => (int)$problem_id, 'judged_with' => $full ? 'everything' : 'samples'), $actor);
+	}
+	return '';
 }
 
 // ---- the rules of a contest
@@ -275,6 +360,166 @@ function contestProblemByNumber($contest, $number) {
 	return $problem && !$problem['owner_domain_id'] ? $problem : null;
 }
 
+// ---- the settings of a contest
+//
+// One form says everything about a contest that is not its problems or its people: what it
+// is called, when it is held, by which rule, whether it counts for the ratings and who may
+// take part. The same form makes a contest and changes it.
+
+// What the settings are when nobody has said anything: for the form that makes a contest.
+function contestDefaultSettings() {
+	return array(
+		'name' => '',
+		'start_time' => date('Y-m-d H:00:00', time() + 86400),
+		'last_min' => 180,
+		'rule' => 'OI',
+		'freeze_minutes' => 0,
+		'standings_version' => 2,
+		'rated' => false,
+		'rating_k' => 400,
+		'join_mode' => 'open',
+		'join_password' => ''
+	);
+}
+// the settings a contest has: $contest as genMoreContestInfo() leaves it
+function contestSettings($contest) {
+	return array(
+		'name' => $contest['name'],
+		'start_time' => $contest['start_time_str'],
+		'last_min' => (int)$contest['last_min'],
+		'rule' => contestRule($contest),
+		'freeze_minutes' => contestFreezeMinutes($contest),
+		'standings_version' => (int)$contest['extra_config']['standings_version'],
+		'rated' => contestIsRated($contest),
+		'rating_k' => isset($contest['extra_config']['rating_k']) ? (int)$contest['extra_config']['rating_k'] : 400,
+		'join_mode' => $contest['join_mode'],
+		'join_password' => ''
+	);
+}
+// What a form says, checked: array(the settings, '') or array(null, why not).
+//   $may_rate       whether whoever sent the form decides about ratings: otherwise what the
+//                   contest has stays, and a new contest is unrated
+//   $has_password   whether the contest has a password already, which an empty field keeps
+function contestSettingsFromForm($input, $current, $may_rate, $has_password = false) {
+	$get = function($name) use ($input) {
+		return isset($input[$name]) && is_string($input[$name]) ? trim($input[$name]) : '';
+	};
+	$settings = $current;
+
+	$settings['name'] = $get('name');
+	if ($settings['name'] === '' || mb_strlen($settings['name'], 'UTF-8') > 100) {
+		return array(null, '比赛名称不能为空，且不超过 100 个字符');
+	}
+	// what a date and time field of a browser sends, or the same with a blank and seconds
+	if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/D', $get('start_time'), $t)
+			|| !checkdate((int)$t[2], (int)$t[3], (int)$t[1]) || $t[4] > 23 || $t[5] > 59 || (isset($t[6]) && $t[6] > 59)) {
+		return array(null, '开始时间的格式应为 2026-10-01 19:00');
+	}
+	$settings['start_time'] = sprintf('%s-%s-%s %s:%s:%s', $t[1], $t[2], $t[3], $t[4], $t[5], isset($t[6]) ? $t[6] : '00');
+	if (!validateUInt($get('last_min')) || $get('last_min') < 1 || $get('last_min') > 525600) {
+		return array(null, '时长应为 1 到 525600 分钟');
+	}
+	$settings['last_min'] = (int)$get('last_min');
+
+	if (!isset(contestRules()[$get('rule')])) {
+		return array(null, '请选择赛制');
+	}
+	$settings['rule'] = $get('rule');
+	$settings['freeze_minutes'] = 0;
+	if ($settings['rule'] === 'ICPC' && $get('freeze_minutes') !== '') {
+		if (!validateUInt($get('freeze_minutes')) || $get('freeze_minutes') > $settings['last_min']) {
+			return array(null, '封榜的分钟数应在 0 和比赛时长之间');
+		}
+		$settings['freeze_minutes'] = (int)$get('freeze_minutes');
+	}
+	$settings['standings_version'] = $get('standings_version') === '1' ? 1 : 2;
+
+	if ($may_rate) {
+		$settings['rated'] = isset($input['rated']);
+		if ($get('rating_k') !== '') {
+			if (!validateUInt($get('rating_k')) || $get('rating_k') < 1 || $get('rating_k') > 1000) {
+				return array(null, 'Rating 变化上限应在 1 到 1000 之间');
+			}
+			$settings['rating_k'] = (int)$get('rating_k');
+		}
+	}
+
+	if (!isset(contestJoinModes()[$get('join_mode')])) {
+		return array(null, '请选择参加方式');
+	}
+	$settings['join_mode'] = $get('join_mode');
+	$settings['join_password'] = '';
+	if ($settings['join_mode'] === 'password') {
+		// a password is taken as it was typed
+		$password = isset($input['join_password']) && is_string($input['join_password']) ? $input['join_password'] : '';
+		if ($password === '' && !$has_password) {
+			return array(null, '选择“密码限制”时请设置参赛密码');
+		}
+		if ($password !== '' && (strlen($password) < 4 || strlen($password) > 64 || preg_match('/[\x00-\x1f\x7f]/', $password))) {
+			return array(null, '参赛密码应为 4 到 64 个字符');
+		}
+		$settings['join_password'] = $password;
+	}
+	return array($settings, '');
+}
+// what the settings are in the columns of a contest, as SQL
+function contestSettingsSql($settings, $extra_config) {
+	$extra_config['contest_type'] = $settings['rule'];
+	$extra_config['standings_version'] = $settings['standings_version'];
+	$extra_config['rating_k'] = $settings['rating_k'];
+	if ($settings['rated']) {
+		unset($extra_config['unrated']);
+	} else {
+		$extra_config['unrated'] = '';
+	}
+	$set = array(
+		'name' => "'".DB::escape(HTML::pruifier()->purify($settings['name']))."'",
+		'start_time' => "'".DB::escape($settings['start_time'])."'",
+		'last_min' => (int)$settings['last_min'],
+		'freeze_minutes' => (int)$settings['freeze_minutes'],
+		'join_mode' => "'".DB::escape($settings['join_mode'])."'",
+		'extra_config' => "'".DB::escape(json_encode($extra_config))."'"
+	);
+	if ($settings['join_password'] !== '') {
+		$set['join_password'] = "'".DB::escape(password_hash($settings['join_password'], PASSWORD_BCRYPT))."'";
+	}
+	return $set;
+}
+// what of the settings is written down where changes are: never the password
+function contestSettingsForAudit($settings) {
+	$settings['password_changed'] = $settings['join_password'] !== '';
+	unset($settings['join_password']);
+	return $settings;
+}
+// Makes a contest with these settings and these problems, and returns its id. A contest of a
+// domain belongs to the domain and is run by the people who teach there; any other belongs
+// to whoever makes it.
+function contestCreateWithSettings($settings, $problems, $actor, $domain = null) {
+	$set = contestSettingsSql($settings, array());
+	$set['status'] = "'unfinished'";
+	$set['domain_id'] = $domain === null ? 'null' : (int)$domain['id'];
+	DB::insert("insert into contests (".join(', ', array_keys($set)).") values (".join(', ', $set).")");
+	$contest_id = DB::insert_id();
+	DB::insert("insert into contests_permissions (username, contest_id, role) values ('".DB::escape($actor['username'])."', $contest_id, 'owner')");
+	$problem_ids = array();
+	foreach ($problems as $problem) {
+		$problem_ids[] = (int)$problem['id'];
+	}
+	contestRenumberProblems($contest_id, $problem_ids);
+	auditLog('contest.create', 'contest', $contest_id, null, contestSettingsForAudit($settings) + array('problems' => $problem_ids) + ($domain === null ? array() : array('domain_id' => (int)$domain['id'])), $actor);
+	return $contest_id;
+}
+function contestSaveSettings($contest, $settings, $actor) {
+	$extra_config = queryContest($contest['id'])['extra_config'];
+	$extra_config = json_decode($extra_config, true);
+	$set = array();
+	foreach (contestSettingsSql($settings, is_array($extra_config) ? $extra_config : array()) as $column => $value) {
+		$set[] = "$column = $value";
+	}
+	DB::update("update contests set ".join(', ', $set)." where id = {$contest['id']}");
+	auditLog('contest.edit', 'contest', $contest['id'], contestSettingsForAudit(contestSettings($contest)), contestSettingsForAudit($settings), $actor);
+}
+
 // ---- who may take part in a contest
 
 function contestJoinModes() {
@@ -283,29 +528,6 @@ function contestJoinModes() {
 		'list' => '名单限制：只有名单里的人能看到并报名',
 		'password' => '密码限制：知道参赛密码的人才能报名'
 	);
-}
-// Sets who may take part. $password is the new password of a contest that asks for one; ''
-// keeps the one it has. Returns '' or why it was refused.
-function contestSetJoinMode($contest, $mode, $password, $actor) {
-	if (!isset(contestJoinModes()[$mode])) {
-		return '无效的参加方式';
-	}
-	$set = "join_mode = '$mode'";
-	if ($mode === 'password') {
-		if (!is_string($password) || ($password === '' && $contest['join_password'] === '')) {
-			return '请设置参赛密码';
-		}
-		if ($password !== '') {
-			if (strlen($password) < 4 || strlen($password) > 64 || preg_match('/[\x00-\x1f\x7f]/', $password)) {
-				return '参赛密码应为 4 到 64 个字符';
-			}
-			$set .= ", join_password = '".DB::escape(password_hash($password, PASSWORD_BCRYPT))."'";
-		}
-	}
-	DB::update("update contests set $set where id = {$contest['id']}");
-	// the password is not written down where changes are
-	auditLog('contest.edit_access', 'contest', $contest['id'], array('join_mode' => $contest['join_mode']), array('join_mode' => $mode, 'password_changed' => $mode === 'password' && $password !== ''), $actor);
-	return '';
 }
 // the list of a contest, each line with the user it stands for if there is one yet
 function contestAllowedUsers($contest) {
@@ -388,9 +610,8 @@ function queryContestData($contest, $config = array()) {
 	$problems = [];
 	$prob_pos = [];
 	$n_problems = 0;
-	$result = DB::query("select problem_id from contests_problems where contest_id = {$contest['id']} order by problem_id");
-	while ($row = DB::fetch($result, MYSQLI_NUM)) {
-		$prob_pos[$problems[] = (int)$row[0]] = $n_problems++;
+	foreach (contestProblemIds($contest['id']) as $problem_id) {
+		$prob_pos[$problems[] = $problem_id] = $n_problems++;
 	}
 
 	$data = [];

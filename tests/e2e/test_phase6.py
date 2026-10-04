@@ -138,13 +138,18 @@ class DomainContestRatingTest(unittest.TestCase):
         own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
         self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
         self.assertEqual(teacher.sync(own_id), "")
-        self.assertEqual(teacher.form("/d/p6-rating/contests", "new", name="p6 域内赛", start_time=uoj.web_time(3600), last_min="60"), "")
-        contest_id = int(db_value("select id from contests where domain_id = %d" % did))
-        self.assertEqual(teacher.contest_commands(contest_id, "problems", "+%d" % uoj.pid(own_id)), "")
+        contest_id = teacher.new_contest("p6 域内赛", domain="p6-rating", problems=str(uoj.pid(own_id)))
+        self.assertEqual(db_value("select domain_id from contests where id = %d" % contest_id), str(did))
+        self.assertEqual(db("select problem_id from contests_problems where contest_id = %d" % contest_id), [[str(own_id)]])
 
-        # a setting that says the contest is rated is not believed, whoever wrote it
+        # the administrator of the site is not offered the box, ticks it in vain, and a setting
+        # that says the contest is rated is not believed, whoever wrote it
+        page = admin.get("/contest/%d/manage" % contest_id).text
+        self.assertNotIn('name="rated"', page)
+        self.assertIn("域内的比赛不计入 Rating", page)
+        self.assertEqual(admin.contest_settings(contest_id, rated="on"), "")
+        self.assertIn("unrated", db_value("select extra_config from contests where id = %d" % contest_id))
         db("update contests set extra_config = '{}' where id = %d" % contest_id)
-        self.assertIn("不计入", uoj.text_of(admin.get("/contest/%d/manage" % contest_id).text))
         for pupil in pupils:
             pupil.register_for_contest(contest_id)
         uoj.move_contest(contest_id, -60, 600)
@@ -271,12 +276,8 @@ class ContestFeedbackTest(unittest.TestCase):
         cls.admin = uoj.admin()
         cls.problem_id = cls.admin.create_problem(ab_problem_files())
 
-    def contest(self, name, rule=None):
-        contest_id = self.admin.new_contest(name)
-        self.assertEqual(self.admin.contest_commands(contest_id, "problems", "+%d" % self.problem_id), "")
-        if rule:
-            db("update contests set extra_config = '{\"contest_type\": \"%s\"}' where id = %d" % (rule, contest_id))
-        return contest_id
+    def contest(self, name, rule="OI"):
+        return self.admin.new_contest(name, rule=rule, problems=str(self.problem_id))
 
     def test_nobody_is_told_about_single_tests_while_a_contest_runs(self):
         for rule in ("OI", "IOI"):
@@ -356,9 +357,8 @@ class IcpcTest(unittest.TestCase):
     def test_icpc_contest_from_its_board_to_its_results(self):
         admin = uoj.admin()
         first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
-        contest_id = admin.new_contest("p6 ICPC 校赛", minutes=300)
-        self.assertEqual(admin.contest_commands(contest_id, "problems", "+%d\n+%d" % (first, second)), "")
-        db("update contests set extra_config = '{\"contest_type\": \"ICPC\"}', freeze_minutes = 60 where id = %d" % contest_id)
+        contest_id = admin.new_contest("p6 ICPC 校赛", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d, %d" % (first, second))
+        self.assertEqual(db("select freeze_minutes, join_mode from contests where id = %d" % contest_id), [["60", "open"]])
         ann, bob, cat, outsider = (p3.account("p6_icpc_" + name) for name in ("ann", "bob", "cat", "outsider"))
         for client in (ann, bob, cat):
             client.register_for_contest(contest_id)
@@ -494,6 +494,131 @@ class IcpcTest(unittest.TestCase):
         self.assertRegex(page, r'data-username="p6_icpc_ann" data-rank="1"')
         self.assertRegex(page, r'data-username="p6_icpc_bob" data-rank="3"')
         uoj.wait_idle()
+
+
+class ContestFormTest(unittest.TestCase):
+    """a contest is made with one form and changed with one form"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher = p3.account("p6_form_teacher")
+        assert cls.admin.change_user("p6_form_teacher", "grant:teacher") == ""
+        cls.mine = [cls.teacher.new_problem() for _ in range(3)]
+        cls.foreign = cls.admin.new_problem()
+
+    def config(self, contest_id):
+        return json.loads(db_value("select extra_config from contests where id = %d" % contest_id))
+
+    def problems(self, contest_id):
+        return [int(row[0]) for row in db("select problem_id from contests_problems where contest_id = %d order by position, problem_id" % contest_id)]
+
+    def test_contest_is_made_with_everything_it_needs(self):
+        teacher, (first, second, third) = self.teacher, self.mine
+        contests = lambda: int(db_value("select count(*) from contests"))
+        before = contests()
+        form = dict(name="p6 一次建好", start_time=uoj.web_time(86400)[:16].replace(" ", "T"), last_min="150", rule="ICPC",
+                    freeze_minutes="30", join_mode="password", join_password="open sesame")  # fmt: skip
+        page = teacher.get("/contest/new").text
+        for field in ('name="name"', 'type="datetime-local"', 'name="last_min"', 'value="OI"', 'value="IOI"', 'value="ICPC"',
+                      'name="freeze_minutes"', 'name="join_mode"', 'name="problems"'):  # fmt: skip
+            self.assertIn(field, page, field)
+        # what is wrong is said, and nothing is made of the rest
+        for wrong, said in ((dict(name=" "), "比赛名称"), (dict(start_time="next week"), "开始时间"), (dict(last_min="0"), "时长"),
+                            (dict(rule="ACM"), "赛制"), (dict(freeze_minutes="151"), "封榜"), (dict(join_password=""), "参赛密码"),
+                            (dict(problems="%d %d" % (first, self.foreign)), "#%d 的管理者" % self.foreign),
+                            (dict(problems="%d, %d" % (first, first)), "写了两次"), (dict(problems="999999"), "没有题号为 999999")):  # fmt: skip
+            self.assertEqual(p4.refusal(teacher, "/contest/new", "create", **dict(form, **wrong)).count(said), 1, wrong)
+        self.assertEqual(contests(), before)
+        # and what was typed is still in the form
+        page = teacher.post("/contest/new", dict(form, form="create", name="p6 写了一半", problems="999999")).text
+        self.assertIn('value="p6 写了一半"', page)
+        self.assertRegex(page, r'value="ICPC" checked')
+
+        # the problems are lettered in the order they are written in
+        self.assertEqual(teacher.form("/contest/new", "create", problems="%d，%d %d" % (third, first, second), **form), "")
+        contest_id = int(db_value("select max(id) from contests"))
+        self.assertEqual(contests(), before + 1)
+        self.assertEqual(
+            db("select name, last_min, freeze_minutes, join_mode, status, ifnull(domain_id, 'NULL') from contests where id = %d" % contest_id),
+            [["p6 一次建好", "150", "30", "password", "unfinished", "NULL"]],
+        )
+        self.assertEqual(db_value("select start_time from contests where id = %d" % contest_id), form["start_time"].replace("T", " ") + ":00")
+        self.assertTrue(db_value("select join_password from contests where id = %d" % contest_id).startswith("$2y$"))
+        self.assertEqual(self.config(contest_id)["contest_type"], "ICPC")
+        self.assertIn("unrated", self.config(contest_id))
+        self.assertEqual(self.problems(contest_id), [third, first, second])
+        self.assertEqual(db("select username, role from contests_permissions where contest_id = %d" % contest_id), [["p6_form_teacher", "owner"]])
+        self.assertEqual(db_value("select count(*) from audit_logs where after_json like '%open sesame%'"), "0")
+
+        # ---- the page that manages it: one form for what it is
+        manage = "/contest/%d/manage" % contest_id
+        page = teacher.get(manage).text
+        self.assertEqual(page.count('id="button-save-contest-settings"'), 1)
+        self.assertRegex(page, r'value="ICPC" checked')
+        self.assertIn('value="30"', page)
+        self.assertNotIn("open sesame", page)
+        self.assertEqual(teacher.contest_settings(contest_id, name="p6 改了名字", rule="OI", standings_version="1", last_min="200"), "")
+        self.assertEqual(db("select name, last_min, freeze_minutes, join_mode from contests where id = %d" % contest_id),
+                         [["p6 改了名字", "200", "0", "password"]])  # fmt: skip
+        self.assertEqual((self.config(contest_id)["contest_type"], self.config(contest_id)["standings_version"]), ("OI", 1))
+        self.assertNotEqual(teacher.contest_settings(contest_id, last_min="none"), "")
+        self.assertEqual(db_value("select last_min from contests where id = %d" % contest_id), "200")
+
+        # ---- its problems: added, moved and taken away one at a time
+        letters = lambda: re.findall(r'<tr data-problem="(\d+)">\s*<td><strong>(\w)</strong>', teacher.get(manage).text)
+        self.assertEqual(letters(), [(str(third), "A"), (str(first), "B"), (str(second), "C")])
+        self.assertEqual(teacher.form(manage, "move_problem", problem_id=str(second), tab="problems"), "")
+        self.assertEqual(self.problems(contest_id), [third, second, first])
+        self.assertEqual(teacher.form(manage, "remove_problem", problem_id=str(third), tab="problems"), "")
+        self.assertEqual(letters(), [(str(second), "A"), (str(first), "B")])
+        self.assertNotEqual(teacher.form(manage, "add_problem", number=str(first), tab="problems"), "")
+        self.assertNotEqual(teacher.form(manage, "add_problem", number=str(self.foreign), tab="problems"), "")
+        self.assertEqual(teacher.form(manage, "add_problem", number=str(third), tab="problems"), "")
+        self.assertEqual(self.problems(contest_id), [second, first, third])
+        # under the OI rule a problem can be judged with everything while the contest runs
+        self.assertEqual(teacher.form(manage, "judge_problem", problem_id=str(first), judged_with="everything", tab="problems"), "")
+        self.assertEqual(self.config(contest_id)["problem_%d" % first], "full")
+        self.assertEqual(teacher.form(manage, "judge_problem", problem_id=str(first), judged_with="samples", tab="problems"), "")
+        self.assertNotIn("problem_%d" % first, self.config(contest_id))
+        self.assertNotEqual(teacher.form(manage, "judge_problem", problem_id=str(self.foreign), judged_with="everything", tab="problems"), "")
+        # the order the contest was given is the order on its pages
+        pupil = p3.account("p6_form_pupil")
+        self.assertEqual(pupil.submit_form("/contest/%d/register" % contest_id, "register", {"join_password": "open sesame"}), "")
+        uoj.move_contest(contest_id, -60, 600)
+        dashboard = pupil.get("/contest/%d" % contest_id).text
+        order = [int(problem_id) for problem_id in re.findall(r'href="/contest/%d/problem/(\d+)"' % contest_id, dashboard)]
+        self.assertEqual(order, [second, first, third])
+        self.assertRegex(pupil.get("/contest/%d/problem/%d" % (contest_id, first)).text, r">\s*B\. ")
+
+        # ---- the people who run it
+        helper = p3.account("p6_form_helper")
+        self.assertNotEqual(teacher.form(manage, "add_manager", username="p6_no_such_user", role="assistant", tab="managers"), "")
+        self.assertEqual(teacher.form(manage, "add_manager", username="p6_form_helper", role="assistant", tab="managers"), "")
+        self.assertEqual(helper.get("/contest/%d/backstage" % contest_id).status_code, 200)
+        self.assertEqual(helper.get(manage).status_code, 403)
+        self.assertEqual(teacher.form(manage, "add_manager", username="p6_form_helper", role="owner", tab="managers"), "")
+        self.assertEqual(helper.get(manage).status_code, 200)
+        self.assertEqual(teacher.form(manage, "remove_manager", username="p6_form_teacher", tab="managers"), "")
+        self.assertEqual(teacher.get(manage).status_code, 403)
+        # a contest is not left without anybody
+        self.assertIn("最后一位负责人", p4.refusal(helper, manage, "remove_manager", username="p6_form_helper", tab="managers"))
+        self.assertEqual(db("select username, role from contests_permissions where contest_id = %d" % contest_id), [["p6_form_helper", "owner"]])
+
+    def test_only_the_people_who_may_make_contests_see_the_form(self):
+        student = p3.account("p6_form_student")
+        self.assertEqual(student.get("/contest/new").status_code, 403)
+        before = db_value("select count(*) from contests")
+        student.form("/contest/new", "create", name="x", start_time=uoj.web_time(3600), last_min="60", rule="OI", join_mode="open")
+        self.assertEqual(db_value("select count(*) from contests"), before)
+        # an administrator decides about ratings where the contest is made
+        page = self.admin.get("/contest/new").text
+        self.assertRegex(page, r'name="rated" checked')
+        rated = self.admin.new_contest("p6 计分")
+        unrated = self.admin.new_contest("p6 不计分", rated=None, rating_k="250")
+        self.assertNotIn("unrated", self.config(rated))
+        self.assertIn("unrated", self.config(unrated))
+        self.assertEqual(self.config(unrated)["rating_k"], 250)
 
 
 class BlogSwitchTest(unittest.TestCase):

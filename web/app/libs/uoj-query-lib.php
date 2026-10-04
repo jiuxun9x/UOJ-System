@@ -134,11 +134,10 @@ function queryProblemTags($id) {
 	}
 	return $tags;
 }
+// which problem of the contest a problem is, counted from 1 in the order they are lettered
 function queryContestProblemRank($contest, $problem) {
-	if (!DB::selectFirst("select * from contests_problems where contest_id = {$contest['id']} and problem_id = {$problem['id']}")) {
-		return null;
-	}
-	return DB::selectCount("select count(*) from contests_problems where contest_id = {$contest['id']} and problem_id <= {$problem['id']}");
+	$index = array_search((int)$problem['id'], contestProblemIds($contest['id']), true);
+	return $index === false ? null : $index + 1;
 }
 function querySubmission($id) {
 	return DB::selectFirst("select * from submissions where id = $id", MYSQLI_ASSOC);

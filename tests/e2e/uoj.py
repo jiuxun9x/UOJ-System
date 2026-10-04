@@ -319,20 +319,63 @@ class Client:
 
     # ---- contests
 
-    def new_contest(self, name, starts_in=3600, minutes=60):
-        """create a contest that starts so many seconds from now, return its id"""
-        err = self.submit_form("/contest/new", "time", {
-            "name": name,
-            "start_time": web_time(starts_in),
-            "last_min": str(minutes),
-        })  # fmt: skip
+    def new_contest(self, name, starts_in=3600, minutes=60, domain=None, **settings):
+        """create a contest that starts so many seconds from now, return its id; domain is the
+        slug of the domain it is made in"""
+        fields = {"name": name, "start_time": web_time(starts_in), "last_min": str(minutes),
+                  "rule": "OI", "standings_version": "2", "join_mode": "open", "problems": ""}  # fmt: skip
+        if domain is None:
+            # as the form of somebody who decides about ratings has it from the start
+            fields["rated"] = "on"
+        fields.update(settings)
+        fields = {key: value for key, value in fields.items() if value is not None}
+        err = self.form("/d/%s/contest/new" % domain if domain else "/contest/new", "create", **fields)
         if err:
             raise Exception("failed to create a contest: " + err[-800:])
         return int(db_value("select max(id) from contests"))
 
+    def contest_settings(self, contest_id, **changes):
+        """save the settings of a contest with some of them changed: '' or why it was refused.
+        rated=None leaves the box unticked."""
+        name, start_time, last_min, extra_config, freeze_minutes, join_mode = db(
+            "select name, start_time, last_min, extra_config, freeze_minutes, join_mode from contests where id = %d" % contest_id
+        )[0]
+        config = json.loads(extra_config)
+        fields = {
+            "name": name, "start_time": start_time, "last_min": last_min,
+            "rule": {"ACM": "ICPC"}.get(config.get("contest_type", "OI"), config.get("contest_type", "OI")),
+            "freeze_minutes": freeze_minutes, "standings_version": str(config.get("standings_version", 2)),
+            "rating_k": str(config.get("rating_k", 400)), "join_mode": join_mode, "tab": "settings",
+        }  # fmt: skip
+        if "unrated" not in config:
+            fields["rated"] = "on"
+        fields.update(changes)
+        fields = {key: value for key, value in fields.items() if value is not None}
+        return self.form("/contest/%d/manage" % contest_id, "settings", **fields)
+
     def contest_commands(self, contest_id, form, commands):
-        """the forms of the page that manages a contest which take one command per line"""
-        return self.submit_form("/contest/%d/manage" % contest_id, form, {form + "_cmds": commands})
+        """add and remove problems or managers of a contest, one a line: '+12' and '-12' for
+        the problem with the number 12, '+mike', '+mike [owner]' and '-mike' for a manager.
+        Returns '' or why the first of them that was refused was."""
+        manage = "/contest/%d/manage" % contest_id
+        for command in commands.split("\n"):
+            sign, rest = command[0], command[1:].strip()
+            if form == "problems":
+                if sign == "+":
+                    err = self.form(manage, "add_problem", number=rest, tab="problems")
+                else:
+                    domain = db_value("select ifnull(domain_id, 'NULL') from contests where id = %d" % contest_id)
+                    where = "owner_domain_id is null and id = %s" % rest if domain == "NULL" else "owner_domain_id = %s and domain_pid = %s" % (domain, rest)
+                    err = self.form(manage, "remove_problem", problem_id=db_value("select id from problems where " + where) or "0", tab="problems")
+            else:
+                if sign == "+":
+                    username, _, role = rest.partition(" ")
+                    err = self.form(manage, "add_manager", username=username, role=role.strip("[] ") or "assistant", tab="managers")
+                else:
+                    err = self.form(manage, "remove_manager", username=rest, tab="managers")
+            if err:
+                return err
+        return ""
 
     def register_for_contest(self, contest_id):
         err = self.submit_form("/contest/%d/register" % contest_id, "register")

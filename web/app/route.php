@@ -47,6 +47,7 @@ Route::group([
 		Route::any('/d/{slug}/announcements', '/domain/announcements.php');
 		Route::any('/d/{slug}/problems', '/domain/problems.php');
 		Route::any('/d/{slug}/contests', '/domain/contests.php');
+		Route::any('/d/{slug}/contest/new', '/add_contest.php');
 		Route::any('/d/{slug}/grades', '/domain/grades.php');
 		Route::any('/d/{slug}/trainings', '/domain/trainings.php');
 		Route::any('/d/{slug}/training/new', '/domain/training_manage.php');

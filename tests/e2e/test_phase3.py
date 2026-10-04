@@ -80,7 +80,7 @@ class RolesTest(unittest.TestCase):
         problems = db_value("select count(*) from problems")
         contests = db_value("select count(*) from contests")
         self.student.submit_form("/problems", "new_problem")
-        self.student.submit_form("/contest/new", "time", {"name": "x", "start_time": uoj.web_time(), "last_min": "60"})
+        self.student.form("/contest/new", "create", name="x", start_time=uoj.web_time(), last_min="60", rule="OI", join_mode="open")
         self.assertEqual(db_value("select count(*) from problems"), problems)
         self.assertEqual(db_value("select count(*) from contests"), contests)
         self.assertNotEqual(self.student.change_user("p3_student", "grant:teacher"), "")
@@ -114,13 +114,19 @@ class RolesTest(unittest.TestCase):
         # the owner chooses the rules of the contest, the administrators whether it is rated
         manage = "/contest/%d/manage" % contest_id
         config = lambda: json.loads(db_value("select extra_config from contests where id = %d" % contest_id))
-        self.assertEqual(self.teacher.submit_form(manage, "contest_type", {"contest_type": "IOI"}), "")
+        self.assertEqual(self.teacher.contest_settings(contest_id, rule="IOI"), "")
         self.assertEqual(config()["contest_type"], "IOI")
-        self.teacher.submit_form(manage, "rated")
+        # the owner is not offered the box, and ticks it in vain
+        self.assertNotIn('name="rated"', self.teacher.get(manage).text)
+        self.assertEqual(self.teacher.contest_settings(contest_id, rated="on"), "")
         self.assertIn("unrated", config())
-        self.assertEqual(self.admin.submit_form(manage, "rated"), "")
+        self.assertIn('name="rated"', self.admin.get(manage).text)
+        self.assertEqual(self.admin.contest_settings(contest_id, rated="on"), "")
         self.assertNotIn("unrated", config())
-        self.assertEqual(self.admin.submit_form(manage, "rated"), "")
+        # and saving something else leaves it alone
+        self.assertEqual(self.teacher.contest_settings(contest_id, rule="OI", rated=None), "")
+        self.assertNotIn("unrated", config())
+        self.assertEqual(self.admin.contest_settings(contest_id, rated=None), "")
         self.assertIn("unrated", config())
 
         # the owner sets the problems, but only problems they manage
@@ -587,12 +593,7 @@ class AuditLogTest(unittest.TestCase):
         self.assertEqual(teacher.contest_commands(contest_id, "managers", "+p3_audit_student"), "")
         self.assertEqual(teacher.contest_commands(contest_id, "managers", "-p3_audit_student"), "")
         start = uoj.web_time(-7200)
-        self.assertEqual(
-            teacher.submit_form(
-                "/contest/%d/manage" % contest_id, "time", {"name": "p3 audited contest", "start_time": start, "last_min": "90"}
-            ),
-            "",
-        )
+        self.assertEqual(teacher.contest_settings(contest_id, start_time=start, last_min="90"), "")
         self.assertEqual(teacher.submit_form("/contest/%d" % contest_id, "start_test"), "")
         self.assertEqual(teacher.submit_form("/contest/%d" % contest_id, "publish_result"), "")
         self.assertEqual(admin.get("/contest/%d/export_standings" % contest_id).status_code, 200)

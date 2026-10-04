@@ -858,15 +858,20 @@ class DomainContestTest(unittest.TestCase):
         did = teacher.new_domain("p4-contests")
         for name, role in (("lecturer", "teacher"), ("tutor", "ta"), ("pupil", "member")):
             self.assertEqual(member_form(teacher, "p4-contests", "add", username="p4_contest_" + name, role=role), "")
-        contests = "/d/p4-contests/contests"
+        contests, new_contest = "/d/p4-contests/contests", "/d/p4-contests/contest/new"
 
-        new = dict(name="p4 期中上机", start_time=uoj.web_time(3600), last_min="120")
+        new = dict(name="p4 期中上机", start_time=uoj.web_time(3600), last_min="120", rule="OI", join_mode="open")
         for client in (tutor, pupil):
-            client.form(contests, "new", **new)
+            self.assertEqual(client.get(new_contest).status_code, 403)
+            client.form(new_contest, "create", **new)
         self.assertEqual(db_value("select count(*) from contests where domain_id = %d" % did), "0")
-        self.assertNotEqual(teacher.form(contests, "new", **dict(new, start_time="not a time")), "")
+        self.assertNotEqual(teacher.form(new_contest, "create", **dict(new, start_time="not a time")), "")
+        # a box that says the contest is rated is not in the form, and is not believed
+        self.assertNotIn('name="rated"', lecturer.get(new_contest).text)
+        self.assertIn('href="%s"' % new_contest, lecturer.get(contests).text)
+        self.assertNotIn('href="%s"' % new_contest, pupil.get(contests).text)
         # lecturer is no teacher of the site, and creates the contest as a teacher of the domain
-        self.assertEqual(lecturer.form(contests, "new", **new), "")
+        self.assertEqual(lecturer.form(new_contest, "create", rated="on", **new), "")
         contest_id = int(db_value("select id from contests where domain_id = %d" % did))
         self.assertIn("unrated", db_value("select extra_config from contests where id = %d" % contest_id))
         here = "/contest/%d" % contest_id

@@ -627,3 +627,38 @@ check_same('Runtime Error', submissionVerdictOf(0, '<tests><subtask num="1" scor
 check_same('Wrong Answer', submissionVerdictOf(99, '<tests><test num="1" score="99" info="Accepted"></test><test num="-1" score="0" info="Extra Test Passed"></test></tests>'), 'less than full marks with nothing that failed is a wrong answer');
 check_same('Wrong Answer', submissionVerdictOf(0, null), 'so is a result without details');
 
+// ---- the form of a contest
+require_once __DIR__ . '/../app/libs/uoj-validate-lib.php';
+$form = array('name' => ' 期中上机 ', 'start_time' => '2026-10-12T14:00', 'last_min' => '180', 'rule' => 'ICPC', 'freeze_minutes' => '60',
+	'standings_version' => '2', 'rated' => 'on', 'rating_k' => '300', 'join_mode' => 'password', 'join_password' => ' open sesame ');
+$defaults = contestDefaultSettings();
+list($checked, $err) = contestSettingsFromForm($form, $defaults, true);
+check_same('', $err, 'a form that is filled in well');
+check_same(array('期中上机', '2026-10-12 14:00:00', 180, 'ICPC', 60, 2, true, 300, 'password', ' open sesame '),
+	array($checked['name'], $checked['start_time'], $checked['last_min'], $checked['rule'], $checked['freeze_minutes'], $checked['standings_version'], $checked['rated'], $checked['rating_k'], $checked['join_mode'], $checked['join_password']),
+	'what the form says, with the password as it was typed');
+check_same('2026-10-12 14:00:30', contestSettingsFromForm(array('start_time' => '2026-10-12 14:00:30') + $form, $defaults, true)[0]['start_time'], 'a time with a blank and seconds');
+// whoever does not decide about ratings changes nothing about them
+list($unrated, $err) = contestSettingsFromForm($form, $defaults, false);
+check_same(array(false, 400), array($unrated['rated'], $unrated['rating_k']), 'ratings are not for everybody to set');
+check_same(true, contestSettingsFromForm($form, array('rated' => true) + $defaults, false)[0]['rated'], 'nor to take away');
+$without = $form;
+unset($without['rated']);
+check_same(false, contestSettingsFromForm($without, $defaults, true)[0]['rated'], 'a box that is not ticked');
+// only the ICPC rule freezes a board
+check_same(0, contestSettingsFromForm(array('rule' => 'OI') + $form, $defaults, true)[0]['freeze_minutes'], 'an OI contest does not freeze');
+check_same(1, contestSettingsFromForm(array('standings_version' => '1') + $form, $defaults, true)[0]['standings_version'], 'the old way of counting time');
+// an empty password keeps the one the contest has, and is refused where there is none
+check_same(true, contestSettingsFromForm(array('join_password' => '') + $form, $defaults, true)[1] !== '', 'a password is needed');
+check_same(array('', ''), array(contestSettingsFromForm(array('join_password' => '') + $form, $defaults, true, true)[1], contestSettingsFromForm(array('join_password' => '') + $form, $defaults, true, true)[0]['join_password']), 'unless there is one already');
+check_same('', contestSettingsFromForm(array('join_mode' => 'open', 'join_password' => 'x') + $form, $defaults, true)[0]['join_password'], 'a password is of no use to a contest that asks for none');
+foreach (array(
+	array('name' => ''), array('name' => str_repeat('长', 101)), array('start_time' => 'tomorrow'), array('start_time' => '2026-02-30T10:00'), array('start_time' => '2026-10-12T25:00'),
+	array('start_time' => "2026-10-12T10:00\nx"), array('last_min' => '0'), array('last_min' => 'long'), array('last_min' => '999999999'), array('rule' => 'ACM'), array('rule' => ''),
+	array('freeze_minutes' => '181'), array('freeze_minutes' => '-1'), array('rating_k' => '0'), array('rating_k' => '1001'), array('join_mode' => 'secret'),
+	array('join_password' => 'abc'), array('join_password' => str_repeat('x', 65)), array('join_password' => "tab\there")
+) as $wrong) {
+	check_same(true, contestSettingsFromForm($wrong + $form, $defaults, true)[1] !== '', 'refused in the form of a contest: ' . json_encode($wrong));
+}
+check_same(array('name' => '期中上机', 'password_changed' => true), array_intersect_key(contestSettingsForAudit($checked), array('name' => 0, 'password_changed' => 0, 'join_password' => 0)), 'the password is not written down where changes are');
+
