@@ -96,17 +96,13 @@
 			if (!preg_match('/^(\d+)\s*(\[\S+\])?$/', $cmd, $matches)) {
 				return "无效题号";
 			}
-			$problem_id = $matches[1];
-			if (!validateUInt($problem_id) || !($problem = queryProblemBrief($problem_id))) {
-				return "不存在题号为{$problem_id}的题";
-			}
 			global $contest;
-			// a contest of a domain may also use the public problems of the site
-			if (!can(Auth::user(), 'problem.manage', $problem) && !($contest['domain_id'] && can(Auth::user(), 'problem.use', $problem))) {
-				return "无权添加题号为{$problem_id}的题";
+			$problem_id = $matches[1];
+			if (!validateUInt($problem_id) || !($problem = contestProblemByNumber($contest, $problem_id))) {
+				return $contest['domain_id'] ? "本域没有题号为{$problem_id}的题。主站的题目要先在域的“题目”页复制到本域" : "不存在题号为{$problem_id}的题";
 			}
-			if ($problem['owner_domain_id'] && $problem['owner_domain_id'] != $contest['domain_id']) {
-				return "题号为{$problem_id}的题属于另一个域";
+			if (!can(Auth::user(), 'problem.manage', $problem)) {
+				return "无权添加题号为{$problem_id}的题";
 			}
 			return '';
 		},
@@ -117,7 +113,12 @@
 				return "无效题号";
 			}
 			
-			$problem_id = $matches[1];
+			// the number that was typed is the number the problem is known by
+			$problem = contestProblemByNumber($contest, $matches[1]);
+			if (!$problem) {
+				return;
+			}
+			$problem_id = $problem['id'];
 			
 			if ($type == '+') {
 				DB::insert("insert into contests_problems (contest_id, problem_id) values ({$contest['id']}, '$problem_id')");
@@ -311,7 +312,7 @@
 	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
 		$problem = queryProblemBrief($row['problem_id']);
 		$problem_config_str = isset($contest['extra_config']["problem_{$problem['id']}"]) ? $contest['extra_config']["problem_{$problem['id']}"] : 'sample';
-		echo '<tr>', '<td>', $problem['id'], '</td>', '<td>', getProblemLink($problem), ' ', "[$problem_config_str]", '</td>', '</tr>';
+		echo '<tr>', '<td>', problemNumber($problem), '</td>', '<td>', getProblemLink($problem), ' ', "[$problem_config_str]", '</td>', '</tr>';
 	}
 ?>
 			</tbody>

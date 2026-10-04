@@ -1,7 +1,9 @@
 <?php
 	requirePHPLib('form');
 	
-	if (!validateUInt($_GET['id']) || !($problem = queryProblemBrief($_GET['id']))) {
+	// the number in the address is the number of the problem where the address is: on the
+	// site, or in a domain
+	if (!($problem = problemOfPage())) {
 		become404Page();
 	}
 	if (!can($myUser, 'problem.manage', $problem)) {
@@ -30,12 +32,12 @@
 	$managers_form->runAtServer();
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - 管理者 - 题目管理') ?>
-<h1 class="page-header" align="center">#<?=$problem['id']?> : <?=$problem['title']?> 管理</h1>
+<h1 class="page-header" align="center">#<?= problemNumber($problem) ?> : <?=$problem['title']?> 管理</h1>
 <ul class="nav nav-tabs" role="tablist">
-	<li class="nav-item"><a class="nav-link" href="/problem/<?= $problem['id'] ?>/manage/statement" role="tab">编辑</a></li>
-	<li class="nav-item"><a class="nav-link active" href="/problem/<?= $problem['id'] ?>/manage/managers" role="tab">管理者</a></li>
-	<li class="nav-item"><a class="nav-link" href="/problem/<?= $problem['id'] ?>/manage/data" role="tab">数据</a></li>
-	<li class="nav-item"><a class="nav-link" href="/problem/<?=$problem['id']?>" role="tab">返回</a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/statement') ?>" role="tab">编辑</a></li>
+	<li class="nav-item"><a class="nav-link active" href="<?= problemUrl($problem, '/manage/managers') ?>" role="tab">管理者</a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/data') ?>" role="tab">数据</a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem) ?>" role="tab">返回</a></li>
 </ul>
 
 <table class="table table-hover">

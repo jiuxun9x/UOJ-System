@@ -91,17 +91,17 @@ function getProblemLink($problem, $problem_title = '!title_only') {
 	if ($problem_title == '!title_only') {
 		$problem_title = $problem['title'];
 	} elseif ($problem_title == '!id_and_title') {
-		$problem_title = "#${problem['id']}. ${problem['title']}";
+		$problem_title = problemLabel($problem) . ". ${problem['title']}";
 	}
-	return '<a href="/problem/'.$problem['id'].'">'.$problem_title.'</a>';
+	return '<a href="'.problemUrl($problem).'">'.$problem_title.'</a>';
 }
 function getContestProblemLink($problem, $contest_id, $problem_title = '!title_only') {
 	if ($problem_title == '!title_only') {
 		$problem_title = $problem['title'];
 	} elseif ($problem_title == '!id_and_title') {
-		$problem_title = "#{$problem['id']}. {$problem['title']}";
+		$problem_title = problemLabel($problem) . ". {$problem['title']}";
 	}
-	return '<a href="/contest/'.$contest_id.'/problem/'.$problem['id'].'">'.$problem_title.'</a>';
+	return '<a href="/contest/'.$contest_id.'/problem/'.problemNumber($problem).'">'.$problem_title.'</a>';
 }
 function getBlogLink($id) {
 	if (validateUInt($id) && $blog = queryBlog($id)) {

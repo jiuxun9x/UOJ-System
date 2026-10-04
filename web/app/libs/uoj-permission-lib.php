@@ -120,7 +120,7 @@ class UOJPermissionFacts {
 	}
 	// whether a user takes part in a running homework that has a copy of this problem
 	public function userRunsHomeworkFromSource($username, $problem_id) {
-		return DB::selectFirst("select 1 from homework_problems, homeworks, homework_participants where homework_problems.source_problem_id = ".(int)$problem_id." and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape($username)."' and homework_participants.status = 'active' limit 1") != null;
+		return DB::selectFirst("select 1 from homework_problems, problems, homeworks, homework_participants where problems.id = homework_problems.problem_id and problems.source_problem_id = ".(int)$problem_id." and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape($username)."' and homework_participants.status = 'active' limit 1") != null;
 	}
 	public function managesProblem($username, $problem_id) {
 		return DB::selectFirst("select 1 from problems_permissions where username = '".DB::escape($username)."' and problem_id = ".(int)$problem_id) != null;
@@ -591,11 +591,6 @@ function can($user, $ability, $resource = null) {
 				return can($user, 'domain.teach', $facts->domain($resource['owner_domain_id']));
 			}
 			return can($user, 'problem.view', $resource);
-
-		// A problem that may be put into a training or a contest of a domain: one the user
-		// manages, or a problem of the site that everybody can see.
-		case 'problem.use':
-			return can($user, 'problem.manage', $resource) || (empty($resource['owner_domain_id']) && !$resource['is_hidden']);
 
 		// ---- contests
 		// A contest of a domain exists for the members of the domain only, and is run by the

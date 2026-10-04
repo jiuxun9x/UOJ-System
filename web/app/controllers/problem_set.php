@@ -6,8 +6,10 @@
 	if (can($myUser, 'problem.create')) {
 		$new_problem_form = new UOJForm('new_problem');
 		$new_problem_form->handle = function() {
-			DB::query("insert into problems (title, is_hidden, submission_requirement) values ('New Problem', 1, '{}')");
-			$id = DB::insert_id();
+			$id = problemCreate(array('title' => "'New Problem'", 'is_hidden' => 1, 'submission_requirement' => "'{}'"));
+			if ($id === null) {
+				becomeMsgPage('新建题目失败，请再试一次');
+			}
 			DB::query("insert into problems_contents (id, statement, statement_md) values ($id, '', '')");
 			DB::insert("insert ignore into problems_permissions (username, problem_id) values ('".Auth::id()."', $id)");
 			auditLog('problem.create', 'problem', $id);

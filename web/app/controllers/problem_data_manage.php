@@ -3,7 +3,9 @@
 	requirePHPLib('judger');
 	requirePHPLib('data');
 	
-	if (!validateUInt($_GET['id']) || !($problem = queryProblemBrief($_GET['id']))) {
+	// the number in the address is the number of the problem where the address is: on the
+	// site, or in a domain
+	if (!($problem = problemOfPage())) {
 		become404Page();
 	}
 	if (!can($myUser, 'problem.manage', $problem)) {
@@ -54,7 +56,7 @@
 		crsf_defend();
 		if ($_FILES["problem_data_file"]["error"] > 0) {
 			$errmsg = "Error: ".$_FILES["problem_data_file"]["error"];
-			becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+			becomeMsgPage('<div>' . $errmsg . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
 		} else {
 			$zip_mime_types = array('application/zip', 'application/x-zip', 'application/x-zip-compressed');
 			if (in_array($_FILES["problem_data_file"]["type"], $zip_mime_types) || $_FILES["problem_data_file"]["type"] == 'application/octet-stream' && substr($_FILES["problem_data_file"]["name"], -4) == '.zip') {
@@ -70,11 +72,11 @@
 					echo "<script>alert('上传成功！')</script>";
 				} else {
 					auditLog('problem.upload_refused', 'problem', $problem['id'], null, $upload_facts + array('error' => $errmsg));
-					becomeMsgPage('<div id="upload-refused">' . HTML::escape($errmsg) . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+					becomeMsgPage('<div id="upload-refused">' . HTML::escape($errmsg) . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
 				}
 			} else {
 				$errmsg = "请上传zip格式！";
-				becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+				becomeMsgPage('<div>' . $errmsg . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
 			}
 		}
 	}
@@ -102,7 +104,7 @@
 			}
 		} else {
 			$errmsg = "添加配置文件失败，请检查是否所有输入框都已填写，且填写的内容合法！";
-			becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+			becomeMsgPage('<div>' . $errmsg . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
 		}
 	}
 
@@ -464,7 +466,7 @@ EOD
 		// the switch takes effect when the data that was built for it is published
 		$ret = dataSyncProblemData($problem, $myUser, array('reason' => 'hackable'));
 		if ($ret) {
-			becomeMsgPage('<div>' . $ret . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+			becomeMsgPage('<div>' . $ret . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
 		}
 	};
 	$hackable_form->submit_button_config['class_str'] = 'btn btn-warning btn-block';
@@ -477,7 +479,7 @@ EOD
 		set_time_limit(60 * 5);
 		$ret = dataSyncProblemData($problem, $myUser);
 		if ($ret) {
-			becomeMsgPage('<div>' . $ret . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+			becomeMsgPage('<div>' . $ret . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
 		}
 	};
 	$data_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
@@ -622,12 +624,12 @@ EOD
 	$REQUIRE_LIB['dialog'] = '';
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - 数据 - 题目管理') ?>
-<h1 class="page-header" align="center">#<?=$problem['id']?> : <?=$problem['title']?> 管理</h1>
+<h1 class="page-header" align="center">#<?= problemNumber($problem) ?> : <?=$problem['title']?> 管理</h1>
 <ul class="nav nav-tabs" role="tablist">
-	<li class="nav-item"><a class="nav-link" href="/problem/<?= $problem['id'] ?>/manage/statement" role="tab">编辑</a></li>
-	<li class="nav-item"><a class="nav-link" href="/problem/<?= $problem['id'] ?>/manage/managers" role="tab">管理者</a></li>
-	<li class="nav-item"><a class="nav-link active" href="/problem/<?= $problem['id'] ?>/manage/data" role="tab">数据</a></li>
-	<li class="nav-item"><a class="nav-link" href="/problem/<?=$problem['id']?>" role="tab">返回</a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/statement') ?>" role="tab">编辑</a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/managers') ?>" role="tab">管理者</a></li>
+	<li class="nav-item"><a class="nav-link active" href="<?= problemUrl($problem, '/manage/data') ?>" role="tab">数据</a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem) ?>" role="tab">返回</a></li>
 </ul>
 
 <?php
@@ -696,7 +698,7 @@ EOD
 
 					var fileName = $(this).text();
 					curFileName = fileName;
-					$.get('/problem/<?= $problem['id'] ?>/manage/data', {
+					$.get('<?= problemUrl($problem, '/manage/data') ?>', {
 							display_file: '',
 							file_name: fileName
 						},

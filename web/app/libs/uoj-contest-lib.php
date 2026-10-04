@@ -114,6 +114,20 @@ function contestCreate($name, $start_time_str, $last_min, $actor, $domain = null
 	return $contest_id;
 }
 
+// The problem that a number names to the people who run a contest: a problem of the site in
+// a contest of the site, a problem of the domain in a contest of a domain. A contest uses the
+// problems of where it is held; a domain copies a problem of the site before it uses it.
+function contestProblemByNumber($contest, $number) {
+	if (!validateUInt($number)) {
+		return null;
+	}
+	if ($contest['domain_id']) {
+		return queryDomainProblem($contest['domain_id'], $number);
+	}
+	$problem = queryProblemBrief($number);
+	return $problem && !$problem['owner_domain_id'] ? $problem : null;
+}
+
 // ---- who may take part in a contest
 
 function contestJoinModes() {

@@ -656,13 +656,25 @@ class DomainProblemTest(unittest.TestCase):
         self.assertEqual(int(count()), int(before) + 1)
         problem_id = self.newest_problem()
         self.assertEqual(db_value("select is_hidden from problems where id = %d" % problem_id), "1")
+        # it has a number in the domain, and an id that is none of the numbers of the site
+        number = uoj.pid(problem_id)
+        self.assertEqual(number, int(count()))
+        self.assertGreater(problem_id, 1000000)
+        newest_of_the_site = int(db_value("select max(id) from problems where owner_domain_id is null"))
+        self.assertEqual(self.admin.new_problem(), newest_of_the_site + 1)
+        self.assertIn('href="/d/p4-problems/problem/%d/manage/statement"' % number, self.teacher.get(problems).text)
         # whoever teaches in the domain manages its problems, without being listed for them
         self.assertEqual(db_value("select count(*) from problems_permissions where problem_id = %d" % problem_id), "0")
         self.assertIn("上传成功", self.teacher.upload_data(problem_id, ab_problem_files()).text)
         self.assertEqual(self.teacher.sync(problem_id), "")
         self.assertEqual(self.pupil.get("/problem/%d/manage/data" % problem_id).status_code, 403)
 
-        here = "/d/p4-problems/problem/%d" % problem_id
+        here = "/d/p4-problems/problem/%d" % number
+        # the pages that manage it are in the domain as well, under its number
+        for page in ("statement", "managers", "data"):
+            self.assertEqual(self.teacher.get("%s/manage/%s" % (here, page)).status_code, 200, page)
+            self.assertEqual(self.pupil.get("%s/manage/%s" % (here, page)).status_code, 403, page)
+        self.assertIn("#%d :" % number, self.teacher.get(here + "/manage/data").text)
         self.assertEqual(self.teacher.get(here).status_code, 200)
         self.assertEqual(self.pupil.get(here).status_code, 404)
         db("update problems set is_hidden = 0 where id = %d" % problem_id)
@@ -678,7 +690,12 @@ class DomainProblemTest(unittest.TestCase):
             self.assertEqual(client.get("/problem/%d/statistics" % problem_id).status_code, 404)
         # another domain is no way in either
         self.teacher.new_domain("p4-problems-other")
-        self.assertEqual(self.teacher.get("/d/p4-problems-other/problem/%d" % problem_id).status_code, 404)
+        self.assertEqual(self.teacher.get("/d/p4-problems-other/problem/%d" % number).status_code, 404)
+        # the numbers of a domain are its own: the first problem of the other domain is its number 1
+        self.assertEqual(self.teacher.form("/d/p4-problems-other/problems", "new"), "")
+        self.assertEqual(uoj.pid(self.newest_problem(domain_id("p4-problems-other"))), 1)
+        # and the id of a problem is not a number of it anywhere in a domain
+        self.assertEqual(self.teacher.get("/d/p4-problems/problem/%d" % problem_id).status_code, 404)
 
         # the list of the site does not have it, the list of the domain does
         for client in (self.admin, self.pupil, self.stranger):
@@ -731,7 +748,7 @@ class DomainProblemTest(unittest.TestCase):
         self.assertEqual(db_value("select ac_num from problems where id = %d" % copy_id), "0")
 
         # the copy is judged with its own data
-        here = "/d/p4-problems/problem/%d" % copy_id
+        here = "/d/p4-problems/problem/%d" % uoj.pid(copy_id)
         self.assertEqual(uoj.wait_submission(self.teacher.submit(copy_id, AB, path=here)).score, 100)
 
         # changing the copy leaves the source alone
@@ -778,12 +795,16 @@ class DomainProblemTest(unittest.TestCase):
         self.assertIn("上传成功", other.upload_data(theirs, ab_problem_files()).text)
         self.assertEqual(other.sync(theirs), "")
         db("update problems set is_hidden = 0 where id = %d" % theirs)
-        self.assertNotEqual(self.copy(self.teacher, theirs), "")
+        # it is named by its domain and its number there; its id names nothing
+        named = "p4-problems-theirs#%d" % uoj.pid(theirs)
+        self.assertNotEqual(self.copy(self.teacher, named), "")
         self.assertEqual(member_form(other, "p4-problems-theirs", "add", username="p4_prob_teacher", role="member"), "")
-        self.assertNotEqual(self.copy(self.teacher, theirs), "")
+        self.assertNotEqual(self.copy(self.teacher, named), "")
         self.assertEqual(count(), before)
         self.assertEqual(member_form(other, "p4-problems-theirs", "role", username="p4_prob_teacher", role="teacher"), "")
-        self.assertEqual(self.copy(self.teacher, theirs), "")
+        self.assertNotEqual(self.copy(self.teacher, theirs), "")
+        self.assertEqual(count(), before)
+        self.assertEqual(self.copy(self.teacher, named), "")
         self.assertEqual(db_value("select source_problem_id from problems where id = %d" % self.newest_problem()), str(theirs))
 
     def test_custom_judger_of_a_copy_is_approved_by_what_it_is(self):
@@ -802,7 +823,7 @@ class DomainProblemTest(unittest.TestCase):
         copy_id = self.newest_problem()
         self.assertNotIn("custom_judger_fingerprint", db_value("select extra_config from problems where id = %d" % copy_id))
         self.assertEqual(uoj.wait_data_version(copy_id), "")
-        here = "/d/p4-problems/problem/%d" % copy_id
+        here = "/d/p4-problems/problem/%d" % uoj.pid(copy_id)
         self.assertEqual(uoj.wait_submission(self.teacher.submit(copy_id, AB, path=here)).score, 100)
         # the teacher may sync it again as it is
         self.assertEqual(self.teacher.sync(copy_id), "")
@@ -866,9 +887,8 @@ class DomainContestTest(unittest.TestCase):
             self.assertEqual(client.get(here + "/manage").status_code, 403)
         self.assertEqual(tutor.get(here + "/backstage").status_code, 200)
 
-        # its problems are the ones of the domain and the public ones of the site
+        # its problems are the ones of the domain: a problem of the site is copied into it first
         public_id = admin.create_problem(ab_problem_files())
-        hidden_id = admin.new_problem()
         self.assertEqual(teacher.form("/d/p4-contests/problems", "new"), "")
         own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
         self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
@@ -876,13 +896,20 @@ class DomainContestTest(unittest.TestCase):
         teacher.new_domain("p4-contests-other")
         self.assertEqual(teacher.form("/d/p4-contests-other/problems", "new"), "")
         foreign_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % domain_id("p4-contests-other")))
-        self.assertEqual(lecturer.contest_commands(contest_id, "problems", "+%d\n+%d" % (public_id, own_id)), "")
-        self.assertNotEqual(lecturer.contest_commands(contest_id, "problems", "+%d" % hidden_id), "")
-        self.assertNotEqual(teacher.contest_commands(contest_id, "problems", "+%d" % foreign_id), "")
+        copy_id = teacher.copy_problem("p4-contests", public_id)
+        self.assertEqual(uoj.wait_data_version(copy_id), "")
+        # what is typed is the number a problem has in the domain: not a number of the site, not an id
+        for refused in (public_id, own_id, foreign_id):
+            self.assertNotEqual(teacher.contest_commands(contest_id, "problems", "+%d" % refused), "", refused)
+        self.assertEqual(lecturer.contest_commands(contest_id, "problems", "+%d\n+%d" % (uoj.pid(own_id), uoj.pid(copy_id))), "")
         self.assertEqual(
             sorted(int(row[0]) for row in db("select problem_id from contests_problems where contest_id = %d" % contest_id)),
-            sorted([public_id, own_id]),
+            sorted([copy_id, own_id]),
         )
+        # and a contest of the site does not take the problems of a domain
+        site_contest = admin.new_contest("p4 全站比赛")
+        self.assertNotEqual(admin.contest_commands(site_contest, "problems", "+%d" % own_id), "")
+        self.assertEqual(db_value("select count(*) from contests_problems where contest_id = %d" % site_contest), "0")
         # teaching in a domain does not make a teacher of the site
         self.assertEqual(lecturer.get("/contest/new").status_code, 403)
 
@@ -891,7 +918,7 @@ class DomainContestTest(unittest.TestCase):
         stranger.submit_form(here + "/register", "register")
         self.assertEqual(db("select username from contests_registrants where contest_id = %d" % contest_id), [["p4_contest_pupil"]])
         uoj.move_contest(contest_id, -60, 600)
-        for problem_id in (public_id, own_id):
+        for problem_id in (copy_id, own_id):
             submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
             self.assertEqual(
                 db("select contest_id, domain_id from submissions where id = %d" % submission_id),
@@ -902,6 +929,9 @@ class DomainContestTest(unittest.TestCase):
             self.assertEqual(stranger.get("/submission/%d" % submission_id).status_code, 403)
         self.assertEqual(pupil.get(here + "/standings").status_code, 200)
         self.assertIn("域 p4-contests", pupil.get(here).text)
+        # the addresses of its problems say the numbers they have in the domain
+        self.assertIn('href="%s/problem/%d"' % (here, uoj.pid(own_id)), pupil.get(here).text)
+        self.assertNotIn("/problem/%d" % own_id, pupil.get(here).text)
         uoj.wait_idle()
         uoj.move_contest(contest_id, -7200, 60)
 
@@ -974,15 +1004,21 @@ class HomeworkTest(unittest.TestCase):
         for name, role in (("alice", "member"), ("bob", "member"), ("carol", "member"), ("tutor", "ta")):
             assert member_form(cls.teacher, cls.slug, "add", username="p4_hw_" + name, role=role) == ""
         cls.stranger = account("p4_hw_stranger")
-        # a public problem of the site, and a problem of the domain
+        # a problem of the domain, and a public problem of the site with the copy the domain took of it
         cls.public_id = cls.admin.create_problem(ab_problem_files())
         assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
         cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
         assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
         assert cls.teacher.sync(cls.own_id) == ""
+        cls.copy_id = cls.teacher.copy_problem(cls.slug, cls.public_id)
+        assert uoj.wait_data_version(cls.copy_id) == ""
 
     def url(self, homework_id, path=""):
         return "/d/%s/homework/%d%s" % (self.slug, homework_id, path)
+
+    def problem_url(self, homework_id, problem_id):
+        """where a problem of a homework is solved: under the number it has in the domain"""
+        return self.url(homework_id, "/problem/%d" % uoj.pid(problem_id))
 
     def wait_published(self, homework_id):
         uoj.wait_until("homework #%d is published" % homework_id,
@@ -991,7 +1027,7 @@ class HomeworkTest(unittest.TestCase):
 
     def publish(self, homework_id, problems):
         for problem_id, score in problems:
-            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(problem_id), score=str(score)), "")
+            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(uoj.pid(problem_id)), score=str(score)), "")
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "publish"), "")
         self.wait_published(homework_id)
 
@@ -1034,38 +1070,41 @@ class HomeworkTest(unittest.TestCase):
         self.assertNotIn("p4 第 1 次作业", alice.get("/d/%s/homeworks" % slug).text)
         self.assertEqual(tutor.get(self.url(homework_id)).status_code, 200)
 
-        # ---- its problems: of the domain, or public ones of the site
-        hidden_id = self.admin.new_problem()
-        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(hidden_id), score="100"), "")
-        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.public_id), score="0"), "")
-        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.own_id), score="50", optional="on"), "")
-        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.public_id), score="100"), "")
-        self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(self.public_id)), "")
-        self.assertEqual(self.problems_of(homework_id), [[str(self.public_id), "NULL", "100", "1"], [str(self.own_id), "NULL", "50", "0"]])
+        # ---- its problems: the problems of the domain, named by the numbers they have there.
+        # A problem of the site is not one of them until the domain has taken a copy of it.
+        copy_id = self.copy_id
+        own_number, copy_number = uoj.pid(self.own_id), uoj.pid(copy_id)
+        self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d and domain_pid = %d" % (self.did, self.public_id)), "0")
+        for refused in (self.public_id, self.own_id, copy_id):
+            self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(refused), score="100"), "", refused)
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(copy_number), score="0"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(own_number), score="50", optional="on"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(copy_number), score="100"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(copy_id)), "")
+        promised = [[str(copy_id), "NULL", "100", "1"], [str(self.own_id), "NULL", "50", "0"]]
+        self.assertEqual(self.problems_of(homework_id), promised)
+        page = teacher.get(self.url(homework_id, "/manage")).text
+        self.assertIn("#%d. " % copy_number, page)
+        self.assertIn("复制自 主站 #%d" % self.public_id, page)
         for client in (alice, tutor):
             self.assertEqual(client.get(self.url(homework_id, "/manage")).status_code, 403)
             homework_form(client, slug, homework_id, "publish")
         self.assertEqual(homework_row(homework_id, "status")[0], "draft")
 
-        # ---- publishing gives the homework a copy of the public problem that belongs to the domain
+        # ---- publishing tells the students, and makes no problem
         messages = int(db_value("select count(*) from user_system_msg where receiver = 'p4_hw_alice'"))
+        copies = db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
         self.assertEqual(homework_form(teacher, slug, homework_id, "publish"), "")
         self.wait_published(homework_id)
-        (copy_id, source, _, _), own = self.problems_of(homework_id)
-        copy_id = int(copy_id)
-        self.assertEqual((source, own), (str(self.public_id), [str(self.own_id), "NULL", "50", "0"]))
-        self.assertEqual(
-            db("select owner_domain_id, source_problem_id, is_hidden from problems where id = %d" % copy_id),
-            [[str(self.did), str(self.public_id), "1"]],
-        )
+        self.assertEqual(self.problems_of(homework_id), promised)
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % copy_id), "1")
         self.assertEqual(int(db_value("select count(*) from user_system_msg where receiver = 'p4_hw_alice'")), messages + 1)
         # once it is published its problems are what was promised
         self.assertNotEqual(homework_form(teacher, slug, homework_id, "remove_problem", problem_id=str(copy_id)), "")
-        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.public_id), score="10"), "")
-        # another homework of the domain with the same problem uses the same copy
-        copies = db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
-        self.publish(strict, [(self.public_id, 100)])
-        self.assertEqual(self.problems_of(strict), [[str(copy_id), str(self.public_id), "100", "1"]])
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(own_number), score="10"), "")
+        # another homework of the domain uses the same problem
+        self.publish(strict, [(copy_id, 100)])
+        self.assertEqual(self.problems_of(strict), [[str(copy_id), "NULL", "100", "1"]])
         self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d" % self.did), copies)
         # that one is over long before the rest of this test, so that it closes nothing
         db("update homeworks set begin_at = '%s', end_at = '%s' where id = %d" % (uoj.web_time(-20 * 86400), uoj.web_time(-19 * 86400), strict))
@@ -1075,7 +1114,7 @@ class HomeworkTest(unittest.TestCase):
         self.assertEqual(self.stranger.get(self.url(homework_id)).status_code, 404)
         page = alice.get(self.url(homework_id)).text
         self.assertIn('id="button-claim-homework"', page)
-        self.assertNotIn(self.url(homework_id, "/problem/%d" % copy_id), page)
+        self.assertNotIn(self.problem_url(homework_id, copy_id), page)
         self.assertEqual(alice.form(self.url(homework_id), "claim"), "")
         self.assertNotEqual(tutor.form(self.url(homework_id), "claim"), "")
         self.assertNotEqual(self.stranger.form(self.url(homework_id), "claim"), "")
@@ -1083,9 +1122,9 @@ class HomeworkTest(unittest.TestCase):
         self.assertEqual(participants(), [["p4_hw_alice", "active"]])
         page = alice.get(self.url(homework_id)).text
         self.assertIn('id="homework-problems-closed"', page)
-        self.assertNotIn(self.url(homework_id, "/problem/%d" % copy_id), page)
-        self.assertEqual(alice.get(self.url(homework_id, "/problem/%d" % copy_id)).status_code, 404)
-        self.assertEqual(alice.get("/d/%s/problem/%d" % (slug, copy_id)).status_code, 404)
+        self.assertNotIn(self.problem_url(homework_id, copy_id), page)
+        self.assertEqual(alice.get(self.problem_url(homework_id, copy_id)).status_code, 404)
+        self.assertEqual(alice.get("/d/%s/problem/%d" % (slug, copy_number)).status_code, 404)
         # before it begins, whoever claimed it may step back
         self.assertEqual(alice.form(self.url(homework_id), "withdraw"), "")
         self.assertEqual(participants(), [["p4_hw_alice", "withdrawn"]])
@@ -1095,7 +1134,7 @@ class HomeworkTest(unittest.TestCase):
         db("update homeworks set begin_at = '%s', penalty_since = '%s', end_at = '%s' where id = %d"
            % (uoj.web_time(-10 * 86400), uoj.web_time(-3 * 86400), uoj.web_time(86400), homework_id))  # fmt: skip
         self.assertNotEqual(alice.form(self.url(homework_id), "withdraw"), "")
-        here = self.url(homework_id, "/problem/%d" % copy_id)
+        here = self.problem_url(homework_id, copy_id)
         self.assertEqual(alice.get(here).status_code, 200)
         # not without claiming it
         self.assertEqual(bob.get(here).status_code, 404)
@@ -1108,7 +1147,7 @@ class HomeworkTest(unittest.TestCase):
         for name, client, late in (("alice", alice, -2 * 86400), ("bob", bob, 43200), ("carol", carol, 36 * 3600)):
             submissions[name] = client.submit(copy_id, AB + "// p4-homework-%s\n" % name, path=here)
             db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-3 * 86400 + late), submissions[name]))
-        wrong = alice.submit(self.own_id, AB_WRONG, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        wrong = alice.submit(self.own_id, AB_WRONG, path=self.problem_url(homework_id, self.own_id))
         db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5 * 86400), wrong))
         self.assertEqual(
             db("select homework_id, domain_id, is_hidden from submissions where id = %d" % submissions["alice"]),
@@ -1176,7 +1215,7 @@ class HomeworkTest(unittest.TestCase):
         self.assertEqual(rules["unjudged_submissions"], [])
 
         # ---- afterwards: what is submitted is correction, and the official scores stand
-        fixed = alice.submit(self.own_id, AB, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        fixed = alice.submit(self.own_id, AB, path=self.problem_url(homework_id, self.own_id))
         self.assertEqual(uoj.wait_submission(fixed).score, 100)
         page = alice.get(self.url(homework_id)).text
         self.assertRegex(page, r'id="my-official-score">100 <small')
@@ -1295,11 +1334,14 @@ class HomeworkStateTest(unittest.TestCase):
     def url(self, homework_id, path=""):
         return "/d/%s/homework/%d%s" % (self.slug, homework_id, path)
 
+    def problem_url(self, homework_id, problem_id):
+        return self.url(homework_id, "/problem/%d" % uoj.pid(problem_id))
+
     def published(self, title, problems=None, **settings):
         """a homework that runs, of the problem of the domain unless told otherwise"""
         homework_id = new_homework(self.teacher, self.slug, title=title, **settings)
         for problem_id in problems or [self.own_id]:
-            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(problem_id), score="100"), "")
+            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(uoj.pid(problem_id)), score="100"), "")
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "publish"), "")
         uoj.wait_until("homework #%d is published" % homework_id,
                        lambda: tick() and homework_row(homework_id, "status")[0] != "publishing", timeout=300)  # fmt: skip
@@ -1310,7 +1352,7 @@ class HomeworkStateTest(unittest.TestCase):
         pupil = self.pupils[0]
         homework_id = self.published("p4 结算等待", allow_late="")
         self.assertEqual(pupil.form(self.url(homework_id), "claim"), "")
-        here = self.url(homework_id, "/problem/%d" % self.own_id)
+        here = self.problem_url(homework_id, self.own_id)
         first = pupil.submit(self.own_id, AB_WRONG, path=here)
         self.assertEqual(uoj.wait_submission(first).score, 0)
         manage = self.url(homework_id, "/manage?tab=scores")
@@ -1354,13 +1396,16 @@ class HomeworkStateTest(unittest.TestCase):
         self.assertEqual(snapshot_scores(second), {("p4_st_pupil0", self.own_id): (100.0, str(stuck))})
         self.assertEqual(homework_row(homework_id, "current_official_snapshot_id")[0], second)
 
-    def test_publishing_copies_a_problem_once_and_waits_for_its_data(self):
+    def test_publishing_waits_for_the_data_of_its_problems(self):
         public_id = self.admin.create_problem(checker_problem_files())
-        homework_id = new_homework(self.teacher, self.slug, title="p4 发布冻结")
-        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(public_id), score="100"), "")
+        homework_id = new_homework(self.teacher, self.slug, title="p4 发布等待")
         copies = lambda: db("select id from problems where owner_domain_id = %d and source_problem_id = %d" % (self.did, public_id))
 
         with uoj.judgers_paused():
+            # the copy the domain takes has a checker, which a judger builds, and there is none
+            copy_id = self.teacher.copy_problem(self.slug, public_id)
+            self.assertEqual(db_value("select status from problem_data_versions where problem_id = %d" % copy_id), "pending")
+            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(uoj.pid(copy_id)), score="100"), "")
             # everybody who may publishes at the same moment, and the tick of the server joins in
             clients = [self.teacher, self.lecturer, self.admin]
             threads = [threading.Thread(target=lambda c=c: homework_form(c, self.slug, homework_id, "publish")) for c in clients]
@@ -1370,19 +1415,18 @@ class HomeworkStateTest(unittest.TestCase):
             for thread in threads:
                 thread.join()
             tick()
-            self.assertEqual(len(copies()), 1)
-            copy_id = int(copies()[0][0])
-            # the checker of the copy is built by a judger, and there is none: the homework waits
+            # the homework waits, and publishing it has made no problem
             self.assertEqual(homework_row(homework_id, "status")[0], "publishing")
-            self.assertEqual(db_value("select status from problem_data_versions where problem_id = %d" % copy_id), "pending")
+            self.assertEqual(len(copies()), 1)
             self.assertIn('id="homework-publishing"', self.teacher.get(self.url(homework_id, "/manage")).text)
             self.assertEqual(self.pupils[0].get(self.url(homework_id)).status_code, 404)
         uoj.wait_until("the homework is published", lambda: tick() and homework_row(homework_id, "status")[0] == "published", timeout=300)
         self.assertEqual(len(copies()), 1)
         self.assertEqual(
-            db("select problem_id, source_problem_id from homework_problems where homework_id = %d" % homework_id),
-            [[str(copy_id), str(public_id)]],
+            db("select problem_id, ifnull(source_problem_id, 'NULL') from homework_problems where homework_id = %d" % homework_id),
+            [[str(copy_id), "NULL"]],
         )
+        self.assertEqual(db_value("select count(*) from audit_logs where resource_type = 'homework' and resource_id = '%d' and action = 'homework.published'" % homework_id), "1")
         # what the public problem becomes afterwards is nothing to the homework
         pupil = self.pupils[1]
         self.assertEqual(pupil.form(self.url(homework_id), "claim"), "")
@@ -1390,7 +1434,7 @@ class HomeworkStateTest(unittest.TestCase):
         broken["output1.txt"] = "999\n"
         self.assertIn("上传成功", self.admin.upload_data(public_id, broken).text)
         self.assertEqual(self.admin.sync(public_id), "")
-        submission_id = pupil.submit(copy_id, AB, path=self.url(homework_id, "/problem/%d" % copy_id))
+        submission_id = pupil.submit(copy_id, AB, path=self.problem_url(homework_id, copy_id))
         self.assertEqual(uoj.wait_submission(submission_id).score, 100)
         self.assertLess(uoj.wait_submission(self.admin.submit(public_id, AB)).score, 100)
         self.assertEqual(db_value("select data_version from problems where id = %d" % copy_id), "1")
@@ -1409,7 +1453,7 @@ class HomeworkStateTest(unittest.TestCase):
             self.assertEqual(first.form(self.url(homework_id), "claim"), "")
         self.assertEqual(second.form(self.url(settled), "claim"), "")
         submit = lambda client, homework_id, code: uoj.wait_submission(
-            client.submit(self.own_id, code, path=self.url(homework_id, "/problem/%d" % self.own_id))
+            client.submit(self.own_id, code, path=self.problem_url(homework_id, self.own_id))
         ).score
         self.assertEqual(submit(first, settled, AB), 100)
         self.assertEqual(submit(second, settled, AB_WRONG), 0)
@@ -1463,20 +1507,18 @@ class HomeworkStateTest(unittest.TestCase):
             self.assertNotIn('id="domain-overview-pending"', client.get("/d/%s" % self.slug).text)
 
     def test_homework_that_can_not_be_published_goes_back_to_a_draft(self):
-        # a public problem without data
-        empty_id = self.admin.new_problem()
-        db("update problems set is_hidden = 0 where id = %d" % empty_id)
-        problems = db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
+        # a problem of the domain that has no data yet
+        self.assertEqual(self.teacher.form("/d/%s/problems" % self.slug, "new"), "")
+        empty_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % self.did))
         homework_id = new_homework(self.teacher, self.slug, title="p4 发布失败")
-        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(empty_id), score="100"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(uoj.pid(empty_id)), score="100"), "")
         homework_form(self.teacher, self.slug, homework_id, "publish")
         uoj.wait_until("the homework is not being published any more", lambda: tick() and homework_row(homework_id, "status")[0] != "publishing")
         status, error = homework_row(homework_id, "status, ifnull(publish_error, '')")
         self.assertEqual(status, "draft")
-        self.assertIn(str(empty_id), error)
+        self.assertIn("#%d" % uoj.pid(empty_id), error)
+        self.assertNotIn(str(empty_id), error)
         self.assertIn('id="homework-publish-error"', self.teacher.get(self.url(homework_id, "/manage")).text)
-        # nothing is left of the copy that could not be made
-        self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d" % self.did), problems)
         # a homework without problems is not published either
         blank = new_homework(self.teacher, self.slug, title="p4 没有题目")
         self.assertNotEqual(homework_form(self.teacher, self.slug, blank, "publish"), "")
@@ -1491,7 +1533,7 @@ class HomeworkStateTest(unittest.TestCase):
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "unpublish"), "")
         self.assertEqual(homework_row(homework_id, "status")[0], "draft")
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "remove_problem", problem_id=str(self.own_id)), "")
-        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(self.own_id), score="30"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(uoj.pid(self.own_id)), score="30"), "")
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "publish"), "")
         uoj.wait_until("the homework is published again", lambda: tick() and homework_row(homework_id, "status")[0] == "published")
         # once it has begun it stays
@@ -1503,7 +1545,7 @@ class HomeworkStateTest(unittest.TestCase):
         homework_id = self.published("p4 未认领", allow_late="")
         claimed, forgot, also_forgot = self.pupils
         self.assertEqual(claimed.form(self.url(homework_id), "claim"), "")
-        submission_id = claimed.submit(self.own_id, AB, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        submission_id = claimed.submit(self.own_id, AB, path=self.problem_url(homework_id, self.own_id))
         self.assertEqual(uoj.wait_submission(submission_id).score, 100)
 
         page = self.teacher.get(self.url(homework_id, "/manage?tab=participants")).text
@@ -1595,7 +1637,11 @@ class TrainingTest(unittest.TestCase):
         assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
         assert cls.teacher.sync(cls.own_id) == ""
         db("update problems set is_hidden = 0 where id = %d" % cls.own_id)
+        # a public problem of the site, and the copy the domain took of it
         cls.public_id = cls.admin.create_problem(ab_problem_files())
+        cls.copy_id = cls.teacher.copy_problem(cls.slug, cls.public_id)
+        assert uoj.wait_data_version(cls.copy_id) == ""
+        db("update problems set is_hidden = 0 where id = %d" % cls.copy_id)
 
     def progress(self, client, training_id):
         """what the people who look after the domain export: username => row"""
@@ -1619,27 +1665,28 @@ class TrainingTest(unittest.TestCase):
         here = "/d/%s/training/%d" % (self.slug, training_id)
         manage, trainings = here + "/manage", "/d/%s/trainings" % self.slug
 
-        # its problems are problems of the domain and public problems of the site, as they are
-        hidden_id = self.admin.new_problem()
+        # its problems are problems of the domain, named by the numbers they have there
         self.teacher.new_domain("p4-trainings-other")
         self.assertEqual(self.teacher.form("/d/p4-trainings-other/problems", "new"), "")
         foreign_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % domain_id("p4-trainings-other")))
+        own, copy = uoj.pid(self.own_id), uoj.pid(self.copy_id)
         problems = db_value("select count(*) from problems")
-        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(self.own_id)), "")
-        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(self.public_id), optional="on"), "")
-        for refused in (self.own_id, hidden_id, foreign_id, 99999999):
+        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(own)), "")
+        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(copy), optional="on"), "")
+        # not twice, and neither a problem of the site nor an id nor a problem of another domain
+        for refused in (own, self.public_id, self.own_id, foreign_id, 99999999):
             self.assertNotEqual(self.teacher.form(manage, "add_problem", problem_id=str(refused)), "", refused)
-        self.assertNotEqual(self.pupil.form(manage, "add_problem", problem_id=str(self.public_id)), "")
+        self.assertNotEqual(self.pupil.form(manage, "add_problem", problem_id=str(copy)), "")
         order = lambda: db("select problem_id, required from training_problems where training_id = %d order by position" % training_id)
-        self.assertEqual(order(), [[str(self.own_id), "1"], [str(self.public_id), "0"]])
+        self.assertEqual(order(), [[str(self.own_id), "1"], [str(self.copy_id), "0"]])
         self.assertEqual(db_value("select count(*) from problems"), problems)
-        self.assertEqual(self.teacher.form(manage, "move_problem", problem_id=str(self.public_id)), "")
-        self.assertEqual(order(), [[str(self.public_id), "0"], [str(self.own_id), "1"]])
-        self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.public_id)), "")
-        self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.public_id), optional="on"), "")
+        self.assertEqual(self.teacher.form(manage, "move_problem", problem_id=str(self.copy_id)), "")
+        self.assertEqual(order(), [[str(self.copy_id), "0"], [str(self.own_id), "1"]])
+        self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.copy_id)), "")
+        self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.copy_id), optional="on"), "")
         self.assertEqual(self.teacher.form(manage, "remove_problem", problem_id=str(self.own_id)), "")
-        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(self.own_id)), "")
-        self.assertEqual(order(), [[str(self.public_id), "0"], [str(self.own_id), "1"]])
+        self.assertEqual(self.teacher.form(manage, "add_problem", problem_id=str(own)), "")
+        self.assertEqual(order(), [[str(self.copy_id), "0"], [str(self.own_id), "1"]])
 
         # a draft is for the people who teach
         self.assertEqual(self.teacher.get(here).status_code, 200)
@@ -1651,17 +1698,18 @@ class TrainingTest(unittest.TestCase):
         page = self.pupil.get(here)
         self.assertEqual(page.status_code, 200)
         self.assertIn("<strong>必做题</strong>", page.text)
-        self.assertIn('href="/problem/%d"' % self.public_id, page.text)
-        self.assertIn('href="/d/%s/problem/%d"' % (self.slug, self.own_id), page.text)
+        for number in (own, copy):
+            self.assertIn('href="/d/%s/problem/%d"' % (self.slug, number), page.text)
+        self.assertNotIn('href="/problem/', page.text)
         self.assertIn("p4 第一章", self.pupil.get(trainings).text)
         self.assertEqual(self.stranger.get(here).status_code, 404)
         self.assertEqual(self.stranger.get(trainings).status_code, 404)
         self.assertEqual(self.pupil.get(manage).status_code, 403)
 
         # what counts is the best score on a problem, wherever it was submitted
-        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.public_id, AB)).score, 100)
-        own = "/d/%s/problem/%d" % (self.slug, self.own_id)
-        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.own_id, AB_WRONG, path=own)).score, 0)
+        own_page, copy_page = ("/d/%s/problem/%d" % (self.slug, number) for number in (own, copy))
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.copy_id, AB, path=copy_page)).score, 100)
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.own_id, AB_WRONG, path=own_page)).score, 0)
         self.assertIn("已通过 <strong>1</strong> / 2 题", self.pupil.get(here).text)
         self.assertIn("已通过 <strong>0</strong> / 2 题", self.other.get(here).text)
         self.assertNotIn("已完成", self.pupil.get(here).text)
@@ -1670,7 +1718,7 @@ class TrainingTest(unittest.TestCase):
         self.assertIn('id="table-training-progress"', self.tutor.get(here + "?view=progress").text)
         self.assertNotIn('id="table-training-progress"', self.pupil.get(here + "?view=progress").text)
         self.assertIsNone(self.progress(self.pupil, training_id))
-        public, mine = "#%d" % self.public_id, "#%d" % self.own_id
+        public, mine = "#%d" % copy, "#%d" % own
         rows = self.progress(self.tutor, training_id)
         self.assertEqual(sorted(rows), ["40417", "p4_tr_other", "p4_tr_pupil"])
         # a username that is a number is a user like any other in the table
@@ -1681,7 +1729,7 @@ class TrainingTest(unittest.TestCase):
         self.assertEqual([rows["p4_tr_other"][key] for key in (public, mine, "solved", "done")], ["", "", "0", "no"])
 
         # the problem that has to be solved is solved: the training is done
-        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.own_id, AB, path=own)).score, 100)
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.own_id, AB, path=own_page)).score, 100)
         self.assertIn("已完成", self.pupil.get(here).text)
         self.assertIn("已完成", self.pupil.get(trainings).text)
         self.assertEqual(self.progress(self.teacher, training_id)["p4_tr_pupil"]["done"], "yes")

@@ -80,14 +80,14 @@ def seed():
     db("update problems_contents set statement = '%s' where id = %d" % (statement.replace("\\", "\\\\"), own_id))
     public_id = admin.create_problem(ab_problem_files())
     db("update problems set title = 'A + B Problem' where id = %d" % public_id)
-    teacher.form("/d/%s/problems" % SLUG, "copy", problem_id=str(public_id))
-    copy_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
+    copy_id = teacher.copy_problem(SLUG, public_id)
+    uoj.wait_data_version(copy_id)
     db("update problems set title = '两数之和（改编）', is_hidden = 0 where id = %d" % copy_id)
 
     def homework(title, **settings):
         homework_id = p4.new_homework(teacher, SLUG, title=title, description_md="请独立完成。**不要**抄袭。", **settings)
-        for problem_id, score in ((public_id, 60), (own_id, 40)):
-            p4.homework_form(teacher, SLUG, homework_id, "add_problem", problem_id=str(problem_id), score=str(score))
+        for problem_id, score in ((copy_id, 60), (own_id, 40)):
+            p4.homework_form(teacher, SLUG, homework_id, "add_problem", problem_id=str(uoj.pid(problem_id)), score=str(score))
         return homework_id
 
     def publish(homework_id):
@@ -100,7 +100,7 @@ def seed():
             client.form("/d/%s/homework/%d" % (SLUG, homework_id), "claim")
             for problem_id, code in zip(problem_ids, codes):
                 if code is not None:
-                    uoj.wait_submission(client.submit(problem_id, code, path="/d/%s/homework/%d/problem/%d" % (SLUG, homework_id, problem_id)))
+                    uoj.wait_submission(client.submit(problem_id, code, path="/d/%s/homework/%d/problem/%d" % (SLUG, homework_id, uoj.pid(problem_id))))
 
     past = homework("第 2 次作业 栈与队列")
     publish(past)
@@ -120,11 +120,12 @@ def seed():
     teacher.form(new_training, "save", title="第一章 线性表", status="published",
                  description_md="配合第 2、3 周的课。**必做题**做完就算完成，选做题有余力再做。")  # fmt: skip
     training = int(db_value("select max(id) from trainings where domain_id = %d" % did))
-    for problem_id, optional in ((own_id, {}), (public_id, {}), (copy_id, {"optional": "on"})):
-        teacher.form("/d/%s/training/%d/manage" % (SLUG, training), "add_problem", problem_id=str(problem_id), **optional)
+    for problem_id, optional in ((own_id, {}), (copy_id, {"optional": "on"})):
+        teacher.form("/d/%s/training/%d/manage" % (SLUG, training), "add_problem", problem_id=str(uoj.pid(problem_id)), **optional)
     teacher.form(new_training, "save", title="第二章 树与二叉树", status="draft", description_md="")
-    uoj.wait_submission(students[0].submit(public_id, AB))
-    uoj.wait_submission(students[2].submit(public_id, AB_WRONG))
+    own_page = "/d/%s/problem/%d" % (SLUG, uoj.pid(own_id))
+    uoj.wait_submission(students[0].submit(own_id, AB, path=own_page))
+    uoj.wait_submission(students[2].submit(own_id, AB_WRONG, path=own_page))
 
     # a contest of the site that is over, and a student who sits it again
     second_public = admin.create_problem(ab_problem_files())
@@ -169,7 +170,7 @@ def pages(seeded):
     training = d + "/training/%d" % seeded["training"]
     return [
         ("grades", "teacher", d + "/grades"),
-        ("problem-statement", "student", d + "/problem/%d" % seeded["problem"]),
+        ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"])),
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
         ("monitor", "admin", "/super-manage/monitor"),
         ("contests", "student", "/contests"),

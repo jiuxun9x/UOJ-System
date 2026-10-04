@@ -1,5 +1,7 @@
 <?php
-	if (!validateUInt($_GET['id']) || !($problem = queryProblemBrief($_GET['id']))) {
+	// the number in the address is the number of the problem where the address is: on the
+	// site, or in a domain
+	if (!($problem = problemOfPage())) {
 		become404Page();
 	}
 	
@@ -17,7 +19,7 @@
 
 	function scoreDistributionData() {
 		$data = array();
-		$result = DB::select("select score, count(*) from submissions where problem_id = {$_GET['id']} and score is not null group by score");
+		$result = DB::select("select score, count(*) from submissions where problem_id = {$problem['id']} and score is not null group by score");
 		$is_res_empty = true;
 		$has_score_0 = false;
 		$has_score_100 = false;

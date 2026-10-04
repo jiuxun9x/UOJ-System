@@ -134,7 +134,7 @@
 				<th>姓名</th>
 				<?php endif ?>
 				<?php foreach ($problems as $index => $problem): ?>
-				<th title="<?= HTML::escape(strip_tags($problem['title'])) ?>"><a href="<?= homeworkUrl($domain, $homework, '/problem/' . $problem['problem_id']) ?>"><?= chr(ord('A') + $index % 26) ?></a><br /><small class="text-muted"><?= $problem['score'] ?></small></th>
+				<th title="<?= HTML::escape(strip_tags($problem['title'])) ?>"><a href="<?= homeworkUrl($domain, $homework, '/problem/' . problemNumber($problem)) ?>"><?= chr(ord('A') + $index % 26) ?></a><br /><small class="text-muted"><?= $problem['score'] ?></small></th>
 				<?php endforeach ?>
 				<th>总分<br /><small class="text-muted"><?= $total_points ?></small></th>
 			</tr>
@@ -191,7 +191,7 @@
 		<li>迟交 <?= homeworkTrimNumber($rule['after_hours']) ?> 小时起按 <?= homeworkTrimNumber($rule['multiplier'] * 100) ?>% 计分</li>
 		<?php endforeach ?>
 		<?php foreach ($rules['problems'] as $problem): ?>
-		<li>#<?= (int)$problem['problem_id'] ?>：<?= (int)$problem['score'] ?> 分，数据 v<?= (int)$problem['data_version'] ?> <code><?= HTML::escape(substr((string)$problem['data_sha256'], 0, 16)) ?></code></li>
+		<li>#<?= isset($problem['number']) ? (int)$problem['number'] : (int)$problem['problem_id'] ?><?= isset($problem['title']) ? '. ' . HTML::escape(strip_tags($problem['title'])) : '' ?>：<?= (int)$problem['score'] ?> 分，数据 v<?= (int)$problem['data_version'] ?> <code><?= HTML::escape(substr((string)$problem['data_sha256'], 0, 16)) ?></code></li>
 		<?php endforeach ?>
 		<?php if (!empty($rules['unjudged_submissions'])): ?>
 		<li class="text-danger">结算时有 <?= count($rules['unjudged_submissions']) ?> 份截止前的提交没有评完，没有计入：#<?= join('、#', array_map('intval', $rules['unjudged_submissions'])) ?></li>

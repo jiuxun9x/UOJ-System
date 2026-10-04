@@ -128,7 +128,7 @@
 					<tr>
 						<td><?= chr(ord('A') + $index % 26) ?></td>
 						<td>
-							<a href="<?= homeworkUrl($domain, $homework, '/problem/' . $problem['problem_id']) ?>"><?= $problem['title'] ?></a>
+							<a href="<?= homeworkUrl($domain, $homework, '/problem/' . problemNumber($problem)) ?>"><?= $problem['title'] ?></a>
 							<?php if (!$problem['required']): ?><span class="badge badge-light border">选做</span><?php endif ?>
 						</td>
 						<td><?= $problem['score'] ?></td>

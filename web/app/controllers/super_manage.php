@@ -591,7 +591,7 @@ EOD;
 				echo '<dt>id</dt>';
 				echo '<dd>', "#{$submission['id']}", '</dd>';
 				echo '<dt>problem_id</dt>';
-				echo '<dd>', "#{$submission['problem_id']}", '</dd>';
+				echo '<dd>', $problem ? HTML::escape(problemLabel($problem)) : "#{$submission['problem_id']}", '</dd>';
 				echo '<dt>submit time</dt>';
 				echo '<dd>', $submission['submit_time'], '</dd>';
 				echo '<dt>submitter</dt>';

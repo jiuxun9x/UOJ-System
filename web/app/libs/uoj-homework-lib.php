@@ -241,7 +241,7 @@ function homeworkUrl($domain, $homework, $path = '') {
 }
 // the problems of a homework in their order, each with what is known of the problem itself
 function homeworkProblems($homework) {
-	return DB::selectAll("select homework_problems.*, problems.title, problems.is_hidden, problems.owner_domain_id, problems.data_version from homework_problems left join problems on problems.id = homework_problems.problem_id where homework_id = {$homework['id']} order by position, problem_id");
+	return DB::selectAll("select homework_problems.*, problems.id, problems.domain_pid, problems.title, problems.is_hidden, problems.owner_domain_id, problems.data_version, problems.source_problem_id as copied_from, problems.source_data_version as copied_from_version from homework_problems left join problems on problems.id = homework_problems.problem_id where homework_id = {$homework['id']} order by position, problem_id");
 }
 // problem id => points
 function homeworkProblemPoints($homework) {
@@ -383,7 +383,8 @@ function homeworkRulesForSnapshot($homework, $unjudged) {
 		$problems[] = array(
 			'problem_id' => (int)$problem['problem_id'],
 			'title' => $problem['title'],
-			'source_problem_id' => $problem['source_problem_id'] === null ? null : (int)$problem['source_problem_id'],
+			'number' => problemNumber($problem),
+			'source_problem_id' => $problem['copied_from'] === null ? null : (int)$problem['copied_from'],
 			'position' => (int)$problem['position'],
 			'score' => (int)$problem['score'],
 			'required' => (int)$problem['required'],
@@ -486,9 +487,10 @@ function homeworkAddProblem($homework, $problem, $score, $required, $actor) {
 	if ($homework['status'] !== 'draft') {
 		return '作业发布后不能再改题目。开始之前可以先撤回发布';
 	}
-	// a problem that may not be used is refused like one that does not exist
-	if (!$problem || !can($actor, 'problem.use', $problem) || ($problem['owner_domain_id'] && $problem['owner_domain_id'] != $homework['domain_id'])) {
-		return '题目不存在，或者不能用在这个域的作业里';
+	// A homework is made of the problems of its domain. A problem of the site is copied into
+	// the domain first, and is a problem of the domain from then on, with a number there.
+	if (!$problem || $problem['owner_domain_id'] != $homework['domain_id']) {
+		return '本域没有这个题号。作业只能用本域的题目：主站的题目请先在“题目”页复制到本域';
 	}
 	if ($score < 1 || $score > 10000) {
 		return '分值应在 1 到 10000 之间';
@@ -543,7 +545,7 @@ function homeworkMoveProblemUp($homework, $problem_id) {
 // ---- the state machines of a homework
 //
 // Two things about a homework take time and must happen exactly once: publishing it, which
-// copies the public problems it uses into the domain, and settling it, which turns the
+// waits until the data of its problems is built, and settling it, which turns the
 // submissions into official scores. Both are advanced by homeworkAdvance(), one step at a
 // time, each step starting from what the database says the state is. Pages and the tick of
 // the command line only call it: whoever holds the lock of the homework does the work, and
@@ -648,14 +650,11 @@ function homeworkProblemDataState($problem_id) {
 	return $problem && $problem['data_version'] > 0 ? 'ready' : 'none';
 }
 
-// One step of publishing. Every public problem of the site that the homework uses is replaced
-// by a copy that belongs to the domain: the judgers judge with the data a problem has now, so
-// only a problem of its own keeps a homework from changing under its participants when
-// somebody else changes the problem. A copy the domain has already and has not touched is
-// used again. Then the homework waits until the data of all its problems is built.
-//
-// Running this again after it was interrupted makes no second copy: the copy that was made is
-// found as the untouched copy of its source.
+// One step of publishing. A homework is made of problems of its domain: the judgers judge
+// with the data a problem has now, so only problems that the domain keeps for itself save a
+// homework from changing under its participants when somebody else changes a problem. A
+// problem of the site is copied into the domain before it is put into a homework. Publishing
+// waits until the data of all the problems is built.
 function homeworkAdvancePublishing($homework) {
 	$fail = function($message) use ($homework) {
 		DB::update("update homeworks set status = 'draft', publish_error = '".DB::escape($message)."', updated_at = now() where id = {$homework['id']} and status = 'publishing'");
@@ -670,42 +669,21 @@ function homeworkAdvancePublishing($homework) {
 		return $fail('作业里还没有题目');
 	}
 	foreach ($problems as $row) {
-		$problem = queryProblemBrief($row['problem_id']);
-		if (!$problem) {
+		if ($row['id'] === null) {
 			return $fail("题目 #{$row['problem_id']} 不存在");
 		}
-		if ($problem['owner_domain_id'] == $homework['domain_id']) {
-			continue;
-		}
-		if ($problem['owner_domain_id'] || !can($actor, 'problem.copy', $problem)) {
-			return $fail("题目 #{$problem['id']} 不能用在这个域的作业里");
-		}
-		$copy = domainUntouchedCopy($domain, $problem);
-		if ($copy) {
-			$copy_id = (int)$copy['id'];
-			$source_version = (int)$copy['source_data_version'];
-		} else {
-			list($copy_id, $err) = domainCopyProblem($problem, $domain, $actor);
-			if ($err !== '') {
-				return $fail($err);
-			}
-			$source_version = (int)queryProblemBrief($copy_id)['source_data_version'];
-		}
-		if (DB::selectFirst("select 1 from homework_problems where homework_id = {$homework['id']} and problem_id = $copy_id")) {
-			// the copy is in the homework already, next to the problem it was copied from
-			DB::delete("delete from homework_problems where homework_id = {$homework['id']} and problem_id = {$problem['id']}");
-		} else {
-			DB::update("update homework_problems set problem_id = $copy_id, source_problem_id = {$problem['id']}, source_data_version = $source_version where homework_id = {$homework['id']} and problem_id = {$problem['id']}");
+		if ($row['owner_domain_id'] != $homework['domain_id']) {
+			return $fail("题目《".strip_tags($row['title'])."》不是本域的题目。请先把它复制到本域，再把副本加进作业");
 		}
 	}
-	foreach (homeworkProblems($homework) as $row) {
+	foreach ($problems as $row) {
 		$state = homeworkProblemDataState($row['problem_id']);
 		if ($state === 'building') {
 			// a judger is building it: there is nothing to do but to come back
 			return;
 		}
 		if ($state !== 'ready') {
-			return $fail("题目 #{$row['problem_id']} 还没有可以评测的数据");
+			return $fail("题目 #".problemNumber($row)."《".strip_tags($row['title'])."》还没有可以评测的数据");
 		}
 	}
 	DB::update("update homeworks set status = 'published', publish_error = null, updated_at = now() where id = {$homework['id']} and status = 'publishing'");

@@ -12,11 +12,12 @@ function trainingUrl($domain, $training, $path = '') {
 }
 // the problems of a training in their order, each with what is known of the problem itself
 function trainingProblems($training) {
-	return DB::selectAll("select training_problems.problem_id, training_problems.position, training_problems.required, problems.title, problems.is_hidden, problems.owner_domain_id from training_problems join problems on problems.id = training_problems.problem_id where training_problems.training_id = {$training['id']} order by training_problems.position, training_problems.problem_id");
+	return DB::selectAll("select training_problems.problem_id, training_problems.position, training_problems.required, problems.id, problems.domain_pid, problems.title, problems.is_hidden, problems.owner_domain_id from training_problems join problems on problems.id = training_problems.problem_id where training_problems.training_id = {$training['id']} order by training_problems.position, training_problems.problem_id");
 }
-// where a problem of a training is solved: in the domain if it is one of its problems
+// Where a problem of a training is solved. Trainings made before problems had to be copied
+// into the domain may still name problems of the site.
 function trainingProblemUrl($domain, $problem) {
-	return $problem['owner_domain_id'] ? domainProblemUrl($domain, $problem['problem_id']) : "/problem/{$problem['problem_id']}";
+	return problemUrl($problem);
 }
 
 // the best scores of users on problems: array(username => array(problem id => score))
@@ -108,9 +109,9 @@ function trainingDelete($training, $actor) {
 }
 
 function trainingAddProblem($training, $problem, $required, $actor) {
-	// a problem that may not be used is refused like one that does not exist
-	if (!$problem || !can($actor, 'problem.use', $problem) || ($problem['owner_domain_id'] && $problem['owner_domain_id'] != $training['domain_id'])) {
-		return '题目不存在，或者不能用在这个域的训练里';
+	// like a homework, a training is made of the problems of its domain
+	if (!$problem || $problem['owner_domain_id'] != $training['domain_id']) {
+		return '本域没有这个题号。训练只能用本域的题目：主站的题目请先在“题目”页复制到本域';
 	}
 	$position = 1 + (int)DB::selectFirst("select ifnull(max(position), 0) from training_problems where training_id = {$training['id']}", MYSQLI_NUM)[0];
 	if (!DB::insert("insert into training_problems (training_id, problem_id, position, required) values ({$training['id']}, {$problem['id']}, $position, ".($required ? 1 : 0).")")) {

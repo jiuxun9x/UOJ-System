@@ -125,6 +125,11 @@ def make_zip(files):
     return buf.getvalue()
 
 
+def pid(problem_id):
+    """the number people know a problem by: its id on the site, its number in its domain"""
+    return int(db_value("select ifnull(domain_pid, id) from problems where id = %d" % problem_id))
+
+
 def conf(**settings):
     return "".join("%s %s\n" % (key, val) for key, val in settings.items())
 
@@ -260,7 +265,18 @@ class Client:
         err = self.submit_form("/problems", "new_problem")
         if err:
             raise Exception("failed to create a problem: " + err[-800:])
-        return int(db_value("select max(id) from problems"))
+        # the problems of domains have ids of their own, far above those of the site
+        return int(db_value("select max(id) from problems where owner_domain_id is null"))
+
+    def copy_problem(self, slug, source):
+        """copy a problem into a domain: source is a number of the site, or '<slug>#<number>';
+        returns the id of the copy"""
+        err = self.form("/d/%s/problems" % slug, "copy", problem_id=str(source))
+        if err:
+            raise Exception("failed to copy problem %s: %s" % (source, err[-600:]))
+        return int(db_value(
+            "select max(problems.id) from problems, domains where domains.slug = '%s' and owner_domain_id = domains.id" % slug
+        ))  # fmt: skip
 
     def upload_data(self, problem_id, files, token=True):
         return self.post(
@@ -324,7 +340,7 @@ class Client:
             raise Exception("failed to register for contest #%d: %s" % (contest_id, err[-800:]))
 
     def submit_in_contest(self, contest_id, problem_id, code, language="C++17"):
-        err = self.submit_form("/contest/%d/problem/%d" % (contest_id, problem_id), "answer", {
+        err = self.submit_form("/contest/%d/problem/%d" % (contest_id, pid(problem_id)), "answer", {
             "answer_answer_upload_type": "editor",
             "answer_answer_editor": code,
             "answer_answer_language": language,

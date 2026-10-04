@@ -59,6 +59,10 @@ Route::group([
 		Route::any('/d/{slug}/homework/{homework_id}/scoreboard', '/domain/homework_scoreboard.php');
 		Route::any('/d/{slug}/homework/{homework_id}/problem/{id}', '/problem.php');
 		Route::any('/d/{slug}/problem/{id}', '/problem.php');
+		Route::any('/d/{slug}/problem/{id}/statistics', '/problem_statistics.php');
+		Route::any('/d/{slug}/problem/{id}/manage/statement', '/problem_statement_manage.php');
+		Route::any('/d/{slug}/problem/{id}/manage/managers', '/problem_managers_manage.php');
+		Route::any('/d/{slug}/problem/{id}/manage/data', '/problem_data_manage.php');
 
 		Route::any('/submissions', '/submissions_list.php');
 		Route::any('/submission/{id}', '/submission.php');

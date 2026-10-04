@@ -37,9 +37,10 @@
 	);
 	if ($training) {
 		$forms += array(
-			'add_problem' => function() use ($training, $posted_problem_id) {
+			'add_problem' => function() use ($domain, $training, $posted_problem_id) {
 				global $myUser;
-				return trainingAddProblem($training, queryProblemBrief($posted_problem_id()), !isset($_POST['optional']), $myUser);
+				// the number that is typed is the number the problem has in the domain
+				return trainingAddProblem($training, queryDomainProblem($domain['id'], $posted_problem_id()), !isset($_POST['optional']), $myUser);
 			},
 			'update_problem' => function() use ($training, $posted_problem_id) {
 				global $myUser;
@@ -119,9 +120,9 @@
 					<tr>
 						<td style="width:2.5em"><?= $index + 1 ?></td>
 						<td>
-							<a href="<?= trainingProblemUrl($domain, $problem) ?>">#<?= $problem['problem_id'] ?>. <?= $problem['title'] ?></a>
+							<a href="<?= trainingProblemUrl($domain, $problem) ?>"><?= $problem['owner_domain_id'] ? '#' . problemNumber($problem) : '主站 #' . $problem['problem_id'] ?>. <?= $problem['title'] ?></a>
 							<?php if (!$problem['owner_domain_id']): ?>
-							<span class="badge badge-info">全站公开题</span>
+							<span class="badge badge-info" title="这个训练是在题目必须先复制到本域之前建的">主站题目</span>
 							<?php endif ?>
 							<?php if ($problem['is_hidden']): ?>
 							<span class="badge badge-warning" title="这道题现在是隐藏的，学生打不开">学生看不到</span>
@@ -164,14 +165,14 @@
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="add_problem" />
 			<label class="mr-2 mb-2" for="input-problem_id">添加题目</label>
-			<input type="text" class="form-control mr-2 mb-2" id="input-problem_id" name="problem_id" placeholder="题号" required="required" style="width:7em" />
+			<input type="text" class="form-control mr-2 mb-2" id="input-problem_id" name="problem_id" placeholder="本域题号" required="required" style="width:7em" />
 			<div class="custom-control custom-checkbox mr-2 mb-2">
 				<input type="checkbox" class="custom-control-input" id="input-optional" name="optional" />
 				<label class="custom-control-label" for="input-optional">选做</label>
 			</div>
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
-		<p class="text-muted small">可以添加本域的题目，或全站公开的题目（直接引用，不复制）。本域的题目在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页里新建或从题库复制。</p>
+		<p class="text-muted small">填本域“题目”页里的题号。本域的题目在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页里新建；要用主站的题目，先在那里把它复制到本域。</p>
 	</div>
 	<?php endif ?>
 </div>

@@ -482,16 +482,15 @@ function domainSaveAnnouncement($domain, $id, $title, $content_md, $pinned, $act
 // into a domain as a copy, which is a problem of its own from then on: where it came from is
 // remembered, and nothing follows from it.
 
-function domainProblemUrl($domain, $problem_id) {
-	return domainUrl($domain, "/problem/$problem_id");
-}
 
 // Creates an empty problem in a domain and returns its id.
 function domainNewProblem($domain, $actor) {
 	requirePHPLib('judger');
 	requirePHPLib('data');
-	DB::insert("insert into problems (title, is_hidden, submission_requirement, owner_domain_id) values ('New Problem', 1, '{}', {$domain['id']})");
-	$id = DB::insert_id();
+	$id = problemCreate(array('title' => "'New Problem'", 'is_hidden' => 1, 'submission_requirement' => "'{}'"), $domain['id']);
+	if ($id === null) {
+		return null;
+	}
 	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '', '')");
 	dataNewProblem($id);
 	auditLog('problem.create', 'problem', $id, null, array('domain_id' => (int)$domain['id']), $actor);
@@ -510,16 +509,26 @@ function domainCopyProblem($source, $domain, $actor) {
 	requirePHPLib('data');
 	$source_version = dataCurrentVersion($source);
 	if (!$source_version) {
-		return array(null, "题目 #{$source['id']} 还没有数据，不能复制");
+		return array(null, "题目 " . problemLabel($source) . " 还没有数据，不能复制");
 	}
 	$extra_config = json_decode($source['extra_config'], true);
 	$extra_config = is_array($extra_config) ? $extra_config : array();
 	unset($extra_config['custom_judger_fingerprint']);
 	
-	if (!DB::insert("insert into problems (title, is_hidden, submission_requirement, hackable, extra_config, owner_domain_id, source_problem_id, source_data_version, imported_at, imported_by) values ('".DB::escape($source['title'])."', 1, '".DB::escape($source['submission_requirement'])."', ".(int)$source['hackable'].", '".DB::escape(json_encode($extra_config))."', {$domain['id']}, {$source['id']}, {$source_version['version']}, now(), '".DB::escape($actor['username'])."')")) {
+	$id = problemCreate(array(
+		'title' => "'".DB::escape($source['title'])."'",
+		'is_hidden' => 1,
+		'submission_requirement' => "'".DB::escape($source['submission_requirement'])."'",
+		'hackable' => (int)$source['hackable'],
+		'extra_config' => "'".DB::escape(json_encode($extra_config))."'",
+		'source_problem_id' => (int)$source['id'],
+		'source_data_version' => (int)$source_version['version'],
+		'imported_at' => 'now()',
+		'imported_by' => "'".DB::escape($actor['username'])."'"
+	), $domain['id']);
+	if ($id === null) {
 		return array(null, '复制失败');
 	}
-	$id = DB::insert_id();
 	$content = queryProblemContent($source['id']);
 	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '".DB::escape($content['statement'])."', '".DB::escape($content['statement_md'])."')");
 	foreach (queryProblemTags($source['id']) as $tag) {
@@ -536,22 +545,11 @@ function domainCopyProblem($source, $domain, $actor) {
 		DB::delete("delete from problems_tags where problem_id = $id");
 		exec("rm -rf ".escapeshellarg("/var/uoj_data/upload/$id")." ".escapeshellarg("/var/uoj_data/$id")." ".escapeshellarg("/var/uoj_data/$id.zip"));
 		auditLog('problem.copy_failed', 'problem', $id, null, array('reason' => strip_tags($err)), $actor);
-		return array(null, "复制题目 #{$source['id']} 失败：" . strip_tags($err));
+		return array(null, "复制题目 " . problemLabel($source) . " 失败：" . strip_tags($err));
 	}
 	return array($id, '');
 }
 
-// A copy of a problem that a domain has already and that nobody has touched since: the same
-// source at the same version of its data, and the data of the copy still the first it was given.
-function domainUntouchedCopy($domain, $source) {
-	requirePHPLib('judger');
-	requirePHPLib('data');
-	$source_version = dataCurrentVersion($source);
-	if (!$source_version) {
-		return null;
-	}
-	return DB::selectFirst("select problems.* from problems where owner_domain_id = {$domain['id']} and source_problem_id = {$source['id']} and source_data_version = {$source_version['version']} and not exists (select 1 from problem_data_versions where problem_id = problems.id and version > 1) order by id limit 1", MYSQLI_ASSOC);
-}
 // whether the data of a problem can be judged with: its newest version is published
 function domainProblemDataState($problem_id) {
 	$row = DB::selectFirst("select status, message from problem_data_versions where problem_id = ".(int)$problem_id." order by version desc limit 1");

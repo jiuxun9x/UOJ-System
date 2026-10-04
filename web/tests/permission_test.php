@@ -443,11 +443,6 @@ check_ability('contest.view', $facts->contests[10], array('nobody' => true, 'ali
 check_ability('contest.manage', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'owner' => false), 'a contest of a domain');
 check_ability('contest.assist', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a contest of a domain');
 check_ability('contest.rate', $domain_contest, array('lead' => false, 'lecturer' => false, 'root' => true), 'a contest of a domain');
-// a contest or a training of a domain may use the problems of the domain and the public ones of the site
-check_ability('problem.use', $facts->problems[1], array('nobody' => true, 'alice' => true, 'lecturer' => true), 'a public problem');
-check_ability('problem.use', $facts->problems[2], array('alice' => false, 'lecturer' => false, 'setter' => true), 'a hidden problem');
-check_ability('problem.use', $facts->problems[21], array('lecturer' => true, 'tutor' => false, 'pupil' => false, 'alice' => false, 'setter' => false), 'a hidden problem of a domain');
-check_ability('problem.use', $facts->problems[22], array('lecturer' => false, 'setter' => true), 'a problem of another domain');
 
 // ---- homework
 $facts->now = strtotime('2026-10-07 12:00:00');

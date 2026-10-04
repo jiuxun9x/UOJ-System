@@ -46,7 +46,7 @@
 		if (isset($_GET['export'])) {
 			$head = array('username', 'student_id', 'real_name');
 			foreach ($problems as $problem) {
-				$head[] = '#' . $problem['problem_id'];
+				$head[] = '#' . problemNumber($problem);
 			}
 			$lines = array(array_merge($head, array('solved', 'done')));
 			foreach ($rows as $username => $progress) {

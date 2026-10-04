@@ -2,7 +2,9 @@
 	requirePHPLib('form');
 	requirePHPLib('judger');
 	
-	if (!validateUInt($_GET['id']) || !($problem = queryProblemBrief($_GET['id']))) {
+	// the number in the address is the number of the problem where the address is: on the
+	// site, or in a domain
+	if (!($problem = problemOfPage())) {
 		become404Page();
 	}
 	
@@ -29,7 +31,7 @@
 		if (!$owner_domain || !can($myUser, 'problem.view', $problem)) {
 			become404Page();
 		}
-		redirectTo(domainProblemUrl($owner_domain, $problem['id']));
+		redirectTo(problemUrl($problem));
 	}
 	
 	$contest = validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
@@ -275,9 +277,9 @@ EOD
 <?php else: ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - ' . UOJLocale::get('problems::problem')) ?>
 <?php if (Auth::check() && !$contest): ?>
-<?php foreach (DB::selectAll("select homeworks.*, homework_problems.problem_id as copy_id from homework_problems, homeworks, homework_participants where homework_problems.source_problem_id = {$problem['id']} and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape(Auth::id())."' and homework_participants.status = 'active'") as $my_homework): ?>
+<?php foreach (DB::selectAll("select homeworks.*, copies.domain_pid as copy_number from homework_problems, problems as copies, homeworks, homework_participants where copies.id = homework_problems.problem_id and copies.source_problem_id = {$problem['id']} and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape(Auth::id())."' and homework_participants.status = 'active'") as $my_homework): ?>
 <?php $my_homework_domain = queryDomain($my_homework['domain_id']); ?>
-<div class="alert alert-info" role="alert">这道题是你的作业 <a href="<?= homeworkUrl($my_homework_domain, $my_homework) ?>"><?= HTML::escape($my_homework['title']) ?></a> 里的题目。在这里提交不计入作业成绩，请到 <a href="<?= homeworkUrl($my_homework_domain, $my_homework, '/problem/' . $my_homework['copy_id']) ?>">作业里提交</a>。</div>
+<div class="alert alert-info" role="alert">这道题是你的作业 <a href="<?= homeworkUrl($my_homework_domain, $my_homework) ?>"><?= HTML::escape($my_homework['title']) ?></a> 里的题目。在这里提交不计入作业成绩，请到 <a href="<?= homeworkUrl($my_homework_domain, $my_homework, '/problem/' . $my_homework['copy_number']) ?>">作业里提交</a>。</div>
 <?php endforeach ?>
 <?php endif ?>
 <?php endif ?>
@@ -300,7 +302,7 @@ EOD
 	<h1 class="col-md-7 text-center"><?= $problem_letter ?>. <?= $problem['title'] ?></h1>
 	<div class="col-md-2 text-right" id="contest-countdown"></div>
 </div>
-<a role="button" class="btn btn-info float-right" href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['id'] ?>/statistics"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('problems::statistics') ?></a>
+<a role="button" class="btn btn-info float-right" href="/contest/<?= $contest['id'] ?>/problem/<?= problemNumber($problem) ?>/statistics"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('problems::statistics') ?></a>
 <?php if ($contest['cur_progress'] <= CONTEST_IN_PROGRESS): ?>
 <script type="text/javascript">
 checkContestNotice(<?= $contest['id'] ?>, '<?= UOJTime::$time_now_str ?>');
@@ -316,8 +318,8 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 </script>
 <?php endif ?>
 <?php else: ?>
-<h1 class="page-header text-center">#<?= $problem['id']?>. <?= $problem['title'] ?></h1>
-<a role="button" class="btn btn-info float-right" href="/problem/<?= $problem['id'] ?>/statistics"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('problems::statistics') ?></a>
+<h1 class="page-header text-center">#<?= problemNumber($problem) ?>. <?= $problem['title'] ?></h1>
+<a role="button" class="btn btn-info float-right" href="<?= problemUrl($problem, '/statistics') ?>"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('problems::statistics') ?></a>
 <?php endif ?>
 
 <ul class="nav nav-tabs" role="tablist">
@@ -327,7 +329,7 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 	<li class="nav-item"><a class="nav-link" href="#tab-custom-test" role="tab" data-toggle="tab"><span class="glyphicon glyphicon-console"></span> <?= UOJLocale::get('problems::custom test') ?></a></li>
 	<?php endif ?>
 	<?php if (can($myUser, 'problem.manage', $problem)): ?>
-	<li class="nav-item"><a class="nav-link" href="/problem/<?= $problem['id'] ?>/manage/statement" role="tab"><?= UOJLocale::get('problems::manage') ?></a></li>
+	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/statement') ?>" role="tab"><?= UOJLocale::get('problems::manage') ?></a></li>
 	<?php endif ?>
 	<?php if ($contest): ?>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?= $contest['id'] ?>" role="tab"><?= UOJLocale::get('contests::back to the contest') ?></a></li>

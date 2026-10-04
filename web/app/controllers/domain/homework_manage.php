@@ -51,10 +51,11 @@
 	);
 	if ($homework) {
 		$forms += array(
-			'add_problem' => function() use ($homework, $posted_problem_id) {
+			'add_problem' => function() use ($domain, $homework, $posted_problem_id) {
 				global $myUser;
 				$score = isset($_POST['score']) && validateUInt($_POST['score']) ? (int)$_POST['score'] : 0;
-				return homeworkAddProblem($homework, queryProblemBrief($posted_problem_id()), $score, !isset($_POST['optional']), $myUser);
+				// the number that is typed is the number the problem has in the domain
+				return homeworkAddProblem($homework, queryDomainProblem($domain['id'], $posted_problem_id()), $score, !isset($_POST['optional']), $myUser);
 			},
 			'update_problem' => function() use ($homework, $posted_problem_id) {
 				global $myUser;
@@ -209,7 +210,7 @@
 <?php echoDomainError($error) ?>
 
 <?php if ($homework && $homework['status'] === 'publishing'): ?>
-<div class="alert alert-info" id="homework-publishing">正在发布：作业用到的公开题正在复制到本域，并等待评测机准备数据。完成后会自动变为“已发布”，可以稍后刷新这个页面。</div>
+<div class="alert alert-info" id="homework-publishing">正在发布：正在等待评测机准备题目的数据。完成后会自动变为“已发布”，可以稍后刷新这个页面。</div>
 <?php elseif ($homework && $homework['status'] === 'draft' && $homework['publish_error'] !== null): ?>
 <div class="alert alert-danger" id="homework-publish-error">上次发布没有成功：<?= HTML::escape($homework['publish_error']) ?></div>
 <?php endif ?>
@@ -406,11 +407,11 @@ $(document).ready(function() {
 			<tr>
 				<td><?= chr(ord('A') + $index % 26) ?></td>
 				<td>
-					<a href="<?= $problem['owner_domain_id'] ? domainProblemUrl($domain, $problem['problem_id']) : '/problem/' . $problem['problem_id'] ?>">#<?= $problem['problem_id'] ?>. <?= $problem['title'] ?></a>
+					<a href="<?= problemUrl($problem) ?>">#<?= problemNumber($problem) ?>. <?= $problem['title'] ?></a>
 					<?php if (!$problem['owner_domain_id']): ?>
-					<span class="badge badge-info" title="发布作业时会复制成本域的题目">全站公开题</span>
-					<?php elseif ($problem['source_problem_id']): ?>
-					<small class="text-muted">复制自 #<?= $problem['source_problem_id'] ?> v<?= $problem['source_data_version'] ?></small>
+					<span class="badge badge-warning" title="作业只能用本域的题目：请把它复制到本域，再把副本加进作业">主站题目，不能发布</span>
+					<?php elseif ($problem['copied_from']): ?>
+					<small class="text-muted"><?= HTML::escape(problemSourceNote($problem['copied_from'], $problem['copied_from_version'])) ?></small>
 					<?php endif ?>
 					<?php if (!$problem['required']): ?><span class="badge badge-light border">选做</span><?php endif ?>
 				</td>
@@ -466,7 +467,7 @@ $(document).ready(function() {
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="add_problem" />
 			<label class="mr-2 mb-2" for="input-homework-problem-id">添加题目</label>
-			<input type="text" class="form-control mr-2 mb-2" id="input-homework-problem-id" name="problem_id" pattern="[0-9]+" required="required" placeholder="题号" style="width:7em" />
+			<input type="text" class="form-control mr-2 mb-2" id="input-homework-problem-id" name="problem_id" pattern="[0-9]+" required="required" placeholder="本域题号" style="width:7em" />
 			<input type="number" class="form-control mr-2 mb-2" name="score" min="1" max="10000" value="100" title="分值" style="width:6em" />
 			<div class="custom-control custom-checkbox mr-3 mb-2">
 				<input type="checkbox" class="custom-control-input" id="input-new-optional" name="optional" />
@@ -474,7 +475,7 @@ $(document).ready(function() {
 			</div>
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
-		<small class="text-muted">可以用本域的题目和全站公开的题目。全站公开题在发布时会自动复制成本域的隐藏题，之后别人修改原题不会影响这次作业。</small>
+		<small class="text-muted">填本域“题目”页里的题号。要用主站的题目，先到 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页把它复制到本域：副本是本域自己的题，之后别人修改原题不会影响这次作业。</small>
 	</div>
 </div>
 <form method="post" class="d-inline" onsubmit="return confirm('发布后学生就能看到这个作业并认领，题目列表不能再改。确定发布吗？');">
@@ -611,8 +612,10 @@ $(document).ready(function() {
 	// what the official scores would be now, where that is not what they are
 	$stale = $official !== null && !$active_snapshot ? homeworkScoreDifferences($official, $live) : array();
 	$titles = array();
+	$numbers = array();
 	foreach ($problems as $problem) {
 		$titles[(int)$problem['problem_id']] = $problem['title'];
+		$numbers[(int)$problem['problem_id']] = problemNumber($problem);
 	}
 ?>
 <?php if ($homework['status'] !== 'published'): ?>
@@ -642,7 +645,7 @@ $(document).ready(function() {
 	<strong>题目数据在计分之后有过修改：</strong>
 	<ul class="mb-0">
 		<?php foreach ($drift as $problem_id => $info): ?>
-		<li>#<?= $problem_id ?>. <?= $info['title'] ?>：当前数据是 v<?= $info['current'] ?>，有 <?= $info['scores'] ?> 份计分的提交是按 v<?= join('、v', $info['judged_with']) ?> 评测的。</li>
+		<li>#<?= isset($numbers[$problem_id]) ? $numbers[$problem_id] : $problem_id ?>. <?= $info['title'] ?>：当前数据是 v<?= $info['current'] ?>，有 <?= $info['scores'] ?> 份计分的提交是按 v<?= join('、v', $info['judged_with']) ?> 评测的。</li>
 		<?php endforeach ?>
 	</ul>
 	<div class="mt-1">如果修改影响判题结果，请在下面重测对应题目<?= $homework['settle_state'] === 'settled' ? '并重新结算' : '' ?>。</div>
@@ -682,7 +685,7 @@ $(document).ready(function() {
 					<?php foreach (array_slice($changes, 0, 200) as $change): ?>
 					<tr>
 						<td><?= getUserLink($change['username']) ?></td>
-						<td>#<?= $change['problem_id'] ?><?= isset($titles[$change['problem_id']]) ? '. ' . $titles[$change['problem_id']] : '' ?></td>
+						<td>#<?= isset($numbers[$change['problem_id']]) ? $numbers[$change['problem_id']] : $change['problem_id'] ?><?= isset($titles[$change['problem_id']]) ? '. ' . $titles[$change['problem_id']] : '' ?></td>
 						<td><?= homeworkTrimNumber($change['before']) ?></td>
 						<td class="<?= $change['after'] > $change['before'] ? 'text-success' : 'text-danger' ?>"><strong><?= homeworkTrimNumber($change['after']) ?></strong></td>
 					</tr>
@@ -723,7 +726,7 @@ $(document).ready(function() {
 						<option value="none">不重测，只按现在的提交重新计算</option>
 						<?php endif ?>
 						<?php foreach ($problems as $problem): ?>
-						<option value="<?= $problem['problem_id'] ?>"<?= isset($drift[(int)$problem['problem_id']]) ? ' selected="selected"' : '' ?>>只重测 #<?= $problem['problem_id'] ?>. <?= HTML::escape(strip_tags($problem['title'])) ?></option>
+						<option value="<?= $problem['problem_id'] ?>"<?= isset($drift[(int)$problem['problem_id']]) ? ' selected="selected"' : '' ?>>只重测 #<?= problemNumber($problem) ?>. <?= HTML::escape(strip_tags($problem['title'])) ?></option>
 						<?php endforeach ?>
 						<option value="all">重测全部题目</option>
 					</select>
