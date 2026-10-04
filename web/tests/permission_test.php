@@ -65,6 +65,10 @@ class FakePermissionFacts {
 	public function hasRegistered($username, $contest_id) {
 		return in_array(array($username, $contest_id), $this->registered);
 	}
+	public $contest_lists = array();
+	public function contestAllows($username, $contest_id) {
+		return in_array(array($username, $contest_id), $this->contest_lists);
+	}
 	public function hasAccepted($username, $problem_id) {
 		return in_array(array($username, $problem_id), $this->accepted);
 	}
@@ -521,6 +525,37 @@ check_ability('training.view_progress', $published_training, $strangers + array(
 $archived_training = array('id' => 3, 'domain_id' => 4, 'status' => 'published');
 check_ability('training.view', $archived_training, array('pupil' => true, 'lecturer' => true, 'alice' => false), 'a training of an archived domain');
 check_ability('training.manage', $archived_training, array('lead' => false, 'lecturer' => false), 'a training of an archived domain');
+
+// ---- who may take part in a contest: everybody, the people on a list, whoever knows a password
+$open_contest = array('join_mode' => 'open') + fake_contest(30, CONTEST_FINISHED);
+$listed_contest = array('join_mode' => 'list') + fake_contest(31, CONTEST_FINISHED);
+$locked_contest = array('join_mode' => 'password') + fake_contest(32, CONTEST_FINISHED);
+$facts->contests += array(30 => $open_contest, 31 => $listed_contest, 32 => $locked_contest);
+$facts->contest_staff += array('helper/31' => 'assistant', 'helper/32' => 'assistant');
+// alice is on the list and registered, bob is on the list, setter registered for the one with a password
+$facts->contest_lists = array(array('alice', 31), array('bob', 31));
+$facts->registered = array_merge($facts->registered, array(array('alice', 31), array('setter', 32)));
+
+check_ability('contest.view', $open_contest, array('nobody' => true, 'alice' => true, 'bob' => true), 'a contest for everybody');
+check_ability('contest.enter', $open_contest, array('nobody' => true, 'bob' => true), 'a contest for everybody');
+// a contest for the people on a list exists for them alone
+check_ability('contest.view', $listed_contest, array('nobody' => false, 'teacher' => false, 'setter' => false, 'alice' => true, 'bob' => true, 'helper' => true, 'root' => true, 'ojadmin' => true), 'a contest for a list');
+check_ability('contest.register', $listed_contest, array('nobody' => false, 'setter' => false, 'bob' => true, 'alice' => false, 'helper' => false), 'a contest for a list');
+check_ability('contest.enter', $listed_contest, array('nobody' => false, 'setter' => false, 'bob' => false, 'alice' => true, 'helper' => true, 'root' => true), 'a contest for a list, which stays with who registered');
+// a contest with a password is seen by everybody, and entered by who registered
+check_ability('contest.view', $locked_contest, array('nobody' => true, 'alice' => true, 'bob' => true), 'a contest with a password');
+check_ability('contest.register', $locked_contest, array('nobody' => false, 'alice' => true, 'setter' => false, 'helper' => false), 'a contest with a password');
+check_ability('contest.enter', $locked_contest, array('nobody' => false, 'alice' => false, 'bob' => false, 'setter' => true, 'helper' => true, 'root' => true), 'a contest with a password, which stays with who registered');
+// and so do its problems once it is over
+$facts->problems[40] = array('id' => 40, 'is_hidden' => 1, 'extra_config' => '{}');
+check_same(true, canViewContestProblem($permission_test_users['bob'], $facts->problems[40], $open_contest), 'a problem of a contest for everybody, after it');
+check_same(false, canViewContestProblem($permission_test_users['bob'], $facts->problems[40], $locked_contest), 'a problem of a contest with a password, for who did not take part');
+check_same(true, canViewContestProblem($permission_test_users['setter'], $facts->problems[40], $locked_contest), 'and for who did');
+// a contest that says nothing about who may take part is one for everybody
+check_ability('contest.enter', fake_contest(11, CONTEST_FINISHED), array('nobody' => true, 'bob' => true), 'a contest from before there were lists');
+// the lists of contests leave out what the rule above leaves out
+check_same('1', visibleContestsCond($permission_test_users['root']), 'an administrator sees every contest in a list');
+check_same("contests.join_mode != 'list'", visibleContestsCond(null), 'a visitor sees no contest for a list');
 
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');

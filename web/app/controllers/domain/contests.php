@@ -29,7 +29,13 @@
 		}
 	));
 	
-	$contests = DB::selectAll("select * from contests where domain_id = {$domain['id']} order by start_time desc, id desc");
+	$contests = array();
+	foreach (DB::selectAll("select * from contests where domain_id = {$domain['id']} order by start_time desc, id desc") as $contest) {
+		// a contest for the people on a list is shown to them
+		if (can($myUser, 'contest.view', $contest)) {
+			$contests[] = $contest;
+		}
+	}
 	$progress_names = array(
 		CONTEST_NOT_STARTED => array('未开始', 'badge-info'),
 		CONTEST_IN_PROGRESS => array('进行中', 'badge-success'),

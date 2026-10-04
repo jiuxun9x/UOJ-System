@@ -133,6 +133,12 @@ class UOJPermissionFacts {
 	public function hasRegistered($username, $contest_id) {
 		return DB::selectFirst("select 1 from contests_registrants where username = '".DB::escape($username)."' and contest_id = ".(int)$contest_id) != null;
 	}
+	// whether a user is on the list of a contest: by their name, or by a student number the
+	// school vouches for
+	public function contestAllows($username, $contest_id) {
+		$esc_username = DB::escape($username);
+		return DB::selectFirst("select 1 from contest_allowed_users where contest_id = ".(int)$contest_id." and (username = '$esc_username' or username in (select student_id from external_identities where username = '$esc_username')) limit 1") != null;
+	}
 	public function hasAccepted($username, $problem_id) {
 		return DB::selectFirst("select 1 from best_ac_submissions where submitter = '".DB::escape($username)."' and problem_id = ".(int)$problem_id) != null;
 	}
@@ -594,8 +600,36 @@ function can($user, $ability, $resource = null) {
 		// ---- contests
 		// A contest of a domain exists for the members of the domain only, and is run by the
 		// people who teach there.
+		// A contest of a domain exists for the members of the domain. A contest for the people
+		// on a list exists for them: nobody else sees it anywhere.
 		case 'contest.view':
-			return empty($resource['domain_id']) || can($user, 'domain.view', $facts->domain($resource['domain_id']));
+			if (!empty($resource['domain_id']) && !can($user, 'domain.view', $facts->domain($resource['domain_id']))) {
+				return false;
+			}
+			if (isset($resource['join_mode']) && $resource['join_mode'] === 'list') {
+				return can($user, 'contest.assist', $resource)
+					|| ($name !== null && ($facts->hasRegistered($name, $resource['id']) || $facts->contestAllows($name, $resource['id'])));
+			}
+			return true;
+		// Registering before it begins. Whoever needs a password is asked for it by the page.
+		case 'contest.register':
+			return $name !== null && can($user, 'contest.view', $resource) && !can($user, 'contest.assist', $resource)
+				&& !$facts->hasRegistered($name, $resource['id']);
+		// Getting inside once it has begun: its problems, its standings, what was submitted.
+		// A contest that is not for everybody stays with the people who registered for it,
+		// after it has ended as well. Whether a contest for everybody is open to somebody
+		// who did not register depends on whether it still runs, which the pages look at.
+		case 'contest.enter':
+			if (!can($user, 'contest.view', $resource)) {
+				return false;
+			}
+			if (can($user, 'contest.assist', $resource)) {
+				return true;
+			}
+			if (isset($resource['join_mode']) && $resource['join_mode'] !== 'open') {
+				return $name !== null && $facts->hasRegistered($name, $resource['id']);
+			}
+			return true;
 		case 'contest.manage':
 			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) === 'owner')) {
 				return true;
@@ -809,6 +843,22 @@ function runningContestsCond() {
 	return "contests.status = 'unfinished' and contests.start_time <= '$now' and date_add(contests.start_time, interval contests.last_min minute) > '$now'";
 }
 
+// The condition that keeps the contests somebody may not see out of a list of contests: the
+// same rule as 'contest.view' for what is not a matter of domains.
+function visibleContestsCond($user) {
+	if (isSiteAdmin($user)) {
+		return '1';
+	}
+	if ($user == null) {
+		return "contests.join_mode != 'list'";
+	}
+	$esc_username = DB::escape($user['username']);
+	return "(contests.join_mode != 'list'"
+		." or contests.id in (select contest_id from contests_registrants where username = '$esc_username')"
+		." or contests.id in (select contest_id from contests_permissions where username = '$esc_username')"
+		." or contests.id in (select contest_id from contest_allowed_users where username = '$esc_username' or username in (select student_id from external_identities where username = '$esc_username')))";
+}
+
 // The conditions that keep what a user may not see out of the lists of submissions and hacks.
 function visibleSubmissionsCond($user) {
 	if (can($user, 'submission.view_all')) {
@@ -862,7 +912,8 @@ function canViewContestProblem($user, $problem, $contest) {
 		return true;
 	}
 	if ($contest['cur_progress'] >= CONTEST_PENDING_FINAL_TEST) {
-		return true;
+		// a contest that is not for everybody stays with the people who took part in it
+		return can($user, 'contest.enter', $contest);
 	}
 	if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 		return false;

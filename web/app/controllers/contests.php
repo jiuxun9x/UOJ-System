@@ -10,6 +10,11 @@
 		$contest_name_link = <<<EOD
 <a href="/contest/{$contest['id']}">{$contest['name']}</a>
 EOD;
+		if ($contest['join_mode'] === 'password') {
+			$contest_name_link .= ' <span class="badge badge-secondary" title="需要参赛密码才能报名">需要密码</span>';
+		} elseif ($contest['join_mode'] === 'list') {
+			$contest_name_link .= ' <span class="badge badge-secondary" title="只有名单里的人能看到这场比赛">仅名单</span>';
+		}
 		genMoreContestInfo($contest);
 		if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 			$cur_rest_second = $contest['start_time']->getTimestamp() - UOJTime::$time_now->getTimestamp();
@@ -56,7 +61,7 @@ EOD;
 	$table_header .= '<th style="width:100px;">'.UOJLocale::get('contests::the number of registrants').'</th>';
 	$table_header .= '<th style="width:180px;">'.UOJLocale::get('appraisal').'</th>';
 	$table_header .= '</tr>';
-	echoLongTable(array('*'), 'contests', "status != 'finished' and domain_id is null", 'order by start_time asc, id asc', $table_header,
+	echoLongTable(array('*'), 'contests', "status != 'finished' and domain_id is null and " . visibleContestsCond($myUser), 'order by start_time asc, id asc', $table_header,
 		echoContest,
 		array('page_len' => 100)
 	);
@@ -81,7 +86,7 @@ EOD;
 
 <h4><?= UOJLocale::get('contests::ended contests') ?></h4>
 <?php
-	echoLongTable(array('*'), 'contests', "status = 'finished' and domain_id is null", 'order by start_time desc, id desc', $table_header,
+	echoLongTable(array('*'), 'contests', "status = 'finished' and domain_id is null and " . visibleContestsCond($myUser), 'order by start_time desc, id desc', $table_header,
 		echoContest,
 		array('page_len' => 100,
 			'print_after_table' => function() {

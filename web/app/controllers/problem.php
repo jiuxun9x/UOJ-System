@@ -61,6 +61,10 @@
 					DB::update("update contests_registrants set has_participated = 1 where username = '{$myUser['username']}' and contest_id = {$contest['id']}");
 				}
 			} else {
+				// over: a contest that is not for everybody stays with the people who took part
+				if (!can($myUser, 'contest.enter', $contest)) {
+					become404Page();
+				}
 				$ban_in_contest = !can($myUser, 'problem.view', $problem);
 			}
 		}

@@ -114,6 +114,78 @@ function contestCreate($name, $start_time_str, $last_min, $actor, $domain = null
 	return $contest_id;
 }
 
+// ---- who may take part in a contest
+
+function contestJoinModes() {
+	return array(
+		'open' => '自由参加：能看到这场比赛的人都可以报名',
+		'list' => '名单限制：只有名单里的人能看到并报名',
+		'password' => '密码限制：知道参赛密码的人才能报名'
+	);
+}
+// Sets who may take part. $password is the new password of a contest that asks for one; ''
+// keeps the one it has. Returns '' or why it was refused.
+function contestSetJoinMode($contest, $mode, $password, $actor) {
+	if (!isset(contestJoinModes()[$mode])) {
+		return '无效的参加方式';
+	}
+	$set = "join_mode = '$mode'";
+	if ($mode === 'password') {
+		if (!is_string($password) || ($password === '' && $contest['join_password'] === '')) {
+			return '请设置参赛密码';
+		}
+		if ($password !== '') {
+			if (strlen($password) < 4 || strlen($password) > 64 || preg_match('/[\x00-\x1f\x7f]/', $password)) {
+				return '参赛密码应为 4 到 64 个字符';
+			}
+			$set .= ", join_password = '".DB::escape(password_hash($password, PASSWORD_BCRYPT))."'";
+		}
+	}
+	DB::update("update contests set $set where id = {$contest['id']}");
+	// the password is not written down where changes are
+	auditLog('contest.edit_access', 'contest', $contest['id'], array('join_mode' => $contest['join_mode']), array('join_mode' => $mode, 'password_changed' => $mode === 'password' && $password !== ''), $actor);
+	return '';
+}
+// the list of a contest, each line with the user it stands for if there is one yet
+function contestAllowedUsers($contest) {
+	$rows = DB::selectAll("select username, added_by, added_at from contest_allowed_users where contest_id = {$contest['id']} order by username");
+	foreach ($rows as &$row) {
+		$user = validateUsername($row['username']) ? queryUser($row['username']) : null;
+		if (!$user) {
+			$identity = DB::selectFirst("select username from external_identities where student_id = '".DB::escape($row['username'])."' order by id limit 1");
+			$user = $identity ? queryUser($identity['username']) : null;
+		}
+		$row['user'] = $user ? $user['username'] : null;
+	}
+	unset($row);
+	return $rows;
+}
+// Puts the lines of a text on the list of a contest: usernames and student numbers, one a
+// line. Returns array(how many were added, the lines that are neither).
+function contestAllowUsers($contest, $text, $actor) {
+	$added = 0;
+	$refused = array();
+	$lines = array_slice(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,;]+/', $text)), 'strlen')), 0, 5000);
+	foreach ($lines as $line) {
+		if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $line)) {
+			$refused[] = $line;
+			continue;
+		}
+		// the name as the user writes it, where there is such a user
+		$user = validateUsername($line) ? queryUser($line) : null;
+		$entry = $user ? $user['username'] : $line;
+		DB::insert("insert ignore into contest_allowed_users (contest_id, username, added_by, added_at) values ({$contest['id']}, '".DB::escape($entry)."', '".DB::escape($actor['username'])."', now())");
+		$added += DB::affected_rows() == 1 ? 1 : 0;
+	}
+	auditLog('contest.allow_users', 'contest', $contest['id'], null, array('added' => $added, 'refused' => count($refused)), $actor);
+	return array($added, $refused);
+}
+function contestDisallowUser($contest, $entry, $actor) {
+	DB::delete("delete from contest_allowed_users where contest_id = {$contest['id']} and username = '".DB::escape($entry)."'");
+	auditLog('contest.disallow_user', 'contest', $contest['id'], array('username' => $entry), null, $actor);
+	return '';
+}
+
 function genMoreContestInfo(&$contest) {
 	$contest['start_time_str'] = $contest['start_time'];
 	$contest['start_time'] = new DateTime($contest['start_time']);

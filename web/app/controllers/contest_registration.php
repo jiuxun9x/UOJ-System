@@ -14,11 +14,29 @@
 	
 	if ($myUser == null) {
 		redirectToLogin();
-	} elseif (can($myUser, 'contest.assist', $contest) || hasRegistered($myUser, $contest) || $contest['cur_progress'] != CONTEST_NOT_STARTED) {
+	} elseif (!can($myUser, 'contest.register', $contest) || $contest['cur_progress'] != CONTEST_NOT_STARTED) {
+		// the people who run it do not register, nobody registers twice, and nobody once it began
 		redirectTo('/contests');
 	}
 	
 	$register_form = new UOJForm('register');
+	if ($contest['join_mode'] === 'password') {
+		// Whoever knows the password may take part. Guessing is slow, and stops after a while.
+		$register_form->addInput('join_password', 'password', '参赛密码', '',
+			function($password) use ($contest) {
+				$key = "contest_password_failures_{$contest['id']}";
+				if (isset($_SESSION[$key]) && $_SESSION[$key] >= 20) {
+					return '尝试次数过多，请重新登录后再试';
+				}
+				if (!is_string($password) || !password_verify($password, $contest['join_password'])) {
+					$_SESSION[$key] = (isset($_SESSION[$key]) ? $_SESSION[$key] : 0) + 1;
+					return '参赛密码不正确';
+				}
+				return '';
+			},
+			null
+		);
+	}
 	$register_form->handle = function() {
 		global $myUser, $contest;
 		DB::query("insert into contests_registrants (username, user_rating, contest_id, has_participated) values ('{$myUser['username']}', {$myUser['rating']}, {$contest['id']}, 0)");
@@ -41,5 +59,10 @@
 	<li>比赛排名按分数为第一关键字，完成题目的总时间为第二关键字。完成题目的总时间等于完成每道题所花时间之和（无视掉爆零的题目）。</li>
 	<li>请遵守比赛规则，一位选手在一场比赛内不得报名多个账号，选手之间不能交流或者抄袭代码，如果被检测到将以0分处理或者封禁。</li>
 </ul>
+<?php if ($contest['join_mode'] === 'password'): ?>
+<p id="contest-needs-password">这场比赛需要参赛密码才能报名，请向举办者索取。</p>
+<?php elseif ($contest['join_mode'] === 'list'): ?>
+<p id="contest-on-list">这场比赛只对名单里的人开放，你在名单里。</p>
+<?php endif ?>
 <?php $register_form->printHTML(); ?>
 <?php echoUOJPageFooter() ?>

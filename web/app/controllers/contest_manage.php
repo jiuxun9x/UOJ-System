@@ -231,6 +231,30 @@
 	$time_form->runAtServer();
 	$managers_form->runAtServer();
 	$problems_form->runAtServer();
+
+	// who may take part
+	$access_error = domainHandleForms(array(
+		'join_mode' => function() use ($contest) {
+			global $myUser;
+			$err = contestSetJoinMode($contest, isset($_POST['join_mode']) && is_string($_POST['join_mode']) ? $_POST['join_mode'] : '', isset($_POST['join_password']) ? $_POST['join_password'] : '', $myUser);
+			if ($err === '') {
+				domainFlash('参加方式已保存。');
+			}
+			return $err;
+		},
+		'allow' => function() use ($contest) {
+			global $myUser;
+			list($added, $refused) = contestAllowUsers($contest, isset($_POST['names']) && is_string($_POST['names']) ? $_POST['names'] : '', $myUser);
+			domainFlash("名单里新增了 $added 人。" . ($refused ? '无法识别：' . join('、', array_slice($refused, 0, 10)) : ''), $refused ? 'warning' : 'success');
+			return '';
+		},
+		'disallow' => function() use ($contest) {
+			global $myUser;
+			return contestDisallowUser($contest, isset($_POST['username']) && is_string($_POST['username']) ? $_POST['username'] : '', $myUser);
+		}
+	), "/contest/{$contest['id']}/manage#tab-access");
+	$access_flash = domainTakeFlash();
+	$allowed_users = contestAllowedUsers($contest);
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 比赛管理') ?>
 <?php echoContestDomainLink($contest) ?>
@@ -239,6 +263,7 @@
 	<li class="nav-item"><a class="nav-link active" href="#tab-time" role="tab" data-toggle="tab">比赛时间</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-managers" role="tab" data-toggle="tab">管理者</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-problems" role="tab" data-toggle="tab">试题</a></li>
+	<li class="nav-item"><a class="nav-link" href="#tab-access" role="tab" data-toggle="tab">参加方式</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-others" role="tab" data-toggle="tab">其它</a></li>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?=$contest['id']?>" role="tab">返回</a></li>
 </ul>
@@ -293,6 +318,58 @@
 		</table>
 		<p class="text-center">命令格式：命令一行一个，+233表示把题号为233的试题加入比赛，-233表示把题号为233的试题从比赛中移除</p>
 		<?php $problems_form->printHTML(); ?>
+	</div>
+	<div class="tab-pane text-left" id="tab-access">
+		<?php if ($access_flash): ?>
+		<div class="alert alert-<?= $access_flash[0] ?>" role="alert"><?= HTML::escape($access_flash[1]) ?></div>
+		<?php endif ?>
+		<?php echoDomainError($access_error) ?>
+		<form method="post" id="form-join-mode" class="mb-4">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="join_mode" />
+			<?php foreach (contestJoinModes() as $mode => $mode_label): ?>
+			<div class="custom-control custom-radio mb-2">
+				<input type="radio" class="custom-control-input" id="input-join_mode-<?= $mode ?>" name="join_mode" value="<?= $mode ?>"<?= $contest['join_mode'] === $mode ? ' checked="checked"' : '' ?> />
+				<label class="custom-control-label" for="input-join_mode-<?= $mode ?>"><?= $mode_label ?></label>
+			</div>
+			<?php endforeach ?>
+			<div class="form-group mt-2" style="max-width:24em">
+				<label for="input-join_password">参赛密码</label>
+				<input type="password" class="form-control" id="input-join_password" name="join_password" maxlength="64" autocomplete="new-password" placeholder="<?= $contest['join_password'] !== '' ? '已设置，留空表示不修改' : '选择“密码限制”时填写' ?>" />
+				<small class="form-text text-muted">密码保存后不再显示，4 到 64 个字符。把它告诉要参加的人。</small>
+			</div>
+			<button type="submit" class="btn btn-primary" id="button-save-join-mode">保存</button>
+			<small class="form-text text-muted">
+				名单限制和密码限制的比赛，开始后它的题目、榜单和提交只有报名成功的选手和工作人员能看到，结束后也是如此；要对所有人开放，把参加方式改回“自由参加”。已经报名的人不受改动影响。
+				<?php if ($contest['domain_id']): ?>这场比赛属于一个域，无论哪种方式，都只有域的成员能参加。<?php endif ?>
+			</small>
+		</form>
+
+		<h4>名单 <small class="text-muted">（<?= count($allowed_users) ?> 人，选择“名单限制”时生效）</small></h4>
+		<?php if ($allowed_users): ?>
+		<div class="mb-3" id="list-allowed-users">
+			<?php foreach ($allowed_users as $allowed): ?>
+			<form method="post" class="d-inline">
+				<?= HTML::hiddenToken() ?>
+				<input type="hidden" name="form" value="disallow" />
+				<input type="hidden" name="username" value="<?= HTML::escape($allowed['username']) ?>" />
+				<span class="badge badge-light border p-2 mr-1 mb-1">
+					<?= $allowed['user'] !== null ? getUserLink($allowed['user']) : HTML::escape($allowed['username']) . ' <small class="text-muted">还没有登录过</small>' ?>
+					<button type="submit" class="close ml-1" style="font-size:1rem" title="从名单里移除">&times;</button>
+				</span>
+			</form>
+			<?php endforeach ?>
+		</div>
+		<?php endif ?>
+		<form method="post" id="form-allow-users">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="allow" />
+			<div class="form-group">
+				<textarea class="form-control" name="names" rows="5" placeholder="每行一个用户名或学号"></textarea>
+				<small class="form-text text-muted">写学号时，这个学号的学生不论用户名是什么、现在有没有登录过，都在名单里。</small>
+			</div>
+			<button type="submit" class="btn btn-outline-primary">加入名单</button>
+		</form>
 	</div>
 	<div class="tab-pane" id="tab-others">
 		<div class="row">

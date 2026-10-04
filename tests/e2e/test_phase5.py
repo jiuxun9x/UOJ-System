@@ -356,6 +356,145 @@ class UploadTest(unittest.TestCase):
         self.assertEqual(self.admin.sync(problem_id), "")
 
 
+class ContestAccessTest(unittest.TestCase):
+    """who may take part in a contest: everybody, the people on a list, or whoever knows a password"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.problem_id = cls.admin.create_problem(ab_problem_files())
+
+    def contest(self, name):
+        contest_id = self.admin.new_contest(name)
+        self.assertEqual(self.admin.contest_commands(contest_id, "problems", "+%d" % self.problem_id), "")
+        return contest_id, "/contest/%d" % contest_id
+
+    def registered(self, contest_id):
+        return sorted(row[0] for row in db("select username from contests_registrants where contest_id = %d" % contest_id))
+
+    def test_contest_with_a_password(self):
+        contest_id, here = self.contest("p5 密码比赛")
+        manage, register = here + "/manage", here + "/register"
+        knows, guesses = account("p5_acl_knows"), account("p5_acl_guesses")
+
+        # only who runs the contest says who may take part, and a password has to be one
+        self.assertNotEqual(guesses.form(manage, "join_mode", join_mode="password", join_password="let me in"), "")
+        for wrong in (dict(join_mode="password"), dict(join_mode="password", join_password="abc"), dict(join_mode="secret")):
+            self.assertNotEqual(self.admin.form(manage, "join_mode", **wrong), "", wrong)
+        self.assertEqual(db_value("select join_mode from contests where id = %d" % contest_id), "open")
+        self.assertEqual(self.admin.form(manage, "join_mode", join_mode="password", join_password="open sesame"), "")
+        # the password is kept as a hash, and is not written down where changes are
+        self.assertTrue(db_value("select join_password from contests where id = %d" % contest_id).startswith("$2y$"))
+        self.assertEqual(db_value("select count(*) from audit_logs where after_json like '%open sesame%'"), "0")
+        self.assertNotIn("open sesame", self.admin.get(manage).text)
+        # saving again without a password keeps the one there is
+        self.assertEqual(self.admin.form(manage, "join_mode", join_mode="password"), "")
+
+        # everybody sees the contest and that it asks for a password
+        for client in (guesses, uoj.Client()):
+            listed = client.get("/contests").text
+            self.assertIn("p5 密码比赛", listed)
+            self.assertIn("需要密码", listed)
+        self.assertIn('id="contest-needs-password"', guesses.get(register).text)
+        self.assertNotEqual(guesses.submit_form(register, "register"), "")
+        self.assertNotEqual(guesses.submit_form(register, "register", {"join_password": "open says me"}), "")
+        self.assertEqual(self.registered(contest_id), [])
+        self.assertEqual(knows.submit_form(register, "register", {"join_password": "open sesame"}), "")
+        self.assertEqual(self.registered(contest_id), ["p5_acl_knows"])
+
+        # while it runs, whoever registered is inside and nobody else
+        uoj.move_contest(contest_id, -60)
+        problem = here + "/problem/%d" % self.problem_id
+        self.assertEqual(knows.get(here).status_code, 200)
+        self.assertEqual(knows.get(problem).status_code, 200)
+        self.assertIn("尚未报名", guesses.get(here).text)
+        self.assertIn("尚未报名", guesses.get(problem).text)
+        # and it stays theirs when it is over, unlike a contest for everybody
+        uoj.move_contest(contest_id, -7200)
+        self.assertIn('id="contest-closed"', guesses.get(here).text)
+        self.assertIn('id="contest-closed"', uoj.Client().get(here + "/standings").text)
+        self.assertEqual(guesses.get(problem).status_code, 404)
+        self.assertEqual(knows.get(here + "/standings").status_code, 200)
+        self.assertEqual(knows.get(problem).status_code, 200)
+        self.assertNotIn('id="contest-closed"', self.admin.get(here).text)
+        # until who runs it opens it to everybody
+        self.assertEqual(self.admin.form(manage, "join_mode", join_mode="open"), "")
+        self.assertNotIn('id="contest-closed"', guesses.get(here).text)
+        self.assertEqual(guesses.get(here + "/standings").status_code, 200)
+
+    def test_guessing_a_password_stops_after_a_while(self):
+        contest_id, here = self.contest("p5 猜密码")
+        self.assertEqual(self.admin.form(here + "/manage", "join_mode", join_mode="password", join_password="open sesame"), "")
+        guesser = account("p5_acl_guesser")
+        for n in range(20):
+            self.assertIn("参赛密码不正确", guesser.submit_form(here + "/register", "register", {"join_password": "guess %d" % n}))
+        self.assertIn("尝试次数过多", guesser.submit_form(here + "/register", "register", {"join_password": "open sesame"}))
+        self.assertEqual(self.registered(contest_id), [])
+
+    def test_contest_for_the_people_on_a_list(self):
+        contest_id, here = self.contest("p5 名单比赛")
+        manage, register = here + "/manage", here + "/register"
+        listed, removed, other, helper = (account("p5_acl_" + name) for name in ("listed", "removed", "other", "helper"))
+        sso = "/login/sso/cas" in uoj.Client().get("/login").text
+
+        # the list takes usernames and student numbers, of students who were never here as well
+        names = "p5_acl_listed\nP5_ACL_REMOVED\nCS27000001\nnot a name!\np5_acl_listed\n"
+        self.assertNotEqual(other.form(manage, "allow", names="p5_acl_other"), "")
+        self.assertEqual(self.admin.form(manage, "allow", names=names), "")
+        self.assertEqual(sorted(row[0] for row in db("select username from contest_allowed_users where contest_id = %d" % contest_id)),
+                         ["CS27000001", "p5_acl_listed", "p5_acl_removed"])  # fmt: skip
+        page = self.admin.get(manage).text
+        self.assertIn("无法识别：not a name!", uoj.text_of(page))
+        self.assertIn("还没有登录过", page)
+        # a list does nothing until the contest is one for a list
+        self.assertIn("p5 名单比赛", other.get("/contests").text)
+        self.assertEqual(self.admin.form(manage, "join_mode", join_mode="list"), "")
+
+        # to everybody who is not on it, the contest is not there
+        for stranger in (other, uoj.Client()):
+            self.assertNotIn("p5 名单比赛", stranger.get("/contests").text)
+        for path in ("", "/register", "/standings", "/registrants", "/problem/%d" % self.problem_id):
+            self.assertEqual(other.get(here + path).status_code, 404, path)
+        self.assertNotEqual(other.submit_form(register, "register"), "")
+        # the people on it see it and register, and so do the people who run it
+        self.assertEqual(self.admin.contest_commands(contest_id, "managers", "+p5_acl_helper"), "")
+        for client in (listed, removed, helper, self.admin):
+            page = client.get("/contests").text
+            self.assertIn("p5 名单比赛", page)
+            self.assertIn("仅名单", page)
+        self.assertIn('id="contest-on-list"', listed.get(register).text)
+        self.assertEqual(listed.submit_form(register, "register"), "")
+        self.assertEqual(self.registered(contest_id), ["p5_acl_listed"])
+
+        # a student number lets its student in, whatever they are called and whenever they first come
+        if sso:
+            student = uoj.Client()
+            p3.cas_login(student, "p5_acl_student", employeeNumber="CS27000001", cn="冯九")
+            self.assertEqual(p3.who(student), "CS27000001")
+            self.assertIn("p5 名单比赛", student.get("/contests").text)
+            self.assertEqual(student.submit_form(register, "register"), "")
+            self.assertRegex(self.admin.get(manage).text, r'(?s)id="list-allowed-users".*?class="uoj-username"[^>]*>CS27000001<')
+
+        # taken off the list before registering: the contest is gone again
+        self.assertEqual(self.admin.form(manage, "disallow", username="p5_acl_removed"), "")
+        self.assertNotIn("p5 名单比赛", removed.get("/contests").text)
+        self.assertEqual(removed.get(register).status_code, 404)
+        # taken off it after registering: whoever registered takes part
+        self.assertEqual(self.admin.form(manage, "disallow", username="p5_acl_listed"), "")
+        self.assertIn("p5 名单比赛", listed.get("/contests").text)
+
+        uoj.move_contest(contest_id, -60)
+        self.assertEqual(listed.get(here).status_code, 200)
+        uoj.wait_submission(listed.submit_in_contest(contest_id, self.problem_id, AB))
+        self.assertEqual(other.get(here).status_code, 404)
+        uoj.move_contest(contest_id, -7200)
+        self.assertEqual(listed.get(here + "/standings").status_code, 200)
+        self.assertEqual(other.get(here + "/standings").status_code, 404)
+        self.assertEqual(helper.get(here + "/standings").status_code, 200)
+        # what was submitted in it is not in the lists of who may not see the contest
+        self.assertEqual(other.get(here + "/submissions").status_code, 404)
+
+
 class MailTest(unittest.TestCase):
     """the mailbox the site sends from is set on the site"""
 

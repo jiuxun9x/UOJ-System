@@ -19,8 +19,11 @@
 			die();
 		} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {
 			if ($myUser == null || !hasRegistered(Auth::user(), $contest)) {
-				becomeMsgPage("<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。比赛结束后再来看吧～</p>");
+				becomeMsgPage($contest['join_mode'] === 'open' ? "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。比赛结束后再来看吧～</p>" : "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。这场比赛只对报名参加的选手开放。</p>");
 			}
+		} elseif (!can($myUser, 'contest.enter', $contest)) {
+			// over, and not for everybody
+			becomeMsgPage('<h1 id="contest-closed">这场比赛不对所有人开放</h1><p>它的题目、榜单和提交只有报名参加的选手能看到。</p>');
 		}
 	}
 	
