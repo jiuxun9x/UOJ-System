@@ -26,6 +26,10 @@
 	$contest = validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
 	if ($contest != null) {
 		genMoreContestInfo($contest);
+		// a contest of a domain exists for the members of the domain
+		if (!can($myUser, 'contest.view', $contest)) {
+			become404Page();
+		}
 		$problem_rank = queryContestProblemRank($contest, $problem);
 		if ($problem_rank == null) {
 			become404Page();
@@ -124,8 +128,13 @@
 		$result['status'] = "Waiting";
 		$result_json = json_encode($result);
 		
-		// what is submitted to a problem of a domain belongs to the domain
-		$domain_id = $problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : 'null';
+		// what is submitted to a problem of a domain, or in a contest of one, belongs to the domain
+		$domain_id = 'null';
+		if ($problem['owner_domain_id']) {
+			$domain_id = (int)$problem['owner_domain_id'];
+		} elseif ($is_in_contest && $contest['domain_id']) {
+			$domain_id = (int)$contest['domain_id'];
+		}
 		if ($is_in_contest) {
 			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, ${contest['id']}, $domain_id, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
 		} else {

@@ -5,6 +5,13 @@
 		become404Page();
 	}
 	genMoreContestInfo($contest);
+	// a contest of a domain exists for the members of the domain
+	if (!can($myUser, 'contest.view', $contest)) {
+		if ($myUser == null) {
+			redirectToLogin();
+		}
+		become404Page();
+	}
 	
 	$has_contest_permission = can($myUser, 'contest.assist', $contest);
 	$show_ip = $has_contest_permission;

@@ -93,3 +93,8 @@
 	word-break: break-all;
 	user-select: all;
 }
+
+.uoj-domain-back {
+	margin-bottom: 0.75rem;
+	font-size: 0.9rem;
+}

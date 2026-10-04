@@ -98,6 +98,22 @@ function calcRatingSelfTest() {
 	}
 }
 
+// Creates a contest that belongs to the user who creates it, and returns its id. A contest of
+// a domain is run by the people who teach in the domain. The ratings belong to the whole
+// site: a contest only counts for them when an administrator created it for the whole site,
+// or says so later.
+function contestCreate($name, $start_time_str, $last_min, $actor, $domain = null) {
+	$esc_name = DB::escape(HTML::pruifier()->purify($name));
+	$rated = $domain === null && can($actor, 'contest.rate');
+	$esc_extra_config = DB::escape(json_encode($rated ? new stdClass() : array('unrated' => '')));
+	$domain_id = $domain === null ? 'null' : (int)$domain['id'];
+	DB::insert("insert into contests (name, start_time, last_min, status, extra_config, domain_id) values ('$esc_name', '".DB::escape($start_time_str)."', ".(int)$last_min.", 'unfinished', '$esc_extra_config', $domain_id)");
+	$contest_id = DB::insert_id();
+	DB::insert("insert into contests_permissions (username, contest_id, role) values ('".DB::escape($actor['username'])."', $contest_id, 'owner')");
+	auditLog('contest.create', 'contest', $contest_id, null, array('name' => $name, 'start_time' => $start_time_str, 'last_min' => (int)$last_min) + ($domain === null ? array() : array('domain_id' => (int)$domain['id'])), $actor);
+	return $contest_id;
+}
+
 function genMoreContestInfo(&$contest) {
 	$contest['start_time_str'] = $contest['start_time'];
 	$contest['start_time'] = new DateTime($contest['start_time']);

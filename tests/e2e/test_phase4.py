@@ -673,5 +673,86 @@ class DomainProblemTest(unittest.TestCase):
         uoj.wait_idle()
 
 
+class DomainContestTest(unittest.TestCase):
+    """contests that belong to a domain"""
+
+    def test_contest_of_a_domain_is_for_its_members_and_run_by_its_teachers(self):
+        admin = uoj.admin()
+        teacher, lecturer, tutor, pupil, stranger = (
+            account("p4_contest_" + name) for name in ("teacher", "lecturer", "tutor", "pupil", "stranger")
+        )
+        self.assertEqual(admin.change_user("p4_contest_teacher", "grant:teacher"), "")
+        did = teacher.new_domain("p4-contests")
+        for name, role in (("lecturer", "teacher"), ("tutor", "ta"), ("pupil", "member")):
+            self.assertEqual(member_form(teacher, "p4-contests", "add", username="p4_contest_" + name, role=role), "")
+        contests = "/d/p4-contests/contests"
+
+        new = dict(name="p4 期中上机", start_time=uoj.web_time(3600), last_min="120")
+        for client in (tutor, pupil):
+            client.form(contests, "new", **new)
+        self.assertEqual(db_value("select count(*) from contests where domain_id = %d" % did), "0")
+        self.assertNotEqual(teacher.form(contests, "new", **dict(new, start_time="not a time")), "")
+        # lecturer is no teacher of the site, and creates the contest as a teacher of the domain
+        self.assertEqual(lecturer.form(contests, "new", **new), "")
+        contest_id = int(db_value("select id from contests where domain_id = %d" % did))
+        self.assertIn("unrated", db_value("select extra_config from contests where id = %d" % contest_id))
+        here = "/contest/%d" % contest_id
+
+        # the list of the site does not have it, the domain does
+        for client in (admin, pupil, stranger, uoj.Client()):
+            self.assertNotIn('href="%s"' % here, client.get("/contests").text)
+        self.assertIn('href="%s"' % here, pupil.get(contests).text)
+        # nobody outside of the domain gets to any of its pages
+        for path in ("", "/registrants", "/register", "/standings", "/manage", "/export_standings"):
+            self.assertEqual(stranger.get(here + path).status_code, 404, path)
+            self.assertIn(uoj.Client().get(here + path).status_code, (302, 404), path)
+
+        # everybody who teaches in the domain runs it, the assistants look behind the scenes
+        for client in (teacher, lecturer, admin):
+            self.assertEqual(client.get(here + "/manage").status_code, 200)
+        for client in (tutor, pupil):
+            self.assertEqual(client.get(here + "/manage").status_code, 403)
+        self.assertEqual(tutor.get(here + "/backstage").status_code, 200)
+
+        # its problems are the ones of the domain and the public ones of the site
+        public_id = admin.create_problem(ab_problem_files())
+        hidden_id = admin.new_problem()
+        self.assertEqual(teacher.form("/d/p4-contests/problems", "new"), "")
+        own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
+        self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(own_id), "")
+        teacher.new_domain("p4-contests-other")
+        self.assertEqual(teacher.form("/d/p4-contests-other/problems", "new"), "")
+        foreign_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % domain_id("p4-contests-other")))
+        self.assertEqual(lecturer.contest_commands(contest_id, "problems", "+%d\n+%d" % (public_id, own_id)), "")
+        self.assertNotEqual(lecturer.contest_commands(contest_id, "problems", "+%d" % hidden_id), "")
+        self.assertNotEqual(teacher.contest_commands(contest_id, "problems", "+%d" % foreign_id), "")
+        self.assertEqual(
+            sorted(int(row[0]) for row in db("select problem_id from contests_problems where contest_id = %d" % contest_id)),
+            sorted([public_id, own_id]),
+        )
+        # teaching in a domain does not make a teacher of the site
+        self.assertEqual(lecturer.get("/contest/new").status_code, 403)
+
+        # the members register and take part
+        pupil.register_for_contest(contest_id)
+        stranger.submit_form(here + "/register", "register")
+        self.assertEqual(db("select username from contests_registrants where contest_id = %d" % contest_id), [["p4_contest_pupil"]])
+        uoj.move_contest(contest_id, -60, 600)
+        for problem_id in (public_id, own_id):
+            submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
+            self.assertEqual(
+                db("select contest_id, domain_id from submissions where id = %d" % submission_id),
+                [[str(contest_id), str(did)]],
+            )
+            for client in (pupil, tutor, lecturer):
+                self.assertEqual(client.get("/submission/%d" % submission_id).status_code, 200)
+            self.assertEqual(stranger.get("/submission/%d" % submission_id).status_code, 403)
+        self.assertEqual(pupil.get(here + "/standings").status_code, 200)
+        self.assertIn("域 p4-contests", pupil.get(here).text)
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -7200, 60)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,13 @@
 		become404Page();
 	}
 	genMoreContestInfo($contest);
+	// a contest of a domain exists for the members of the domain
+	if (!can($myUser, 'contest.view', $contest)) {
+		if ($myUser == null) {
+			redirectToLogin();
+		}
+		become404Page();
+	}
 
 	if (!can($myUser, 'contest.assist', $contest)) {
 		if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
@@ -471,6 +478,7 @@ EOD;
 	$page_header = HTML::stripTags($contest['name']) . ' - ';
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - ' . $tabs_info[$cur_tab]['name'] . ' - ' . UOJLocale::get('contests::contest')) ?>
+<?php echoContestDomainLink($contest) ?>
 <div class="text-center">
 	<h1><?= $contest['name'] ?></h1>
 	<?= getClickZanBlock('C', $contest['id'], $contest['zan']) ?>

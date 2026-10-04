@@ -5,6 +5,13 @@
 		become404Page();
 	}
 	genMoreContestInfo($contest);
+	// a contest of a domain exists for the members of the domain
+	if (!can($myUser, 'contest.view', $contest)) {
+		if ($myUser == null) {
+			redirectToLogin();
+		}
+		become404Page();
+	}
 	
 	if (!can($myUser, 'contest.manage', $contest)) {
 		become403Page();
@@ -93,8 +100,13 @@
 			if (!validateUInt($problem_id) || !($problem = queryProblemBrief($problem_id))) {
 				return "不存在题号为{$problem_id}的题";
 			}
-			if (!can(Auth::user(), 'problem.manage', $problem)) {
+			global $contest;
+			// a contest of a domain may also use the public problems of the site
+			if (!can(Auth::user(), 'problem.manage', $problem) && !($contest['domain_id'] && can(Auth::user(), 'problem.use', $problem))) {
 				return "无权添加题号为{$problem_id}的题";
+			}
+			if ($problem['owner_domain_id'] && $problem['owner_domain_id'] != $contest['domain_id']) {
+				return "题号为{$problem_id}的题属于另一个域";
 			}
 			return '';
 		},
@@ -221,6 +233,7 @@
 	$problems_form->runAtServer();
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 比赛管理') ?>
+<?php echoContestDomainLink($contest) ?>
 <h1 class="page-header" align="center"><?=$contest['name']?> 管理</h1>
 <ul class="nav nav-tabs mb-3" role="tablist">
 	<li class="nav-item"><a class="nav-link active" href="#tab-time" role="tab" data-toggle="tab">比赛时间</a></li>

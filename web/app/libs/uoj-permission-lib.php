@@ -266,12 +266,27 @@ function can($user, $ability, $resource = null) {
 			}
 			return can($user, 'problem.view', $resource);
 
+		// A problem that may be put into a training or a contest of a domain: one the user
+		// manages, or a problem of the site that everybody can see.
+		case 'problem.use':
+			return can($user, 'problem.manage', $resource) || (empty($resource['owner_domain_id']) && !$resource['is_hidden']);
+
 		// ---- contests
+		// A contest of a domain exists for the members of the domain only, and is run by the
+		// people who teach there.
+		case 'contest.view':
+			return empty($resource['domain_id']) || can($user, 'domain.view', $facts->domain($resource['domain_id']));
 		case 'contest.manage':
-			return $is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) === 'owner');
+			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) === 'owner')) {
+				return true;
+			}
+			return !empty($resource['domain_id']) && can($user, 'domain.teach', $facts->domain($resource['domain_id']));
 		// the people behind the scenes of a contest: they see everything and answer questions
 		case 'contest.assist':
-			return $is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) !== null);
+			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) !== null)) {
+				return true;
+			}
+			return !empty($resource['domain_id']) && can($user, 'domain.assist', $facts->domain($resource['domain_id']));
 
 		// ---- blogs, the resource is the name of the user the blog belongs to
 		case 'blog.manage':

@@ -368,5 +368,18 @@ check_ability('submission.view', $own_only, array('classmate' => true, 'alice' =
 check_ability('submission.rejudge', $in_domain, array('lead' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'alice' => false), 'a submission in a domain');
 check_ability('hack.view', array('is_hidden' => 0, 'problem_id' => 20), $outsiders + array('pupil' => true, 'lead' => true, 'root' => true), 'a hack in a domain');
 
+// a contest of a domain exists for its members, and is run by the people who teach there
+$domain_contest = array('domain_id' => 1) + fake_contest(30, CONTEST_IN_PROGRESS);
+check_ability('contest.view', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'tutor' => true, 'pupil' => true, 'setter' => false), 'a contest of a domain');
+check_ability('contest.view', $facts->contests[10], array('nobody' => true, 'alice' => true, 'pupil' => true), 'a contest of the site');
+check_ability('contest.manage', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'owner' => false), 'a contest of a domain');
+check_ability('contest.assist', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a contest of a domain');
+check_ability('contest.rate', $domain_contest, array('lead' => false, 'lecturer' => false, 'root' => true), 'a contest of a domain');
+// a contest or a training of a domain may use the problems of the domain and the public ones of the site
+check_ability('problem.use', $facts->problems[1], array('nobody' => true, 'alice' => true, 'lecturer' => true), 'a public problem');
+check_ability('problem.use', $facts->problems[2], array('alice' => false, 'lecturer' => false, 'setter' => true), 'a hidden problem');
+check_ability('problem.use', $facts->problems[21], array('lecturer' => true, 'tutor' => false, 'pupil' => false, 'alice' => false, 'setter' => false), 'a hidden problem of a domain');
+check_ability('problem.use', $facts->problems[22], array('lecturer' => false, 'setter' => true), 'a problem of another domain');
+
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');

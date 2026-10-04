@@ -285,6 +285,7 @@ function domainTabs($domain, $user) {
 	$tabs = array(
 		'overview' => array('概览', domainUrl($domain)),
 		'problems' => array('题目', domainUrl($domain, '/problems')),
+		'contests' => array('比赛', domainUrl($domain, '/contests')),
 		'members' => array('成员', domainUrl($domain, '/members')),
 		'announcements' => array('公告', domainUrl($domain, '/announcements'))
 	);
@@ -564,4 +565,17 @@ function domainProblemDataState($problem_id) {
 		return array('none', '');
 	}
 	return array($row['status'], (string)$row['message']);
+}
+
+// ---- contests
+
+// on the pages of a contest of a domain: the way back to the domain
+function echoContestDomainLink($contest) {
+	if (empty($contest['domain_id'])) {
+		return;
+	}
+	$domain = queryDomain($contest['domain_id']);
+	if ($domain) {
+		echo '<p class="uoj-domain-back"><a href="', domainUrl($domain, '/contests'), '"><span class="glyphicon glyphicon-chevron-left"></span> ', HTML::escape($domain['name']), '</a></p>';
+	}
 }
