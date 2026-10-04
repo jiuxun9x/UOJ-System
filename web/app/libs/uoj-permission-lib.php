@@ -75,6 +75,38 @@ class UOJPermissionFacts {
 		}
 		return $this->domains[$domain_id];
 	}
+	private $homeworks = array();
+
+	// the moment the rules about contests and homework are applied to: the clock of the web server
+	public function now() {
+		return UOJTime::$time_now->getTimestamp();
+	}
+	public function homework($homework_id) {
+		$homework_id = (int)$homework_id;
+		if (!$homework_id) {
+			return null;
+		}
+		if (!array_key_exists($homework_id, $this->homeworks)) {
+			$this->homeworks[$homework_id] = queryHomework($homework_id);
+		}
+		return $this->homeworks[$homework_id];
+	}
+	// 'active', 'withdrawn' or null
+	public function homeworkParticipantStatus($username, $homework_id) {
+		$row = homeworkParticipation($homework_id, $username);
+		return $row ? $row['status'] : null;
+	}
+	public function isHomeworkMaintainer($username, $homework_id) {
+		return DB::selectFirst("select 1 from homework_maintainers where homework_id = ".(int)$homework_id." and username = '".DB::escape($username)."'") != null;
+	}
+	// whether a problem is one of the problems of a homework that is running
+	public function problemIsInRunningHomework($problem_id) {
+		return DB::selectFirst("select 1 from homework_problems, homeworks where homework_problems.problem_id = ".(int)$problem_id." and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." limit 1") != null;
+	}
+	// whether a user takes part in a running homework that has a copy of this problem
+	public function userRunsHomeworkFromSource($username, $problem_id) {
+		return DB::selectFirst("select 1 from homework_problems, homeworks, homework_participants where homework_problems.source_problem_id = ".(int)$problem_id." and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape($username)."' and homework_participants.status = 'active' limit 1") != null;
+	}
 	public function managesProblem($username, $problem_id) {
 		return DB::selectFirst("select 1 from problems_permissions where username = '".DB::escape($username)."' and problem_id = ".(int)$problem_id) != null;
 	}
@@ -233,6 +265,46 @@ function can($user, $ability, $resource = null) {
 			}
 			return $name !== null && $resource != null && $resource['username'] === $name;
 
+		// ---- homework, the resource is the homework
+		// changing it, publishing it, deciding who takes part and what the scores are; and
+		// reading the scores and everything that was submitted
+		case 'homework.manage':
+		case 'homework.view_scores':
+			$domain = $facts->domain($resource['domain_id']);
+			if (can($user, $ability == 'homework.manage' ? 'domain.teach' : 'domain.assist', $domain)) {
+				return true;
+			}
+			// a member of the domain who was asked to look after this homework
+			if ($name === null || $domain == null || ($ability == 'homework.manage' && $domain['archived_at'] !== null)) {
+				return false;
+			}
+			return permissionDomainRole($user, $domain) !== null && $facts->isHomeworkMaintainer($name, $resource['id']);
+		// that it exists, what it is about and when
+		case 'homework.view':
+			if (can($user, 'homework.view_scores', $resource)) {
+				return true;
+			}
+			return $resource['status'] === 'published' && can($user, 'domain.view', $facts->domain($resource['domain_id']));
+		// taking part: the students of the domain, until claiming ends
+		case 'homework.claim':
+			$domain = $facts->domain($resource['domain_id']);
+			if ($name === null || $domain == null || $domain['archived_at'] !== null || $resource['status'] !== 'published') {
+				return false;
+			}
+			if (permissionDomainRole($user, $domain) !== 'member') {
+				return false;
+			}
+			$until = $resource['claim_end_at'] !== null ? $resource['claim_end_at'] : $resource['end_at'];
+			return $facts->now() < strtotime($until) && $facts->homeworkParticipantStatus($name, $resource['id']) !== 'active';
+		// its problems: whoever claimed it, once it has begun
+		case 'homework.solve':
+			if (can($user, 'homework.view_scores', $resource)) {
+				return true;
+			}
+			return $name !== null && $resource['status'] === 'published' && $facts->now() >= strtotime($resource['begin_at'])
+				&& can($user, 'domain.view', $facts->domain($resource['domain_id']))
+				&& $facts->homeworkParticipantStatus($name, $resource['id']) === 'active';
+
 		// ---- problems
 		// A problem that belongs to a domain is managed by the people who teach there, and seen
 		// by nobody outside of the domain.
@@ -304,6 +376,13 @@ function can($user, $ability, $resource = null) {
 			if (!empty($resource['domain_id']) && !can($user, 'domain.view', $facts->domain($resource['domain_id']))) {
 				return false;
 			}
+			// nor is what is submitted to a homework anybody else's business before the homework is over
+			if (!empty($resource['homework_id'])) {
+				$homework = $facts->homework($resource['homework_id']);
+				if ($homework != null && $facts->now() < strtotime($homework['end_at'])) {
+					return $name !== null && $resource['submitter'] === $name;
+				}
+			}
 			// what is submitted in a contest is nobody else's business while the contest runs
 			$contest = $facts->contest($resource['contest_id']);
 			if ($contest != null && $contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
@@ -322,7 +401,7 @@ function can($user, $ability, $resource = null) {
 			if ($name !== null && $resource['submitter'] === $name) {
 				return true;
 			}
-			return !permissionIsClosed($resource) && permissionViewTypeAllows('view_content_type', $user, $resource);
+			return !permissionIsClosed($resource, $user) && permissionViewTypeAllows('view_content_type', $user, $resource);
 		// the verdict of every test
 		case 'submission.view_details':
 			if (permissionIsStaffOf($user, $resource)) {
@@ -331,7 +410,7 @@ function can($user, $ability, $resource = null) {
 			if (!can($user, 'submission.view', $resource)) {
 				return false;
 			}
-			if (permissionIsClosed($resource) && !($name !== null && $resource['submitter'] === $name)) {
+			if (permissionIsClosed($resource, $user) && !($name !== null && $resource['submitter'] === $name)) {
 				return false;
 			}
 			return permissionViewTypeAllows('view_all_details_type', $user, $resource);
@@ -363,7 +442,7 @@ function can($user, $ability, $resource = null) {
 			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
-			return !permissionIsClosed($resource) && can($user, 'submission.view_source', $resource);
+			return !permissionIsClosed($resource, $user) && can($user, 'submission.view_source', $resource);
 
 		// ---- hacks, the resource is the hack with the submission it hacks in 'submission'
 		case 'hack.view':
@@ -382,7 +461,7 @@ function can($user, $ability, $resource = null) {
 				return true;
 			}
 			$involved = $name !== null && ($name === $resource['hacker'] || $name === $resource['submission']['submitter']);
-			if (permissionIsClosed($resource['submission']) && !$involved) {
+			if (permissionIsClosed($resource['submission'], $user) && !$involved) {
 				return false;
 			}
 			return permissionViewTypeAllows('view_all_details_type', $user, $resource['submission']);
@@ -429,6 +508,13 @@ function permissionIsStaffOf($user, $submission) {
 	if (!empty($submission['domain_id']) && can($user, 'domain.assist', $facts->domain($submission['domain_id']))) {
 		return true;
 	}
+	// and the people who look after the homework it was submitted to
+	if (!empty($submission['homework_id'])) {
+		$homework = $facts->homework($submission['homework_id']);
+		if ($homework != null && can($user, 'homework.view_scores', $homework)) {
+			return true;
+		}
+	}
 	$contest = $facts->contest($submission['contest_id']);
 	return $contest != null && can($user, 'contest.assist', $contest);
 }
@@ -436,13 +522,35 @@ function permissionIsStaffOf($user, $submission) {
 // While a contest runs, the submissions to its problems are closed: nobody but their owners
 // and the staff reads their source or their details, whenever and wherever they were
 // submitted. Outside of that, the settings of the problem decide.
-function permissionIsClosed($submission) {
+//
+// The same holds for homework: what is submitted to a homework is closed until the homework is
+// over, and so is everything else that was ever submitted to one of its problems. The problems
+// of a homework are copies that belong to its domain; the problem of the site a copy was made
+// from stays open to the site, but not to the people who take part in the homework.
+function permissionIsClosed($submission, $user = null) {
 	$facts = permissionFacts();
 	$contest = $facts->contest($submission['contest_id']);
 	if ($contest != null && $contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
 		return true;
 	}
-	return $facts->problemIsInRunningContest($submission['problem_id']);
+	if ($facts->problemIsInRunningContest($submission['problem_id'])) {
+		return true;
+	}
+	if (!empty($submission['homework_id'])) {
+		$homework = $facts->homework($submission['homework_id']);
+		if ($homework != null && $facts->now() < strtotime($homework['end_at'])) {
+			return true;
+		}
+	}
+	if ($facts->problemIsInRunningHomework($submission['problem_id'])) {
+		return true;
+	}
+	return $user != null && $facts->userRunsHomeworkFromSource($user['username'], $submission['problem_id']);
+}
+// the homeworks that are running, as a condition on the table homeworks
+function runningHomeworksCond() {
+	$now = UOJTime::$time_now_str;
+	return "homeworks.status = 'published' and homeworks.begin_at <= '$now' and homeworks.end_at > '$now'";
 }
 
 // the contests that are running, as a condition on the table contests
@@ -467,7 +575,10 @@ function visibleSubmissionsCond($user) {
 	// the domains of the user, and the ones where they see everything
 	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";
 	$assists_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'ta').")";
-	return "$manages_problem or $assists_contest or $assists_domain or (submissions.is_hidden = false and (submissions.domain_id is null or $in_my_domain) and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username'))";
+	// a homework keeps what is submitted to it to itself until it is over
+	$maintains_homework = "submissions.homework_id in (select homework_id from homework_maintainers where username = '$esc_username')";
+	$in_open_homework = "submissions.homework_id in (select id from homeworks where end_at > '".UOJTime::$time_now_str."')";
+	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or (submissions.is_hidden = false and (submissions.domain_id is null or $in_my_domain) and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username') and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
 }
 // a query for the ids of the domains in which a user has at least a role
 function domainIdsOfUserSql($esc_username, $role) {

@@ -3,6 +3,8 @@
 See test_phase1.py for how to start the containers.
 """
 
+import csv
+import io
 import json
 import re
 import threading
@@ -752,6 +754,603 @@ class DomainContestTest(unittest.TestCase):
         self.assertIn("域 p4-contests", pupil.get(here).text)
         uoj.wait_idle()
         uoj.move_contest(contest_id, -7200, 60)
+
+
+# ---------------------------------------------------------------------- homework
+
+
+def homework_settings(**changes):
+    """what the form of a homework posts: by default one that began ten days ago, turned late
+    three days ago and ends tomorrow, with 80% for the first day late and 50% after it"""
+    fields = {
+        "title": "p4 作业", "description_md": "", "claim_end_at": "", "allow_withdraw": "on",
+        "begin_at": uoj.web_time(-10 * 86400), "end_at": uoj.web_time(86400),
+        "allow_late": "on", "penalty_since": uoj.web_time(-3 * 86400),
+        "penalty_after[]": ["0", "1"], "penalty_unit[]": ["hour", "day"], "penalty_percent[]": ["80", "50"],
+    }  # fmt: skip
+    fields.update(changes)
+    return fields
+
+
+def new_homework(client, slug, **changes):
+    err = client.form("/d/%s/homework/new" % slug, "save", **homework_settings(**changes))
+    if err:
+        raise Exception("failed to create a homework: " + err[-600:])
+    return int(db_value("select max(id) from homeworks where domain_id = %d" % domain_id(slug)))
+
+
+def homework_form(client, slug, homework_id, form, **fields):
+    return client.form("/d/%s/homework/%d/manage" % (slug, homework_id), form, **fields)
+
+
+def homework_row(homework_id, columns):
+    return db("select %s from homeworks where id = %d" % (columns, homework_id))[0]
+
+
+def tick():
+    """what the web server does every minute"""
+    return uoj.docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php homework:tick")
+
+
+def scores_of(client, slug, homework_id, query=""):
+    """the scores as the people who look after a homework export them: username => row"""
+    r = client.get("/d/%s/homework/%d/scoreboard?%sexport=1" % (slug, homework_id, query))
+    assert r.status_code == 200, r.status_code
+    rows = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig"))))
+    return {row[1]: dict(zip(rows[0], row)) for row in rows[1:]}
+
+
+def snapshot_scores(snapshot_id):
+    return {
+        (row[0], int(row[1])): (float(row[2]), row[3])
+        for row in db(
+            "select username, problem_id, score, ifnull(submission_id, 'NULL') from homework_snapshot_scores"
+            " where snapshot_id = %s" % snapshot_id
+        )
+    }
+
+
+class HomeworkTest(unittest.TestCase):
+    """homework of a domain: from a draft to official scores, and what happens to them afterwards"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher = account("p4_hw_teacher")
+        assert cls.admin.change_user("p4_hw_teacher", "grant:teacher") == ""
+        cls.slug = "p4-homework"
+        cls.did = cls.teacher.new_domain(cls.slug)
+        cls.alice, cls.bob, cls.carol, cls.tutor = (account("p4_hw_" + name) for name in ("alice", "bob", "carol", "tutor"))
+        for name, role in (("alice", "member"), ("bob", "member"), ("carol", "member"), ("tutor", "ta")):
+            assert member_form(cls.teacher, cls.slug, "add", username="p4_hw_" + name, role=role) == ""
+        cls.stranger = account("p4_hw_stranger")
+        # a public problem of the site, and a problem of the domain
+        cls.public_id = cls.admin.create_problem(ab_problem_files())
+        assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
+        cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
+        assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
+        assert cls.teacher.sync(cls.own_id) == ""
+
+    def url(self, homework_id, path=""):
+        return "/d/%s/homework/%d%s" % (self.slug, homework_id, path)
+
+    def wait_published(self, homework_id):
+        uoj.wait_until("homework #%d is published" % homework_id,
+                       lambda: tick() and homework_row(homework_id, "status")[0] != "publishing", timeout=300)  # fmt: skip
+        self.assertEqual(homework_row(homework_id, "status, ifnull(publish_error, '')"), ["published", ""])
+
+    def publish(self, homework_id, problems):
+        for problem_id, score in problems:
+            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(problem_id), score=str(score)), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "publish"), "")
+        self.wait_published(homework_id)
+
+    def problems_of(self, homework_id):
+        return db("select problem_id, ifnull(source_problem_id, 'NULL'), score, required from homework_problems"
+                  " where homework_id = %d order by position" % homework_id)  # fmt: skip
+
+    def test_homework_from_a_draft_to_official_scores(self):
+        slug, teacher, alice, bob, carol, tutor = self.slug, self.teacher, self.alice, self.bob, self.carol, self.tutor
+        solver = account("p4_hw_solver")
+        public_submission = solver.submit(self.public_id, AB + "// p4-public-solution\n")
+        self.assertEqual(uoj.wait_submission(public_submission).score, 100)
+
+        # ---- only the people who teach in the domain set homework
+        for client in (alice, tutor):
+            self.assertEqual(client.get("/d/%s/homework/new" % slug).status_code, 403)
+            client.form("/d/%s/homework/new" % slug, "save", **homework_settings())
+        self.assertEqual(db_value("select count(*) from homeworks where domain_id = %d" % self.did), "0")
+        new = "/d/%s/homework/new" % slug
+        for wrong in (dict(end_at=uoj.web_time(-20 * 86400)), dict(title=""), dict(penalty_since=uoj.web_time(2 * 86400)),
+                      {"penalty_percent[]": ["120", "50"]}, {"penalty_after[]": ["1", "24"], "penalty_unit[]": ["day", "hour"]}):  # fmt: skip
+            self.assertNotEqual(teacher.form(new, "save", **homework_settings(**wrong)), "", wrong)
+        self.assertEqual(db_value("select count(*) from homeworks where domain_id = %d" % self.did), "0")
+
+        # ---- whoever sets the homework decides what a late submission is worth
+        homework_id = new_homework(teacher, slug, title="p4 第 1 次作业", begin_at=uoj.web_time(3600), penalty_since=uoj.web_time(86400), end_at=uoj.web_time(2 * 86400))
+        self.assertEqual(json.loads(homework_row(homework_id, "penalty_rules")[0]),
+                         [{"after_hours": 0, "multiplier": 0.8}, {"after_hours": 24, "multiplier": 0.5}])  # fmt: skip
+        self.assertEqual(homework_row(homework_id, "status, settle_state"), ["draft", "open"])
+        rules = uoj.text_of(teacher.get(self.url(homework_id)).text)
+        self.assertIn("迟交不超过 1 天：按 80% 计分", rules)
+        self.assertIn("迟交超过 1 天：按 50% 计分", rules)
+        # a homework that can not be handed in late has no steps
+        strict = new_homework(teacher, slug, title="p4 不许迟交", allow_late="")
+        self.assertEqual(homework_row(strict, "ifnull(penalty_since, 'NULL'), penalty_rules"), ["NULL", "[]"])
+
+        # ---- a draft is seen by nobody who takes part
+        for client in (alice, self.stranger):
+            self.assertEqual(client.get(self.url(homework_id)).status_code, 404)
+        self.assertNotIn("p4 第 1 次作业", alice.get("/d/%s/homeworks" % slug).text)
+        self.assertEqual(tutor.get(self.url(homework_id)).status_code, 200)
+
+        # ---- its problems: of the domain, or public ones of the site
+        hidden_id = self.admin.new_problem()
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(hidden_id), score="100"), "")
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.public_id), score="0"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.own_id), score="50", optional="on"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.public_id), score="100"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(self.public_id)), "")
+        self.assertEqual(self.problems_of(homework_id), [[str(self.public_id), "NULL", "100", "1"], [str(self.own_id), "NULL", "50", "0"]])
+        for client in (alice, tutor):
+            self.assertEqual(client.get(self.url(homework_id, "/manage")).status_code, 403)
+            homework_form(client, slug, homework_id, "publish")
+        self.assertEqual(homework_row(homework_id, "status")[0], "draft")
+
+        # ---- publishing gives the homework a copy of the public problem that belongs to the domain
+        messages = int(db_value("select count(*) from user_system_msg where receiver = 'p4_hw_alice'"))
+        self.assertEqual(homework_form(teacher, slug, homework_id, "publish"), "")
+        self.wait_published(homework_id)
+        (copy_id, source, _, _), own = self.problems_of(homework_id)
+        copy_id = int(copy_id)
+        self.assertEqual((source, own), (str(self.public_id), [str(self.own_id), "NULL", "50", "0"]))
+        self.assertEqual(
+            db("select owner_domain_id, source_problem_id, is_hidden from problems where id = %d" % copy_id),
+            [[str(self.did), str(self.public_id), "1"]],
+        )
+        self.assertEqual(int(db_value("select count(*) from user_system_msg where receiver = 'p4_hw_alice'")), messages + 1)
+        # once it is published its problems are what was promised
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "remove_problem", problem_id=str(copy_id)), "")
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(self.public_id), score="10"), "")
+        # another homework of the domain with the same problem uses the same copy
+        copies = db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
+        self.publish(strict, [(self.public_id, 100)])
+        self.assertEqual(self.problems_of(strict), [[str(copy_id), str(self.public_id), "100", "1"]])
+        self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d" % self.did), copies)
+        # that one is over long before the rest of this test, so that it closes nothing
+        db("update homeworks set begin_at = '%s', end_at = '%s' where id = %d" % (uoj.web_time(-20 * 86400), uoj.web_time(-19 * 86400), strict))
+
+        # ---- students claim the homework to take part, and see no problem before it begins
+        self.assertIn("p4 第 1 次作业", alice.get("/d/%s/homeworks" % slug).text)
+        self.assertEqual(self.stranger.get(self.url(homework_id)).status_code, 404)
+        page = alice.get(self.url(homework_id)).text
+        self.assertIn('id="button-claim-homework"', page)
+        self.assertNotIn(self.url(homework_id, "/problem/%d" % copy_id), page)
+        self.assertEqual(alice.form(self.url(homework_id), "claim"), "")
+        self.assertNotEqual(tutor.form(self.url(homework_id), "claim"), "")
+        self.assertNotEqual(self.stranger.form(self.url(homework_id), "claim"), "")
+        participants = lambda: db("select username, status from homework_participants where homework_id = %d order by username" % homework_id)
+        self.assertEqual(participants(), [["p4_hw_alice", "active"]])
+        page = alice.get(self.url(homework_id)).text
+        self.assertIn('id="homework-problems-closed"', page)
+        self.assertNotIn(self.url(homework_id, "/problem/%d" % copy_id), page)
+        self.assertEqual(alice.get(self.url(homework_id, "/problem/%d" % copy_id)).status_code, 404)
+        self.assertEqual(alice.get("/d/%s/problem/%d" % (slug, copy_id)).status_code, 404)
+        # before it begins, whoever claimed it may step back
+        self.assertEqual(alice.form(self.url(homework_id), "withdraw"), "")
+        self.assertEqual(participants(), [["p4_hw_alice", "withdrawn"]])
+        self.assertEqual(alice.form(self.url(homework_id), "claim"), "")
+
+        # ---- the homework runs: it began ten days ago, turned late three days ago, and ends tomorrow
+        db("update homeworks set begin_at = '%s', penalty_since = '%s', end_at = '%s' where id = %d"
+           % (uoj.web_time(-10 * 86400), uoj.web_time(-3 * 86400), uoj.web_time(86400), homework_id))  # fmt: skip
+        self.assertNotEqual(alice.form(self.url(homework_id), "withdraw"), "")
+        here = self.url(homework_id, "/problem/%d" % copy_id)
+        self.assertEqual(alice.get(here).status_code, 200)
+        # not without claiming it
+        self.assertEqual(bob.get(here).status_code, 404)
+        for client in (bob, carol):
+            self.assertEqual(client.form(self.url(homework_id), "claim"), "")
+        self.assertEqual(bob.get(here).status_code, 200)
+
+        # alice was on time, bob half a day late, carol a day and a half; alice got nothing for the other problem
+        submissions = {}
+        for name, client, late in (("alice", alice, -2 * 86400), ("bob", bob, 43200), ("carol", carol, 36 * 3600)):
+            submissions[name] = client.submit(copy_id, AB + "// p4-homework-%s\n" % name, path=here)
+            db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-3 * 86400 + late), submissions[name]))
+        wrong = alice.submit(self.own_id, AB_WRONG, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5 * 86400), wrong))
+        self.assertEqual(
+            db("select homework_id, domain_id, is_hidden from submissions where id = %d" % submissions["alice"]),
+            [[str(homework_id), str(self.did), "0"]],
+        )
+        for submission_id in list(submissions.values()) + [wrong]:
+            uoj.wait_submission(submission_id)
+        # what somebody who does not take part submits through the homework is not submitted to it
+        practice = tutor.submit(copy_id, AB, path=here)
+        self.assertEqual(db_value("select ifnull(homework_id, 'NULL') from submissions where id = %d" % practice), "NULL")
+
+        # ---- while it runs, what was submitted to it is nobody else's business
+        link = 'href="/submission/%d"' % submissions["alice"]
+        for client in (alice, teacher, tutor, self.admin):
+            self.assertIn("p4-homework-alice", client.get("/submission/%d" % submissions["alice"]).text)
+            self.assertIn(link, client.get("/submissions?problem_id=%d" % copy_id).text)
+        for client in (bob, self.stranger, uoj.Client()):
+            self.assertEqual(client.get("/submission/%d" % submissions["alice"]).status_code, 403)
+            self.assertNotIn(link, client.get("/submissions?problem_id=%d" % copy_id).text)
+        # and the solutions of the public problem it was copied from are closed to whoever takes part
+        self.assertNotIn("p4-public-solution", alice.get("/submission/%d" % public_submission).text)
+        self.assertIn("p4-public-solution", self.stranger.get("/submission/%d" % public_submission).text)
+        self.assertIn("p4-public-solution", tutor.get("/submission/%d" % public_submission).text)
+        self.assertIn(here, alice.get("/problem/%d" % self.public_id).text)
+
+        # ---- the scores so far: of every problem the submission that is worth the most
+        self.assertEqual(alice.get(self.url(homework_id, "/scoreboard")).status_code, 403)
+        self.assertEqual(self.stranger.get(self.url(homework_id, "/scoreboard")).status_code, 404)
+        for client in (teacher, tutor):
+            scores = scores_of(client, slug, homework_id)
+            self.assertEqual({name: row["Total"] for name, row in scores.items()},
+                             {"p4_hw_alice": "100", "p4_hw_bob": "80", "p4_hw_carol": "50"})  # fmt: skip
+        self.assertRegex(alice.get(self.url(homework_id)).text, r'id="my-official-score">100 <small[^>]*>/ 150')
+        # a later submission that is worth less takes nothing away
+        worse = bob.submit(copy_id, AB_WRONG, path=here)
+        uoj.wait_submission(worse)
+        self.assertEqual(scores_of(teacher, slug, homework_id)["p4_hw_bob"]["Total"], "80")
+        self.assertEqual(homework_row(homework_id, "settle_state, ifnull(current_official_snapshot_id, 'NULL')"), ["open", "NULL"])
+
+        # ---- the end: the scores are settled once, whoever looks
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+        threads = [threading.Thread(target=lambda c=client: c.get(self.url(homework_id))) for client in (alice, bob, carol, tutor, teacher) * 2]
+        threads.append(threading.Thread(target=tick))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        tick()
+        self.assertEqual(db("select version, status, created_by from homework_snapshots where homework_id = %d" % homework_id),
+                         [["1", "official", ""]])  # fmt: skip
+        first = db_value("select id from homework_snapshots where homework_id = %d" % homework_id)
+        self.assertEqual(homework_row(homework_id, "settle_state, current_official_snapshot_id"), ["settled", first])
+        official = {
+            ("p4_hw_alice", copy_id): (100.0, str(submissions["alice"])), ("p4_hw_alice", self.own_id): (0.0, str(wrong)),
+            ("p4_hw_bob", copy_id): (80.0, str(submissions["bob"])), ("p4_hw_bob", self.own_id): (0.0, "NULL"),
+            ("p4_hw_carol", copy_id): (50.0, str(submissions["carol"])), ("p4_hw_carol", self.own_id): (0.0, "NULL"),
+        }  # fmt: skip
+        self.assertEqual(snapshot_scores(first), official)
+        # the snapshot knows the rules it was made with
+        rules = json.loads(db_value("select rules_json from homework_snapshots where id = %s" % first))
+        self.assertEqual(rules["penalty_rules"], [{"after_hours": 0, "multiplier": 0.8}, {"after_hours": 24, "multiplier": 0.5}])
+        self.assertEqual(rules["end_at"], homework_row(homework_id, "end_at")[0])
+        self.assertEqual([(p["problem_id"], p["score"], p["data_version"]) for p in rules["problems"]], [(copy_id, 100, 1), (self.own_id, 50, 1)])
+        self.assertEqual(rules["problems"][0]["data_sha256"], db_value("select sha256 from problem_data_versions where problem_id = %d and version = 1" % copy_id))
+        self.assertEqual(rules["unjudged_submissions"], [])
+
+        # ---- afterwards: what is submitted is correction, and the official scores stand
+        fixed = alice.submit(self.own_id, AB, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        self.assertEqual(uoj.wait_submission(fixed).score, 100)
+        page = alice.get(self.url(homework_id)).text
+        self.assertRegex(page, r'id="my-official-score">100 <small')
+        self.assertRegex(page, r'id="my-correction-score">150 <small')
+        self.assertEqual(snapshot_scores(first), official)
+        self.assertEqual(scores_of(teacher, slug, homework_id)["p4_hw_alice"]["Total"], "100")
+        self.assertEqual(scores_of(teacher, slug, homework_id, "view=correction&")["p4_hw_alice"]["Total"], "150")
+        # and the homework is no secret among the members of the domain any more
+        self.assertIn("p4-homework-alice", bob.get("/submission/%d" % submissions["alice"]).text)
+        self.assertEqual(self.stranger.get("/submission/%d" % submissions["alice"]).status_code, 403)
+        self.assertIn("p4-public-solution", alice.get("/submission/%d" % public_submission).text)
+
+        # ---- the data of a problem is corrected: nothing changes until somebody says so
+        manage = self.url(homework_id, "/manage?tab=scores")
+        self.assertNotIn('id="alert-drift"', teacher.get(manage).text)
+        stricter = ab_problem_files()
+        stricter["output3.txt"] = "no program prints this\n"
+        self.assertIn("上传成功", teacher.upload_data(copy_id, stricter).text)
+        self.assertEqual(teacher.sync(copy_id), "")
+        page = teacher.get(manage).text
+        self.assertIn('id="alert-drift"', page)
+        self.assertIn("有 3 份计分的提交是按 v1 评测的", uoj.text_of(page))
+        self.assertEqual(snapshot_scores(first), official)
+
+        # a new settlement needs a reason, judges only what was submitted to this homework again,
+        # and counts for nothing before it is confirmed
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "resettle", scope=str(copy_id), reason=" "), "")
+        self.assertNotEqual(homework_form(alice, slug, homework_id, "resettle", scope=str(copy_id), reason="x"), "")
+        self.assertNotEqual(homework_form(tutor, slug, homework_id, "resettle", scope=str(copy_id), reason="x"), "")
+        self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d" % homework_id), "1")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "resettle", scope=str(copy_id), reason="第 3 个测试点的答案有误"), "")
+        started = db("select version, status, active_slot, reason, created_by from homework_snapshots where homework_id = %d order by version" % homework_id)[1]
+        self.assertEqual(started[:1] + started[2:], ["2", "1", "第 3 个测试点的答案有误", "p4_hw_teacher"])
+        self.assertIn(started[1], ("rejudging", "candidate"))
+        self.assertEqual(homework_row(homework_id, "current_official_snapshot_id")[0], first)
+        self.assertIn("已经有一次", homework_form(teacher, slug, homework_id, "resettle", scope="all", reason="again"))
+        # the practice of the assistant was not submitted to the homework, and is left alone
+        self.assertEqual(db_value("select status from submissions where id = %d" % practice), "Judged")
+        uoj.wait_until("the submissions of the homework are judged again",
+                       lambda: db_value("select count(*) from submissions where homework_id = %d and status != 'Judged'" % homework_id) == "0")  # fmt: skip
+        tick()
+        second = db_value("select id from homework_snapshots where homework_id = %d and version = 2" % homework_id)
+        self.assertEqual(db_value("select status from homework_snapshots where id = %s" % second), "candidate")
+        page = teacher.get(manage).text
+        self.assertIn('id="table-snapshot-changes"', page)
+        self.assertIn('id="button-confirm-snapshot"', page)
+        # the scores that count are still the ones of the first snapshot
+        self.assertRegex(alice.get(self.url(homework_id)).text, r'id="my-official-score">100 <small')
+        self.assertEqual(homework_row(homework_id, "current_official_snapshot_id")[0], first)
+        self.assertNotEqual(homework_form(alice, slug, homework_id, "confirm", snapshot_id=second), "")
+
+        messages = int(db_value("select count(*) from user_system_msg where receiver = 'p4_hw_alice'"))
+        self.assertEqual(homework_form(teacher, slug, homework_id, "confirm", snapshot_id=second), "")
+        self.assertEqual(homework_row(homework_id, "current_official_snapshot_id")[0], second)
+        self.assertEqual(db("select version, status, ifnull(active_slot, 'NULL') from homework_snapshots where homework_id = %d order by version" % homework_id),
+                         [["1", "official", "NULL"], ["2", "official", "NULL"]])  # fmt: skip
+        self.assertEqual(int(db_value("select count(*) from user_system_msg where receiver = 'p4_hw_alice'")), messages + 1)
+        # the first snapshot is still there with what it was, the second has the new scores and says what data made them
+        self.assertEqual(snapshot_scores(first), official)
+        new_scores = snapshot_scores(second)
+        self.assertLess(new_scores[("p4_hw_alice", copy_id)][0], 100.0)
+        self.assertLess(new_scores[("p4_hw_bob", copy_id)][0], 80.0)
+        self.assertEqual(json.loads(db_value("select rules_json from homework_snapshots where id = %s" % second))["problems"][0]["data_version"], 2)
+        self.assertEqual(json.loads(db_value("select rules_json from homework_snapshots where id = %s" % first))["problems"][0]["data_version"], 1)
+        self.assertEqual(scores_of(teacher, slug, homework_id, "snapshot=%s&" % first)["p4_hw_alice"]["Total"], "100")
+        self.assertNotEqual(scores_of(teacher, slug, homework_id)["p4_hw_alice"]["Total"], "100")
+        self.assertNotIn('id="alert-drift"', teacher.get(manage).text)
+
+        # ---- a settlement that is thrown away changes nothing
+        self.assertEqual(homework_form(teacher, slug, homework_id, "resettle", scope="none", reason="只是看看"), "")
+        third = db_value("select id from homework_snapshots where homework_id = %d and version = 3" % homework_id)
+        tick()
+        self.assertEqual(db_value("select status from homework_snapshots where id = %s" % third), "candidate")
+        self.assertIn('id="snapshot-no-changes"', teacher.get(manage).text)
+        self.assertEqual(homework_form(teacher, slug, homework_id, "discard", snapshot_id=third), "")
+        self.assertEqual(db("select status, ifnull(active_slot, 'NULL') from homework_snapshots where id = %s" % third), [["discarded", "NULL"]])
+        self.assertNotEqual(homework_form(teacher, slug, homework_id, "confirm", snapshot_id=third), "")
+        self.assertEqual(homework_row(homework_id, "current_official_snapshot_id")[0], second)
+
+        # ---- changing the homework afterwards changes no snapshot
+        self.assertEqual(homework_form(teacher, slug, homework_id, "save", **homework_settings(
+            title="p4 第 1 次作业", begin_at=uoj.web_time(-10 * 86400), penalty_since=uoj.web_time(-3 * 86400), end_at=uoj.web_time(-60),
+            **{"penalty_after[]": ["0"], "penalty_unit[]": ["hour"], "penalty_percent[]": ["10"]})), "")  # fmt: skip
+        self.assertEqual(snapshot_scores(second), new_scores)
+        self.assertEqual(homework_row(homework_id, "settle_state, current_official_snapshot_id"), ["settled", second])
+        self.assertIn('id="alert-stale"', teacher.get(manage).text)
+
+        log = [row[0] for row in db("select action from audit_logs where resource_type = 'homework' and resource_id = '%d' order by id" % homework_id)]
+        for action in ("homework.create", "homework.add_problem", "homework.publish", "homework.published", "homework.settle",
+                       "homework.resettle", "homework.confirm_snapshot", "homework.discard_snapshot", "homework.edit", "homework.export_scores"):  # fmt: skip
+            self.assertIn(action, log)
+        self.assertEqual(db("select actor_type from audit_logs where resource_type = 'homework' and resource_id = '%d' and action = 'homework.settle'" % homework_id), [["system"]])
+        uoj.wait_idle()
+
+
+class HomeworkStateTest(unittest.TestCase):
+    """publishing and settling a homework happen once, whatever gets in the way"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher = account("p4_st_teacher")
+        assert cls.admin.change_user("p4_st_teacher", "grant:teacher") == ""
+        cls.slug = "p4-hw-states"
+        cls.did = cls.teacher.new_domain(cls.slug)
+        cls.pupils = [account("p4_st_pupil%d" % n) for n in range(3)]
+        cls.lecturer = account("p4_st_lecturer")
+        for n in range(3):
+            assert member_form(cls.teacher, cls.slug, "add", username="p4_st_pupil%d" % n, role="member") == ""
+        assert member_form(cls.teacher, cls.slug, "add", username="p4_st_lecturer", role="teacher") == ""
+        assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
+        cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
+        assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
+        assert cls.teacher.sync(cls.own_id) == ""
+
+    def url(self, homework_id, path=""):
+        return "/d/%s/homework/%d%s" % (self.slug, homework_id, path)
+
+    def published(self, title, problems=None, **settings):
+        """a homework that runs, of the problem of the domain unless told otherwise"""
+        homework_id = new_homework(self.teacher, self.slug, title=title, **settings)
+        for problem_id in problems or [self.own_id]:
+            self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(problem_id), score="100"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "publish"), "")
+        uoj.wait_until("homework #%d is published" % homework_id,
+                       lambda: tick() and homework_row(homework_id, "status")[0] != "publishing", timeout=300)  # fmt: skip
+        self.assertEqual(homework_row(homework_id, "status")[0], "published")
+        return homework_id
+
+    def test_settlement_waits_for_judgements_and_goes_on_without_the_ones_that_never_come(self):
+        pupil = self.pupils[0]
+        homework_id = self.published("p4 结算等待", allow_late="")
+        self.assertEqual(pupil.form(self.url(homework_id), "claim"), "")
+        here = self.url(homework_id, "/problem/%d" % self.own_id)
+        first = pupil.submit(self.own_id, AB_WRONG, path=here)
+        self.assertEqual(uoj.wait_submission(first).score, 0)
+        manage = self.url(homework_id, "/manage?tab=scores")
+
+        with uoj.judgers_paused():
+            # submitted before the end, and not judged when the end comes
+            stuck = pupil.submit(self.own_id, AB, path=here)
+            db("update submissions set submit_time = '%s' where id in (%d, %d)" % (uoj.web_time(-3600), first, stuck))
+            db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+            pupil.get(self.url(homework_id))
+            tick()
+            self.assertEqual(homework_row(homework_id, "settle_state, ifnull(current_official_snapshot_id, 'NULL')"), ["waiting_judgements", "NULL"])
+            self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d" % homework_id), "0")
+            self.assertIn('id="settlement-waiting"', self.teacher.get(manage).text)
+            # nothing happens however often anybody looks
+            for _ in range(3):
+                pupil.get(self.url(homework_id))
+                tick()
+            self.assertEqual(homework_row(homework_id, "settle_state")[0], "waiting_judgements")
+
+            # no judger comes: after the grace time the homework is settled with what there is
+            db("update homeworks set settle_waiting_since = '%s' where id = %d" % (uoj.web_time(-7200), homework_id))
+            tick()
+            snapshot = db_value("select id from homework_snapshots where homework_id = %d" % homework_id)
+            self.assertEqual(homework_row(homework_id, "settle_state, current_official_snapshot_id"), ["settled", snapshot])
+            self.assertEqual(snapshot_scores(snapshot), {("p4_st_pupil0", self.own_id): (0.0, str(first))})
+            # and the snapshot says what it went on without
+            self.assertEqual(json.loads(db_value("select rules_json from homework_snapshots where id = %s" % snapshot))["unjudged_submissions"], [stuck])
+
+        # the judgers are back: the official score stands, and the page says that it is out of date
+        self.assertEqual(uoj.wait_submission(stuck).score, 100)
+        tick()
+        self.assertEqual(snapshot_scores(snapshot), {("p4_st_pupil0", self.own_id): (0.0, str(first))})
+        self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d" % homework_id), "1")
+        self.assertIn('id="alert-stale"', self.teacher.get(manage).text)
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "resettle", scope="none", reason="结算时有提交没评完"), "")
+        tick()
+        second = db_value("select id from homework_snapshots where homework_id = %d and version = 2" % homework_id)
+        self.assertEqual(db_value("select status from homework_snapshots where id = %s" % second), "candidate")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "confirm", snapshot_id=second), "")
+        self.assertEqual(snapshot_scores(second), {("p4_st_pupil0", self.own_id): (100.0, str(stuck))})
+        self.assertEqual(homework_row(homework_id, "current_official_snapshot_id")[0], second)
+
+    def test_publishing_copies_a_problem_once_and_waits_for_its_data(self):
+        public_id = self.admin.create_problem(checker_problem_files())
+        homework_id = new_homework(self.teacher, self.slug, title="p4 发布冻结")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(public_id), score="100"), "")
+        copies = lambda: db("select id from problems where owner_domain_id = %d and source_problem_id = %d" % (self.did, public_id))
+
+        with uoj.judgers_paused():
+            # everybody who may publishes at the same moment, and the tick of the server joins in
+            clients = [self.teacher, self.lecturer, self.admin]
+            threads = [threading.Thread(target=lambda c=c: homework_form(c, self.slug, homework_id, "publish")) for c in clients]
+            threads += [threading.Thread(target=tick) for _ in range(3)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            tick()
+            self.assertEqual(len(copies()), 1)
+            copy_id = int(copies()[0][0])
+            # the checker of the copy is built by a judger, and there is none: the homework waits
+            self.assertEqual(homework_row(homework_id, "status")[0], "publishing")
+            self.assertEqual(db_value("select status from problem_data_versions where problem_id = %d" % copy_id), "pending")
+            self.assertIn('id="homework-publishing"', self.teacher.get(self.url(homework_id, "/manage")).text)
+            self.assertEqual(self.pupils[0].get(self.url(homework_id)).status_code, 404)
+        uoj.wait_until("the homework is published", lambda: tick() and homework_row(homework_id, "status")[0] == "published", timeout=300)
+        self.assertEqual(len(copies()), 1)
+        self.assertEqual(
+            db("select problem_id, source_problem_id from homework_problems where homework_id = %d" % homework_id),
+            [[str(copy_id), str(public_id)]],
+        )
+        # what the public problem becomes afterwards is nothing to the homework
+        pupil = self.pupils[1]
+        self.assertEqual(pupil.form(self.url(homework_id), "claim"), "")
+        broken = checker_problem_files()
+        broken["output1.txt"] = "999\n"
+        self.assertIn("上传成功", self.admin.upload_data(public_id, broken).text)
+        self.assertEqual(self.admin.sync(public_id), "")
+        submission_id = pupil.submit(copy_id, AB, path=self.url(homework_id, "/problem/%d" % copy_id))
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        self.assertLess(uoj.wait_submission(self.admin.submit(public_id, AB)).score, 100)
+        self.assertEqual(db_value("select data_version from problems where id = %d" % copy_id), "1")
+
+    def test_homework_that_can_not_be_published_goes_back_to_a_draft(self):
+        # a public problem without data
+        empty_id = self.admin.new_problem()
+        db("update problems set is_hidden = 0 where id = %d" % empty_id)
+        problems = db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
+        homework_id = new_homework(self.teacher, self.slug, title="p4 发布失败")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(empty_id), score="100"), "")
+        homework_form(self.teacher, self.slug, homework_id, "publish")
+        uoj.wait_until("the homework is not being published any more", lambda: tick() and homework_row(homework_id, "status")[0] != "publishing")
+        status, error = homework_row(homework_id, "status, ifnull(publish_error, '')")
+        self.assertEqual(status, "draft")
+        self.assertIn(str(empty_id), error)
+        self.assertIn('id="homework-publish-error"', self.teacher.get(self.url(homework_id, "/manage")).text)
+        # nothing is left of the copy that could not be made
+        self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d" % self.did), problems)
+        # a homework without problems is not published either
+        blank = new_homework(self.teacher, self.slug, title="p4 没有题目")
+        self.assertNotEqual(homework_form(self.teacher, self.slug, blank, "publish"), "")
+        self.assertEqual(homework_row(blank, "status")[0], "draft")
+        # a draft can be thrown away
+        self.assertEqual(homework_form(self.teacher, self.slug, blank, "delete"), "")
+        self.assertEqual(db_value("select count(*) from homeworks where id = %d" % blank), "0")
+
+    def test_homework_can_be_taken_back_before_it_begins(self):
+        homework_id = self.published("p4 撤回", begin_at=uoj.web_time(3600), penalty_since=uoj.web_time(7200), end_at=uoj.web_time(86400))
+        self.assertNotEqual(homework_form(self.pupils[0], self.slug, homework_id, "unpublish"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "unpublish"), "")
+        self.assertEqual(homework_row(homework_id, "status")[0], "draft")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "remove_problem", problem_id=str(self.own_id)), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(self.own_id), score="30"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "publish"), "")
+        uoj.wait_until("the homework is published again", lambda: tick() and homework_row(homework_id, "status")[0] == "published")
+        # once it has begun it stays
+        db("update homeworks set begin_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+        self.assertNotEqual(homework_form(self.teacher, self.slug, homework_id, "unpublish"), "")
+        self.assertEqual(homework_row(homework_id, "status")[0], "published")
+
+    def test_students_who_did_not_claim_are_listed_added_and_exported(self):
+        homework_id = self.published("p4 未认领", allow_late="")
+        claimed, forgot, also_forgot = self.pupils
+        self.assertEqual(claimed.form(self.url(homework_id), "claim"), "")
+        submission_id = claimed.submit(self.own_id, AB, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+
+        page = self.teacher.get(self.url(homework_id, "/manage?tab=participants")).text
+        unclaimed = re.search(r'(?s)id="list-unclaimed">(.*?)</p>', page).group(1)
+        self.assertIn("p4_st_pupil1", unclaimed)
+        self.assertIn("p4_st_pupil2", unclaimed)
+        self.assertNotIn("p4_st_pupil0", unclaimed)
+        self.assertNotIn("p4_st_lecturer", unclaimed)
+        # the scores have who takes part; the export can list the others as such
+        self.assertEqual(set(scores_of(self.teacher, self.slug, homework_id)), {"p4_st_pupil0"})
+        everybody = scores_of(self.teacher, self.slug, homework_id, "unclaimed=1&")
+        self.assertEqual({name: (row["Claimed"], row["Total"]) for name, row in everybody.items()},
+                         {"p4_st_pupil0": ("yes", "100"), "p4_st_pupil1": ("no", ""), "p4_st_pupil2": ("no", "")})  # fmt: skip
+
+        # one of them is put in by name, the rest all at once; whoever handed nothing in has zero
+        self.assertNotEqual(homework_form(forgot, self.slug, homework_id, "add_all"), "")
+        self.assertNotEqual(homework_form(self.teacher, self.slug, homework_id, "add_participant", username="p4_hw_stranger"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_participant", username="p4_st_pupil1"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_all"), "")
+        self.assertEqual(
+            db("select username, status, ifnull(added_by, 'NULL') from homework_participants where homework_id = %d order by username" % homework_id),
+            [["p4_st_pupil0", "active", "NULL"], ["p4_st_pupil1", "active", "p4_st_teacher"], ["p4_st_pupil2", "active", "p4_st_teacher"]],
+        )
+        self.assertEqual({name: row["Total"] for name, row in scores_of(self.teacher, self.slug, homework_id).items()},
+                         {"p4_st_pupil0": "100", "p4_st_pupil1": "0", "p4_st_pupil2": "0"})  # fmt: skip
+        # and whoever is taken out is out of the scores, with what they submitted kept
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "remove_participant", username="p4_st_pupil0"), "")
+        self.assertEqual(set(scores_of(self.teacher, self.slug, homework_id)), {"p4_st_pupil1", "p4_st_pupil2"})
+        self.assertEqual(db_value("select homework_id from submissions where id = %d" % submission_id), str(homework_id))
+
+    def test_maintainer_looks_after_one_homework(self):
+        homework_id = self.published("p4 维护者")
+        other = self.published("p4 别人的作业")
+        keeper = self.pupils[2]
+        manage = self.url(homework_id, "/manage")
+        self.assertEqual(keeper.get(manage).status_code, 403)
+        self.assertNotEqual(homework_form(self.teacher, self.slug, homework_id, "add_maintainer", username="p4_hw_stranger"), "")
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_maintainer", username="p4_st_pupil2"), "")
+        for path in ("/manage", "/manage?tab=scores", "/scoreboard"):
+            self.assertEqual(keeper.get(self.url(homework_id, path)).status_code, 200, path)
+            self.assertEqual(keeper.get(self.url(other, path)).status_code, 403, path)
+        self.assertEqual(homework_form(keeper, self.slug, homework_id, "add_participant", username="p4_st_pupil0"), "")
+        self.assertEqual(db_value("select count(*) from homework_participants where homework_id = %d" % homework_id), "1")
+        # but neither chooses who else looks after it, nor sets homework
+        homework_form(keeper, self.slug, homework_id, "add_maintainer", username="p4_st_pupil1")
+        homework_form(keeper, self.slug, homework_id, "clone")
+        self.assertEqual(db("select username from homework_maintainers where homework_id = %d" % homework_id), [["p4_st_pupil2"]])
+        self.assertEqual(db_value("select count(*) from homeworks where title like 'p4 维护者%%'"), "1")
+        self.assertEqual(keeper.get("/d/%s/homework/new" % self.slug).status_code, 403)
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "remove_maintainer", username="p4_st_pupil2"), "")
+        self.assertEqual(keeper.get(manage).status_code, 403)
+
+    def test_copy_of_a_homework_starts_as_a_draft_without_anybody_in_it(self):
+        homework_id = self.published("p4 原作业")
+        self.assertEqual(self.pupils[0].form(self.url(homework_id), "claim"), "")
+        self.assertEqual(homework_form(self.lecturer, self.slug, homework_id, "clone"), "")
+        clone_id = int(db_value("select max(id) from homeworks where domain_id = %d" % self.did))
+        self.assertNotEqual(clone_id, homework_id)
+        columns = "penalty_rules, allow_withdraw, description_md"
+        self.assertEqual(homework_row(clone_id, columns), homework_row(homework_id, columns))
+        self.assertEqual(homework_row(clone_id, "title, status, created_by, settle_state"), ["p4 原作业（副本）", "draft", "p4_st_lecturer", "open"])
+        problems = lambda h: db("select problem_id, score, required from homework_problems where homework_id = %d order by position" % h)
+        self.assertEqual(problems(clone_id), problems(homework_id))
+        self.assertEqual(db_value("select count(*) from homework_participants where homework_id = %d" % clone_id), "0")
 
 
 if __name__ == "__main__":

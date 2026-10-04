@@ -10,10 +10,19 @@
 	
 	// A problem of a domain is shown inside its domain, to the people of the domain.
 	$domain = null;
+	$homework = null;
 	if (isset($_GET['slug'])) {
 		$domain = domainOfPage();
 		if ($problem['owner_domain_id'] != $domain['id']) {
 			become404Page();
+		}
+		// A problem of a homework is reached through the homework, by whoever claimed it, once
+		// it has begun. That it is hidden in the domain does not matter there.
+		if (isset($_GET['homework_id'])) {
+			$homework = queryHomework($_GET['homework_id']);
+			if (!$homework || $homework['domain_id'] != $domain['id'] || !isset(homeworkProblemPoints($homework)[(int)$problem['id']]) || !can($myUser, 'homework.solve', $homework)) {
+				become404Page();
+			}
 		}
 	} elseif ($problem['owner_domain_id'] && !isset($_GET['contest_id'])) {
 		$owner_domain = queryDomain($problem['owner_domain_id']);
@@ -55,11 +64,14 @@
 				$ban_in_contest = !can($myUser, 'problem.view', $problem);
 			}
 		}
-	} else {
+	} elseif (!$homework) {
 		if (!can($myUser, 'problem.view', $problem)) {
 			become404Page();
 		}
 	}
+	// what somebody who takes part submits through the homework is submitted to the homework
+	$homework_participation = $homework && Auth::check() ? homeworkParticipation($homework['id'], Auth::id()) : null;
+	$is_in_homework = $homework_participation && $homework_participation['status'] === 'active';
 
 	$submission_requirement = json_decode($problem['submission_requirement'], true);
 	$problem_extra_config = getProblemExtraConfig($problem);
@@ -103,7 +115,7 @@
 	}
 	
 	function handleUpload($zip_file_name, $content, $tot_size) {
-		global $problem, $contest, $myUser, $is_in_contest;
+		global $problem, $contest, $myUser, $is_in_contest, $homework, $is_in_homework;
 		
 		$content['config'][] = array('problem_id', $problem['id']);
 		if ($is_in_contest && $contest['extra_config']["contest_type"]!='IOI' && !isset($contest['extra_config']["problem_{$problem['id']}"])) {
@@ -135,10 +147,16 @@
 		} elseif ($is_in_contest && $contest['domain_id']) {
 			$domain_id = (int)$contest['domain_id'];
 		}
+		// The time of a submission is read off the clock that decides whether a contest or a
+		// homework has begun or ended: the clock of the web server.
+		$submit_time = UOJTime::$time_now_str;
 		if ($is_in_contest) {
-			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, ${contest['id']}, $domain_id, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
+			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, ${contest['id']}, $domain_id, '$submit_time', '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
+		} elseif ($is_in_homework) {
+			// who sees it is decided by the homework, not by whether the problem is hidden
+			DB::query("insert into submissions (problem_id, domain_id, homework_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, $domain_id, ${homework['id']}, '$submit_time', '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
 		} else {
-			DB::query("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, $domain_id, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', {$problem['is_hidden']})");
+			DB::query("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, $domain_id, '$submit_time', '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', {$problem['is_hidden']})");
 		}
 	}
 	function handleCustomTestUpload($zip_file_name, $content, $tot_size) {
@@ -179,7 +197,7 @@
 			}
 			return '';
 		};
-		$zip_answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : '/submissions';
+		$zip_answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($homework ? homeworkUrl($domain, $homework) : '/submissions');
 		$zip_answer_form->runAtServer();
 	}
 	
@@ -194,7 +212,7 @@
 		}
 		return '';
 	};
-	$answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : '/submissions';
+	$answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($homework ? homeworkUrl($domain, $homework) : '/submissions');
 	$answer_form->runAtServer();
 
 	if ($custom_test_requirement) {
@@ -233,9 +251,21 @@ EOD
 	$REQUIRE_LIB['hljs'] = '';
 ?>
 <?php if ($domain): ?>
-<?php echoDomainPageHeader($domain, 'problems', HTML::stripTags($problem['title'])) ?>
+<?php echoDomainPageHeader($domain, $homework ? 'homeworks' : 'problems', HTML::stripTags($problem['title'])) ?>
+<?php if ($homework): ?>
+<p class="uoj-domain-back"><a href="<?= homeworkUrl($domain, $homework) ?>"><span class="glyphicon glyphicon-chevron-left"></span> <?= HTML::escape($homework['title']) ?></a>
+<?php $homework_phase = homeworkPhaseName(homeworkPhase($homework, homeworkNow())); ?>
+<span class="badge <?= $homework_phase[1] ?>"><?= $homework_phase[0] ?></span>
+<?php if (!$is_in_homework): ?><span class="text-muted">你没有参加这个作业，在这里提交不计入作业成绩。</span><?php endif ?></p>
+<?php endif ?>
 <?php else: ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - ' . UOJLocale::get('problems::problem')) ?>
+<?php if (Auth::check() && !$contest): ?>
+<?php foreach (DB::selectAll("select homeworks.*, homework_problems.problem_id as copy_id from homework_problems, homeworks, homework_participants where homework_problems.source_problem_id = {$problem['id']} and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape(Auth::id())."' and homework_participants.status = 'active'") as $my_homework): ?>
+<?php $my_homework_domain = queryDomain($my_homework['domain_id']); ?>
+<div class="alert alert-info" role="alert">这道题是你的作业 <a href="<?= homeworkUrl($my_homework_domain, $my_homework) ?>"><?= HTML::escape($my_homework['title']) ?></a> 里的题目。在这里提交不计入作业成绩，请到 <a href="<?= homeworkUrl($my_homework_domain, $my_homework, '/problem/' . $my_homework['copy_id']) ?>">作业里提交</a>。</div>
+<?php endforeach ?>
+<?php endif ?>
 <?php endif ?>
 <?php
 	$limit = getUOJConf("/var/uoj_data/{$problem['id']}/problem.conf");

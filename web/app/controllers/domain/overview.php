@@ -33,7 +33,48 @@
 			<div class="card-body uoj-domain-description"><?= HTML::escape($domain['description']) ?></div>
 		</div>
 		<?php endif ?>
-		<div class="uoj-domain-empty" id="domain-overview-empty">这里会显示进行中的作业、训练和比赛。</div>
+		<?php
+			$now = homeworkNow();
+			$current_homeworks = array();
+			foreach (DB::selectAll("select * from homeworks where domain_id = {$domain['id']} and status = 'published' order by end_at") as $homework) {
+				$homework = homeworkTouch($homework);
+				if (homeworkPhase($homework, $now) !== 'ended') {
+					$current_homeworks[] = $homework;
+				}
+			}
+		?>
+		<h3 class="uoj-domain-section-title mt-0">进行中和即将开始的作业</h3>
+		<?php if (!$current_homeworks): ?>
+		<div class="uoj-domain-empty mb-3" id="domain-overview-empty">现在没有进行中的作业。<a href="<?= domainUrl($domain, '/homeworks') ?>">查看全部作业</a></div>
+		<?php endif ?>
+		<?php foreach ($current_homeworks as $homework): ?>
+		<?php
+			$phase_name = homeworkPhaseName(homeworkPhase($homework, $now));
+			$participation = Auth::check() ? homeworkParticipation($homework['id'], Auth::id()) : null;
+			$is_participant = $participation && $participation['status'] === 'active';
+			$points = array_sum(homeworkProblemPoints($homework));
+			$mine = $is_participant && $now >= strtotime($homework['begin_at']) ? homeworkTotal(homeworkLiveScores($homework), Auth::id()) : null;
+		?>
+		<div class="card mb-3">
+			<div class="card-body">
+				<div class="d-flex flex-wrap align-items-start">
+					<h5 class="card-title mr-auto mb-1"><a href="<?= homeworkUrl($domain, $homework) ?>"><?= HTML::escape($homework['title']) ?></a> <span class="badge <?= $phase_name[1] ?>"><?= $phase_name[0] ?></span></h5>
+					<?php if ($is_participant): ?>
+					<span class="badge badge-success">已认领</span>
+					<?php elseif (can($myUser, 'homework.claim', $homework)): ?>
+					<a class="btn btn-primary btn-sm" href="<?= homeworkUrl($domain, $homework) ?>">去认领</a>
+					<?php endif ?>
+				</div>
+				<p class="text-muted small mb-2"><?= substr($homework['begin_at'], 0, 16) ?> 开始 <span class="mx-1">·</span> <?= substr($homework['end_at'], 0, 16) ?> 截止</p>
+				<?php if ($mine !== null && $points > 0): ?>
+				<div class="d-flex align-items-center">
+					<div class="progress flex-grow-1 mr-2" style="height: 0.6rem"><div class="progress-bar bg-success" style="width: <?= round(100 * $mine / $points) ?>%"></div></div>
+					<small><?= homeworkTrimNumber($mine) ?> / <?= $points ?></small>
+				</div>
+				<?php endif ?>
+			</div>
+		</div>
+		<?php endforeach ?>
 	</div>
 	<div class="col-lg-4">
 		<div class="card mb-3" id="card-announcements">

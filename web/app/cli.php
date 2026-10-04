@@ -69,6 +69,13 @@ $handlers = [
 		}
 		die("finished!\n");
 	},
+	// What time brings about in the homeworks: publishing them once the data of their problems is
+	// built, and settling them when they end. Pages that show a homework do the same for the
+	// homework they show; this is for the ones nobody looks at. Run it every minute.
+	'homework:tick' => function () {
+		$advanced = homeworkAdvanceDue();
+		die("advanced $advanced homeworks\n");
+	},
 	'help' => 'showHelp'
 ];
 

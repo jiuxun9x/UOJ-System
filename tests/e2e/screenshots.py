@@ -14,7 +14,9 @@ import sys
 from playwright.sync_api import sync_playwright
 
 import test_phase3 as p3
+import test_phase4 as p4
 import uoj
+from fixtures import AB, AB_WRONG, ab_problem_files
 from uoj import db, db_value
 
 SLUG = "ds-2026-a"
@@ -54,19 +56,76 @@ def seed():
     teacher.get(members)
 
     news = "/d/%s/announcements" % SLUG
-    if db_value("select count(*) from domain_announcements") == "0":
+    did = p4.domain_id(SLUG)
+    if db_value("select count(*) from domain_announcements where domain_id = %d" % did) == "0":
         teacher.form(news, "save", title="期中考试安排", pinned="on",
                      content_md="期中考试在 **第 9 周周二** 随堂进行，范围是前 6 章。\n\n- 闭卷，可以带一张 A4 纸\n- 上机部分在本域的比赛里进行")  # fmt: skip
         teacher.form(news, "save", title="第 2 次作业讲评",
                      content_md="大部分同学的问题出在边界：链表为空时 `head` 是 `NULL`。\n\n复杂度应为 $O(n)$。")  # fmt: skip
     teacher.form(members, "invite", label="周二班", hours="168", max_uses="60")
-    return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None}
+
+    # a problem of the domain, a homework that is over and settled, one that runs, and a draft
+    teacher.form("/d/%s/problems" % SLUG, "new")
+    own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
+    teacher.upload_data(own_id, ab_problem_files())
+    teacher.sync(own_id)
+    db("update problems set title = '链表的中间结点', is_hidden = 0 where id = %d" % own_id)
+    public_id = admin.create_problem(ab_problem_files())
+    db("update problems set title = 'A + B Problem' where id = %d" % public_id)
+    teacher.form("/d/%s/problems" % SLUG, "copy", problem_id=str(public_id))
+
+    def homework(title, **settings):
+        homework_id = p4.new_homework(teacher, SLUG, title=title, description_md="请独立完成。**不要**抄袭。", **settings)
+        for problem_id, score in ((public_id, 60), (own_id, 40)):
+            p4.homework_form(teacher, SLUG, homework_id, "add_problem", problem_id=str(problem_id), score=str(score))
+        return homework_id
+
+    def publish(homework_id):
+        p4.homework_form(teacher, SLUG, homework_id, "publish")
+        uoj.wait_until("published", lambda: p4.tick() and p4.homework_row(homework_id, "status")[0] != "publishing")
+
+    def hand_in(homework_id, programs):
+        problem_ids = [int(row[0]) for row in db("select problem_id from homework_problems where homework_id = %d order by position" % homework_id)]
+        for client, codes in zip(students, programs):
+            client.form("/d/%s/homework/%d" % (SLUG, homework_id), "claim")
+            for problem_id, code in zip(problem_ids, codes):
+                if code is not None:
+                    uoj.wait_submission(client.submit(problem_id, code, path="/d/%s/homework/%d/problem/%d" % (SLUG, homework_id, problem_id)))
+
+    past = homework("第 2 次作业 栈与队列")
+    publish(past)
+    hand_in(past, [(AB, AB), (AB, AB_WRONG), (AB_WRONG, None)])
+    db("update submissions set submit_time = '%s' where homework_id = %d" % (uoj.web_time(-5 * 86400), past))
+    db("update submissions set submit_time = '%s' where homework_id = %d and submitter = '%s'" % (uoj.web_time(-2 * 86400), past, students[1].username))
+    db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-3600), past))
+    p4.tick()
+
+    current = homework("第 3 次作业 链表")
+    publish(current)
+    hand_in(current, [(AB, AB_WRONG), (AB, None)])
+    homework("第 4 次作业 树", begin_at=uoj.web_time(5 * 86400), penalty_since=uoj.web_time(12 * 86400), end_at=uoj.web_time(14 * 86400))
+    uoj.wait_idle()
+    return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
+            "past": past, "current": current}  # fmt: skip
 
 
-def pages():
+def pages(seeded):
     """name of the picture, who looks, address"""
     d = "/d/" + SLUG
+    past, current = d + "/homework/%d" % seeded["past"], d + "/homework/%d" % seeded["current"]
     return [
+        ("homeworks-teacher", "teacher", d + "/homeworks"),
+        ("homeworks-student", "student", d + "/homeworks"),
+        ("homework-running-student", "student", current),
+        ("homework-ended-student", "student", past),
+        ("homework-new", "teacher", d + "/homework/new"),
+        ("homework-manage-settings", "teacher", current + "/manage"),
+        ("homework-manage-problems", "teacher", current + "/manage?tab=problems"),
+        ("homework-manage-participants", "teacher", current + "/manage?tab=participants"),
+        ("homework-manage-scores", "teacher", past + "/manage?tab=scores"),
+        ("homework-scoreboard", "teacher", past + "/scoreboard"),
+        ("problems-teacher", "teacher", d + "/problems"),
+        ("contests-teacher", "teacher", d + "/contests"),
         ("domains-teacher", "teacher", "/domains"),
         ("domains-outsider", "outsider", "/domains"),
         ("domain-new", "teacher", "/domain/new"),
@@ -86,7 +145,7 @@ def main(out):
     clients = seed()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        for name, who, path in pages():
+        for name, who, path in pages(clients):
             for label, viewport in VIEWPORTS.items():
                 context = browser.new_context(viewport=viewport, locale="zh-CN")
                 client = clients[who]

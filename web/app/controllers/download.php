@@ -18,6 +18,14 @@
 					}
 				}
 			}
+			if (!$visible && $myUser != null) {
+				foreach (DB::selectAll("select homework_id from homework_problems where problem_id = {$problem['id']}") as $row) {
+					$homework = queryHomework($row['homework_id']);
+					if ($homework && can($myUser, 'homework.solve', $homework)) {
+						$visible = true;
+					}
+				}
+			}
 			if (!$visible) {
 				become404Page();
 			}

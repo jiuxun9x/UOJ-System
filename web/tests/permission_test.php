@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-contest-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-domain-lib.php';
+require_once __DIR__ . '/../app/libs/uoj-homework-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-permission-lib.php';
 
 // the facts of a small site, instead of the database
@@ -17,9 +18,33 @@ class FakePermissionFacts {
 	public $problems_in_running_contests = array();
 	public $domain_members = array();
 	public $domains = array();
+	public $now = 0;
+	public $homeworks = array();
+	public $homework_participants = array();
+	public $homework_maintainers = array();
+	public $problems_in_running_homeworks = array();
+	public $running_homework_sources = array();
 
 	public function managesProblem($username, $problem_id) {
 		return in_array(array($username, $problem_id), $this->problem_managers);
+	}
+	public function now() {
+		return $this->now;
+	}
+	public function homework($homework_id) {
+		return $homework_id ? $this->homeworks[$homework_id] : null;
+	}
+	public function homeworkParticipantStatus($username, $homework_id) {
+		return isset($this->homework_participants["$username/$homework_id"]) ? $this->homework_participants["$username/$homework_id"] : null;
+	}
+	public function isHomeworkMaintainer($username, $homework_id) {
+		return in_array("$username/$homework_id", $this->homework_maintainers);
+	}
+	public function problemIsInRunningHomework($problem_id) {
+		return in_array($problem_id, $this->problems_in_running_homeworks);
+	}
+	public function userRunsHomeworkFromSource($username, $problem_id) {
+		return in_array("$username/$problem_id", $this->running_homework_sources);
 	}
 	public function domainMemberRole($username, $domain_id) {
 		return isset($this->domain_members["$username/$domain_id"]) ? $this->domain_members["$username/$domain_id"] : null;
@@ -380,6 +405,71 @@ check_ability('problem.use', $facts->problems[1], array('nobody' => true, 'alice
 check_ability('problem.use', $facts->problems[2], array('alice' => false, 'lecturer' => false, 'setter' => true), 'a hidden problem');
 check_ability('problem.use', $facts->problems[21], array('lecturer' => true, 'tutor' => false, 'pupil' => false, 'alice' => false, 'setter' => false), 'a hidden problem of a domain');
 check_ability('problem.use', $facts->problems[22], array('lecturer' => false, 'setter' => true), 'a problem of another domain');
+
+// ---- homework
+$facts->now = strtotime('2026-10-07 12:00:00');
+$fake_homework = function($id, $status, $begin_at, $end_at, $claim_end_at = null) {
+	return array('id' => $id, 'domain_id' => 1, 'status' => $status, 'begin_at' => $begin_at, 'end_at' => $end_at, 'claim_end_at' => $claim_end_at, 'penalty_since' => null);
+};
+$facts->homeworks = array(
+	1 => $fake_homework(1, 'published', '2026-10-05 08:00:00', '2026-10-12 00:00:00'),
+	2 => $fake_homework(2, 'published', '2026-10-10 08:00:00', '2026-10-20 00:00:00'),
+	3 => $fake_homework(3, 'draft', '2026-10-05 08:00:00', '2026-10-12 00:00:00'),
+	4 => $fake_homework(4, 'published', '2026-09-01 08:00:00', '2026-09-10 00:00:00'),
+	5 => $fake_homework(5, 'published', '2026-10-05 08:00:00', '2026-10-12 00:00:00', '2026-10-06 00:00:00'),
+);
+$facts->domain_members['mate'] = 'member';
+$facts->domain_members['mate/1'] = 'member';
+$permission_test_users['mate'] = fake_user('mate');
+$facts->homework_participants = array('pupil/1' => 'active', 'classmate/1' => 'active', 'pupil/2' => 'active', 'pupil/4' => 'active', 'mate/4' => 'active', 'mate/1' => 'withdrawn');
+// classmate is a student who was asked to look after homework 1; alice was too, but is no member of the domain
+$facts->homework_maintainers = array('classmate/1', 'alice/1');
+
+$running = $facts->homeworks[1];
+check_ability('homework.manage', $running, $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'classmate' => true, 'mate' => false), 'a homework');
+check_ability('homework.view_scores', $running, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false, 'classmate' => true, 'mate' => false), 'a homework');
+check_ability('homework.manage', $facts->homeworks[2], array('classmate' => false, 'lecturer' => true), 'another homework than the one somebody looks after');
+check_ability('homework.view', $running, $outsiders + array('pupil' => true, 'mate' => true, 'tutor' => true), 'a published homework');
+check_ability('homework.view', $facts->homeworks[3], $outsiders + array('lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false, 'mate' => false), 'a draft');
+
+// students claim a homework to take part, until claiming ends
+check_ability('homework.claim', $facts->homeworks[2], $outsiders + array('mate' => true, 'classmate' => true, 'pupil' => false, 'tutor' => false, 'lecturer' => false, 'lead' => false, 'root' => false), 'a homework that has not begun');
+check_ability('homework.claim', $running, array('mate' => true, 'pupil' => false), 'a homework that is running: somebody who stepped back may claim it again');
+check_ability('homework.claim', $facts->homeworks[3], array('mate' => false), 'a draft');
+check_ability('homework.claim', $facts->homeworks[4], array('classmate' => false), 'a homework that is over');
+check_ability('homework.claim', $facts->homeworks[5], array('mate' => false, 'classmate' => false), 'a homework whose claiming has ended');
+
+// its problems open to whoever claimed it when it begins, and stay open afterwards
+check_ability('homework.solve', $running, $outsiders + array('pupil' => true, 'classmate' => true, 'mate' => false, 'tutor' => true, 'lecturer' => true), 'a homework that is running');
+check_ability('homework.solve', $facts->homeworks[2], array('pupil' => false, 'lecturer' => true, 'tutor' => true), 'a homework that has not begun');
+check_ability('homework.solve', $facts->homeworks[4], array('pupil' => true, 'mate' => true, 'classmate' => false), 'a homework that is over');
+check_ability('homework.solve', $facts->homeworks[3], array('pupil' => false, 'lecturer' => true), 'a draft');
+
+// what is submitted to a homework is nobody else's business until the homework is over
+$handed_in = array('domain_id' => 1, 'homework_id' => 1) + fake_submission('pupil', 21);
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, $handed_in, $outsiders + array('pupil' => true, 'mate' => false, 'classmate' => true, 'tutor' => true, 'lecturer' => true, 'lead' => true, 'root' => true), 'a submission to a running homework');
+}
+check_ability('submission.view_final_details', $handed_in, array('classmate' => true, 'tutor' => true, 'pupil' => false, 'mate' => false), 'a submission to a running homework');
+check_ability('submission.hack', $handed_in, array('pupil' => false, 'mate' => false, 'lecturer' => true), 'a submission to a running homework');
+$after_the_end = array('domain_id' => 1, 'homework_id' => 4) + fake_submission('pupil', 20);
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, $after_the_end, $outsiders + array('pupil' => true, 'mate' => true, 'tutor' => true), 'a submission to a homework that is over');
+}
+// and everything else that was ever submitted to one of its problems is closed with it
+$facts->problems_in_running_homeworks = array(20);
+$earlier_in_domain = array('domain_id' => 1) + fake_submission('pupil', 20);
+check_ability('submission.view', $earlier_in_domain, array('mate' => true, 'alice' => false), 'an earlier submission to a problem of a running homework');
+check_ability('submission.view_source', $earlier_in_domain, array('mate' => false, 'pupil' => true, 'tutor' => true, 'lecturer' => true), 'an earlier submission to a problem of a running homework');
+check_ability('submission.hack', $earlier_in_domain, array('mate' => false, 'pupil' => false, 'lecturer' => true), 'an earlier submission to a problem of a running homework');
+$facts->problems_in_running_homeworks = array();
+check_ability('submission.view_source', $earlier_in_domain, array('mate' => true), 'the same submission when no homework runs');
+// the problem of the site a homework copied stays open to the site, but not to whoever takes part
+$facts->running_homework_sources = array('pupil/1');
+check_ability('submission.view_source', $open, array('pupil' => false, 'mate' => true, 'bob' => true, 'nobody' => true, 'alice' => true), 'a submission to the public problem a running homework was copied from');
+check_ability('submission.view_details', $open, array('pupil' => false, 'bob' => true), 'a submission to the public problem a running homework was copied from');
+check_ability('submission.view', $open, array('pupil' => true), 'a submission to the public problem a running homework was copied from');
+$facts->running_homework_sources = array();
 
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');

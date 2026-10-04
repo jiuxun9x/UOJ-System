@@ -71,6 +71,11 @@ return [
 		// provider is configured; '' turns it off.
 		'reserved-username-pattern' => '/^[0-9]{6,20}$/'
 	],
+	'homework' => [
+		// Seconds the settlement of a homework waits for submissions from before its end that
+		// are not judged yet. After that it goes on without them, and says so.
+		'settle-grace' => 1800
+	],
 	'data' => [
 		// how many versions of the data of a problem keep their archive, the current one included
 		'kept-versions' => 5

@@ -23,6 +23,7 @@
 	requirePHPLib('permission');
 	requirePHPLib('user');
 	requirePHPLib('domain');
+	requirePHPLib('homework');
 	requirePHPLib('html');
 	
 	Session::init();

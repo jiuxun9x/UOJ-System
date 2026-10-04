@@ -98,3 +98,79 @@
 	margin-bottom: 0.75rem;
 	font-size: 0.9rem;
 }
+
+/* homework */
+.uoj-homework-timeline {
+	position: relative;
+}
+.uoj-homework-timeline .progress {
+	height: 0.5rem;
+}
+.uoj-homework-now {
+	position: absolute;
+	top: -0.25rem;
+	width: 0;
+	height: 1rem;
+	border-left: 2px solid #343a40;
+}
+.uoj-homework-total {
+	font-size: 2.2rem;
+	font-weight: 500;
+	line-height: 1.2;
+}
+.uoj-homework-score[data-full="1"] {
+	color: #28a745;
+	font-weight: 600;
+}
+.uoj-penalty-rules {
+	width: auto;
+}
+.uoj-penalty-rules td {
+	border: 0;
+	vertical-align: middle;
+}
+.uoj-penalty-rules input[type="text"] {
+	width: 5rem;
+}
+.uoj-penalty-text {
+	white-space: nowrap;
+}
+
+/* a table of scores: the names stay in place while the problems scroll */
+.uoj-scoreboard th, .uoj-scoreboard td {
+	text-align: center;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+.uoj-scoreboard .uoj-scoreboard-name {
+	position: sticky;
+	left: 0;
+	background: #fff;
+	text-align: left;
+	z-index: 1;
+}
+.uoj-scoreboard .uoj-score-full {
+	background: #d4edda;
+}
+.uoj-scoreboard .uoj-score-part {
+	background: #fff3cd;
+}
+.uoj-scoreboard .uoj-score-zero {
+	background: #f8d7da;
+}
+.uoj-scoreboard .uoj-score-stale {
+	outline: 2px dashed #fd7e14;
+	outline-offset: -3px;
+}
+
+/* on a narrow screen a table scrolls sideways instead of breaking its cells apart */
+.uoj-domain-members th, .uoj-domain-members td {
+	white-space: nowrap;
+}
+.uoj-domain-members select {
+	min-width: 6.5rem;
+}
+.uoj-domain-hint {
+	color: #6c757d;
+	font-size: 0.875rem;
+}
