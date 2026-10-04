@@ -268,6 +268,31 @@ function siteSettings() {
 			'min' => 30,
 			'max' => 86400
 		),
+		'backup.enabled' => array(
+			'type' => 'switch',
+			'group' => '备份',
+			'label' => '每天自动备份',
+			'help' => '备份数据库、题目数据和所有提交，放在服务器的备份目录里（默认是 uoj_data/backup）。没有变化的文件不重复占空间。备份期间数据库有几秒到几十秒不能写入。',
+			'default' => true
+		),
+		'backup.hour' => array(
+			'type' => 'number',
+			'group' => '备份',
+			'label' => '每天几点开始备份（0–23）',
+			'help' => '选一个没有比赛和作业截止的时间。',
+			'default' => 3,
+			'min' => 0,
+			'max' => 23
+		),
+		'backup.keep_days' => array(
+			'type' => 'number',
+			'group' => '备份',
+			'label' => '备份保留多少天',
+			'help' => '更早的备份会在每次备份成功后删除；最新的一份总是保留。',
+			'default' => 7,
+			'min' => 1,
+			'max' => 365
+		),
 		'alert.queue_wait_seconds' => array(
 			'type' => 'number',
 			'group' => '告警',

@@ -43,6 +43,8 @@ services:
     volumes:
       - ./uoj_data/web/data:/var/uoj_data
       - ./uoj_data/web/storage:/opt/uoj/web/app/storage
+      # the backups the site makes of itself every day; put this on another disk if you can
+      - ./uoj_data/backup:/var/uoj_backup
       - type: bind
         source: ./.config.local.php
         target: /opt/uoj/web/app/.config.php

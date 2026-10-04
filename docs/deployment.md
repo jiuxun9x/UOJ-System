@@ -128,7 +128,8 @@ docker compose logs -f uoj-web
 - [ ] `web.main.host` 是固定域名，`protocol` 与实际访问方式一致
 - [ ] 默认评测机密码已更换
 - [ ] 数据库端口没有对外开放（默认如此）
-- [ ] `uoj_data/` 和 `.config.local.php` 已纳入备份
+- [ ] 自动备份开着，`uoj_data/backup/` 会同步到另一台机器，`.config.local.php` 另存了一份
+- [ ] 做过一次恢复演练（`backup:verify`）
 - [ ] 如果接了统一身份认证：用学校的测试环境走过首次登录、再次登录、同名账号绑定
 - [ ] “系统管理 → 站点设置”里的开关是你想要的状态
 
@@ -157,6 +158,7 @@ docker compose logs -f uoj-web
 | `ports: "3690:3690"` | — | 上游遗留的 SVN 端口，本系统里没有服务监听它 | 可以直接删掉这一行 |
 | `volumes: ./uoj_data/web/data` → `/var/uoj_data` | — | 题目数据：每道题的上传目录、已发布的数据和各版本的归档 | 最重要的数据之一，必须备份 |
 | `volumes: ./uoj_data/web/storage` → `/opt/uoj/web/app/storage` | — | 所有提交的源代码、临时文件、Paste | 必须备份 |
+| `volumes: ./uoj_data/backup` → `/var/uoj_backup` | — | 网站每天自动做的备份，见第 8 节 | 建议换成另一块盘上的路径 |
 | `volumes: ./.config.local.php` → `.config.php` | — | 配置文件 | 改完配置一般不用重启容器，下一个请求就生效（例外见第 4 节开头） |
 | `depends_on: uoj-db` | — | 等数据库健康后再启动 | — |
 | `environment` 里的全部变量 | — | **运行时不起作用**（见下） | — |
@@ -311,7 +313,13 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 |---|---|---|---|
 | `settle-grace` | `1800` | 作业截止时如果还有截止前交的提交没评完，最多等多少秒再结算 | 调大：更可能等到所有提交评完再出正式成绩，但评测机出故障时成绩出得晚。调小：成绩出得快，但可能有提交没算进去（页面会提示，教师可以重新结算） |
 
-### 4.11 `switch` 和 `tools`
+### 4.11 `backup`：备份位置
+
+| 键 | 默认 | 含义 | 改了意味着什么 |
+|---|---|---|---|
+| `path` | `/var/uoj_backup` | 备份在**网站容器内**的目录 | 一般不用改：要换存放位置，改 `docker-compose.yml` 里挂载到这个目录的宿主机路径即可。备份的开关、时间、保留天数在网页上设置，见第 5 节 |
+
+### 4.12 `switch` 和 `tools`
 
 | 键 | 默认 | 含义 |
 |---|---|---|
@@ -345,6 +353,9 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 | 发信邮箱 | 邮箱地址 | 空 | 发件人地址，同时是登录 SMTP 的用户名 |
 | 发信邮箱 | 密码或授权码 | 空 | 保存后不再显示，也不写入审计日志；留空表示不修改。它以明文存在数据库里（发信时要用），所以请用邮箱的“授权码”而不是登录密码 |
 | 发信邮箱 | 发件人名称 | 空 | 留空则用站点简称 |
+| 备份 | 每天自动备份 | 开 | 见 [8. 数据、备份与恢复](#8-数据备份与恢复) |
+| 备份 | 每天几点开始备份 | 3 | 0–23。选一个没有比赛和作业截止的时间：备份期间数据库有几秒到几十秒不能写入 |
+| 备份 | 备份保留多少天 | 7 | 1–365。更早的备份在每次备份成功后删除，最新的一份总是保留 |
 | 告警 | 告警同时发邮件 | 关 | 告警出现和恢复时，系统管理员总会收到站内消息；开启后还会发邮件。需要先设好发信邮箱 |
 | 告警 | 告警邮件的收件人 | 空 | 多个地址用逗号分隔。留空则发给所有系统管理员在个人资料里填的邮箱 |
 | 告警 | 评测机多久没有响应算离线（秒） | 120 | 30–86400。评测机正常时每隔几秒联系一次网站；调得太小，网络抖动时会误报 |
@@ -518,28 +529,87 @@ docker compose exec uoj-web tail -n 3 /var/log/apache2/uoj_access.log
 
 ## 8. 数据、备份与恢复
 
-要备份的东西只有这些，全部在仓库目录下：
+### 8.1 有哪些数据
+
+全部在仓库目录下：
 
 | 路径 | 内容 | 丢了会怎样 |
 |---|---|---|
 | `uoj_data/db/mysql/` | 整个数据库：用户、题目信息、提交记录、比赛、域、作业、成绩快照、审计日志 | 全部丢失 |
 | `uoj_data/web/data/` | 题目的测试数据和各版本归档 | 所有题目无法评测 |
 | `uoj_data/web/storage/` | 所有提交的源代码 | 提交记录还在，但看不到代码、不能重测 |
+| `uoj_data/backup/` | 网站自己做的备份（见下） | — |
 | `.config.local.php` | 配置和盐值 | 盐值丢了，所有本站密码失效 |
 | `docker-compose.yml` | 评测机密码等 | 可以重建，评测机密码需重新生成 |
 
 `uoj_data/judger*/log/` 是日志，不需要备份。
 
-备份数据库建议用导出，可以在运行时做：
+### 8.2 自动备份
 
-```bash
-docker compose exec uoj-db sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction app_uoj233' > backup.sql
+网站每天自动备份一次（默认凌晨 3 点；那时网站没开就在当天开机后补做），放在 `uoj_data/backup/`，
+每次一个目录：
+
+```text
+uoj_data/backup/uoj-20261004-030000/
+    db.sql.gz       整个数据库
+    data/           题目数据
+    storage/        所有提交的代码（不含临时文件）
+    manifest.json   清单：每张表的行数、文件个数和大小
+    .complete       最后写入；没有它的目录是被中断的备份，会被自动清理
 ```
 
-其余目录直接打包。三样东西（数据库、`data`、`storage`）应当取自相近的时间点。
+- **不重复占空间**：和上一次备份相比没有变化的文件是硬链接，一次备份只多占“变化的部分”加一份数据库导出。
+- **保留天数**：默认 7 天，在“站点设置 → 备份”里改。
+- **对网站的影响**：导出数据库期间所有表只读，写操作（提交、评测结果）会等几秒到几十秒。
+- **失败会告警**：最近一次备份失败，或者开着自动备份却超过一天半没有成功备份，管理员会收到告警（站内消息、页面顶部提示、可选邮件）。
+- **在哪看**：“系统管理 → 运行状态 → 备份”列出最近的备份、大小和状态，系统管理员可以点“立即备份”。
 
-恢复 / 迁移到新机器：把仓库、`uoj_data/`、`.config.local.php`、`docker-compose.yml` 原样放好，
-`docker compose build && docker compose up -d`。
+**备份和网站在同一台机器、默认还在同一块盘上，防不了硬盘损坏和机房事故。**
+请把 `uoj_data/backup/` 定期同步到另一台机器，同步时保留硬链接，例如：
+
+```bash
+rsync -aH --delete uoj_data/backup/ backup-host:/srv/uoj-backup/
+```
+
+也可以把 `docker-compose.yml` 里 `./uoj_data/backup` 换成另一块盘上的路径。
+另外请自己保存一份 `.config.local.php` 和 `docker-compose.yml`，它们不在自动备份里。
+
+手动操作：
+
+```bash
+docker compose exec uoj-web php /opt/uoj/web/app/cli.php backup:run      # 立即备份
+```
+
+```bash
+docker compose exec uoj-web php /opt/uoj/web/app/cli.php backup:list     # 列出现有的备份
+```
+
+### 8.3 恢复演练
+
+```bash
+docker compose exec uoj-web php /opt/uoj/web/app/cli.php backup:verify
+```
+
+它把最新的备份（或指定名字的备份）导入一个临时数据库 `app_uoj233_verify`，逐表核对行数是否和清单一致，
+再核对文件个数和大小，最后删掉临时数据库。全过程不影响正在运行的网站。输出 `can be restored` 即通过，
+通过的时间会显示在“运行状态”页的“演练”一栏。**建议每月做一次，升级之前也做一次。**
+
+### 8.4 恢复
+
+```bash
+bash restore.sh                         # 列出备份
+```
+
+```bash
+bash restore.sh uoj-20261004-030000     # 恢复到这个备份
+```
+
+脚本会要求再输入一遍备份名确认，然后：停掉评测机 → 用备份替换数据库和文件 → 执行数据库升级
+（备份可能比当前代码旧）→ 重启网站和评测机。**备份之后发生的一切（新的提交、新用户、改过的题目）都会丢失。**
+
+迁移到新机器：把仓库、`.config.local.php`、`docker-compose.yml` 和 `uoj_data/backup/` 里要用的那个备份目录
+放到新机器，`docker compose build && docker compose up -d` 起一个空站，再 `bash restore.sh <备份名>`。
+也可以像以前一样直接把整个 `uoj_data/` 原样搬过去。
 
 ---
 
@@ -574,8 +644,11 @@ docker compose exec uoj-web php /opt/uoj/web/app/cli.php <命令>
 | `upgrade:up <名字>` / `upgrade:down <名字>` | 单独执行 / 回退某一个升级（名字是 `web/app/upgrade/` 下的目录名）。回退会删表删列，仅用于开发 |
 | `upgrade:refresh <名字>` / `upgrade:remove <名字>` / `upgrade:remove-all` | 开发用，会丢数据，生产环境不要用 |
 | `user:finish-renames` | 补完被中断的改用户名操作。容器启动时会自动跑 |
-| `site:tick` | 网站每分钟自己要做的事：推进作业的发布和结算、检查评测机和评测队列并发告警。容器里每分钟自动跑一次；不用容器部署时请放进 crontab |
+| `site:tick` | 网站每分钟自己要做的事：推进作业的发布和结算、到点启动备份、检查评测机和评测队列并发告警。容器里每分钟自动跑一次；不用容器部署时请放进 crontab |
 | `homework:tick` | 只做其中推进作业的那部分 |
+| `backup:run` / `backup:list` | 立即备份 / 列出现有的备份 |
+| `backup:verify [备份名]` | 恢复演练，见 8.3 |
+| `backup:restore <备份名> --yes` | 用备份替换数据库和文件。请用仓库根目录的 `restore.sh`，它会先停评测机、之后升级数据库 |
 | `help` | 列出所有命令 |
 
 ### 日志在哪
@@ -601,6 +674,8 @@ docker compose exec uoj-web tail -f /var/log/apache2/uoj_error.log
 | 评测机离线 | 某台启用的评测机超过设定时间没有联系网站（其他评测机还在线） |
 | 评测机全部离线 | 没有任何一台启用的评测机在线，提交无法评测 |
 | 评测积压 | 最早的一份新提交等待评测超过设定时间 |
+| 备份失败 | 最近一次备份失败（下一次成功后恢复） |
+| 备份过期 | 开着自动备份，却超过一天半没有成功备份 |
 
 告警出现和恢复时：所有系统管理员收到一条站内消息；管理员登录后每个页面顶部有红色提示条；
 在“站点设置 → 告警”里开启后还会发邮件。当前状态和历史在“系统管理 → 运行状态”。

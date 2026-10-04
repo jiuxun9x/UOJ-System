@@ -453,10 +453,11 @@ EOD;
 		become404Page();
 	}
 	
-	// The settings of the site. A box that is not ticked is not posted, which switches it
-	// off; a secret that is left empty stays what it is.
+	// The settings of the site. A box that is not ticked is not posted: a switch is off when
+	// the form says that it had the switch and the switch did not come. A secret that is
+	// left empty stays what it is.
 	$site_settings_error = '';
-	if ($cur_tab === 'settings') {
+	if ($cur_tab === 'settings' || $cur_tab === 'monitor') {
 		$site_settings_error = domainHandleForms(array(
 			'site_settings' => function() {
 				global $myUser;
@@ -467,7 +468,9 @@ EOD;
 				$values = array();
 				foreach (siteSettings() as $name => $setting) {
 					if ($setting['type'] === 'switch') {
-						$values[$name] = isset($posted[$name]);
+						if (isset($posted[$name]) || isset($_POST['present'][$name])) {
+							$values[$name] = isset($posted[$name]);
+						}
 					} elseif (isset($posted[$name]) && !($setting['type'] === 'secret' && $posted[$name] === '')) {
 						$values[$name] = $posted[$name];
 					}
@@ -479,6 +482,17 @@ EOD;
 				return $err;
 			},
 			// a mail to whoever asks, to see whether the mailbox works
+			'backup' => function() {
+				global $myUser;
+				if (!can($myUser, 'site.manage_settings')) {
+					return '没有权限';
+				}
+				$err = backupRequest($myUser);
+				if ($err === '') {
+					domainFlash('已经请求备份，一分钟内开始。');
+				}
+				return $err;
+			},
 			'test_mail' => function() {
 				global $myUser;
 				if (!can($myUser, 'site.manage_settings')) {
@@ -656,6 +670,11 @@ EOD;
 				$monitor_open = openAlerts();
 			?>
 			<div class="text-left">
+			<?php $flash = domainTakeFlash(); ?>
+			<?php if ($flash): ?>
+			<div class="alert alert-<?= $flash[0] ?>" role="alert"><?= HTML::escape($flash[1]) ?></div>
+			<?php endif ?>
+			<?php echoDomainError($site_settings_error) ?>
 			<h3>运行状态</h3>
 			<?php if (!$monitor_open): ?>
 			<div class="alert alert-success" id="monitor-ok">一切正常，没有未恢复的告警。</div>
@@ -705,6 +724,47 @@ EOD;
 			<p id="monitor-queue">
 				等待评测的提交：<strong><?= $monitor_queue['waiting'] ?></strong> 份<?php if ($monitor_queue['oldest_wait_seconds'] !== null): ?>，最早的一份新提交已经等了 <?= monitorDuration($monitor_queue['oldest_wait_seconds']) ?><?php endif ?>。
 			</p>
+
+			<div class="d-flex align-items-center">
+				<h4 class="mr-auto">备份</h4>
+				<?php if (can($myUser, 'site.manage_settings')): ?>
+				<form method="post" class="mb-2">
+					<?= HTML::hiddenToken() ?>
+					<input type="hidden" name="form" value="backup" />
+					<button type="submit" class="btn btn-outline-primary btn-sm" id="button-backup-now">立即备份</button>
+				</form>
+				<?php endif ?>
+			</div>
+			<p class="text-muted small" id="monitor-backup-schedule">
+				<?php if (siteSettingIsOn('backup.enabled')): ?>
+				每天 <?= siteSetting('backup.hour') ?> 点自动备份，保留 <?= siteSetting('backup.keep_days') ?> 天。
+				<?php else: ?>
+				<span class="text-danger">自动备份已关闭。</span>
+				<?php endif ?>
+				备份放在服务器的 <code>uoj_data/backup</code> 目录；恢复用仓库根目录的 <code>restore.sh</code>。
+			</p>
+			<table class="table table-sm" id="table-monitor-backups">
+				<thead><tr><th>备份</th><th>开始</th><th>状态</th><th>数据库</th><th>文件</th><th>演练</th></tr></thead>
+				<tbody>
+					<?php $backup_runs = backupRuns(10); ?>
+					<?php foreach ($backup_runs as $run): ?>
+					<?php
+						$run_states = array('requested' => '等待开始', 'running' => '进行中', 'ok' => '<span class="text-success">成功</span>', 'failed' => '<span class="text-danger">失败</span>');
+					?>
+					<tr data-status="<?= $run['status'] ?>">
+						<td><code><?= $run['name'] !== '' ? $run['name'] : '—' ?></code> <small class="text-muted"><?= $run['reason'] === 'scheduled' ? '定时' : '手动' ?></small></td>
+						<td><small><?= $run['started_at'] ?></small></td>
+						<td><?= $run_states[$run['status']] ?><?php if ($run['status'] === 'failed'): ?> <small><?= HTML::escape($run['message']) ?></small><?php endif ?></td>
+						<td><?= backupSize($run['db_bytes'] === null ? null : (int)$run['db_bytes']) ?></td>
+						<td><?= $run['files_count'] === null ? '—' : $run['files_count'] . ' 个，' . backupSize((int)$run['files_bytes']) ?></td>
+						<td><small><?= $run['verified_at'] !== null ? '已通过 ' . $run['verified_at'] : '—' ?></small></td>
+					</tr>
+					<?php endforeach ?>
+					<?php if (!$backup_runs): ?>
+					<tr><td colspan="6" class="text-center text-muted">还没有备份过</td></tr>
+					<?php endif ?>
+				</tbody>
+			</table>
 
 			<h4>最近的告警</h4>
 			<table class="table table-sm" id="table-monitor-history">
@@ -762,6 +822,7 @@ EOD;
 						?>
 						<?php if ($setting['type'] === 'switch'): ?>
 						<div class="custom-control custom-switch mb-3">
+							<input type="hidden" name="present[<?= $name ?>]" value="1" />
 							<input type="checkbox" class="custom-control-input" id="<?= $input_id ?>" name="setting[<?= $name ?>]"<?= $value ? ' checked="checked"' : '' ?> />
 							<label class="custom-control-label" for="<?= $input_id ?>"><?= $setting['label'] ?></label>
 							<small class="form-text text-muted"><?= $setting['help'] ?></small>

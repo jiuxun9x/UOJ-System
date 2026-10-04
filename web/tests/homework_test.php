@@ -210,3 +210,51 @@ check_same(array('queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 3
 check_same(array('no_judger', 'queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 900)), array('waiting' => 1, 'oldest_wait_seconds' => 900), 120, 600)), 'both');
 check_same(array('59 秒', '2 分钟', '119 分钟', '2 小时', '2 天'), array(monitorDuration(59), monitorDuration(120), monitorDuration(7199), monitorDuration(7200), monitorDuration(172800)), 'durations for people');
 
+// ---- backups: which are kept, when one is due, and what is wrong with them
+require_once __DIR__ . '/../app/libs/uoj-backup-lib.php';
+
+foreach (array('uoj-20261004-030000', 'uoj-20270101-235959') as $name) {
+	check_same(true, validateBackupName($name), "$name is the name of a backup");
+}
+foreach (array('', 'uoj-2026-10-04', 'uoj-20261004-030000/', '../uoj-20261004-030000', "uoj-20261004-030000\n", 'uoj-20261004-03000', array('uoj-20261004-030000')) as $bad) {
+	check_same(false, validateBackupName($bad), 'refused as the name of a backup: ' . json_encode($bad));
+}
+$at = function($time) {
+	return strtotime($time);
+};
+check_same($at('2026-10-04 03:00:00'), backupTimeOf('uoj-20261004-030000'), 'the name of a backup says when it was made');
+$kept = array('uoj-20261001-030000', 'uoj-20261002-030000', 'uoj-20261003-030000', 'uoj-20261004-030000');
+check_same(array(), backupNamesToPrune($kept, 7, $at('2026-10-04 03:05:00')), 'backups of the last days are kept');
+check_same(array('uoj-20261001-030000', 'uoj-20261002-030000'), backupNamesToPrune($kept, 2, $at('2026-10-04 03:05:00')), 'the ones that are older go');
+check_same(array('uoj-20261001-030000', 'uoj-20261002-030000', 'uoj-20261003-030000'), backupNamesToPrune($kept, 1, $at('2026-12-01 00:00:00')), 'the newest one stays however old it is');
+check_same(array(), backupNamesToPrune(array(), 7, $at('2026-10-04 03:05:00')), 'nothing to throw away where there is nothing');
+
+$now = $at('2026-10-04 03:00:30');
+check_same(true, backupIsDue(true, 3, $now, null), 'the hour has come and there never was a backup');
+check_same(true, backupIsDue(true, 3, $now, $at('2026-10-03 03:00:10')), 'the one before was yesterday');
+check_same(false, backupIsDue(true, 3, $now, $at('2026-10-04 03:00:05')), 'the one of today was started');
+check_same(false, backupIsDue(true, 3, $at('2026-10-04 02:59:59'), $at('2026-10-03 03:00:10')), 'not before the hour');
+check_same(true, backupIsDue(true, 3, $at('2026-10-04 17:20:00'), $at('2026-10-03 03:00:10')), 'the site was down at the hour: later the same day');
+check_same(false, backupIsDue(false, 3, $now, null), 'backups are switched off');
+
+$problem_kinds = function($problems) {
+	$kinds = array();
+	foreach ($problems as $problem) {
+		$kinds[] = $problem['kind'];
+	}
+	return $kinds;
+};
+$now = $at('2026-10-10 12:00:00');
+$old_site = $at('2026-09-01 00:00:00');
+$ok = array('status' => 'ok', 'message' => '');
+$failed = array('status' => 'failed', 'message' => '磁盘已满');
+check_same(array(), $problem_kinds(backupFindProblems(true, $ok, $at('2026-10-10 03:00:00'), $old_site, $now)), 'a backup this morning');
+check_same(array('backup_failed'), $problem_kinds(backupFindProblems(true, $failed, $at('2026-10-09 03:00:00'), $old_site, $now)), 'the newest backup failed');
+check_same(true, strpos(backupFindProblems(true, $failed, null, $old_site, $now)[0]['message'], '磁盘已满') !== false, 'and the alert says why');
+check_same(array('backup_overdue'), $problem_kinds(backupFindProblems(true, $ok, $at('2026-10-08 03:00:00'), $old_site, $now)), 'no backup for more than a day and a half');
+check_same(array('backup_overdue'), $problem_kinds(backupFindProblems(true, null, null, $old_site, $now)), 'never a backup on a site that is not new');
+check_same(array(), $problem_kinds(backupFindProblems(true, null, null, $at('2026-10-10 09:00:00'), $now)), 'a site that was set up this morning');
+check_same(array(), $problem_kinds(backupFindProblems(false, $ok, $at('2026-09-01 03:00:00'), $old_site, $now)), 'backups are switched off: nothing is overdue');
+check_same(array('backup_failed', 'backup_overdue'), $problem_kinds(backupFindProblems(true, $failed, $at('2026-10-01 03:00:00'), $old_site, $now)), 'failing for days');
+check_same(array('—', '512 B', '1.5 KB', '2.0 MB', '3.5 GB'), array(backupSize(null), backupSize(512), backupSize(1536), backupSize(2097152), backupSize(3758096384)), 'sizes for people');
+

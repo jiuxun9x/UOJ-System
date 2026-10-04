@@ -22,12 +22,171 @@ def setUpModule():
 
 
 def site_settings(client, **settings):
-    """post the settings of the site: mail_host="x" for the setting mail.host"""
-    return client.form(SETTINGS, "site_settings", **{"setting[%s]" % name.replace("_", ".", 1): value for name, value in settings.items()})
+    """post settings of the site: mail_host="x" for the setting mail.host, True and False for a switch"""
+    fields = {}
+    for name, value in settings.items():
+        name = name.replace("_", ".", 1)
+        if isinstance(value, bool):
+            fields["present[%s]" % name] = "1"
+            if value:
+                fields["setting[%s]" % name] = "on"
+        else:
+            fields["setting[%s]" % name] = value
+    return client.form(SETTINGS, "site_settings", **fields)
 
 
 def stored(name):
     return db_value("select concat('[', value, ']') from site_settings where name = '%s'" % name)
+
+
+def cli(command, check=True):
+    """a command of cli.php in the container of the web server, with everything it prints"""
+    return uoj.docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php %s 2>&1" % command, check=check)
+
+
+def web_sh(script, check=True):
+    return uoj.docker_exec(uoj.WEB, script, check=check).strip()
+
+
+def new_backup():
+    made = re.search(r"backup (uoj-\d{8}-\d{6}) is complete", cli("backup:run"))
+    assert made, "no backup was made"
+    return made.group(1)
+
+
+BACKUPS = "/var/uoj_backup"
+
+
+class BackupTest(unittest.TestCase):
+    """the site makes backups of itself, and they can be put back"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        uoj.wait_idle()
+
+    def test_backup_is_made_tried_out_and_put_back(self):
+        problem_id = self.admin.create_problem(ab_problem_files())
+        user = account("p5_backup_user")
+        kept = user.submit(problem_id, AB + "// p5-backup-kept\n")
+        self.assertEqual(uoj.wait_submission(kept).score, 100)
+        uoj.wait_idle()
+
+        name = new_backup()
+        root = "%s/%s" % (BACKUPS, name)
+        # it holds the database, the data of the problems and what was submitted, and says so
+        self.assertEqual(web_sh("ls -A %s | sort | tr '\\n' ' '" % root), ".complete data db.sql.gz manifest.json storage")
+        manifest = json.loads(web_sh("cat %s/manifest.json" % root))
+        self.assertTrue(manifest["tables_exact"])
+        self.assertEqual(manifest["tables"]["problems"], int(db_value("select count(*) from problems")))
+        self.assertEqual(manifest["tables"]["user_info"], int(db_value("select count(*) from user_info")))
+        self.assertGreater(manifest["sources"]["data"]["files"], 0)
+        self.assertGreater(manifest["sources"]["storage"]["files"], 0)
+        self.assertEqual(web_sh("test -d %s/data/%d && echo there" % (root, problem_id)), "there")
+        self.assertEqual(web_sh("test -e %s/storage/tmp && echo there || echo left out" % root), "left out")
+        self.assertEqual(web_sh("gunzip -c %s/db.sql.gz | grep -c 'p5_backup_user'" % root) != "0", True)
+        self.assertEqual(db("select status, reason, files_count from backup_runs where name = '%s'" % name),
+                         [["ok", "manual", str(manifest["files_count"])]])  # fmt: skip
+        self.assertIn(name, cli("backup:list"))
+
+        # the rehearsal of a restore: the backup is loaded into a database of its own and counted
+        self.assertIn("can be restored", cli("backup:verify"))
+        self.assertEqual(db_value("select verified_at is not null from backup_runs where name = '%s'" % name), "1")
+        self.assertEqual(db_value("select count(*) from information_schema.schemata where schema_name = 'app_uoj233_verify'"), "0")
+        self.assertIn("can not be restored", cli("backup:verify uoj-20200101-000000", check=False))
+        self.assertIn("can not be restored", cli("backup:verify ../../etc", check=False))
+
+        # things happen after the backup, and then the worst
+        lost = user.submit(problem_id, AB + "// p5-backup-lost\n")
+        self.assertEqual(uoj.wait_submission(lost).score, 100)
+        account("p5_backup_late")
+        with uoj.judgers_paused():
+            web_sh("rm -rf /var/uoj_data/%d" % problem_id)
+            db("delete from submissions where id = %d" % kept)
+            db("update problems set title = 'p5 ruined' where id = %d" % problem_id)
+            # it is not put back by accident
+            self.assertIn("--yes", cli("backup:restore %s" % name, check=False))
+            self.assertIn("没有这个备份", cli("backup:restore uoj-20200101-000000 --yes", check=False))
+            self.assertEqual(db_value("select title from problems where id = %d" % problem_id), "p5 ruined")
+
+            self.assertIn("is restored", cli("backup:restore %s --yes" % name))
+            cli("upgrade:latest")
+        # what was there when the backup was made is back, and what came later is gone
+        self.assertNotEqual(db_value("select title from problems where id = %d" % problem_id), "p5 ruined")
+        self.assertEqual(db_value("select count(*) from submissions where id = %d" % kept), "1")
+        self.assertEqual(db_value("select count(*) from submissions where id = %d" % lost), "0")
+        self.assertEqual(db_value("select count(*) from user_info where username = 'p5_backup_late'"), "0")
+        self.assertEqual(web_sh("test -d /var/uoj_data/%d && echo there" % problem_id), "there")
+        self.assertIn("p5-backup-kept", user.get("/submission/%d" % kept).text)
+        self.assertEqual(db_value("select count(*) from audit_logs where action = 'backup.restore' and resource_id = '%s'" % name), "1")
+        # the site works on: the problem has its data and the judgers judge
+        self.assertEqual(uoj.wait_submission(user.submit(problem_id, AB)).score, 100)
+
+    def test_old_backups_go_and_unchanged_files_take_no_space_twice(self):
+        # a backup from long ago, and what is left of one that was interrupted
+        web_sh("mkdir -p %s/uoj-20200101-030000 %s/uoj-20200102-030000 && touch %s/uoj-20200101-030000/.complete" % (BACKUPS, BACKUPS, BACKUPS))
+        first, second = new_backup(), new_backup()
+        left = web_sh("ls %s" % BACKUPS).split()
+        self.assertNotIn("uoj-20200101-030000", left)
+        self.assertNotIn("uoj-20200102-030000", left)
+        self.assertIn(first, left)
+        self.assertIn(second, left)
+        # a file that did not change between two backups is one file with two names
+        links = web_sh("find %s/%s/data -type f | head -n 1 | xargs stat -c %%h" % (BACKUPS, second))
+        self.assertGreaterEqual(int(links), 2)
+        # two backups do not run at once
+        self.assertEqual(db_value("select count(*) from backup_runs where status = 'running'"), "0")
+
+    def test_failed_backup_is_an_alert_until_one_succeeds(self):
+        uoj.wait_until("nothing is wrong", lambda: site_tick() and "backup_failed" not in open_alerts(), timeout=120)
+        new_backup()
+        db("insert into backup_runs (name, reason, status, started_at, finished_at, message)"
+           " values ('uoj-20260101-030000', 'scheduled', 'failed', now(), now(), '磁盘已满')")  # fmt: skip
+        site_tick()
+        self.assertIn("backup_failed", open_alerts())
+        page = self.admin.get("/super-manage/monitor").text
+        self.assertIn("磁盘已满", page)
+        self.assertIn('id="site-alerts-banner"', page)
+        self.assertRegex(page, r'(?s)id="table-monitor-backups".*?data-status="failed"')
+        new_backup()
+        site_tick()
+        self.assertNotIn("backup_failed", open_alerts())
+
+    def test_backup_starts_by_itself_and_when_an_administrator_asks(self):
+        monitor = "/super-manage/monitor"
+        runs = lambda reason: int(db_value("select count(*) from backup_runs where reason = '%s' and status = 'ok'" % reason))
+        idle = lambda: db_value("select count(*) from backup_runs where status in ('requested', 'running')") == "0"
+        uoj.wait_until("no backup runs", idle, timeout=300)
+
+        # on the page of the state of the site, for the system administrators
+        oj_admin = account("p5_backup_ojadmin")
+        self.assertEqual(self.admin.change_user("p5_backup_ojadmin", "grant:oj_admin"), "")
+        self.assertNotIn('id="button-backup-now"', oj_admin.get(monitor).text)
+        self.assertNotEqual(oj_admin.form(monitor, "backup"), "")
+        self.assertTrue(idle())
+        before = runs("manual")
+        self.assertIn('id="button-backup-now"', self.admin.get(monitor).text)
+        self.assertEqual(self.admin.form(monitor, "backup"), "")
+        self.assertNotEqual(self.admin.form(monitor, "backup"), "")
+        uoj.wait_until("the backup that was asked for is made", lambda: site_tick() and idle() and runs("manual") == before + 1, timeout=300)
+
+        # every day at the hour that was set, once
+        hour = int(uoj.web_time()[11:13])
+        db("delete from backup_runs where reason = 'scheduled'")
+        try:
+            self.assertEqual(site_settings(self.admin, backup_enabled=False, backup_hour=str(hour)), "")
+            site_tick()
+            self.assertEqual(runs("scheduled"), 0)
+            self.assertIn("自动备份已关闭", self.admin.get(monitor).text)
+            self.assertEqual(site_settings(self.admin, backup_enabled=True, backup_hour=str(hour), backup_keep_days="3"), "")
+            uoj.wait_until("the backup of the day is made", lambda: site_tick() and idle() and runs("scheduled") == 1, timeout=300)
+            for _ in range(2):
+                site_tick()
+            uoj.wait_until("no backup runs", idle, timeout=300)
+            self.assertEqual(int(db_value("select count(*) from backup_runs where reason = 'scheduled'")), 1)
+            self.assertIn("每天 %d 点自动备份，保留 3 天" % hour, self.admin.get(monitor).text)
+        finally:
+            db("delete from site_settings where name like 'backup.%'")
 
 
 class MailTest(unittest.TestCase):
@@ -128,7 +287,7 @@ class MonitorTest(unittest.TestCase):
             cls.admin,
             mail_host=mock_smtp.HOST, mail_port=str(mock_smtp.PORT), mail_secure="none",
             mail_username="oj@example.edu.cn", mail_password="p5-monitor-secret",
-            alert_email="on", alert_recipients="ops@example.edu.cn, not an address",
+            alert_email=True, alert_recipients="ops@example.edu.cn, not an address",
             alert_judger_silent_seconds="30", alert_queue_wait_seconds="60",
         )  # fmt: skip
         assert err == "", err
@@ -202,7 +361,7 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(account("p5_mon_user").get(monitor).status_code, 403)
 
     def test_mail_is_not_sent_unless_asked_for(self):
-        self.assertEqual(site_settings(self.admin, alert_recipients="ops@example.edu.cn"), "")
+        self.assertEqual(site_settings(self.admin, alert_email=False), "")
         try:
             mails_before = len(self.smtp.messages)
             uoj.wait_until("nothing is wrong", lambda: site_tick() and open_alerts() == [], timeout=180)
@@ -213,7 +372,7 @@ class MonitorTest(unittest.TestCase):
             uoj.wait_until("the alert is over", lambda: site_tick() and open_alerts() == [], timeout=180)
             self.assertEqual(len(self.smtp.messages), mails_before)
         finally:
-            self.assertEqual(site_settings(self.admin, alert_email="on", alert_recipients="ops@example.edu.cn, not an address"), "")
+            self.assertEqual(site_settings(self.admin, alert_email=True), "")
 
 
 def email_header(value):

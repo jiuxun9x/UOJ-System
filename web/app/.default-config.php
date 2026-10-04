@@ -78,6 +78,10 @@ return [
 		// are not judged yet. After that it goes on without them, and says so.
 		'settle-grace' => 1800
 	],
+	'backup' => [
+		// where the backups of the site are kept, inside the container of the web server
+		'path' => '/var/uoj_backup'
+	],
 	'data' => [
 		// how many versions of the data of a problem keep their archive, the current one included
 		'kept-versions' => 5

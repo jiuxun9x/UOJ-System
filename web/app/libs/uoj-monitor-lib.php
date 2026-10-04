@@ -181,7 +181,8 @@ function alertNotify($alert, $resolved) {
 // the administrators about what changed. Returns how many alerts were opened and resolved.
 function monitorTick() {
 	$problems = monitorFindProblems(monitorJudgers(), monitorQueue(), siteSetting('alert.judger_silent_seconds'), siteSetting('alert.queue_wait_seconds'));
-	$changes = alertsSync(array('no_judger', 'judger_silent', 'queue_stuck'), $problems);
+	$problems = array_merge($problems, backupCurrentProblems());
+	$changes = alertsSync(array('no_judger', 'judger_silent', 'queue_stuck', 'backup_failed', 'backup_overdue'), $problems);
 	foreach ($changes['opened'] as $alert) {
 		alertNotify($alert, false);
 	}

@@ -135,7 +135,7 @@ class DomainTest(unittest.TestCase):
             self.assertNotIn('id="table-all-domains"', opener.get("/domains").text)
         finally:
             # a box that is not ticked switches it off
-            self.assertEqual(self.admin.form(page, "site_settings"), "")
+            self.assertEqual(self.admin.form(page, "site_settings", **{"present[domain.open_creation]": "1"}), "")
         self.assertEqual(db_value("select value from site_settings where name = 'domain.open_creation'"), "0")
         self.assertEqual(opener.get("/domain/new").status_code, 403)
         self.assertNotEqual(opener.form("/domain/new", "create", name="x", slug="p4-too-late", description="", type="course"), "")
@@ -143,7 +143,7 @@ class DomainTest(unittest.TestCase):
         # what was created stays with whoever created it, and the roles work as before
         self.assertEqual(opener.get("/d/p4-of-a-student/settings").status_code, 200)
         self.assertEqual(self.teacher.get("/domain/new").status_code, 200)
-        log = db("select action, actor, after_json from audit_logs where resource_type = 'site_setting' order by id")
+        log = db("select action, actor, after_json from audit_logs where resource_type = 'site_setting' and resource_id = 'domain.open_creation' order by id")
         self.assertEqual([row[:2] for row in log], [["site.edit_setting", uoj.ADMIN[0]]] * 2)
         self.assertEqual([json.loads(row[2])["on"] for row in log], [True, False])
 
