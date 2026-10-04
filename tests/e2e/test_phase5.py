@@ -4,9 +4,11 @@ See test_phase1.py for how to start the containers.
 """
 
 import base64
+import io
 import json
 import re
 import unittest
+import zipfile
 from urllib.parse import urlparse
 
 import mock_smtp
@@ -246,6 +248,112 @@ class LocalResourcesTest(unittest.TestCase):
         self.assertNotEqual(re.search(r"hsl\([^)]*\)", svg("p5_avatar_user")).group(0), re.search(r"hsl\([^)]*\)", svg("p5_avatar_other")).group(0))
         self.assertEqual(picture("p5_avatar_other"), picture("p5_avatar_other"))
         self.assertNotIn("gravatar", other.get("/user/profile/p5_avatar_user").text)
+
+
+def upload_zip(client, problem_id, data):
+    """upload an archive as it is, return the page that answers"""
+    return client.post(
+        "/problem/%d/manage/data" % problem_id,
+        {"problem_data_file_submit": "submit"},
+        {"problem_data_file": ("data.zip", data, "application/zip")},
+    )
+
+
+def zip_of(entries):
+    """an archive of (name, content or ZipInfo with content) pairs, in the order given"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, content in entries:
+            z.writestr(name, content)
+    return buf.getvalue()
+
+
+class UploadTest(unittest.TestCase):
+    """what is uploaded as the data of a problem is looked at before it is unpacked"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+
+    def uploaded(self, problem_id):
+        return web_sh("cd /var/uoj_data/upload/%d && find . -mindepth 1 | sort | tr '\\n' ' '" % problem_id).split()
+
+    def state(self, problem_id):
+        page = self.admin.get("/problem/%d/manage/data" % problem_id).text
+        return re.search(r'(?s)id="data-preflight".*?id="preflight-state">([^<]*)<', page).group(1), page
+
+    def test_archive_of_a_folder_is_unpacked_without_the_folder_and_the_junk(self):
+        problem_id = self.admin.new_problem()
+        entries = [("我的 题目/" + name, content) for name, content in ab_problem_files().items()]
+        entries += [("__MACOSX/我的 题目/._input1.txt", "junk"), ("我的 题目/.DS_Store", "junk"), ("我的 题目/require/helper.h", "// helper\n")]
+        self.assertIn("上传成功", upload_zip(self.admin, problem_id, zip_of(entries)).text)
+        files = self.uploaded(problem_id)
+        self.assertEqual(sorted(files), sorted(["./" + name for name in ab_problem_files()] + ["./require", "./require/helper.h"]))
+        self.assertEqual(self.state(problem_id)[0], "文件齐全，可以同步")
+        self.assertEqual(self.admin.sync(problem_id), "")
+        db("update problems set is_hidden = 0 where id = %d" % problem_id)
+        self.assertEqual(uoj.wait_submission(self.admin.submit(problem_id, AB)).score, 100)
+
+    def test_archive_that_would_harm_the_site_is_refused_whole(self):
+        problem_id = self.admin.new_problem()
+        link = zipfile.ZipInfo("input1.txt")
+        link.external_attr = 0o120777 << 16
+        link.create_system = 3
+        refused = {
+            "a name that climbs out": [("problem.conf", "x"), ("../../p5_climbed_out.txt", "x")],
+            "an absolute name": [("/var/uoj_data/p5_absolute.txt", "x")],
+            "a symbolic link": [("problem.conf", "x"), (link, "/etc/passwd")],
+            "too many files": [("input%d.txt" % n, "") for n in range(5001)],
+            "nothing but junk": [("__MACOSX/._x", "x"), (".DS_Store", "x")],
+            "two names that become one": [("Input1.txt", "1"), ("input1.txt", "2")],
+        }
+        for what, entries in refused.items():
+            r = upload_zip(self.admin, problem_id, zip_of(entries))
+            self.assertIn('id="upload-refused"', r.text, what)
+            self.assertNotIn("上传成功", r.text, what)
+            # nothing of it was written
+            self.assertEqual(self.uploaded(problem_id), [], what)
+        self.assertEqual(web_sh("ls /var/uoj_data/ /var/uoj_data/upload | grep -c p5_ || true"), "0")
+        self.assertIn('id="upload-refused"', upload_zip(self.admin, problem_id, b"this is no archive").text)
+        # the refusals are written down
+        self.assertEqual(db_value("select count(*) from audit_logs where action = 'problem.upload_refused' and resource_id = '%d'" % problem_id), str(len(refused) + 1))
+
+        # a file that is small in the archive and huge once unpacked
+        bomb = io.BytesIO()
+        with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as z:
+            with z.open("input1.txt", "w", force_zip64=True) as f:
+                for _ in range(600):
+                    f.write(bytes(1048576))
+        self.assertLess(len(bomb.getvalue()), 2 * 1048576)
+        r = upload_zip(self.admin, problem_id, bomb.getvalue())
+        self.assertIn('id="upload-refused"', r.text)
+        self.assertIn("600", uoj.text_of(r.text))
+        self.assertEqual(self.uploaded(problem_id), [])
+
+    def test_data_page_says_what_is_wrong_before_a_sync(self):
+        problem_id = self.admin.new_problem()
+        state, page = self.state(problem_id)
+        self.assertEqual(state, "有问题，同步会失败")
+        self.assertIn("还没有上传任何数据", page)
+
+        files = ab_problem_files()
+        del files["output2.txt"], files["ex_input1.txt"]
+        files["input9.txt"] = "left over\n"
+        self.assertIn("上传成功", self.admin.upload_data(problem_id, files).text)
+        state, page = self.state(problem_id)
+        self.assertEqual(state, "有问题，同步会失败")
+        self.assertIn("缺少文件：output2.txt、ex_input1.txt", page)
+        self.assertIn("input9.txt", page)
+        # which is what a sync says, one file at a time
+        self.assertNotEqual(self.admin.sync(problem_id, wait=False), "")
+
+        # the files that were missing arrive on their own: an upload adds to what is there
+        self.assertIn("上传成功", self.admin.upload_data(problem_id, {"output2.txt": "3000\n", "ex_input1.txt": "5 7\n"}).text)
+        state, page = self.state(problem_id)
+        self.assertEqual(state, "可以同步，但有几处值得看一眼")
+        self.assertIn("3 个测试点", page)
+        self.assertNotIn("缺少文件", page)
+        self.assertEqual(self.admin.sync(problem_id), "")
 
 
 class MailTest(unittest.TestCase):

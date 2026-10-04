@@ -27,6 +27,7 @@
 	requirePHPLib('training');
 	requirePHPLib('monitor');
 	requirePHPLib('backup');
+	requirePHPLib('upload');
 	requirePHPLib('html');
 	
 	Session::init();

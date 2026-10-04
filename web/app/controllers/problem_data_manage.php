@@ -60,18 +60,18 @@
 			if (in_array($_FILES["problem_data_file"]["type"], $zip_mime_types) || $_FILES["problem_data_file"]["type"] == 'application/octet-stream' && substr($_FILES["problem_data_file"]["name"], -4) == '.zip') {
 				$up_filename = tempnam(sys_get_temp_dir(), 'uoj_data_');
 				move_uploaded_file($_FILES["problem_data_file"]["tmp_name"], $up_filename);
-				$zip = new ZipArchive;
-				if ($zip->open($up_filename) === TRUE) {
-					$zip->extractTo("/var/uoj_data/upload/{$problem['id']}");
-					$zip->close();
-					exec("cd /var/uoj_data/upload/{$problem['id']}; if [ -z \"`find . -maxdepth 1 -type f`\" ]; then for sub_dir in `find -maxdepth 1 -type d ! -name .`; do mv -f \$sub_dir/* . && rm -rf \$sub_dir; done; fi");
-					auditLog('problem.upload_data', 'problem', $problem['id'], null, array('size' => filesize($up_filename), 'sha256' => hash_file('sha256', $up_filename)));
+				// The archive is looked at before anything of it is written: how much it
+				// holds, and where its files would go. Its files are then written one by one.
+				list($unpacked, $errmsg) = uploadUnpack($up_filename, "/var/uoj_data/upload/{$problem['id']}", uploadLimits());
+				$upload_facts = array('size' => filesize($up_filename), 'sha256' => hash_file('sha256', $up_filename));
+				unlink($up_filename);
+				if ($errmsg === '') {
+					auditLog('problem.upload_data', 'problem', $problem['id'], null, $upload_facts + array('files' => $unpacked));
 					echo "<script>alert('上传成功！')</script>";
 				} else {
-					$errmsg = "解压失败！";
-					becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
+					auditLog('problem.upload_refused', 'problem', $problem['id'], null, $upload_facts + array('error' => $errmsg));
+					becomeMsgPage('<div id="upload-refused">' . HTML::escape($errmsg) . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
 				}
-				unlink($up_filename);
 			} else {
 				$errmsg = "请上传zip格式！";
 				becomeMsgPage('<div>' . $errmsg . '</div><a href="/problem/'.$problem['id'].'/manage/data">返回</a>');
@@ -645,6 +645,38 @@ EOD
 	<pre><?= HTML::escape($data_versions[0]['message']) ?></pre>
 </div>
 <?php endif ?>
+<?php
+	// what is wrong with the data as it lies there, before anybody syncs it
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	$upload_files = is_dir($upload_dir) ? array_values(array_diff(scandir($upload_dir), array('.', '..'))) : array();
+	$preflight = uploadPreflight($upload_files, is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : -1, (bool)$problem['hackable']);
+?>
+<div class="card mb-3 text-left <?= $preflight['errors'] ? 'border-danger' : ($preflight['warnings'] ? 'border-warning' : 'border-success') ?>" id="data-preflight">
+	<div class="card-body py-2">
+		<strong>数据检查：</strong>
+		<?php if ($preflight['errors']): ?>
+		<span class="text-danger" id="preflight-state">有问题，同步会失败</span>
+		<?php elseif ($preflight['warnings']): ?>
+		<span class="text-warning" id="preflight-state">可以同步，但有几处值得看一眼</span>
+		<?php else: ?>
+		<span class="text-success" id="preflight-state">文件齐全，可以同步</span>
+		<?php endif ?>
+		<?php if ($preflight['facts']): ?>
+		<small class="text-muted ml-2"><?= HTML::escape(join('；', $preflight['facts'])) ?></small>
+		<?php endif ?>
+		<?php if ($preflight['errors'] || $preflight['warnings']): ?>
+		<ul class="mb-0 mt-1">
+			<?php foreach ($preflight['errors'] as $line): ?>
+			<li class="text-danger"><?= HTML::escape($line) ?></li>
+			<?php endforeach ?>
+			<?php foreach ($preflight['warnings'] as $line): ?>
+			<li><?= HTML::escape($line) ?></li>
+			<?php endforeach ?>
+		</ul>
+		<?php endif ?>
+		<small class="text-muted d-block mt-1">上传 → 这里没有红字 → 点“与 svn 仓库同步”发布。这里只检查文件是否齐全；校验器等程序能否编译，要同步后由评测机告诉你。</small>
+	</div>
+</div>
 <div class="row">
 	<div class="col-md-10 top-buffer-sm">
 		<div class="row">

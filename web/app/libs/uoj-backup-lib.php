@@ -292,7 +292,7 @@ function backupVerify($name) {
 			$different = array();
 			foreach ($restored as $table => $count) {
 				if ($count !== $manifest['tables'][$table]) {
-					$different[] = "$table（恢复出 $count 行，应为 {$manifest['tables'][$table]} 行）";
+					$different[] = "{$table}（恢复出 {$count} 行，应为 {$manifest['tables'][$table]} 行）";
 				}
 			}
 			$err = '恢复出的行数和备份记录的不一致：' . join('、', array_slice($different, 0, 5));

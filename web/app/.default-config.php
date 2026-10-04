@@ -84,7 +84,17 @@ return [
 	],
 	'data' => [
 		// how many versions of the data of a problem keep their archive, the current one included
-		'kept-versions' => 5
+		'kept-versions' => 5,
+		// What an archive that is uploaded as the data of a problem may hold. max-unpacked-mb
+		// is for the whole directory of the problem, the upload included. max-ratio is how
+		// many times bigger than the archive its contents may be; 0 does not look at it,
+		// because test data that repeats itself packs a thousand times smaller quite honestly.
+		'upload' => [
+			'max-files' => 5000,
+			'max-unpacked-mb' => 1024,
+			'max-file-mb' => 512,
+			'max-ratio' => 0
+		]
 	],
 	'switch' => [
 		// 请在 page-header.php 中修改统计代码后再启用
