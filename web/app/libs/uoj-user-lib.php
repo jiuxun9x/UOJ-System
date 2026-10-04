@@ -94,6 +94,11 @@ function usernameUnavailableReason($username, $user = null, $options = array()) 
 		if ($pattern !== '' && preg_match($pattern, $username)) {
 			return '该用户名保留给统一身份认证的用户';
 		}
+		// A student number on the roster of a domain waits for its student, whatever it
+		// looks like.
+		if (DB::selectFirst("select 1 from domain_pending_members where student_id = '$esc_username' limit 1")) {
+			return '该用户名保留给统一身份认证的用户';
+		}
 	}
 	return '';
 }

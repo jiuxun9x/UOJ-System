@@ -90,7 +90,7 @@
 			if (!$show_ip) {
 				echo '<tr>';
 			} else {
-				if ($ip_owner[$user['remote_addr']] != $user['username']) {
+				if ($ip_owner[$user['remote_addr']] !== $user['username']) {
 					echo '<tr class="table-danger">';
 				} else {
 					echo '<tr>';

@@ -117,7 +117,7 @@
 			$content = '有人回复了您在博客 ' . $blog['title'] . ' 下的评论 ：<a href="' . $uri . '">点击此处查看</a>';
 			sendSystemMsg($parent['poster'], '评论新回复通知', $content);
 		}
-		if ($blog['poster'] !== $myUser['username'] && !in_array($blog['poster'], $notified)) {
+		if ($blog['poster'] !== $myUser['username'] && !in_array($blog['poster'], $notified, true)) {
 			$notified[] = $blog['poster'];
 			$content = '有人回复了您的博客 ' . $blog['title'] . ' ：<a href="' . $uri . '">点击此处查看</a>';
 			sendSystemMsg($blog['poster'], '博客新回复通知', $content);

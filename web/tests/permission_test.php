@@ -192,6 +192,16 @@ $restricted = fake_submission('alice', 3);
 check_ability('submission.view_source', $restricted, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'setter' => false, 'alice' => true, 'bob' => true, 'helper' => false), 'ALL_AFTER_AC');
 check_ability('submission.view_details', $restricted, array('nobody' => false, 'root' => true, 'alice' => true, 'bob' => false), 'SELF');
 check_ability('submission.view_test_details', $restricted, array('nobody' => false, 'root' => true, 'alice' => true, 'bob' => false), 'SELF');
+// A student number may look like a number, and to PHP '0123' == '123' and '21E01' == '210'.
+// They are four users.
+foreach (array('0123', '123', '21E01', '210') as $number) {
+	$permission_test_users[$number] = fake_user($number);
+}
+foreach (array('submission.view_details', 'submission.view_test_details') as $ability) {
+	check_ability($ability, fake_submission('0123', 3), array('0123' => true, '123' => false), 'SELF, of a name with a zero in front');
+	check_ability($ability, fake_submission('123', 3), array('123' => true, '0123' => false), 'SELF, of a name that is a number');
+	check_ability($ability, fake_submission('21E01', 3), array('21E01' => true, '210' => false), 'SELF, of a name that reads as a power of ten');
+}
 check_ability('submission.hack', $restricted, array('nobody' => false, 'alice' => true, 'bob' => true, 'helper' => false), 'hacking needs the source');
 
 // ---- submissions of a contest that is running: closed to everybody but the owner and the staff

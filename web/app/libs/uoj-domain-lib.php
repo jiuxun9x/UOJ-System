@@ -399,10 +399,12 @@ function domainImportRoster($domain, $text, $role, $actor) {
 	}
 	$lines = array_slice(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,;]+/', $text)), 'strlen')), 0, 2000);
 	foreach ($lines as $line) {
-		$user = validateUsername($line) ? queryUser($line) : null;
+		// The student number the school vouches for comes before a username: a username is
+		// whatever somebody chose to call themselves.
+		$identity = DB::selectFirst("select username from external_identities where student_id = '".DB::escape($line)."' order by id limit 1");
+		$user = $identity ? queryUser($identity['username']) : null;
 		if (!$user) {
-			$identity = DB::selectFirst("select username from external_identities where student_id = '".DB::escape($line)."' order by id limit 1");
-			$user = $identity ? queryUser($identity['username']) : null;
+			$user = validateUsername($line) ? queryUser($line) : null;
 		}
 		if ($user) {
 			if (domainRoleOf($user['username'], $domain) !== null) {

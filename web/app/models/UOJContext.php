@@ -160,19 +160,19 @@ class UOJContext {
 							return false;
 						}
 						$blog = $args[0];
-						return $blog['poster'] == self::$data['user']['username'];
+						return $blog['poster'] === self::$data['user']['username'];
 					case 'isHisBlog':
 						if (!isset($args[0])) {
 							return false;
 						}
 						$blog = $args[0];
-						return $blog['poster'] == self::$data['user']['username'] && $blog['type'] == 'B' && $blog['is_draft'] == false;
+						return $blog['poster'] === self::$data['user']['username'] && $blog['type'] == 'B' && $blog['is_draft'] == false;
 					case 'isHisSlide':
 						if (!isset($args[0])) {
 							return false;
 						}
 						$blog = $args[0];
-						return $blog['poster'] == self::$data['user']['username'] && $blog['type'] == 'S' && $blog['is_draft'] == false;
+						return $blog['poster'] === self::$data['user']['username'] && $blog['type'] == 'S' && $blog['is_draft'] == false;
 				}
 				break;
 		}

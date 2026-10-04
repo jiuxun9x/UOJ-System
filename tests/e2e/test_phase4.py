@@ -538,6 +538,76 @@ class DomainJoinTest(unittest.TestCase):
         p3.cas_login(latecomer, "p4_latecomer", employeeNumber="20250003")
         self.assertIsNone(role_in("p4-roster", "20250003"))
 
+    def test_student_number_with_letters_is_a_student_number(self):
+        if "/login/sso/cas" not in uoj.Client().get("/login").text:
+            self.skipTest("the single sign-on is not configured, see configure.py")
+        self.teacher.new_domain("p4-letters")
+        did = domain_id("p4-letters")
+        # numbers with letters go on the roster like any other, and wait for their students
+        roster = "2021E80132009\npb21000007\nZhang3\n"
+        self.assertEqual(member_form(self.teacher, "p4-letters", "import", roster=roster, role="member"), "")
+        self.assertIn("已挂起 3 人", uoj.text_of(self.teacher.get("/d/p4-letters/members").text))
+
+        # Nobody takes such a name before its student arrives: not one that looks like a
+        # student number, and not one that waits on a roster whatever it looks like.
+        for name in ("2021E80132009", "PB21000007", "2021E80132010", "Zhang3"):
+            with self.assertRaises(Exception, msg=name):
+                uoj.Client().register(name, "x")
+            self.assertIn("统一身份认证", account("p4_letters_squat").update_profile(username=name), name)
+            self.assertEqual(db_value("select count(*) from user_info where username = '%s'" % name), "0")
+
+        # the students arrive through the school, are named by their numbers and are in the class
+        first, second = uoj.Client(), uoj.Client()
+        p3.cas_login(first, "p4_letters_first", employeeNumber="2021E80132009", cn="周一")
+        # the school writes the number in capitals, the roster of the teacher did not
+        p3.cas_login(second, "p4_letters_second", employeeNumber="PB21000007", cn="吴二")
+        self.assertEqual((p3.who(first), p3.who(second)), ("2021E80132009", "PB21000007"))
+        for name in ("2021E80132009", "PB21000007"):
+            self.assertEqual(role_in("p4-letters", name), "member")
+        self.assertEqual(db("select student_id from domain_pending_members where domain_id = %d" % did), [["Zhang3"]])
+        members = self.teacher.get("/d/p4-letters/members").text
+        for name in ("2021E80132009", "PB21000007"):
+            self.assertRegex(members, r'<span class="uoj-username"[^>]*>%s</span>' % name)
+
+        # A line of a roster is the student number the school vouches for before it is a
+        # username. Somebody was called by a number before the school gave it to a student:
+        account("p4_lt_impostor")
+        self.assertEqual(
+            uoj.admin().submit_form("/super-manage/users", "rename",
+                                    {"rename_username": "p4_lt_impostor", "rename_new_username": "2022E80130001"}),  # fmt: skip
+            "",
+        )
+        # the student got the number when the school corrected the one they came with
+        p3.cas_login(uoj.Client(), "p4_letters_real", employeeNumber="2022E80130002", cn="郑三")
+        real = uoj.Client()
+        p3.cas_login(real, "p4_letters_real", employeeNumber="2022E80130001", cn="郑三")
+        self.assertEqual(p3.who(real), "2022E80130002")
+        self.teacher.new_domain("p4-letters-next")
+        self.assertEqual(member_form(self.teacher, "p4-letters-next", "import", roster="2022E80130001", role="member"), "")
+        self.assertEqual(role_in("p4-letters-next", "2022E80130002"), "member")
+        self.assertIsNone(role_in("p4-letters-next", "2022E80130001"))
+
+    def test_numbers_that_are_equal_to_php_are_two_students(self):
+        if "/login/sso/cas" not in uoj.Client().get("/login").text:
+            self.skipTest("the single sign-on is not configured, see configure.py")
+        # '0123456' == '123456' and '21E0004' == '210000' to PHP, which compares what looks like numbers as numbers
+        clients = {}
+        for number in ("0123456", "123456", "21E0004", "210000"):
+            clients[number] = uoj.Client()
+            p3.cas_login(clients[number], "p4_equal_" + number, employeeNumber=number)
+            self.assertEqual(p3.who(clients[number]), number)
+            clients[number].username = number
+        only_mine = {"view_content_type": "SELF", "view_all_details_type": "SELF", "view_details_type": "SELF"}
+        problem_id = uoj.admin().create_problem(ab_problem_files(), extra_config=only_mine)
+        for author, other in (("0123456", "123456"), ("123456", "0123456"), ("21E0004", "210000"), ("210000", "21E0004")):
+            submission_id = clients[author].submit(problem_id, AB + "// source-of-%s\n" % author)
+            self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+            self.assertIn("source-of-" + author, clients[author].get("/submission/%d" % submission_id).text)
+            self.assertNotIn("source-of-" + author, clients[other].get("/submission/%d" % submission_id).text, (author, other))
+        # each has a profile that is theirs alone
+        for viewer, shown in (("123456", "0123456"), ("210000", "21E0004")):
+            self.assertIn('href="/user/msg?enter=%s"' % shown, clients[viewer].get("/user/profile/" + shown).text)
+
     def test_roster_can_not_hand_out_what_its_importer_can_not(self):
         self.teacher.new_domain("p4-roster-roles")
         co = account("p4_roster_co")

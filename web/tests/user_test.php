@@ -61,3 +61,14 @@ foreach (array('', 'a b', str_repeat('1', 21), -5, 1.5, null, array('x')) as $ba
 	check_same(false, validateUsername($bad), 'refused as a username: ' . json_encode($bad));
 }
 
+// ---- the names that are kept for the single sign-on: by default what a student number
+// looks like, which is not always a number
+$default_config = require __DIR__ . '/../app/.default-config.php';
+$reserved = $default_config['sso']['reserved-username-pattern'];
+foreach (array('20260101', '2021E8013282009', 'PB21000001', 'pb21000001', 'S2021001', '2021b1234', '202601011234567890', '0123456') as $number) {
+	check_same(1, preg_match($reserved, $number), "$number is kept for the student it belongs to");
+}
+foreach (array('alice', 'alice2024', 'zhang3', 'abcdef', '12345', 'bob_20260101', 'e2e_admin', str_repeat('1', 21)) as $name) {
+	check_same(0, preg_match($reserved, $name), "$name is a name anybody may take");
+}
+

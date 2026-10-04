@@ -548,8 +548,10 @@ function permissionViewTypeAllows($setting, $user, $submission) {
 	if ($type == 'ALL_AFTER_AC') {
 		return $user != null && $facts->hasAccepted($user['username'], $problem['id']);
 	}
+	// Names are compared as the strings they are: to PHP '0123' == '123' and '21E01' == '210',
+	// and a student number may well look like a number.
 	if ($type == 'SELF') {
-		return $user != null && $submission['submitter'] == $user['username'];
+		return $user != null && $submission['submitter'] === $user['username'];
 	}
 	return false;
 }
@@ -711,7 +713,7 @@ function changeUserStanding($actor, $target, $op) {
 		if ($target_is_admin && !$may_manage_roles) {
 			return '只有系统管理员可以封禁管理员或修改其用户组';
 		}
-		if ($op == 'banneduser' && $target['username'] == $actor['username']) {
+		if ($op == 'banneduser' && $target['username'] === $actor['username']) {
 			return '不能封禁自己';
 		}
 		if (isLastSystemAdmin($target)) {

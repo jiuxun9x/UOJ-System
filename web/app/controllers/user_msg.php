@@ -72,7 +72,7 @@
 		$result = DB::query("select * from user_msg where (sender = '$username' and receiver = '$conversationName') or (sender = '$conversationName' and receiver = '$username')	order by send_time DESC limit $pageNumber, 11");
 		$ret = array();
 		while ($msg = DB::fetch($result)) {
-			$ret[] = array($msg['message'], $msg['send_time'], $msg['read_time'], $msg['id'], ($msg['sender'] == $username));
+			$ret[] = array($msg['message'], $msg['send_time'], $msg['read_time'], $msg['id'], ($msg['sender'] === $username));
 		}
 		return json_encode($ret);
 	}
