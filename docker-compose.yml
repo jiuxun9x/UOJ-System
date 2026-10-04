@@ -48,19 +48,10 @@ services:
       - type: bind
         source: ./.config.local.php
         target: /opt/uoj/web/app/.config.php
+    # The web server takes everything it needs to know from .config.local.php, which
+    # prepare.sh writes: there are no environment variables to set here.
     ports:
       - "80:80"
-      - "3690:3690"
-    environment:
-      - DATABASE_HOST=uoj-db
-      - DATABASE_PASSWORD=root
-      - JUDGER_SOCKET_PORT=2333
-      - JUDGER_SOCKET_PASSWORD=_judger_socket_password_
-      - SALT_0=_salt_0_
-      - SALT_1=_salt_1_
-      - SALT_2=_salt_2_
-      - SALT_3=_salt_3_
-      - UOJ_PROTOCOL=http
 
   uoj-judger:
     image: ghcr.io/universaloj/uoj-judger:latest

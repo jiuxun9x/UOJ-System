@@ -53,7 +53,8 @@ return [
 	],
 	'judger' => [
 		'socket' => [
-			'port' => '233',
+			// the same as SOCKET_PORT of the judgers
+			'port' => '2333',
 			'password' => '_judger_socket_password_'
 		],
 		// seconds without a sign of life after which the tasks of a judger are given to others

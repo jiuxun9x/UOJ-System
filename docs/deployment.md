@@ -164,18 +164,14 @@ docker compose logs -f uoj-web
 | 项 | 默认 | 含义 | 改了意味着什么 |
 |---|---|---|---|
 | `ports: "80:80"` | 宿主机 80 → 容器 80 | 网站对外的端口 | 左边是宿主机端口，可以改，例如 `"8080:80"`；只让本机的反向代理访问就写 `"127.0.0.1:8080:80"`。改了端口记得同步改配置里的 `web.main.port` |
-| `ports: "3690:3690"` | — | 上游遗留的 SVN 端口，本系统里没有服务监听它 | 可以直接删掉这一行 |
 | `volumes: ./uoj_data/web/data` → `/var/uoj_data` | — | 题目数据：每道题的上传目录、已发布的数据和各版本的归档 | 最重要的数据之一，必须备份 |
 | `volumes: ./uoj_data/web/storage` → `/opt/uoj/web/app/storage` | — | 所有提交的源代码、临时文件、Paste | 必须备份 |
 | `volumes: ./uoj_data/backup` → `/var/uoj_backup` | — | 网站每天自动做的备份，见第 8 节 | 建议换成另一块盘上的路径 |
 | `volumes: ./.config.local.php` → `.config.php` | — | 配置文件 | 改完配置一般不用重启容器，下一个请求就生效（例外见第 4 节开头） |
 | `depends_on: uoj-db` | — | 等数据库健康后再启动 | — |
-| `environment` 里的全部变量 | — | **运行时不起作用**（见下） | — |
 
-关于 `uoj-web` 的环境变量：`DATABASE_HOST`、`DATABASE_PASSWORD`、`JUDGER_SOCKET_PORT`、
-`JUDGER_SOCKET_PASSWORD`、`SALT_0…3`、`UOJ_PROTOCOL` 是上游留下的。网站只读配置文件
-`.config.local.php`，不读这些环境变量，改它们没有任何效果。要改数据库地址、密码、盐值、协议，
-请改配置文件里对应的项。
+网站容器没有需要设置的环境变量：数据库地址、密码、盐值、协议等全部来自配置文件 `.config.local.php`。
+（上游的 compose 文件里给网站容器写了一组环境变量和一个 3690 端口，它们在运行时都不起作用，本仓库已经去掉。）
 
 登录会话保存在容器内部（`/var/lib/php/uoj_sessions`），**重建网站容器会让所有人退出登录**
 （勾了“记住我”的用户会自动重新登录）。
@@ -294,7 +290,7 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 | 键 | 默认 | 含义 | 改了意味着什么 |
 |---|---|---|---|
 | `task-timeout` | `300` | 评测机多少秒没有任何动静，就认为它失联，把它手上的任务交给别的评测机 | 调小：评测机宕机后恢复得更快，但网络抖动时可能误判，同一份提交被评两次（结果以后一次为准）。调大：反之。一份提交被回收 3 次后判为评测失败 |
-| `socket.port` | `233` | 网站通知评测机“更新评测程序”时连接的端口 | 只在 6.6 节的场景用到；用到时要和评测机的 `SOCKET_PORT`（默认 2333）一致。注意默认值不一致，用到时要改 |
+| `socket.port` | `2333` | 网站通知评测机“更新评测程序”时连接的端口 | 只在 6.6 节的场景用到；要和评测机的 `SOCKET_PORT` 一致 |
 | `socket.password` | `_judger_socket_password_` | 上述通知的口令 | 要和评测机的 `SOCKET_PASSWORD` 一致 |
 
 ### 4.7 `data`：题目数据
@@ -726,7 +722,6 @@ docker compose exec uoj-web tail -f /var/log/apache2/uoj_error.log
 | 80 | `uoj-web` | 浏览器（或反向代理）、评测机 | 是（或只对反向代理开放） |
 | 3306 | `uoj-db` | `uoj-web` | 否，默认只在 compose 内部网络可见 |
 | 2333 | 每台评测机 | 评测机自己（`judge_client stop / update`） | 否 |
-| 3690 | `uoj-web` | 无（遗留） | 否，可从 compose 文件里删掉 |
 
 ### 评测机调用的 HTTP 接口
 
