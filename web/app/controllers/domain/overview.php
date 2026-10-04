@@ -36,6 +36,26 @@
 		<div class="uoj-domain-empty" id="domain-overview-empty">这里会显示进行中的作业、训练和比赛。</div>
 	</div>
 	<div class="col-lg-4">
+		<div class="card mb-3" id="card-announcements">
+			<div class="card-header d-flex">
+				<span class="mr-auto">公告</span>
+				<a href="<?= domainUrl($domain, '/announcements') ?>" class="small">全部</a>
+			</div>
+			<?php $announcements = domainAnnouncements($domain, 5); ?>
+			<?php if (!$announcements): ?>
+			<div class="card-body text-muted small">暂无公告</div>
+			<?php else: ?>
+			<div class="list-group list-group-flush">
+				<?php foreach ($announcements as $announcement): ?>
+				<a class="list-group-item list-group-item-action" href="<?= domainUrl($domain, '/announcements') ?>#announcement-<?= $announcement['id'] ?>">
+					<?php if ($announcement['pinned']): ?><span class="badge badge-warning">置顶</span><?php endif ?>
+					<?= HTML::escape($announcement['title']) ?>
+					<small class="text-muted d-block"><?= substr($announcement['created_at'], 0, 10) ?></small>
+				</a>
+				<?php endforeach ?>
+			</div>
+			<?php endif ?>
+		</div>
 		<div class="card mb-3">
 			<div class="card-header">关于</div>
 			<ul class="list-group list-group-flush">

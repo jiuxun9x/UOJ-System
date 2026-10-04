@@ -284,7 +284,8 @@ function domainHandleForms($forms, $redirect = null) {
 function domainTabs($domain, $user) {
 	$tabs = array(
 		'overview' => array('概览', domainUrl($domain)),
-		'members' => array('成员', domainUrl($domain, '/members'))
+		'members' => array('成员', domainUrl($domain, '/members')),
+		'announcements' => array('公告', domainUrl($domain, '/announcements'))
 	);
 	return $tabs;
 }
@@ -446,4 +447,34 @@ function domainApplyPendingMemberships($user, $student_id) {
 		}
 		DB::delete("delete from domain_pending_members where id = {$pending['id']}");
 	}
+}
+
+// ---- announcements
+
+// what the people who teach in a domain write is Markdown; what is shown is its purified HTML
+function domainRenderMarkdown($markdown) {
+	return HTML::pruifier()->purify(HTML::parsedown()->text($markdown));
+}
+// the announcements of a domain: the pinned ones first, then the newest
+function domainAnnouncements($domain, $limit = 200) {
+	return DB::selectAll("select * from domain_announcements where domain_id = {$domain['id']} order by pinned desc, id desc limit ".(int)$limit);
+}
+// Stores an announcement, a new one when $id is null. Returns '' or what is wrong with it.
+function domainSaveAnnouncement($domain, $id, $title, $content_md, $pinned, $actor) {
+	$title = trim($title);
+	if ($title === '' || mb_strlen($title, 'UTF-8') > 200) {
+		return '标题不能为空，且不超过 200 个字符';
+	}
+	if (trim($content_md) === '' || strlen($content_md) > 200000) {
+		return '正文不能为空，也不能太长';
+	}
+	$set = "title = '".DB::escape($title)."', content_md = '".DB::escape($content_md)."', content = '".DB::escape(domainRenderMarkdown($content_md))."', pinned = ".($pinned ? 1 : 0).", updated_at = now()";
+	if ($id === null) {
+		DB::insert("insert into domain_announcements set domain_id = {$domain['id']}, created_by = '".DB::escape($actor['username'])."', created_at = now(), $set");
+		auditLog('domain.post_announcement', 'domain', $domain['id'], null, array('announcement_id' => DB::insert_id(), 'title' => $title), $actor);
+	} else {
+		DB::update("update domain_announcements set $set where id = ".(int)$id." and domain_id = {$domain['id']}");
+		auditLog('domain.edit_announcement', 'domain', $domain['id'], null, array('announcement_id' => (int)$id, 'title' => $title), $actor);
+	}
+	return '';
 }

@@ -52,6 +52,7 @@ class MockIdP:
         if self.server is not None:
             self.server.shutdown()
             self.server.server_close()
+            self.server = None
 
     # ---- what a user who logs in at the school is handed
 

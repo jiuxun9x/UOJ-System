@@ -256,6 +256,45 @@ class DomainTest(unittest.TestCase):
                                ["domain.remove_member", uoj.ADMIN[0]]])  # fmt: skip
 
 
+    def test_announcements_are_written_by_the_teachers_of_the_domain(self):
+        self.teacher.new_domain("p4-news")
+        pupil, tutor = account("p4_news_pupil"), account("p4_news_tutor")
+        self.assertEqual(member_form(self.teacher, "p4-news", "add", username="p4_news_pupil", role="member"), "")
+        self.assertEqual(member_form(self.teacher, "p4-news", "add", username="p4_news_tutor", role="ta"), "")
+        news = "/d/p4-news/announcements"
+        did = domain_id("p4-news")
+
+        text = "考试在 **周五**。<script>alert(1)</script>"
+        self.assertEqual(self.teacher.form(news, "save", title="期中考试 <安排>", content_md=text), "")
+        self.assertEqual(self.teacher.form(news, "save", title="第 1 次作业讲评", content_md="见课件。", pinned="on"), "")
+        for client in (tutor, pupil):
+            self.assertNotEqual(client.form(news, "save", title="不该出现", content_md="x"), "")
+        self.assertEqual(db_value("select count(*) from domain_announcements where domain_id = %d" % did), "2")
+        self.assertNotEqual(self.teacher.form(news, "save", title="", content_md="x"), "")
+        self.assertNotEqual(self.teacher.form(news, "save", title="x", content_md="  "), "")
+
+        page = pupil.get(news).text
+        self.assertIn("<strong>周五</strong>", page)
+        self.assertNotIn("alert(1)", page)
+        self.assertIn("期中考试 &lt;安排&gt;", page)
+        # the pinned one comes first, and the front page of the domain lists them
+        self.assertLess(page.index("第 1 次作业讲评"), page.index("期中考试"))
+        self.assertIn("第 1 次作业讲评", pupil.get("/d/p4-news").text)
+        self.assertNotIn('id="form-announcement"', page)
+        self.assertEqual(account("p4_student").get(news).status_code, 404)
+
+        first = db_value("select id from domain_announcements where domain_id = %d order by id limit 1" % did)
+        self.assertEqual(self.teacher.form(news + "?edit=" + first, "save", title="期中考试改期", content_md="改到 *周六*。"), "")
+        self.assertEqual(
+            db("select title, pinned from domain_announcements where id = %s" % first), [["期中考试改期", "0"]]
+        )
+        self.assertIn("<em>周六</em>", pupil.get(news).text)
+        pupil.form(news, "delete", id=first)
+        self.assertEqual(db_value("select count(*) from domain_announcements where domain_id = %d" % did), "2")
+        self.assertEqual(self.teacher.form(news, "delete", id=first), "")
+        self.assertEqual(db_value("select count(*) from domain_announcements where domain_id = %d" % did), "1")
+
+
 class DomainJoinTest(unittest.TestCase):
     """invitations and rosters"""
 

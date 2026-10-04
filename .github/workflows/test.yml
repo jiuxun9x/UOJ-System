@@ -92,6 +92,25 @@ jobs:
       - name: End-to-end tests
         run: python3 -m unittest discover -s tests/e2e -v
 
+      # nothing of the web interface can be rendered where it is developed: these pictures are
+      # how its pages are looked at
+      - name: Screenshots of the pages
+        if: always() && matrix.judgers == 1
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk > /dev/null
+          pip install playwright > /dev/null
+          python3 -m playwright install --with-deps chromium > /dev/null
+          cd tests/e2e && python3 screenshots.py ../../screenshots
+
+      - name: Upload screenshots
+        if: always() && matrix.judgers == 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots
+          if-no-files-found: ignore
+
       - name: Collect logs
         if: always()
         run: |
