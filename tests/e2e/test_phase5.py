@@ -23,6 +23,12 @@ SETTINGS = "/super-manage/settings"
 
 def setUpModule():
     uoj.wait_idle()
+    # the school of the tests of the single sign-on
+    p3.IDP.start()
+
+
+def tearDownModule():
+    p3.IDP.stop()
 
 
 def site_settings(client, **settings):
@@ -663,7 +669,7 @@ class ProgramCacheTest(unittest.TestCase):
         self.assertEqual(hits(), before + 1)
         self.assertEqual(uoj.wait_submission(admin.submit(problem_id, AB)).score, 100)
         # and it is the checker of the problem that judges
-        self.assertLess(uoj.wait_submission(admin.submit(problem_id, AB_WRONG)).score, 100)
+        self.assertLess(uoj.wait_submission(admin.submit(problem_id, AB.replace("a + b", "a + b + 2"))).score, 100)
 
         # a checker that changed is built
         files["chk.cpp"] += "// changed\n"
@@ -764,6 +770,13 @@ def judging_alerts():
     return [kind for kind in open_alerts() if kind in ("no_judger", "judger_silent", "queue_stuck")]
 
 
+def wait_for_calm(what="nothing is wrong with the judgers"):
+    try:
+        uoj.wait_until(what, lambda: site_tick() and judging_alerts() == [], timeout=180)
+    except Exception as e:
+        raise Exception("%s; still open: %s" % (e, db("select kind, subject, message from site_alerts where active_slot = 1")))
+
+
 class MonitorTest(unittest.TestCase):
     """the administrators are told when the judgers are gone, and when they are back"""
 
@@ -780,11 +793,19 @@ class MonitorTest(unittest.TestCase):
             alert_judger_silent_seconds="30", alert_queue_wait_seconds="60",
         )  # fmt: skip
         assert err == "", err
+        # Judgers that earlier tests registered, let connect once and left behind would be
+        # reported as gone for ever, and rightly so. They are switched off, which is what an
+        # administrator does with a judger that is not coming back.
+        names = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        cls.left_behind = [row[0] for row in db("select judger_name from judger_info where enabled = 1 and judger_name not in (%s)" % names)]
+        db("update judger_info set enabled = 0 where judger_name not in (%s)" % names)
 
     @classmethod
     def tearDownClass(cls):
         cls.smtp.stop()
         db("delete from site_settings where name like 'mail.%' or name like 'alert.%'")
+        for name in cls.left_behind:
+            db("update judger_info set enabled = 1 where judger_name = '%s'" % name)
 
     def test_judgers_that_are_gone_are_reported_and_so_is_their_return(self):
         monitor = "/super-manage/monitor"
@@ -792,7 +813,7 @@ class MonitorTest(unittest.TestCase):
         told = lambda: int(db_value("select count(*) from user_system_msg where receiver = '%s' and title like '%%评测%%' and (title like '告警：%%' or title like '已恢复：%%')" % admin_name))
         mails = lambda: [mail for mail in self.smtp.messages if "评测" in mail.subject]
         uoj.wait_idle()
-        uoj.wait_until("nothing is wrong", lambda: site_tick() and judging_alerts() == [], timeout=180)
+        wait_for_calm()
         page = self.admin.get(monitor).text
         self.assertNotIn("没有在线的评测机，提交无法评测 <small>（从", page)
         for name in uoj.JUDGER_NAMES:
@@ -833,7 +854,7 @@ class MonitorTest(unittest.TestCase):
 
         # the judgers are back: the submission is judged, and the alerts close by themselves
         self.assertEqual(uoj.wait_submission(waiting).score, 100)
-        uoj.wait_until("the alerts are over", lambda: site_tick() and judging_alerts() == [], timeout=180)
+        wait_for_calm("the alerts are over")
         self.assertEqual(told(), told_before + 4)
         sent = mails()[mails_before:]
         self.assertEqual(len(sent), 4)
@@ -854,12 +875,12 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(site_settings(self.admin, alert_email=False), "")
         try:
             mails_before = len([mail for mail in self.smtp.messages if "评测" in mail.subject])
-            uoj.wait_until("nothing is wrong", lambda: site_tick() and judging_alerts() == [], timeout=180)
+            wait_for_calm()
             with uoj.judgers_paused():
                 db("update judger_info set last_heartbeat_at = now() - interval 10 minute")
                 site_tick()
                 self.assertEqual(judging_alerts(), ["no_judger"])
-            uoj.wait_until("the alert is over", lambda: site_tick() and judging_alerts() == [], timeout=180)
+            wait_for_calm("the alert is over")
             self.assertEqual(len([mail for mail in self.smtp.messages if "评测" in mail.subject]), mails_before)
         finally:
             self.assertEqual(site_settings(self.admin, alert_email=True), "")
