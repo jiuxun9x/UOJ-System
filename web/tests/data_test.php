@@ -195,6 +195,15 @@ check_same('', $errors_of(array_merge($files, array('std.cpp', 'val.cpp')), $con
 $warnings = uploadPreflight(array_merge($files, array('in3.txt', 'out3.txt')), array('time_limit' => '600') + $conf, false)['warnings'];
 check_same(2, count($warnings), 'files nothing uses and a limit out of the ordinary are worth a look');
 check_same(true, strpos(join(' ', $warnings), 'in3.txt') !== false, 'the files nothing uses are named');
+// a run-twice problem needs its relay, and is neither interactive nor open to hacks
+$twice = array('run_twice' => 'on') + $conf;
+check_same(true, strpos($errors_of($files, $twice), 'relay.cpp') !== false, 'a run-twice problem without its relay');
+check_same('', $errors_of(array_merge($files, array('relay.cpp')), $twice), 'and with it');
+check_same(true, in_array('通信题：程序运行两次，中转程序 relay 由评测机编译', uploadPreflight(array_merge($files, array('relay.cpp')), $twice, false)['facts'], true), 'the report says the problem is run twice');
+check_same(array(), uploadPreflight(array_merge($files, array('relay.cpp')), $twice, false)['warnings'], 'the relay is not a file nothing uses');
+check_same(true, strpos($errors_of(array_merge($files, array('relay.cpp', 'std.cpp', 'val.cpp')), $twice, true), 'Hack') !== false, 'a run-twice problem can not be hacked');
+check_same(true, strpos($errors_of(array_merge($files, array('relay.cpp', 'interactor.cpp')), array('interaction_mode' => 'on') + $twice), '交互题') !== false, 'nor be interactive');
+check_same(true, strpos($errors_of(array_merge($files, array('relay.cpp')), array('submit_answer' => 'on') + $twice), '提交答案') !== false, 'nor ask for answers only');
 $custom = uploadPreflight(array('problem.conf', 'judger.cpp', 'Makefile'), array('use_builtin_judger' => 'off'), false);
 check_same(array(0, 1), array(count($custom['errors']), count($custom['warnings'])), 'a judger of its own is said to need the system administrator');
 

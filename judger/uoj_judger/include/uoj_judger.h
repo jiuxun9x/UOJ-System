@@ -260,6 +260,7 @@ const RunLimit RL_GENERATOR_DEFAULT = RunLimit(2, 512, 64);
 const RunLimit RL_JUDGER_DEFAULT = RunLimit(600, 2048, 128);  // 2048 = 2GB. change it if needed
 const RunLimit RL_CHECKER_DEFAULT = RunLimit(5, 256, 64);
 const RunLimit RL_INTERACTOR_DEFAULT = RunLimit(1, 256, 64);
+const RunLimit RL_RELAY_DEFAULT = RunLimit(5, 256, 64);
 const RunLimit RL_VALIDATOR_DEFAULT = RunLimit(5, 256, 64);
 const RunLimit RL_COMPILER_DEFAULT = RunLimit(15, 2048, 64);
 
@@ -1187,6 +1188,48 @@ RunCheckerResult run_checker(const RunLimit &limit, const string &program_name,
     return RunCheckerResult::from_file(result_path + "/checker_error.txt", ret);
 }
 
+/**
+ * Runs the relay of a run-twice problem between the two runs of a program. The relay is
+ * written like an interactor of testlib, but talks to nobody:
+ *
+ *   relay <input> <second input> <answer>
+ *
+ *   inf     the input of the test, which the first run read
+ *   ouf     what the first run wrote (the standard input of the relay)
+ *   tout    what the second run will read
+ *   ans     the answer file of the test
+ *   stdout  notes for the checker, see test_run_twice_point()
+ *
+ * quitf(_ok, ...) lets the second run happen, any other verdict is the verdict of the test.
+ * A relay that ends without a verdict and with exit code 0 is taken to have said ok.
+ */
+RunCheckerResult run_relay(const RunLimit &limit, const string &program_name,
+                           const string &input_file_name, const string &first_output_file_name,
+                           const string &second_input_file_name, const string &answer_file_name,
+                           const string &notes_file_name) {
+    string error_file_name = result_path + "/relay_error.txt";
+    RunResult ret =
+        run_program((result_path + "/run_relay_result.txt").c_str(),
+                    first_output_file_name.c_str(), notes_file_name.c_str(),
+                    error_file_name.c_str(), limit, ("--add-readable=" + input_file_name).c_str(),
+                    ("--add-readable=" + answer_file_name).c_str(),
+                    ("--add-writable=" + realpath(second_input_file_name)).c_str(),
+                    ("--type=" + conf_str("relay_run_type", "default")).c_str(),
+                    program_name.c_str(), realpath(input_file_name).c_str(),
+                    realpath(second_input_file_name).c_str(), realpath(answer_file_name).c_str(),
+                    NULL);
+
+    if (ret.type == runp::RS_AC && ret.exit_code == 0 && file_size(error_file_name) == 0) {
+        RunCheckerResult res;
+        res.type = ret.type;
+        res.ust = ret.ust;
+        res.usm = ret.usm;
+        res.scr = 100;
+        return res;
+    }
+    return RunCheckerResult::from_file(error_file_name, ret);
+}
+
 template <typename... Args>
 run_compiler_result run_compiler(runp::config rpc) {
     rpc.result_file_name = result_path + "/run_compiler_result.txt";
@@ -1414,6 +1457,78 @@ struct TestPointConfig {
     }
 };
 
+/**
+ * A test of a run-twice problem. The program is run on the input of the test; the relay of the
+ * problem turns what it wrote into the input of a second run of the same program; the checker
+ * judges what the second run wrote. Each run has the limits of the problem to itself, and the
+ * time and the memory of the test are those of the run that used more.
+ *
+ * Nothing but what the relay passes on may reach the second run. A program can not write
+ * files, but it may list its work folder and look at the size and the age of what is in it.
+ * So what the first run wrote and what the relay made of it are kept in the result folder,
+ * which no program can look into, and are emptied before every test.
+ *
+ * The checker reads the notes of the relay as its answer file when the relay wrote any, and
+ * the answer file of the test otherwise.
+ */
+PointInfo test_run_twice_point(const string &name, const int &num, const TestPointConfig &tpc) {
+    string first_output_file_name = result_path + "/first_run_output.txt";
+    string second_input_file_name = result_path + "/second_run_input.txt";
+    string notes_file_name = result_path + "/relay_notes.txt";
+    file_put_contents(first_output_file_name, "");
+    file_put_contents(second_input_file_name, "");
+    file_put_contents(notes_file_name, "");
+
+    RunResult first_ret = run_submission_program(
+        tpc.disable_program_input ? "/dev/null" : tpc.input_file_name.c_str(),
+        first_output_file_name.c_str(), tpc.limit, name);
+    if (first_ret.type != runp::RS_AC) {
+        return PointInfo(num, 0, -1, -1, info_str(first_ret.type),
+                         file_preview(tpc.input_file_name), file_preview(first_output_file_name),
+                         "in the first run");
+    }
+
+    RunCheckerResult relay_ret =
+        run_relay(conf_run_limit("relay", num, RL_RELAY_DEFAULT), conf_str("relay"),
+                  tpc.input_file_name, first_output_file_name, second_input_file_name,
+                  tpc.answer_file_name, notes_file_name);
+    if (relay_ret.type != runp::RS_AC) {
+        return PointInfo(num, 0, -1, -1, "Relay " + info_str(relay_ret.type),
+                         file_preview(tpc.input_file_name), file_preview(first_output_file_name),
+                         "");
+    }
+    if (relay_ret.scr != 100) {
+        return PointInfo(num, 0, first_ret.ust, first_ret.usm, "default",
+                         file_preview(tpc.input_file_name), file_preview(first_output_file_name),
+                         relay_ret.info);
+    }
+
+    RunResult second_ret = run_submission_program(
+        second_input_file_name.c_str(), tpc.output_file_name.c_str(), tpc.limit, name);
+    if (conf_has("token")) {
+        file_hide_token(tpc.output_file_name, conf_str("token", ""));
+    }
+    if (second_ret.type != runp::RS_AC) {
+        return PointInfo(num, 0, -1, -1, info_str(second_ret.type),
+                         file_preview(second_input_file_name), file_preview(tpc.output_file_name),
+                         "in the second run");
+    }
+
+    RunCheckerResult chk_ret =
+        run_checker(conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker,
+                    tpc.input_file_name, tpc.output_file_name,
+                    file_size(notes_file_name) > 0 ? notes_file_name : tpc.answer_file_name);
+    if (chk_ret.type != runp::RS_AC) {
+        return PointInfo(num, 0, -1, -1, "Checker " + info_str(chk_ret.type),
+                         file_preview(second_input_file_name), file_preview(tpc.output_file_name),
+                         "");
+    }
+    return PointInfo(num, chk_ret.scr, max(first_ret.ust, second_ret.ust),
+                     max(first_ret.usm, second_ret.usm), "default",
+                     file_preview(second_input_file_name), file_preview(tpc.output_file_name),
+                     chk_ret.info);
+}
+
 PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = TestPointConfig()) {
     tpc.auto_complete(num);
 
@@ -1428,6 +1543,10 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
             return PointInfo(num, 0, -1, -1, "Invalid Input", file_preview(tpc.input_file_name), "",
                              val_ret.info);
         }
+    }
+
+    if (conf_is("run_twice", "on") && !tpc.submit_answer) {
+        return test_run_twice_point(name, num, tpc);
     }
 
     if (!conf_is("interaction_mode", "on")) {
@@ -1791,6 +1910,7 @@ void judger_init(int argc, char **argv) {
         config["checker"] = data_path + "/chk";
     }
     config["validator"] = data_path + "/val";
+    config["relay"] = data_path + "/relay";
 }
 
 /*===================== conf init End ================= */

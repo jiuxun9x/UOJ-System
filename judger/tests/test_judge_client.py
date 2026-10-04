@@ -574,6 +574,15 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
                     self.jc.build_problem_programs(self.root, [step], self.root)
             self.assertEqual(run_compiler.call_count, 0)
 
+    def test_the_relay_of_a_run_twice_problem_is_built_like_a_checker(self):
+        self.cache_set_up()
+        data_dir, built = self.build(
+            {"relay.cpp": b'#include "testlib.h"\nint main() {}\n'},
+            [{"type": "compile", "name": "relay", "include": True}],
+        )
+        self.assertEqual(built, ["relay"])
+        self.assertTrue(os.path.isfile(os.path.join(data_dir, "relay")))
+
     # ---- programs that were built before are not built again
 
     def build(self, files, steps=None, binaries=True):

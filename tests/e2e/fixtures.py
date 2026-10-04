@@ -416,3 +416,256 @@ def interactive_problem_files():
         files["input%d.txt" % num] = "%d\n" % n
         files["output%d.txt" % num] = "%d\n" % (2 * n)
     return files
+
+
+# ---------------------------------------------------------------------- a run-twice problem
+#
+# The first run is given numbers and writes a message of at most 40 zeros and ones for each of
+# them. The relay hands the messages to the second run in reverse order, and the second run
+# has to tell the numbers. Only the relay knows the order, and tells the checker in its notes.
+
+MESSAGES_RELAY = r"""
+#include "testlib.h"
+#include <cstdio>
+#include <string>
+#include <vector>
+int main(int argc, char **argv) {
+    registerInteraction(argc, argv);
+    inf.readToken();
+    int t = inf.readInt();
+    std::vector<std::string> messages(t);
+    for (int i = 0; i < t; i++) {
+        messages[i] = ouf.readToken();
+        if (messages[i].size() > 40) {
+            quitf(_wa, "message %d is longer than 40 characters", i + 1);
+        }
+        for (char c : messages[i]) {
+            if (c != '0' && c != '1') {
+                quitf(_wa, "message %d is not made of zeros and ones", i + 1);
+            }
+        }
+    }
+    tout << "second\n" << t << "\n";
+    for (int i = t - 1; i >= 0; i--) {
+        tout << messages[i] << "\n";
+        // for the checker: the number that the message at this place stands for
+        printf("%d\n", i + 1);
+    }
+    quitf(_ok, "%d messages passed on", t);
+}
+"""
+
+MESSAGES_CHECKER = r"""
+#include "testlib.h"
+#include <vector>
+int main(int argc, char **argv) {
+    registerTestlibCmd(argc, argv);
+    inf.readToken();
+    int t = inf.readInt();
+    std::vector<int> numbers(t);
+    for (int i = 0; i < t; i++) {
+        numbers[i] = inf.readInt();
+    }
+    for (int i = 0; i < t; i++) {
+        int from = ans.readInt(1, t, "note");
+        int found = ouf.readInt();
+        if (found != numbers[from - 1]) {
+            quitf(_wa, "number %d: expected %d, found %d", i + 1, numbers[from - 1], found);
+        }
+    }
+    quitf(_ok, "%d numbers", t);
+}
+"""
+
+MESSAGES = r"""
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+int main() {
+    char run[16];
+    int t;
+    scanf("%15s%d", run, &t);
+    BURN
+    if (strcmp(run, "first") == 0) {
+        for (int i = 0; i < t; i++) {
+            long long x;
+            scanf("%lld", &x);
+            for (int bit = WIDTH - 1; bit >= 0; bit--) putchar('0' + (int)(x >> bit & 1));
+            putchar('\n');
+        }
+    } else {
+        SECOND
+        for (int i = 0; i < t; i++) {
+            char message[64];
+            scanf("%63s", message);
+            int x = 0;
+            for (char *c = message; *c; c++) x = x * 2 + (*c - '0');
+            printf("%d\n", x);
+        }
+    }
+}
+"""
+
+
+def messages_solution(width=30, burn="", second=""):
+    return MESSAGES.replace("WIDTH", str(width)).replace("BURN", burn).replace("SECOND", second)
+
+
+# what a program could try in order to tell its second run something behind the back of the
+# relay. The first run of each says nothing in its messages; the size of what it writes is the
+# number, in a way that is told apart from the size of anything else: 2 + 7919 * (x + 1).
+MESSAGES_FIRST_RUN_OF_A_CHEAT = r"""
+        int x;
+        scanf("%d", &x);
+        puts("0");
+        for (int i = 0; i < 7919 * (x + 1); i++) putchar(' ');
+"""
+
+# leaves a file for its second run
+MESSAGES_STASH = r"""
+#include <cstdio>
+#include <cstring>
+int main() {
+    char run[16];
+    int t;
+    scanf("%15s%d", run, &t);
+    if (strcmp(run, "first") == 0) {
+        int x;
+        scanf("%d", &x);
+        FILE *f = fopen("stash.txt", "w");
+        if (f != NULL) {
+            fprintf(f, "%d\n", x);
+            fclose(f);
+        }
+        puts("0");
+    } else {
+        int x = -1;
+        FILE *f = fopen("stash.txt", "r");
+        if (f != NULL) {
+            fscanf(f, "%d", &x);
+        }
+        printf("%d\n", x);
+    }
+}
+"""
+
+# looks at the size of the file where the judger keeps what the first run wrote
+MESSAGES_STAT_RESULT_FOLDER = r"""
+#include <cstdio>
+#include <cstring>
+#include <sys/stat.h>
+int main() {
+    char run[16];
+    int t;
+    scanf("%15s%d", run, &t);
+    if (strcmp(run, "first") == 0) {
+""" + MESSAGES_FIRST_RUN_OF_A_CHEAT + r"""
+    } else {
+        const char *names[] = {
+            "/opt/uoj_judger/uoj_judger/result/first_run_output.txt",
+            "../result/first_run_output.txt",
+            "/opt/uoj_judger/uoj_judger/result/second_run_input.txt",
+        };
+        long long x = -1;
+        for (const char *name : names) {
+            struct stat st;
+            if (stat(name, &st) == 0 && st.st_size > 2 && (st.st_size - 2) % 7919 == 0) {
+                x = (st.st_size - 2) / 7919 - 1;
+            }
+        }
+        printf("%lld\n", x);
+    }
+}
+"""
+
+# lists its work folder and looks at the size of everything in it: a program may do both
+MESSAGES_LIST_WORK_FOLDER = r"""
+import os
+import sys
+
+run = sys.stdin.readline().strip()
+t = int(sys.stdin.readline())
+if run == "first":
+    x = int(sys.stdin.readline())
+    sys.stdout.write("0\n" + " " * (7919 * (x + 1)))
+else:
+    found = -1
+    seen = 0
+    for folder in (".", "answer"):
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            try:
+                size = os.stat(os.path.join(folder, name)).st_size
+            except OSError:
+                continue
+            seen += 1
+            if size > 2 and (size - 2) % 7919 == 0:
+                found = (size - 2) // 7919 - 1
+    # a second run that could not look around proves nothing
+    print(found if seen > 0 else "blind")
+"""
+
+
+def run_twice_problem_files():
+    files = {
+        "problem.conf": conf(
+            use_builtin_judger="on", run_twice="on", n_tests=2, n_ex_tests=0, n_sample_tests=0,
+            input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
+            time_limit=1, memory_limit=256,
+        ),  # fmt: skip
+        "relay.cpp": MESSAGES_RELAY,
+        "chk.cpp": MESSAGES_CHECKER,
+        "input1.txt": "first\n3\n5\n123456789\n0\n",
+        "output1.txt": "\n",
+        # a single number, small enough for the cheats above
+        "input2.txt": "first\n1\n7\n",
+        "output2.txt": "\n",
+    }
+    return files
+
+
+# the relay of this one passes on what it is given and writes no notes, so that a builtin
+# checker compares what the second run wrote with the answer file of the test
+ECHO_RELAY = r"""
+#include "testlib.h"
+int main(int argc, char **argv) {
+    registerInteraction(argc, argv);
+    inf.readToken();
+    int n = ouf.readInt();
+    tout << "second " << n << "\n";
+    quitf(_ok, "passed on");
+}
+"""
+
+# the first run says the number, the second run twice what it is told
+ECHO_THEN_DOUBLE = r"""
+#include <cstdio>
+#include <cstring>
+int main() {
+    char run[16];
+    int n;
+    scanf("%15s%d", run, &n);
+    printf("%d\n", strcmp(run, "first") == 0 ? n : 2 * n);
+}
+"""
+
+
+def run_twice_plain_problem_files():
+    files = {
+        "problem.conf": conf(
+            use_builtin_judger="on", run_twice="on", use_builtin_checker="ncmp",
+            n_tests=2, n_ex_tests=1, n_sample_tests=1,
+            input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
+            time_limit=1, memory_limit=256,
+        ),  # fmt: skip
+        "relay.cpp": ECHO_RELAY,
+        "ex_input1.txt": "first 4\n",
+        "ex_output1.txt": "8\n",
+    }
+    for num, n in enumerate([21, 1000], start=1):
+        files["input%d.txt" % num] = "first %d\n" % n
+        files["output%d.txt" % num] = "%d\n" % (2 * n)
+    return files

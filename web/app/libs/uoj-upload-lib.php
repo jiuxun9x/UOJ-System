@@ -316,6 +316,19 @@ function uploadPreflight($files, $conf, $hackable) {
 			$need_source('interactor');
 			$report['facts'][] = '交互题';
 		}
+		if ($on('run_twice')) {
+			$need_source('relay');
+			$report['facts'][] = '通信题：程序运行两次，中转程序 relay 由评测机编译';
+			if ($on('interaction_mode')) {
+				$report['errors'][] = '通信题（run_twice）不能同时是交互题（interaction_mode）';
+			}
+			if ($hackable) {
+				$report['errors'][] = '通信题不能开启 Hack';
+			}
+		}
+	}
+	if ($on('submit_answer') && $on('run_twice')) {
+		$report['errors'][] = '提交答案题不能同时是通信题（run_twice）';
 	}
 	if ($missing) {
 		$report['errors'][] = '缺少文件：' . join('、', array_slice($missing, 0, 8)) . (count($missing) > 8 ? ' 等 ' . count($missing) . ' 个' : '');
@@ -327,7 +340,7 @@ function uploadPreflight($files, $conf, $hackable) {
 	}
 	$unused = array();
 	foreach ($files as $file) {
-		if (!isset($used[$file]) && !preg_match('/^(chk|std|val|interactor)\.(cpp|c|pas)$/', $file) && !preg_match('/\.h$/', $file)) {
+		if (!isset($used[$file]) && !preg_match('/^(chk|std|val|interactor|relay)\.(cpp|c|pas)$/', $file) && !preg_match('/\.h$/', $file)) {
 			$unused[] = $file;
 		}
 	}

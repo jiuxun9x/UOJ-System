@@ -559,6 +559,9 @@
 						if ($this->problem['hackable']) {
 							throw new UOJProblemConfException("the problem can't be hackable if submit_answer is on");
 						}
+						if ($this->check_conf_on('run_twice')) {
+							throw new UOJProblemConfException("run_twice can't be combined with submit_answer");
+						}
 
 						for ($num = 1; $num <= $n_tests; $num++) {
 							$input_file_name = getUOJProblemInputFileName($this->problem_conf, $num);
@@ -609,6 +612,21 @@
 								throw new UOJFileNotFoundException('interactor.*');
 							}
 							$this->need_compile('interactor', array('need_include_header' => true));
+						}
+
+						// a run-twice problem: the relay turns what the first run of a program
+						// wrote into what its second run reads
+						if ($this->check_conf_on('run_twice')) {
+							if ($this->check_conf_on('interaction_mode')) {
+								throw new UOJProblemConfException("run_twice can't be combined with interaction_mode");
+							}
+							if ($this->problem['hackable']) {
+								throw new UOJProblemConfException("the problem can't be hackable if run_twice is on");
+							}
+							if (!$this->copy_source_files_to_prepare('relay')) {
+								throw new UOJFileNotFoundException('relay.*');
+							}
+							$this->need_compile('relay', array('need_include_header' => true));
 						}
 
 						$n_sample_tests = getUOJConfVal($this->problem_conf, 'n_sample_tests', $n_tests);
