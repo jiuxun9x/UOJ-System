@@ -60,6 +60,14 @@ return [
 		// days a user has to wait before they change their username again, 0 for no limit
 		'username-change-interval' => 30
 	],
+	'sso' => [
+		// the providers of the single sign-on of the school, see docs/sso.md
+		'providers' => [],
+		// Usernames that only the single sign-on hands out, so that nobody registers a name
+		// that looks like a student number before its student arrives. It applies once a
+		// provider is configured; '' turns it off.
+		'reserved-username-pattern' => '/^[0-9]{6,20}$/'
+	],
 	'data' => [
 		// how many versions of the data of a problem keep their archive, the current one included
 		'kept-versions' => 5

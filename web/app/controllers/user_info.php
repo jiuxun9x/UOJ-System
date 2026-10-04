@@ -52,6 +52,14 @@
 							<h4 class="list-group-item-heading"><?= UOJLocale::get('motto') ?></h4>
 							<p class="list-group-item-text"><?= $esc_motto ?></p>
 						</div>
+						<?php if (can($myUser, 'user.view_identity', $user)): ?>
+						<?php foreach (UOJSSO::identitiesOf($user['username']) as $identity): ?>
+						<div class="list-group-item">
+							<h4 class="list-group-item-heading"><?= HTML::escape(UOJSSO::displayName($identity['provider'])) ?></h4>
+							<p class="list-group-item-text">学号：<span class="user-student-id"><?= HTML::escape($identity['student_id']) ?></span>　姓名：<span class="user-real-name"><?= HTML::escape($identity['real_name']) ?></span></p>
+						</div>
+						<?php endforeach ?>
+						<?php endif ?>
 						<?php if (can($myUser, 'user.view_private', $user)): ?>
 						<div class="list-group-item">
 							<h4 class="list-group-item-heading">register time</h4>

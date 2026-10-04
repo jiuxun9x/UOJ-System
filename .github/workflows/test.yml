@@ -86,6 +86,7 @@ jobs:
       - name: Start UOJ
         run: |
           bash prepare.sh
+          python3 tests/e2e/configure.py
           docker compose ${{ matrix.compose }} up -d
 
       - name: End-to-end tests

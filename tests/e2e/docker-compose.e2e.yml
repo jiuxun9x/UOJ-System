@@ -8,3 +8,8 @@ services:
   uoj-db:
     volumes:
       - ./tests/e2e/add_judgers.sql:/docker-entrypoint-initdb.d/003-add_judgers.sql:ro
+
+  # the school of the tests of the single sign-on runs in the test process, on the host
+  uoj-web:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

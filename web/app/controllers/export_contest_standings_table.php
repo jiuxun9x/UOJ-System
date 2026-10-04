@@ -36,7 +36,12 @@ function array2csv(array &$array) {
 }
 
 $export_data = [];
+// whoever may know who the users are gets their student numbers and real names
+$with_identity = can(Auth::user(), 'user.view_identity');
 $csv_header = ['Rank', 'Username', 'Nickname', 'Score', 'Penalty'];
+if ($with_identity) {
+	array_splice($csv_header, 3, 0, ['StudentID', 'RealName']);
+}
 $n_problems = count($contest_data['problems']);
 
 for ($i = 0; $i < $n_problems; $i++) {
@@ -51,6 +56,10 @@ $export_data[] = $csv_header;
 foreach ($standings as $rank => $row) {
 	// $row: rank, username, score, penalty
 	$res = [$rank + 1, $row[2][0], $row[2][2], $row[0], $row[1]];
+	if ($with_identity) {
+		$identities = UOJSSO::identitiesOf($row[2][0]);
+		array_splice($res, 3, 0, $identities ? [$identities[0]['student_id'], $identities[0]['real_name']] : ['', '']);
+	}
 	for ($i = 0; $i < $n_problems; $i++) {
 		// $score[$row[2][0]][$i]: score, penalty, submission_id
 		$res[] = isset($score[$row[2][0]][$i][0]) ? $score[$row[2][0]][$i][0] : "";

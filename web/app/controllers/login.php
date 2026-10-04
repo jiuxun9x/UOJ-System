@@ -46,6 +46,14 @@
 ?>
 <?php echoUOJPageHeader(UOJLocale::get('login')) ?>
 <h2 class="page-header"><?= UOJLocale::get('login') ?></h2>
+<?php if (UOJSSO::enabled()): ?>
+<div class="bot-buffer-md">
+	<?php foreach (UOJSSO::providers() as $sso_name => $sso_config): ?>
+	<a class="btn btn-primary" href="/login/sso/<?= $sso_name ?>">通过<?= HTML::escape(UOJSSO::displayName($sso_name)) ?>登录</a>
+	<?php endforeach ?>
+	<p class="text-muted top-buffer-sm">在校学生请通过统一身份认证登录，首次登录会自动创建以学号为用户名的账号。下面的表单用于本站注册的账号。</p>
+</div>
+<?php endif ?>
 <form id="form-login" class="form-horizontal" method="post">
   <div id="div-username" class="form-group">
     <label for="input-username" class="col-sm-2 control-label"><?= UOJLocale::get('username') ?></label>

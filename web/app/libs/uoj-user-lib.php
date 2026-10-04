@@ -43,6 +43,7 @@ function usernameColumns() {
 		'contests_registrants' => array('username'),
 		'contests_submissions' => array('submitter'),
 		'custom_test_submissions' => array('submitter'),
+		'external_identities' => array('username'),
 		'hacks' => array('hacker', 'owner'),
 		'pastes' => array('creator'),
 		'problem_data_versions' => array('created_by'),
@@ -55,8 +56,9 @@ function usernameColumns() {
 }
 
 // Returns '' when a user may take a username, or why not. $user is the user who wants the
-// name, null for somebody who registers.
-function usernameUnavailableReason($username, $user = null) {
+// name, null for somebody who registers. $options: 'sso' for a user the single sign-on
+// creates, 'admin' for a change an administrator makes.
+function usernameUnavailableReason($username, $user = null, $options = array()) {
 	if (!validateUsername($username)) {
 		return '用户名不合法：只能包含字母、数字和下划线，长度不超过 20';
 	}
@@ -70,6 +72,14 @@ function usernameUnavailableReason($username, $user = null) {
 	$user_id = $user != null ? (int)$user['id'] : 0;
 	if (DB::selectFirst("select 1 from user_renames where (old_username = '$esc_username' or new_username = '$esc_username') and user_id != $user_id limit 1")) {
 		return '该用户名已被保留';
+	}
+	// A name that looks like a student number belongs to the student the school gives that
+	// number to, and they arrive through the single sign-on.
+	if (!isset($options['sso']) && !isset($options['admin']) && UOJSSO::enabled()) {
+		$pattern = UOJConfig::$data['sso']['reserved-username-pattern'];
+		if ($pattern !== '' && preg_match($pattern, $username)) {
+			return '该用户名保留给统一身份认证的用户';
+		}
 	}
 	return '';
 }
@@ -105,7 +115,7 @@ function finishUserRenames() {
 
 // Changes the username of a user everywhere. Returns '' or why it was not changed.
 // $actor is the user who asks for it: the user themselves, or an administrator.
-function renameUser($user, $new_username, $actor) {
+function renameUser($user, $new_username, $actor, $options = array()) {
 	if ($new_username === $user['username']) {
 		return '';
 	}
@@ -113,11 +123,11 @@ function renameUser($user, $new_username, $actor) {
 	if (!$lock || $lock[0] != 1) {
 		return '系统繁忙，请稍后再试';
 	}
-	$err = call_user_func(function() use ($user, $new_username, $actor) {
+	$err = call_user_func(function() use ($user, $new_username, $actor, $options) {
 		if (finishUserRenames() > 0) {
 			return '系统繁忙，请稍后再试';
 		}
-		$err = usernameUnavailableReason($new_username, $user);
+		$err = usernameUnavailableReason($new_username, $user, $options);
 		if ($err !== '') {
 			return $err;
 		}
@@ -157,6 +167,9 @@ function usernameChangeWaitDays($user) {
 
 // Returns '' when a user may change their username themselves, or why not.
 function usernameChangeRefusedReason($user) {
+	if (UOJSSO::isBound($user['username'])) {
+		return '通过统一身份认证登录的账号以学号为用户名，不能修改';
+	}
 	$days = usernameChangeWaitDays($user);
 	if ($days > 0) {
 		return "距离上次修改用户名还不满规定的时间，请在 {$days} 天后再修改";

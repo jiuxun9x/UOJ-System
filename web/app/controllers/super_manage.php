@@ -58,13 +58,13 @@
 		);
 		$rename_form->addInput('rename_new_username', 'text', '新用户名', '',
 			function ($username, &$vdata) {
-				return usernameUnavailableReason($username, isset($vdata['user']) ? $vdata['user'] : null);
+				return usernameUnavailableReason($username, isset($vdata['user']) ? $vdata['user'] : null, array('admin' => true));
 			},
 			null
 		);
 		$rename_form->handle = function(&$vdata) {
 			global $myUser;
-			$err = renameUser($vdata['user'], $_POST['rename_new_username'], $myUser);
+			$err = renameUser($vdata['user'], $_POST['rename_new_username'], $myUser, array('admin' => true));
 			if ($err !== '') {
 				becomeMsgPage(HTML::escape($err));
 			}

@@ -5,15 +5,25 @@ See test_phase1.py for how to start the containers.
 """
 
 import json
+import re
 import unittest
+from urllib.parse import parse_qs, urlencode, urlparse
 
+import mock_idp
 import uoj
 from fixtures import *
 from uoj import db, db_value, docker_exec
 
+IDP = mock_idp.MockIdP()
+
 
 def setUpModule():
     uoj.admin()
+    IDP.start()
+
+
+def tearDownModule():
+    IDP.stop()
 
 
 def account(name):
@@ -390,6 +400,329 @@ class IdentityTest(unittest.TestCase):
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
         self.assertEqual(uoj.columns_holding("p3_after"), ["user_renames.new_username", "user_renames.old_username"])
         uoj.Client().login("p3_before", "p3-new-password")
+
+
+# ---------------------------------------------------------------------- single sign-on
+
+
+def sso_start(client, provider):
+    """start a login the way a browser does, return where UOJ sends the browser and with what"""
+    r = client.get("/login/sso/" + provider)
+    assert r.status_code == 302, "HTTP %d: %s" % (r.status_code, uoj.text_of(r.text)[:300])
+    url = urlparse(r.headers["Location"])
+    return url, {key: values[0] for key, values in parse_qs(url.query).items()}
+
+
+def local_path(url):
+    assert url.startswith(uoj.BASE_URL + "/"), url
+    return url[len(uoj.BASE_URL) :]
+
+
+def cas_login(client, user, **attributes):
+    """log in at the school as a user, and carry the ticket back to UOJ"""
+    url, query = sso_start(client, "cas")
+    assert url.path == "/cas/login", url
+    ticket = IDP.cas_ticket(query["service"], user, **attributes)
+    return client.get(local_path(query["service"]) + "&ticket=" + ticket)
+
+
+def oauth_login(client, provider, profile):
+    url, query = sso_start(client, provider)
+    assert url.path == "/oauth/authorize", url
+    code = IDP.oauth_code(query, profile)
+    return client.get(local_path(query["redirect_uri"]) + "?" + urlencode({"code": code, "state": query["state"]}))
+
+
+def who(client):
+    """the user a client is logged in as, None for a visitor"""
+    found = re.search(r'data-link="0"[^>]*>([^<]*)</span>', client.get("/").text)
+    return found.group(1) if found else None
+
+
+def logout(client):
+    client.get("/logout?_token=" + client.token)
+
+
+def identity_of(provider, external_id):
+    rows = db(
+        "select username, student_id, real_name, email from external_identities"
+        " where provider = '%s' and external_id = '%s'" % (provider, external_id)
+    )
+    return rows[0] if rows else None
+
+
+class SingleSignOnTest(unittest.TestCase):
+    """logging in through the school, played by mock_idp.py"""
+
+    @classmethod
+    def setUpClass(cls):
+        if "/login/sso/cas" not in uoj.Client().get("/login").text:
+            raise unittest.SkipTest("the single sign-on is not configured, see configure.py")
+
+    def assert_refused(self, response, message):
+        self.assertEqual(response.status_code, 200, response.headers.get("Location"))
+        self.assertIn(message, uoj.text_of(response.text))
+
+    def test_first_login_through_cas_creates_a_user_named_by_the_student_number(self):
+        users = int(db_value("select count(*) from user_info"))
+        client = uoj.Client()
+        r = cas_login(client, "zhangsan", employeeNumber="20240001", cn="张三", mail="zhangsan@example.edu.cn")
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        self.assertEqual(who(client), "20240001")
+
+        # the user is named by the student number and has a number of their own
+        self.assertEqual(int(db_value("select count(*) from user_info")), users + 1)
+        user_id, usergroup, email, password = db(
+            "select id, usergroup, email, password from user_info where username = '20240001'"
+        )[0]
+        self.assertEqual((usergroup, email), ("U", "zhangsan@example.edu.cn"))
+        self.assertNotIn(user_id, ("20240001", "0"))
+        # what the school calls them is kept apart from both
+        self.assertEqual(
+            identity_of("cas", "zhangsan"), ["20240001", "20240001", "张三", "zhangsan@example.edu.cn"]
+        )
+        # there is no password to log in with, and none to guess
+        self.assertTrue(password.startswith("!") and len(password) == 32, password)
+        for guess in ("", "20240001", password):
+            with self.assertRaises(Exception):
+                uoj.Client().login("20240001", guess)
+
+        # the next login finds the same user, and learns what changed at the school
+        again = uoj.Client()
+        r = cas_login(again, "zhangsan", employeeNumber="20240001", cn="张三丰", mail="zhangsan@example.edu.cn")
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        self.assertEqual(who(again), "20240001")
+        self.assertEqual(int(db_value("select count(*) from user_info")), users + 1)
+        self.assertEqual(identity_of("cas", "zhangsan")[2], "张三丰")
+        self.assertEqual(db_value("select count(*) from external_identities where username = '20240001'"), "1")
+
+    def test_user_of_the_school_keeps_the_username_and_chooses_a_nickname(self):
+        client = uoj.Client()
+        cas_login(client, "lisi", employeeNumber="20240002", cn="李四")
+        client.username, client.password = "20240002", ""
+        page = client.get("/user/modify-profile").text
+        self.assertRegex(page, r'id="input-username"[^>]*disabled')
+        self.assertNotIn('id="input-old_password"', page)
+
+        self.assertIn("不能修改", client.update_profile(username="lisi_the_great"))
+        client.username = "20240002"
+        self.assertEqual(db_value("select count(*) from user_info where username = 'lisi_the_great'"), "0")
+        # the nickname is theirs to choose, and it is shown with the student number
+        self.assertNotEqual(client.update_profile(token=False, nickname="小李"), "ok")
+        self.assertEqual(client.update_profile(nickname="小李"), "ok")
+        self.assertIn('data-alias="小李">20240002</span>', client.get("/").text)
+        self.assertIn("小李（<span", client.get("/user/profile/20240002").text)
+
+        # a system administrator can still correct the student number
+        self.assertEqual(
+            uoj.admin().submit_form(
+                "/super-manage/users", "rename", {"rename_username": "20240002", "rename_new_username": "20240092"}
+            ),
+            "",
+        )
+        self.assertEqual(identity_of("cas", "lisi")[0], "20240092")
+        relogin = uoj.Client()
+        cas_login(relogin, "lisi", employeeNumber="20240002", cn="李四")
+        self.assertEqual(who(relogin), "20240092")
+
+    def test_real_name_and_student_number_are_shown_to_staff_only(self):
+        student = uoj.Client()
+        cas_login(student, "wangwu", employeeNumber="20240003", cn="王五")
+        teacher = account("p3_sso_teacher")
+        self.assertEqual(uoj.admin().change_user("p3_sso_teacher", "grant:teacher"), "")
+        for client in (student, uoj.admin(), teacher):
+            page = client.get("/user/profile/20240003").text
+            self.assertIn('class="user-real-name">王五<', page)
+            self.assertIn('class="user-student-id">20240003<', page)
+        for client in (account("p3_sso_classmate"), uoj.Client()):
+            page = client.get("/user/profile/20240003").text
+            self.assertNotIn("王五", page)
+            self.assertNotIn("user-student-id", page)
+
+    def test_login_through_oauth(self):
+        client = uoj.Client()
+        url, query = sso_start(client, "oauth")
+        # the browser is given a state and a PKCE challenge, and never the secret of the client
+        self.assertEqual(query["redirect_uri"], uoj.BASE_URL + "/login/sso/oauth/callback")
+        self.assertEqual(query["code_challenge_method"], "S256")
+        self.assertNotIn(mock_idp.CLIENT_SECRET, url.geturl())
+        profile = {"code": 0, "data": {"uid": 880004, "number": "20240004", "name": "赵六", "email": "zhaoliu@example.edu.cn"}}
+        code = IDP.oauth_code(query, profile)
+        r = client.get(local_path(query["redirect_uri"]) + "?" + urlencode({"code": code, "state": query["state"]}))
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        self.assertEqual(who(client), "20240004")
+        self.assertEqual(identity_of("oauth", "880004"), ["20240004", "20240004", "赵六", "zhaoliu@example.edu.cn"])
+        # UOJ exchanged the code itself, with the secret and the PKCE verifier
+        exchange = [params for method, path, params in IDP.requests if path == "/oauth/token" and params.get("code") == code]
+        self.assertEqual(len(exchange), 1)
+        self.assertEqual(exchange[0]["client_secret"], mock_idp.CLIENT_SECRET)
+        self.assertIn("code_verifier", exchange[0])
+
+    def test_login_through_openid_connect_discovery(self):
+        client = uoj.Client()
+        profile = {"sub": "oidc-880005", "preferred_username": "20240005", "name": "孙七", "email": "sunqi@example.edu.cn"}
+        r = oauth_login(client, "oidc", profile)
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        self.assertEqual(who(client), "20240005")
+        self.assertEqual(identity_of("oidc", "oidc-880005"), ["20240005", "20240005", "孙七", "sunqi@example.edu.cn"])
+
+    def test_ticket_is_only_good_for_the_browser_that_asked_for_it(self):
+        # a ticket the school never issued
+        client = uoj.Client()
+        url, query = sso_start(client, "cas")
+        self.assert_refused(client.get(local_path(query["service"]) + "&ticket=ST-forged"), "INVALID_TICKET")
+        self.assertIsNone(who(client))
+
+        # a ticket of somebody else, carried into another browser
+        attacker, victim = uoj.Client(), uoj.Client()
+        url, query = sso_start(attacker, "cas")
+        ticket = IDP.cas_ticket(query["service"], "attacker", employeeNumber="20240006")
+        callback = local_path(query["service"]) + "&ticket=" + ticket
+        self.assert_refused(victim.get(callback), "过期")
+        sso_start(victim, "cas")
+        self.assert_refused(victim.get(callback), "不符")
+        self.assertIsNone(who(victim))
+        self.assertEqual(db_value("select count(*) from user_info where username = '20240006'"), "0")
+        # the school was not even asked
+        self.assertNotIn(ticket, [params.get("ticket") for method, path, params in IDP.requests])
+
+        # in the browser that asked it works, once
+        r = attacker.get(callback)
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        self.assertEqual(who(attacker), "20240006")
+        logout(attacker)
+        self.assertIsNone(who(attacker))
+        self.assert_refused(attacker.get(callback), "过期")
+        self.assertIsNone(who(attacker))
+
+    def test_code_is_only_good_for_the_browser_that_asked_for_it(self):
+        profile = {"data": {"uid": 880007, "number": "20240007", "name": "周八"}}
+        client, victim = uoj.Client(), uoj.Client()
+        url, query = sso_start(client, "oauth")
+        code = IDP.oauth_code(query, profile)
+        callback = local_path(query["redirect_uri"])
+
+        # without the state of the browser, the code is not even exchanged
+        self.assert_refused(victim.get(callback + "?" + urlencode({"code": code, "state": query["state"]})), "过期")
+        sso_start(victim, "oauth")
+        self.assert_refused(victim.get(callback + "?" + urlencode({"code": code, "state": query["state"]})), "不符")
+        self.assertEqual([p for m, path, p in IDP.requests if p.get("code") == code], [])
+
+        # a wrong state uses up the login that was started
+        self.assert_refused(client.get(callback + "?" + urlencode({"code": code, "state": "x" * 32})), "不符")
+        self.assert_refused(client.get(callback + "?" + urlencode({"code": code, "state": query["state"]})), "过期")
+        self.assertIsNone(who(client))
+        self.assertEqual(db_value("select count(*) from user_info where username = '20240007'"), "0")
+
+        # a login the school refused
+        url, query = sso_start(client, "oauth")
+        self.assert_refused(
+            client.get(callback + "?" + urlencode({"error": "access_denied", "state": query["state"]})), "access_denied"
+        )
+
+        # a code is exchanged once
+        r = oauth_login(client, "oauth", profile)
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        used = [p["code"] for m, path, p in IDP.requests if path == "/oauth/token"][-1]
+        logout(client)
+        url, query = sso_start(client, "oauth")
+        self.assert_refused(client.get(callback + "?" + urlencode({"code": used, "state": query["state"]})), "invalid_grant")
+        self.assertIsNone(who(client))
+
+    def test_student_number_can_not_be_registered_or_taken(self):
+        with self.assertRaises(Exception):
+            uoj.Client().register("20249999", "x")
+        self.assertEqual(db_value("select count(*) from user_info where username = '20249999'"), "0")
+        self.assertIn("统一身份认证", account("p3_sso_squatter").update_profile(username="20249998"))
+        self.assertEqual(db_value("select count(*) from user_info where username = '20249998'"), "0")
+
+    def test_existing_user_with_the_student_number_is_bound_by_their_password(self):
+        # somebody registered with their student number before the single sign-on existed
+        account("p3_sso_legacy")
+        user_id = db_value("select id from user_info where username = 'p3_sso_legacy'")
+        self.assertEqual(
+            uoj.admin().submit_form(
+                "/super-manage/users", "rename", {"rename_username": "p3_sso_legacy", "rename_new_username": "20240008"}
+            ),
+            "",
+        )
+
+        client = uoj.Client()
+        r = cas_login(client, "wujiu", employeeNumber="20240008", cn="吴九")
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/login/sso/cas/bind"))
+        self.assertIsNone(who(client))
+        self.assertIsNone(identity_of("cas", "wujiu"))
+        self.assertIn("20240008", uoj.text_of(client.get("/login/sso/cas/bind").text))
+
+        # only the password of that user proves that it is the same person
+        bind = lambda password, token=True: client.post(
+            "/login/sso/cas/bind", {"bind": "", "password": client.password_hash(password)}, token=token
+        ).text
+        self.assertEqual(bind("not the password"), "failed")
+        self.assertEqual(bind("p3_sso_legacy-password", token=False), "expired")
+        self.assertIsNone(who(client))
+        self.assertEqual(bind("p3_sso_legacy-password"), "ok")
+        self.assertEqual(who(client), "20240008")
+        self.assertEqual(identity_of("cas", "wujiu"), ["20240008", "20240008", "吴九", ""])
+        self.assertEqual(db_value("select id from user_info where username = '20240008'"), user_id)
+
+        # from now on the school is enough, and the username stays
+        direct = uoj.Client()
+        r = cas_login(direct, "wujiu", employeeNumber="20240008", cn="吴九")
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/"))
+        self.assertEqual(who(direct), "20240008")
+        direct.username, direct.password = "20240008", "p3_sso_legacy-password"
+        self.assertIn("不能修改", direct.update_profile(username="p3_sso_again"))
+        self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "20240008")
+
+        # nobody else at the school gets the user, whatever student number they come with
+        imposter = uoj.Client()
+        self.assert_refused(cas_login(imposter, "imposter", employeeNumber="20240008", cn="吴九"), "已绑定")
+        self.assertIsNone(who(imposter))
+        self.assertIsNone(identity_of("cas", "imposter"))
+
+    def test_binding_gives_up_after_a_few_wrong_passwords(self):
+        account("p3_sso_stubborn")
+        self.assertEqual(
+            uoj.admin().submit_form(
+                "/super-manage/users", "rename", {"rename_username": "p3_sso_stubborn", "rename_new_username": "20240009"}
+            ),
+            "",
+        )
+        client = uoj.Client()
+        cas_login(client, "zhengshi", employeeNumber="20240009")
+        answers = [
+            client.post("/login/sso/cas/bind", {"bind": "", "password": client.password_hash("guess %d" % n)}).text
+            for n in range(6)
+        ]
+        self.assertEqual(answers, ["failed"] * 5 + ["too many"])
+        # the right password comes too late, the login at the school has to be done again
+        r = client.post("/login/sso/cas/bind", {"bind": "", "password": client.password_hash("p3_sso_stubborn-password")})
+        self.assertEqual(r.status_code, 302)
+        self.assertIsNone(who(client))
+        self.assertIsNone(identity_of("cas", "zhengshi"))
+
+    def test_banned_user_does_not_get_in_through_the_school(self):
+        client = uoj.Client()
+        cas_login(client, "banned_student", employeeNumber="20240010")
+        self.assertEqual(who(client), "20240010")
+        self.assertEqual(uoj.admin().change_user("20240010", "banneduser"), "")
+        self.assertIsNone(who(client))
+        again = uoj.Client()
+        self.assert_refused(cas_login(again, "banned_student", employeeNumber="20240010"), "封停")
+        self.assertIsNone(who(again))
+        self.assertEqual(uoj.admin().change_user("20240010", "normaluser"), "")
+
+    def test_student_number_that_can_not_be_a_username_is_refused(self):
+        client = uoj.Client()
+        self.assert_refused(cas_login(client, "odd_student", employeeNumber="2024-0011"), "不能作为用户名")
+        self.assertIsNone(who(client))
+        self.assertIsNone(identity_of("cas", "odd_student"))
+        self.assertEqual(db_value("select count(*) from user_info where username like '2024-%'"), "0")
+
+    def test_unknown_provider_is_not_found(self):
+        self.assertEqual(uoj.Client().get("/login/sso/nowhere").status_code, 404)
+        self.assertEqual(uoj.Client().get("/login/sso/nowhere/callback?ticket=ST-1").status_code, 404)
 
 
 if __name__ == "__main__":

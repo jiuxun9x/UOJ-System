@@ -148,6 +148,13 @@ function can($user, $ability, $resource = null) {
 		case 'problem.create':
 		case 'contest.create':
 			return $is_admin || userHasRole($user, UOJ_ROLE_TEACHER);
+		// The student number and the real name of a user, the resource. Without a resource:
+		// of everybody.
+		case 'user.view_identity':
+			if ($is_admin || userHasRole($user, UOJ_ROLE_TEACHER)) {
+				return true;
+			}
+			return $name !== null && $resource != null && $resource['username'] === $name;
 
 		// ---- problems
 		case 'problem.manage':
