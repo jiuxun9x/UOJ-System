@@ -22,6 +22,9 @@
 		if (queryUser($username)) {
 			return "失败：用户名已存在。";
 		}
+		if (($err = usernameUnavailableReason($username)) !== '') {
+			return "失败：{$err}。";
+		}
 		if (!validatePassword($password)) {
 			return "失败：无效密码。";
 		}
@@ -48,7 +51,7 @@
 		die();
 	} elseif (isset($_POST['check_username'])) {
 		$username = $_POST['username'];
-		if (validateUsername($username) && !queryUser($username)) {
+		if (usernameUnavailableReason($username) === '') {
 			echo '{"ok" : true}';
 		} else {
 			echo '{"ok" : false}';

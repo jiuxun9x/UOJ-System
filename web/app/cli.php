@@ -61,6 +61,14 @@ $handlers = [
 		});
 		die("finished!\n");
 	},
+	// finishes the changes of usernames that were interrupted
+	'user:finish-renames' => function () {
+		$left = finishUserRenames();
+		if ($left > 0) {
+			Upgrader::fail("$left changes of usernames could not be finished\n");
+		}
+		die("finished!\n");
+	},
 	'help' => 'showHelp'
 ];
 

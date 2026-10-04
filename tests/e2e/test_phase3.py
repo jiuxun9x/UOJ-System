@@ -4,11 +4,12 @@ sign-on.
 See test_phase1.py for how to start the containers.
 """
 
+import json
 import unittest
 
 import uoj
 from fixtures import *
-from uoj import db, db_value
+from uoj import db, db_value, docker_exec
 
 
 def setUpModule():
@@ -251,6 +252,144 @@ class ClosedContestTest(unittest.TestCase):
         self.assertFalse(self.source_is_shown(erin, submission_id, "p3-private-source"))
         self.assertFalse(self.source_is_shown(uoj.Client(), submission_id, "p3-private-source"))
         uoj.wait_idle()
+
+
+class IdentityTest(unittest.TestCase):
+    """a user is a number, a username and a nickname"""
+
+    def test_every_user_has_a_number(self):
+        ids = [int(row[0]) for row in db("select id from user_info order by register_time, id")]
+        self.assertEqual(ids, sorted(set(ids)))
+        self.assertEqual(db_value("select id from user_info where username = '%s'" % uoj.ADMIN[0]), "1")
+        newcomer = account("p3_numbered")
+        self.assertEqual(int(db_value("select id from user_info where username = 'p3_numbered'")), max(ids) + 1)
+        self.assertIn('id="user-id">%d<' % (max(ids) + 1), newcomer.get("/user/profile/p3_numbered").text)
+
+    def test_nickname_is_shown_with_the_username(self):
+        user = account("p3_nick")
+        self.assertEqual(user.update_profile(nickname="小明"), "ok")
+        self.assertEqual(db_value("select nickname from user_info where username = 'p3_nick'"), "小明")
+        self.assertIn("小明（<span", user.get("/user/profile/p3_nick").text)
+        # wherever the user is linked, the page carries the nickname next to the username
+        contest_id = uoj.admin().new_contest("p3 contest of nicknames")
+        user.register_for_contest(contest_id)
+        registrants = uoj.Client().get("/contest/%d/registrants" % contest_id).text
+        self.assertIn('data-alias="小明">p3_nick</span>', registrants)
+        for refused in ("<b>x</b>", "x" * 21, "小明（root）", "@root", 'a"b'):
+            self.assertTrue(user.update_profile(nickname=refused).startswith("失败"), refused)
+        self.assertEqual(db_value("select nickname from user_info where username = 'p3_nick'"), "小明")
+        self.assertEqual(user.update_profile(nickname=""), "ok")
+        self.assertNotIn("data-alias", uoj.Client().get("/user/profile/p3_nick").text)
+
+    def test_profile_is_not_changed_without_the_token_or_the_password(self):
+        user = account("p3_careful")
+        self.assertNotEqual(user.update_profile(token=False, nickname="x"), "ok")
+        self.assertNotEqual(user.update_profile(old_password="0" * 32, nickname="x"), "ok")
+        self.assertEqual(db_value("select nickname from user_info where username = 'p3_careful'"), "")
+
+    def test_username_columns_are_all_known(self):
+        """a table that is added later and names users has to be renamed with them"""
+        known = json.loads(docker_exec(
+            uoj.WEB,
+            "php -r 'require \"/opt/uoj/web/app/libs/uoj-user-lib.php\"; echo json_encode(usernameColumns());'",
+        ))  # fmt: skip
+        known = {(table, column) for table, columns in known.items() for column in columns}
+        # the user table itself, and the journals that keep the names as they were
+        known |= {("user_info", "username"), ("user_renames", "old_username"), ("user_renames", "new_username")}
+        known |= {("user_renames", "renamed_by")}
+        names = "'username', 'submitter', 'poster', 'hacker', 'owner', 'sender', 'receiver', 'creator'"
+        names += ", 'created_by', 'granted_by', 'renamed_by', 'old_username', 'new_username'"
+        found = {
+            (table, column)
+            for table, column in db(
+                "select table_name, column_name from information_schema.columns"
+                " where table_schema = 'app_uoj233' and column_name in (%s)" % names
+            )
+        }
+        self.assertEqual(found - known, set())
+        self.assertEqual(known - found, set())
+
+    def test_user_changes_their_username(self):
+        admin = uoj.admin()
+        user = account("p3_before")
+        user_id = db_value("select id from user_info where username = 'p3_before'")
+        # leave traces of the user all over the database
+        problem_id = admin.create_problem(ab_problem_files())
+        submission_id = user.submit(problem_id, AB)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        self.assertEqual(admin.change_user("p3_before", "grant:teacher"), "")
+        own_problem_id = user.new_problem()
+        contest_id = user.new_contest("p3 contest of a user who changes their name")
+        account("p3_bystander").register_for_contest(contest_id)
+        db("insert into contests_registrants (username, user_rating, contest_id, has_participated)"
+           " values ('p3_before', 1500, %d, 0)" % contest_id)  # fmt: skip
+        db("insert into blogs (title, poster, post_time) values ('p3 blog', 'p3_before', now())")
+        db("insert into blogs_comments (blog_id, poster, post_time) values (1, 'p3_before', now())")
+        db("insert into user_msg (sender, receiver, message, send_time) values ('p3_before', 'p3_bystander', 'hi', now())")
+        db("insert into user_msg (sender, receiver, message, send_time) values ('p3_bystander', 'p3_before', 'hi', now())")
+        db("insert into user_system_msg (receiver, title, content, send_time) values ('p3_before', 't', 'c', now())")
+        db("insert into click_zans (type, username, target_id, val) values ('P', 'p3_before', %d, 1)" % problem_id)
+        db("insert into contests_asks (contest_id, username, question, post_time) values (%d, 'p3_before', 'q', now())" % contest_id)
+        db("insert into pastes (`index`, creator, created_at, content) values ('p3pastep3pastep3past', 'p3_before', now(), 'x')")
+        # a hack that was judged already, so that no judger takes it
+        db("insert into hacks (problem_id, submission_id, hacker, owner, input, input_type, submit_time, judge_time, details, is_hidden, success)"
+           " values (%d, %d, 'p3_before', 'p3_before', '', 'USE_FORMATTER', now(), now(), '', 1, 0)" % (problem_id, submission_id))  # fmt: skip
+        before = uoj.columns_holding("p3_before")
+        self.assertGreaterEqual(len(before), 17, before)
+
+        # a name that is taken, or is no name at all, is refused
+        for refused in ("p3_bystander", uoj.ADMIN[0], "no spaces", "x" * 21, "名字"):
+            self.assertTrue(user.update_profile(username=refused).startswith("失败"), refused)
+        self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
+
+        self.assertEqual(user.update_profile(username="p3_after"), "ok")
+        self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_after")
+        # nothing is left behind under the old name but the journal of the change
+        self.assertEqual(
+            uoj.columns_holding("p3_before"), ["user_renames.old_username", "user_renames.renamed_by"]
+        )
+        self.assertEqual(len(uoj.columns_holding("p3_after")), len(before) + 1)
+        self.assertEqual(db_value("select submitter from submissions where id = %d" % submission_id), "p3_after")
+
+        # the user is still logged in, keeps what they had, and logs in with the password they had
+        self.assertEqual(user.get("/user/modify-profile").status_code, 200)
+        self.assertEqual(user.get("/problem/%d/manage/data" % own_problem_id).status_code, 200)
+        self.assertEqual(user.get("/contest/%d/manage" % contest_id).status_code, 200)
+        self.assertEqual(roles_of("p3_after"), ["teacher"])
+        again = uoj.Client()
+        again.login("p3_after", "p3_before-password")
+        with self.assertRaises(Exception):
+            uoj.Client().login("p3_before", "p3_before-password")
+        # and so they do after they change the password
+        new_hash = again.password_hash("p3-new-password")
+        self.assertEqual(again.update_profile(ptag="1", password=new_hash), "ok")
+        uoj.Client().login("p3_after", "p3-new-password")
+        user.password = "p3-new-password"
+
+        # the name they gave up is kept for them
+        with self.assertRaises(Exception):
+            uoj.Client().register("p3_before", "x")
+        self.assertTrue(account("p3_bystander").update_profile(username="p3_before").startswith("失败"))
+        self.assertEqual(db_value("select count(*) from user_info where username = 'p3_before'"), "0")
+
+        # they can not change it again right away, but a system administrator can
+        self.assertIn("天后", user.update_profile(username="p3_before"))
+        self.assertNotEqual(
+            account("p3_bystander").submit_form(
+                "/super-manage/users", "rename", {"rename_username": "p3_after", "rename_new_username": "p3_stolen"}
+            ),
+            "",
+        )
+        self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_after")
+        self.assertEqual(
+            admin.submit_form(
+                "/super-manage/users", "rename", {"rename_username": "p3_after", "rename_new_username": "p3_before"}
+            ),
+            "",
+        )
+        self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
+        self.assertEqual(uoj.columns_holding("p3_after"), ["user_renames.new_username", "user_renames.old_username"])
+        uoj.Client().login("p3_before", "p3-new-password")
 
 
 if __name__ == "__main__":

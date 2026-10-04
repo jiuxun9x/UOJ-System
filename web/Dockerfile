@@ -38,6 +38,7 @@ RUN sh web/install.sh -p && \
       '  cd /opt/uoj/web && sh install.sh --init-data' \
       'fi' \
       'php /opt/uoj/web/app/cli.php upgrade:latest' \
+      'php /opt/uoj/web/app/cli.php user:finish-renames' \
       'rm -f /var/run/apache2/apache2.pid' \
       'exec apache2ctl -D FOREGROUND' > /opt/up && \
     chmod +x /opt/up

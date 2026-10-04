@@ -212,6 +212,26 @@ class Client:
         if r.text != "ok":
             raise Exception("failed to log in as %s: %s" % (username, r.text[:200]))
         self.username = username
+        self.password = password
+
+    def update_profile(self, token=True, **changes):
+        """post the form of the profile, return what the server answers: 'ok' or why not"""
+        data = {
+            "change": "",
+            "username": self.username,
+            "nickname": db_value("select nickname from user_info where username = '%s'" % self.username),
+            "email": self.username + "@example.com",
+            "old_password": self.password_hash(self.password),
+            "ptag": "0",
+            "Qtag": "0",
+            "sex": "U",
+            "motto": "",
+        }
+        data.update(changes)
+        r = self.post("/user/modify-profile", data, token=token)
+        if r.text == "ok":
+            self.username = data["username"]
+        return r.text
 
     def post(self, path, data=None, files=None, token=True):
         data = dict(data or {})
@@ -375,6 +395,20 @@ def move_contest(contest_id, starts_in, minutes=60):
         "update contests set start_time = '%s', last_min = %d where id = %d"
         % (web_time(starts_in), minutes, contest_id)
     )
+
+
+def columns_holding(value):
+    """every text column of the database that holds exactly this value, as 'table.column'"""
+    columns = db(
+        "select table_name, column_name from information_schema.columns"
+        " where table_schema = 'app_uoj233' and data_type in ('char', 'varchar')"
+        " and character_maximum_length >= %d" % len(value)
+    )
+    queries = [
+        "(select '%s.%s' from `%s` where `%s` = '%s' limit 1)" % (table, column, table, column, value)
+        for table, column in columns
+    ]
+    return sorted(row[0] for row in db(" union all ".join(queries)))
 
 
 def wait_data_version(problem_id, timeout=600):

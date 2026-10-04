@@ -130,6 +130,7 @@ function can($user, $ability, $resource = null) {
 	switch ($ability) {
 		// ---- the site
 		case 'user.manage_roles':
+		case 'user.rename':
 		case 'judger.manage':
 		case 'problem.edit_raw_config':
 		// a judger of a problem runs unrestricted on the judgers

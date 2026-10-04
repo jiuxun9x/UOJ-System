@@ -130,14 +130,22 @@ function getColOfScore(score) {
 	}
 }
 
-function getUserLink(username, rating, addSymbol) {
+// a nickname never stands alone, it is followed by the username
+function getUserText(username, alias) {
+	if (alias && username.charAt(0) != '@') {
+		return htmlspecialchars(String(alias)) + '（' + username + '）';
+	}
+	return username;
+}
+
+function getUserLink(username, rating, addSymbol, alias) {
 	if (!username) {
 		return '';
 	}
 	if (addSymbol == undefined) {
 		addSymbol = true;
 	}
-	var text = username;
+	var text = getUserText(username, alias);
 	if (username.charAt(0) == '@') {
 		username = username.substr(1);
 	}
@@ -152,14 +160,14 @@ function getUserLink(username, rating, addSymbol) {
 	}
 	return '<a class="uoj-username" href="' + uojHome + '/user/profile/' + username + '" style="color:' + getColOfRating(rating) + '">' + text + '</a>';
 }
-function getUserSpan(username, rating, addSymbol) {
+function getUserSpan(username, rating, addSymbol, alias) {
 	if (!username) {
 		return '';
 	}
 	if (addSymbol == undefined) {
 		addSymbol = true;
 	}
-	var text = username;
+	var text = getUserText(username, alias);
 	if (username.charAt(0) == '@') {
 		username = username.substr(1);
 	}
@@ -181,10 +189,12 @@ function replaceWithHighlightUsername() {
 	if (isNaN(rating)) {
 		return;
 	}
+	// attr() and not data(), which would turn a nickname like "007" into a number
+	var alias = $(this).attr("data-alias");
 	if ($(this).data("link") != 0) {
-		$(this).replaceWith(getUserLink(username, rating));
+		$(this).replaceWith(getUserLink(username, rating, undefined, alias));
 	} else {
-		$(this).replaceWith(getUserSpan(username, rating));
+		$(this).replaceWith(getUserSpan(username, rating, undefined, alias));
 	}
 }
 
@@ -1135,7 +1145,7 @@ function showStandings() {
 		function(row) {
 			var col_tr = '<tr>';
 			col_tr += '<td>' + row[3] + '</td>';
-			col_tr += '<td>' + getUserLink(row[2][0], row[2][1]) + '</td>';
+			col_tr += '<td>' + getUserLink(row[2][0], row[2][1], undefined, row[2][2]) + '</td>';
 			col_tr += '<td>' + '<div><span class="uoj-score" data-max="' + problems.length * 100 + '" style="color:' + getColOfScore(row[0] / problems.length) + '">' + row[0] + '</span></div>' + '<div>' + getPenaltyTimeStr(row[1]) + '</div></td>';
 			for (var i = 0; i < problems.length; i++) {
 				col_tr += '<td>';

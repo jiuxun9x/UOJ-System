@@ -79,7 +79,8 @@ function getUserLink($username, $rating = null) {
 		if ($rating == null) {
 			$rating = $user['rating'];
 		}
-		return '<span class="uoj-username" data-rating="'.$rating.'">'.$username.'</span>';
+		$alias = $user['nickname'] !== '' ? ' data-alias="'.HTML::escape($user['nickname']).'"' : '';
+		return '<span class="uoj-username" data-rating="'.$rating.'"'.$alias.'>'.$username.'</span>';
 	} else {
 		$esc_username = HTML::escape($username);
 		return '<span>'.$esc_username.'</span>';

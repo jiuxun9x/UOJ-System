@@ -20,6 +20,7 @@
 	requirePHPLib('security');
 	requirePHPLib('contest');
 	requirePHPLib('permission');
+	requirePHPLib('user');
 	requirePHPLib('html');
 	
 	Session::init();

@@ -130,7 +130,7 @@ function updateContestPlayerNum($contest) {
 
 // problems: pos => id
 // data    : id, submit_time, submitter, problem_pos, score
-// people  : username, user_rating
+// people  : username, user_rating, nickname
 function queryContestData($contest, $config = array()) {
 	mergeConfig($config, [
 		'pre_final' => false
@@ -175,7 +175,7 @@ function queryContestData($contest, $config = array()) {
 	}
 
 	$people = [];
-	$result = DB::query("select username, user_rating from contests_registrants where contest_id = {$contest['id']} and has_participated = 1");
+	$result = DB::query("select contests_registrants.username, user_rating, ifnull(user_info.nickname, '') from contests_registrants left join user_info on user_info.username = contests_registrants.username where contest_id = {$contest['id']} and has_participated = 1");
 	while ($row = DB::fetch($result, MYSQLI_NUM)) {
 		$row[1] = (int)$row[1];
 		$people[] = $row;
@@ -202,7 +202,7 @@ function calcStandings($contest, $contest_data, &$score, &$standings, $update_co
 		$score[$submission[2]][$submission[3]] = array($submission[4], $penalty, $submission[0]);
 	}
 
-	// standings: rank => score, penalty, [username, user_rating], virtual_rank
+	// standings: rank => score, penalty, [username, user_rating, nickname], virtual_rank
 	$standings = array();
 	foreach ($contest_data['people'] as $person) {
 		$cur = array(0, 0, $person);

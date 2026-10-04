@@ -22,8 +22,7 @@
 		if ($check_code !== md5($user['username'] . '+' . $user['password'])) {
 			return '不明错误';
 		}
-		$newPW = getPasswordToStore($newPW, $user['username']);
-		DB::update("update user_info set password = '$newPW' where username = '{$user['username']}'");
+		setUserPassword($user['username'], $newPW);
 		return 'ok';
 	}
 	if (isset($_POST['reset'])) {

@@ -235,7 +235,7 @@
 				<?php if (Auth::check()): ?>
 					<li class="nav-item dropdown">
 						<a class="nav-link dropdown-toggle" href="#" data-toggle="dropdown">
-							<span class="uoj-username" data-rating="<?= Auth::user()['rating'] ?>" data-link="0"><?= Auth::id() ?></span> <?= $new_msg_tot_html ?>
+							<span class="uoj-username" data-rating="<?= Auth::user()['rating'] ?>" data-link="0" data-alias="<?= HTML::escape(Auth::user()['nickname']) ?>"><?= Auth::id() ?></span> <?= $new_msg_tot_html ?>
 						</a>
 						<ul class="dropdown-menu" role="menu">
 							<li role="presentation"><a class="dropdown-item" href="<?= HTML::url('/user/profile/' . Auth::id()) ?>"><?= UOJLocale::get('my profile') ?></a></li>

@@ -43,6 +43,35 @@
 	};
 	$user_form->runAtServer();
 	
+	// A user changes their own username in their profile. This is for the users who can not:
+	// the ones the school named, and whoever sits on a name that belongs to somebody else.
+	if (can($myUser, 'user.rename')) {
+		$rename_form = new UOJForm('rename');
+		$rename_form->addInput('rename_username', 'text', '用户名', '',
+			function ($username, &$vdata) {
+				if (!validateUsername($username) || !($vdata['user'] = queryUser($username))) {
+					return '用户不存在';
+				}
+				return '';
+			},
+			null
+		);
+		$rename_form->addInput('rename_new_username', 'text', '新用户名', '',
+			function ($username, &$vdata) {
+				return usernameUnavailableReason($username, isset($vdata['user']) ? $vdata['user'] : null);
+			},
+			null
+		);
+		$rename_form->handle = function(&$vdata) {
+			global $myUser;
+			$err = renameUser($vdata['user'], $_POST['rename_new_username'], $myUser);
+			if ($err !== '') {
+				becomeMsgPage(HTML::escape($err));
+			}
+		};
+		$rename_form->runAtServer();
+	}
+	
 	$blog_link_contests = new UOJForm('blog_link_contests');
 	$blog_link_contests->addInput('blog_id', 'text', '博客ID', '',
 		function ($x) {
@@ -418,6 +447,10 @@ EOD;
 	<div class="col-sm-9">
 		<?php if ($cur_tab === 'users'): ?>
 			<?php $user_form->printHTML(); ?>
+			<?php if (isset($rename_form)): ?>
+			<h3>修改用户名</h3>
+			<?php $rename_form->printHTML(); ?>
+			<?php endif ?>
 			<h3>角色名单</h3>
 			<table class="table table-bordered table-hover table-striped table-text-center">
 				<thead><tr><th>用户名</th><th>角色</th><th>授予者</th><th>授予时间</th></tr></thead>

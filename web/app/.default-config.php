@@ -56,6 +56,10 @@ return [
 		// seconds without a sign of life after which the tasks of a judger are given to others
 		'task-timeout' => 300
 	],
+	'user' => [
+		// days a user has to wait before they change their username again, 0 for no limit
+		'username-change-interval' => 30
+	],
 	'data' => [
 		// how many versions of the data of a problem keep their archive, the current one included
 		'kept-versions' => 5

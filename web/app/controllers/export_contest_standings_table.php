@@ -36,7 +36,7 @@ function array2csv(array &$array) {
 }
 
 $export_data = [];
-$csv_header = ['Rank', 'Username', 'Score', 'Penalty'];
+$csv_header = ['Rank', 'Username', 'Nickname', 'Score', 'Penalty'];
 $n_problems = count($contest_data['problems']);
 
 for ($i = 0; $i < $n_problems; $i++) {
@@ -50,7 +50,7 @@ $export_data[] = $csv_header;
 // Convert data in $standings and $score to $export_data
 foreach ($standings as $rank => $row) {
 	// $row: rank, username, score, penalty
-	$res = [$rank + 1, $row[2][0], $row[0], $row[1]];
+	$res = [$rank + 1, $row[2][0], $row[2][2], $row[0], $row[1]];
 	for ($i = 0; $i < $n_problems; $i++) {
 		// $score[$row[2][0]][$i]: score, penalty, submission_id
 		$res[] = isset($score[$row[2][0]][$i][0]) ? $score[$row[2][0]][$i][0] : "";
