@@ -1277,6 +1277,63 @@ class HomeworkStateTest(unittest.TestCase):
         self.assertLess(uoj.wait_submission(self.admin.submit(public_id, AB)).score, 100)
         self.assertEqual(db_value("select data_version from problems where id = %d" % copy_id), "1")
 
+    def grades(self, client):
+        """the grades of the domain as they are exported: the head, and username => row"""
+        r = client.get("/d/%s/grades?export=1" % self.slug)
+        self.assertEqual(r.status_code, 200)
+        rows = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig"))))
+        return rows[0], {row[0]: row for row in rows[1:]}
+
+    def test_grades_of_the_domain_are_what_counts_of_every_homework(self):
+        settled, running = self.published("p4 成绩甲", allow_late=""), self.published("p4 成绩乙", allow_late="")
+        first, second, third = self.pupils
+        for homework_id in (settled, running):
+            self.assertEqual(first.form(self.url(homework_id), "claim"), "")
+        self.assertEqual(second.form(self.url(settled), "claim"), "")
+        submit = lambda client, homework_id, code: uoj.wait_submission(
+            client.submit(self.own_id, code, path=self.url(homework_id, "/problem/%d" % self.own_id))
+        ).score
+        self.assertEqual(submit(first, settled, AB), 100)
+        self.assertEqual(submit(second, settled, AB_WRONG), 0)
+        self.assertEqual(submit(first, running, AB), 100)
+        db("update submissions set submit_time = '%s' where homework_id = %d" % (uoj.web_time(-3600), settled))
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), settled))
+        uoj.wait_until("the homework is settled", lambda: tick() and homework_row(settled, "settle_state")[0] == "settled")
+
+        page = "/d/%s/grades" % self.slug
+        head, grades = self.grades(self.teacher)
+        self.assertEqual((head[:3], head[-1]), (["username", "student_id", "real_name"], "total"))
+        official, so_far = head.index("p4 成绩甲"), head.index("p4 成绩乙 (未结算)")
+        self.assertEqual([grades["p4_st_pupil0"][n] for n in (official, so_far)], ["100", "100"])
+        # who did not claim a homework has no score in it, which is not the same as none
+        self.assertEqual([grades["p4_st_pupil1"][n] for n in (official, so_far)], ["0", ""])
+        self.assertEqual([grades["p4_st_pupil2"][n] for n in (official, so_far)], ["", ""])
+        # the total is of the homework that is settled
+        for row in grades.values():
+            counted = sum(float(row[n] or 0) for n in range(3, len(head) - 1) if not head[n].endswith("(未结算)"))
+            self.assertEqual(float(row[-1]), counted, row)
+        self.assertNotIn("p4_st_teacher", grades)
+        self.assertIn('id="table-grades"', self.teacher.get(page).text)
+
+        # the grades are for the people who look after the domain
+        tutor = account("p4_st_tutor")
+        self.assertEqual(member_form(self.teacher, self.slug, "add", username="p4_st_tutor", role="ta"), "")
+        link = 'href="%s"' % page
+        for client in (self.teacher, self.lecturer, tutor, self.admin):
+            self.assertEqual(client.get(page).status_code, 200)
+            self.assertIn(link, client.get("/d/%s" % self.slug).text)
+        self.assertEqual(first.get(page).status_code, 403)
+        self.assertEqual(first.get(page + "?export=1").status_code, 403)
+        self.assertNotIn(link, first.get("/d/%s" % self.slug).text)
+        self.assertEqual(account("p4_st_stranger").get(page).status_code, 404)
+
+        # and the front page tells the people who teach what waits for them
+        overview = self.teacher.get("/d/%s" % self.slug).text
+        self.assertIn('id="domain-overview-pending"', overview)
+        self.assertIn("名学生还没有认领", overview)
+        for client in (first, tutor):
+            self.assertNotIn('id="domain-overview-pending"', client.get("/d/%s" % self.slug).text)
+
     def test_homework_that_can_not_be_published_goes_back_to_a_draft(self):
         # a public problem without data
         empty_id = self.admin.new_problem()

@@ -128,6 +128,7 @@ def pages(seeded):
     past, current = d + "/homework/%d" % seeded["past"], d + "/homework/%d" % seeded["current"]
     training = d + "/training/%d" % seeded["training"]
     return [
+        ("grades", "teacher", d + "/grades"),
         ("trainings-student", "student", d + "/trainings"),
         ("trainings-teacher", "teacher", d + "/trainings"),
         ("training-student", "student", training),

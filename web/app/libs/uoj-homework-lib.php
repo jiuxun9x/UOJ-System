@@ -973,3 +973,90 @@ function homeworkDataDrift($homework, $scores) {
 	}
 	return $drift;
 }
+
+// ---- the grades of a domain
+
+// The grades of the students of a domain in its homework: every published homework that has
+// begun, in the order they began, and for every student what counts of it, which is the
+// official score once the homework is settled and the score so far before that.
+// Returns array('homeworks' => rows with 'points' and 'settled', 'students' => names,
+// 'cells' => username => homework id => array('total' => number or null, 'state' => 'official', 'live' or 'unclaimed'),
+// 'sums' => username => the official scores added up).
+function domainGrades($domain) {
+	$students = array();
+	foreach (DB::selectAll("select username from domain_members where domain_id = {$domain['id']} and role = 'member' order by username") as $row) {
+		$students[] = $row['username'];
+	}
+	$grades = array('homeworks' => array(), 'students' => $students, 'cells' => array(), 'sums' => array_fill_keys($students, 0));
+	$now = homeworkNow();
+	foreach (DB::selectAll("select * from homeworks where domain_id = {$domain['id']} and status = 'published' order by begin_at, id") as $homework) {
+		$homework = homeworkTouch($homework);
+		if (homeworkPhase($homework, $now) === 'upcoming') {
+			continue;
+		}
+		$official = homeworkOfficialScores($homework);
+		$scores = $official !== null ? $official : homeworkLiveScores($homework);
+		$participants = array_flip(homeworkParticipants($homework));
+		$homework['points'] = array_sum(homeworkProblemPoints($homework));
+		$homework['settled'] = $official !== null;
+		$grades['homeworks'][] = $homework;
+		foreach ($students as $username) {
+			if (!isset($participants[$username]) && !isset($scores[$username])) {
+				$grades['cells'][$username][$homework['id']] = array('total' => null, 'state' => 'unclaimed');
+				continue;
+			}
+			$total = homeworkTotal($scores, $username);
+			$grades['cells'][$username][$homework['id']] = array('total' => $total, 'state' => $official !== null ? 'official' : 'live');
+			if ($official !== null) {
+				$grades['sums'][$username] += $total;
+			}
+		}
+	}
+	return $grades;
+}
+
+// What the people who look after a domain should have a look at: rows of
+// array(what kind of thing, the homework, the text, where to go).
+function domainPendingWork($domain) {
+	$pending = array();
+	$now = homeworkNow();
+	foreach (DB::selectAll("select * from homeworks where domain_id = {$domain['id']} order by end_at") as $homework) {
+		$manage = homeworkUrl($domain, $homework, '/manage');
+		if ($homework['status'] === 'draft') {
+			if ($homework['publish_error'] !== null) {
+				$pending[] = array('danger', $homework, '发布失败：' . $homework['publish_error'], $manage);
+			}
+			continue;
+		}
+		if ($homework['status'] === 'publishing') {
+			$pending[] = array('info', $homework, '正在发布：等待题目数据准备好', $manage);
+			continue;
+		}
+		$phase = homeworkPhase($homework, $now);
+		$active = homeworkActiveSnapshot($homework);
+		if ($active && $active['status'] === 'candidate') {
+			$pending[] = array('warning', $homework, '重新结算的结果等待确认', "$manage?tab=scores");
+		} elseif ($active) {
+			$pending[] = array('info', $homework, '正在重测，完成后需要确认新的成绩', "$manage?tab=scores");
+		}
+		if ($homework['settle_state'] === 'waiting_judgements') {
+			$pending[] = array('info', $homework, '已截止，等待截止前的提交评测完成后结算', "$manage?tab=scores");
+		}
+		if ($phase !== 'ended') {
+			$unclaimed = count(homeworkUnclaimedMembers($homework));
+			if ($unclaimed > 0) {
+				$pending[] = array('secondary', $homework, "$unclaimed 名学生还没有认领", "$manage?tab=participants");
+			}
+		}
+		// the data of a problem changed under scores that count: only looked for in homework
+		// that runs or ended in the last thirty days
+		if ($phase !== 'upcoming' && strtotime($homework['end_at']) > $now - 30 * 86400) {
+			$official = homeworkOfficialScores($homework);
+			$drift = homeworkDataDrift($homework, $official !== null ? $official : homeworkLiveScores($homework));
+			if ($drift) {
+				$pending[] = array('warning', $homework, count($drift) . ' 道题的数据在评测之后有改动', "$manage?tab=scores");
+			}
+		}
+	}
+	return $pending;
+}

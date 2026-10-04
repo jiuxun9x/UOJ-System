@@ -20,6 +20,21 @@
 				}
 			}
 		?>
+		<?php // what waits for the people who can do something about it ?>
+		<?php $pending = can($myUser, 'domain.teach', $domain) ? domainPendingWork($domain) : array(); ?>
+		<?php if ($pending): ?>
+		<div class="card mb-3 border-warning" id="domain-overview-pending">
+			<div class="card-header">待处理</div>
+			<div class="list-group list-group-flush">
+				<?php foreach ($pending as $item): ?>
+				<a class="list-group-item list-group-item-action" href="<?= $item[3] ?>">
+					<span class="badge badge-<?= $item[0] ?> mr-1"><?= HTML::escape($item[1]['title']) ?></span>
+					<?= HTML::escape($item[2]) ?>
+				</a>
+				<?php endforeach ?>
+			</div>
+		</div>
+		<?php endif ?>
 		<h3 class="uoj-domain-section-title mt-0">进行中和即将开始的作业</h3>
 		<?php if (!$current_homeworks): ?>
 		<div class="uoj-domain-empty mb-3" id="domain-overview-empty">现在没有进行中的作业。<a href="<?= domainUrl($domain, '/homeworks') ?>">查看全部作业</a></div>
@@ -74,6 +89,39 @@
 			</div>
 			<?php endif ?>
 		</div>
+		<?php
+			$trainings = array();
+			foreach (DB::selectAll("select * from trainings where domain_id = {$domain['id']} and status = 'published' order by id") as $training) {
+				$training_problems = trainingProblems($training);
+				$training_ids = array();
+				foreach ($training_problems as $problem) {
+					$training_ids[] = (int)$problem['problem_id'];
+				}
+				$best = Auth::check() ? trainingBestScores($training_ids, array(Auth::id())) : array();
+				$training['progress'] = trainingProgress($training_problems, isset($best[Auth::id()]) ? $best[Auth::id()] : array());
+				$trainings[] = $training;
+			}
+		?>
+		<?php if ($trainings): ?>
+		<div class="card mb-3" id="domain-overview-trainings">
+			<div class="card-header d-flex align-items-center">
+				<span class="mr-auto">训练</span>
+				<a href="<?= domainUrl($domain, '/trainings') ?>" class="small">全部</a>
+			</div>
+			<div class="list-group list-group-flush">
+				<?php foreach ($trainings as $training): ?>
+				<a class="list-group-item list-group-item-action d-flex align-items-center" href="<?= trainingUrl($domain, $training) ?>">
+					<span class="mr-auto"><?= HTML::escape($training['title']) ?></span>
+					<?php if ($training['progress']['done']): ?>
+					<span class="badge badge-success">已完成</span>
+					<?php else: ?>
+					<small class="text-muted"><?= $training['progress']['solved'] ?> / <?= $training['progress']['total'] ?></small>
+					<?php endif ?>
+				</a>
+				<?php endforeach ?>
+			</div>
+		</div>
+		<?php endif ?>
 		<div class="card mb-3">
 			<div class="card-header">关于</div>
 			<ul class="list-group list-group-flush">

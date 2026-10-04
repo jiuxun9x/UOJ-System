@@ -277,6 +277,10 @@ function domainTabs($domain, $user) {
 		'members' => array('成员', domainUrl($domain, '/members')),
 		'announcements' => array('公告', domainUrl($domain, '/announcements'))
 	);
+	// the grades are for the people who look after the domain
+	if (can($user, 'domain.assist', $domain)) {
+		$tabs['grades'] = array('成绩', domainUrl($domain, '/grades'));
+	}
 	return $tabs;
 }
 
