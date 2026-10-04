@@ -243,6 +243,39 @@ function siteSettings() {
 			'help' => '留空则用站点的简称。',
 			'default' => '',
 			'max' => 60
+		),
+		'alert.email' => array(
+			'type' => 'switch',
+			'group' => '告警',
+			'label' => '告警同时发邮件',
+			'help' => '评测机离线、评测积压等告警出现和恢复时，系统管理员都会收到站内消息。开启后还会给下面的收件人发邮件，需要先设置好发信邮箱。',
+			'default' => false
+		),
+		'alert.recipients' => array(
+			'type' => 'text',
+			'group' => '告警',
+			'label' => '告警邮件的收件人',
+			'help' => '多个地址用逗号分隔。留空则发给所有系统管理员在个人资料里填的邮箱。',
+			'default' => '',
+			'max' => 250
+		),
+		'alert.judger_silent_seconds' => array(
+			'type' => 'number',
+			'group' => '告警',
+			'label' => '评测机多久没有响应算离线（秒）',
+			'help' => '评测机正常时每隔几秒就会联系一次网站。调得太小，网络抖动时会误报。',
+			'default' => 120,
+			'min' => 30,
+			'max' => 86400
+		),
+		'alert.queue_wait_seconds' => array(
+			'type' => 'number',
+			'group' => '告警',
+			'label' => '新提交等待评测多久算积压（秒）',
+			'help' => '最早的一份新提交等待超过这个时间就告警。重测的提交排在新提交后面，不计入。',
+			'default' => 600,
+			'min' => 60,
+			'max' => 86400
 		)
 	);
 }

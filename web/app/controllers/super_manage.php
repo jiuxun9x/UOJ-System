@@ -432,6 +432,10 @@ EOD;
 	if (!$can_manage_judgers) {
 		unset($tabs_info['judger']);
 	}
+	$tabs_info['monitor'] = array(
+		'name' => '运行状态',
+		'url' => '/super-manage/monitor'
+	);
 	if (can($myUser, 'site.manage_settings')) {
 		$tabs_info['settings'] = array(
 			'name' => '站点设置',
@@ -644,6 +648,81 @@ EOD;
 			</div>
 			<h3>评测机列表</h3>
 			<?php echoLongTable($judgerlist_cols, 'judger_info', "1=1", '', $judgerlist_header_row, $judgerlist_print_row, $judgerlist_config) ?>
+		<?php elseif ($cur_tab === 'monitor'): ?>
+			<?php
+				$silent_after = siteSetting('alert.judger_silent_seconds');
+				$monitor_judgers = monitorJudgers();
+				$monitor_queue = monitorQueue();
+				$monitor_open = openAlerts();
+			?>
+			<div class="text-left">
+			<h3>运行状态</h3>
+			<?php if (!$monitor_open): ?>
+			<div class="alert alert-success" id="monitor-ok">一切正常，没有未恢复的告警。</div>
+			<?php else: ?>
+			<div class="alert alert-danger" id="monitor-alerts">
+				<strong>有 <?= count($monitor_open) ?> 条告警未恢复：</strong>
+				<ul class="mb-0">
+					<?php foreach ($monitor_open as $alert): ?>
+					<li data-kind="<?= $alert['kind'] ?>"><?= HTML::escape($alert['message']) ?> <small>（从 <?= $alert['started_at'] ?> 起）</small></li>
+					<?php endforeach ?>
+				</ul>
+			</div>
+			<?php endif ?>
+
+			<h4>评测机</h4>
+			<table class="table table-bordered table-sm" id="table-monitor-judgers">
+				<thead><tr><th>名称</th><th>状态</th><th>最近响应</th><th>正在评测</th><th>近一小时评测数</th><th>版本</th></tr></thead>
+				<tbody>
+					<?php foreach ($monitor_judgers as $judger): ?>
+					<?php
+						if (!$judger['enabled']) {
+							$state = '<span class="badge badge-secondary">已停用</span>';
+						} elseif ($judger['silent_seconds'] === null) {
+							$state = '<span class="badge badge-secondary">从未连接</span>';
+						} elseif ($judger['silent_seconds'] <= $silent_after) {
+							$state = '<span class="badge badge-success">在线</span>';
+						} else {
+							$state = '<span class="badge badge-danger">离线</span>';
+						}
+					?>
+					<tr data-judger="<?= HTML::escape($judger['name']) ?>">
+						<td><?= HTML::escape($judger['name']) ?></td>
+						<td><?= $state ?></td>
+						<td><?= $judger['silent_seconds'] === null ? '—' : monitorDuration($judger['silent_seconds']) . '前' ?></td>
+						<td><?= $judger['judging'] ? HTML::escape(join(', ', $judger['judging'])) : '<span class="text-muted">空闲</span>' ?></td>
+						<td><?= $judger['judged_last_hour'] ?></td>
+						<td><small><?= $judger['version'] !== '' ? HTML::escape($judger['version']) : '<span class="text-danger">未上报</span>' ?></small></td>
+					</tr>
+					<?php endforeach ?>
+					<?php if (!$monitor_judgers): ?>
+					<tr><td colspan="6" class="text-center text-muted">还没有登记评测机</td></tr>
+					<?php endif ?>
+				</tbody>
+			</table>
+
+			<h4>评测队列</h4>
+			<p id="monitor-queue">
+				等待评测的提交：<strong><?= $monitor_queue['waiting'] ?></strong> 份<?php if ($monitor_queue['oldest_wait_seconds'] !== null): ?>，最早的一份新提交已经等了 <?= monitorDuration($monitor_queue['oldest_wait_seconds']) ?><?php endif ?>。
+			</p>
+
+			<h4>最近的告警</h4>
+			<table class="table table-sm" id="table-monitor-history">
+				<thead><tr><th>开始</th><th>恢复</th><th>类型</th><th>内容</th><th>邮件</th></tr></thead>
+				<tbody>
+					<?php foreach (recentAlerts(30) as $alert): ?>
+					<tr>
+						<td><small><?= $alert['started_at'] ?></small></td>
+						<td><small><?= $alert['resolved_at'] !== null ? $alert['resolved_at'] : '<span class="text-danger">未恢复</span>' ?></small></td>
+						<td><?= alertKindName($alert['kind']) ?></td>
+						<td><?= HTML::escape($alert['message']) ?></td>
+						<td><small><?= $alert['mailed_at'] !== null ? '已发' : '—' ?></small></td>
+					</tr>
+					<?php endforeach ?>
+				</tbody>
+			</table>
+			<p class="text-muted small">网站每分钟检查一次。告警出现和恢复时，系统管理员会收到站内消息；是否同时发邮件、多久算离线，在“站点设置 → 告警”里调整。</p>
+			</div>
 		<?php elseif ($cur_tab === 'settings'): ?>
 			<?php $flash = domainTakeFlash(); ?>
 			<?php if ($flash): ?>

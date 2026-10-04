@@ -258,6 +258,15 @@
 			</div>
 
 			<?php uojIncludeView($PageNav) ?>
+			<?php // the administrators are told on every page as long as something is wrong ?>
+			<?php $open_alerts = Auth::check() && isSiteAdmin(Auth::user()) ? openAlerts() : array(); ?>
+			<?php if ($open_alerts): ?>
+			<div class="alert alert-danger py-2" id="site-alerts-banner" role="alert">
+				<span class="glyphicon glyphicon-warning-sign"></span>
+				<?= HTML::escape($open_alerts[0]['message']) ?><?= count($open_alerts) > 1 ? '，另有 ' . (count($open_alerts) - 1) . ' 条告警' : '' ?>。
+				<a class="alert-link" href="<?= HTML::url('/super-manage/monitor') ?>">查看运行状态</a>
+			</div>
+			<?php endif ?>
 			<?php endif ?>
 
 			<div class="uoj-content">

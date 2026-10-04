@@ -182,3 +182,31 @@ check_same('', trainingSettingsError(array('title' => '第一章 线性表', 'de
 foreach (array('no title' => array('title' => ' '), 'a title that is too long' => array('title' => str_repeat('长', 101)), 'an unknown status' => array('status' => 'secret')) as $what => $changed) {
 	check_same(true, trainingSettingsError($changed + array('title' => 'x', 'description_md' => '', 'status' => 'draft')) !== '', "$what is refused");
 }
+
+// ---- watching over the judgers and the queue: what counts as wrong
+require_once __DIR__ . '/../app/libs/uoj-monitor-lib.php';
+
+$judger = function($name, $silent_seconds, $enabled = true) {
+	return array('name' => $name, 'enabled' => $enabled, 'silent_seconds' => $silent_seconds);
+};
+$calm = array('waiting' => 0, 'oldest_wait_seconds' => null);
+$kinds = function($problems) {
+	$kinds = array();
+	foreach ($problems as $problem) {
+		$kinds[] = $problem['kind'] . ($problem['subject'] !== '' ? ':' . $problem['subject'] : '');
+	}
+	return $kinds;
+};
+check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3), $judger('b', 120)), $calm, 120, 600)), 'judgers that answer in time');
+check_same(array('judger_silent:b'), $kinds(monitorFindProblems(array($judger('a', 3), $judger('b', 121)), $calm, 120, 600)), 'one judger is gone');
+check_same(array('no_judger'), $kinds(monitorFindProblems(array($judger('a', 500), $judger('b', 121)), $calm, 120, 600)), 'all of them are gone: one alert, not one each');
+check_same(array('no_judger'), $kinds(monitorFindProblems(array(), $calm, 120, 600)), 'there is no judger at all');
+check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3), $judger('b', 9999, false)), $calm, 120, 600)), 'a judger that was switched off is not missed');
+check_same(array('no_judger'), $kinds(monitorFindProblems(array($judger('a', 3, false)), $calm, 120, 600)), 'but it does not judge either');
+check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3), $judger('new', null)), $calm, 120, 600)), 'a judger that never connected is still being set up');
+check_same(array('no_judger'), $kinds(monitorFindProblems(array($judger('new', null)), $calm, 120, 600)), 'which does not make it one that judges');
+check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3)), array('waiting' => 40, 'oldest_wait_seconds' => 600), 120, 600)), 'a queue that moves');
+check_same(array('queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 3)), array('waiting' => 40, 'oldest_wait_seconds' => 601), 120, 600)), 'a submission that waits too long');
+check_same(array('no_judger', 'queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 900)), array('waiting' => 1, 'oldest_wait_seconds' => 900), 120, 600)), 'both');
+check_same(array('59 秒', '2 分钟', '119 分钟', '2 小时', '2 天'), array(monitorDuration(59), monitorDuration(120), monitorDuration(7199), monitorDuration(7200), monitorDuration(172800)), 'durations for people');
+

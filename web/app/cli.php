@@ -76,6 +76,14 @@ $handlers = [
 		$advanced = homeworkAdvanceDue();
 		die("advanced $advanced homeworks\n");
 	},
+	// What the site does by itself every minute: what homework:tick does, and looking after
+	// the judgers and the queue. The container of the web server runs it in a loop; without
+	// containers it belongs in a crontab.
+	'site:tick' => function () {
+		$advanced = homeworkAdvanceDue();
+		list($opened, $resolved) = monitorTick();
+		die("advanced $advanced homeworks, opened $opened alerts, resolved $resolved alerts\n");
+	},
 	'help' => 'showHelp'
 ];
 
