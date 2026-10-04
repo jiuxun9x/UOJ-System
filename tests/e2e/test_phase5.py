@@ -495,6 +495,151 @@ class ContestAccessTest(unittest.TestCase):
         self.assertEqual(other.get(here + "/submissions").status_code, 404)
 
 
+class VirtualTest(unittest.TestCase):
+    """sitting a contest that is over, alone and against the clock"""
+
+    def standings(self, client, contest_id):
+        """the replayed standings as a page shows them: rows of username, rank, score, whether it is the virtual row"""
+        page = client.get("/contest/%d/virtual?tab=standings" % contest_id).text
+        rows = re.findall(r'(?s)<tr([^>]*) data-username="([^"]+)" data-rank="(\d+)">(.*?)</tr>', page)
+        return [(name, int(rank), int(re.search(r"<strong>(-?\d+)</strong>", body).group(1)), "virtual-my-row" in attrs) for attrs, name, rank, body in rows]
+
+    def test_contest_is_sat_again_with_its_standings_replayed(self):
+        admin = uoj.admin()
+        first_id = admin.create_problem(ab_problem_files())
+        second_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p5 回放比赛")
+        self.assertEqual(admin.contest_commands(contest_id, "problems", "+%d\n+%d" % (first_id, second_id)), "")
+        here, virtual = "/contest/%d" % contest_id, "/contest/%d/virtual" % contest_id
+        early, late, sitter, other = (account("p5_vp_" + name) for name in ("early", "late", "sitter", "other"))
+        early.register_for_contest(contest_id)
+        late.register_for_contest(contest_id)
+
+        # the real contest: early solves the first problem 5 minutes in, late 30 minutes in, and
+        # late fails the second one
+        uoj.move_contest(contest_id, -600)
+        solved_early = early.submit_in_contest(contest_id, first_id, AB)
+        solved_late = late.submit_in_contest(contest_id, first_id, AB)
+        failed_late = late.submit_in_contest(contest_id, second_id, AB_WRONG)
+        uoj.wait_idle()
+        # nobody sits a contest virtually before its results are final
+        self.assertNotEqual(sitter.form(virtual, "start"), "")
+        uoj.move_contest(contest_id, -7200)
+        self.assertIn('id="virtual-not-yet"', sitter.get(virtual).text)
+        self.assertNotEqual(sitter.form(virtual, "start"), "")
+        for submission_id, seconds in ((solved_early, 300), (solved_late, 1800), (failed_late, 3000)):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d second) where id = %d"
+               % (contest_id, seconds, submission_id))  # fmt: skip
+        self.assertEqual(admin.submit_form(here, "start_test"), "")
+        uoj.wait_idle()
+        self.assertEqual(admin.submit_form(here, "publish_result"), "")
+        self.assertEqual(
+            db("select submitter, problem_id, score, penalty from contests_submissions where contest_id = %d order by submitter, problem_id" % contest_id),
+            [["p5_vp_early", str(first_id), "100", "300"], ["p5_vp_late", str(first_id), "100", "1800"], ["p5_vp_late", str(second_id), "0", "0"]],
+        )
+        self.assertEqual(db_value("select count(*) from contest_virtuals where contest_id = %d" % contest_id), "0")
+
+        # now it can be sat again, by whoever is logged in
+        self.assertIn('id="link-virtual"', sitter.get(here).text)
+        self.assertEqual(uoj.Client().get(virtual).status_code, 302)
+        self.assertIn('id="button-virtual-start"', sitter.get(virtual).text)
+
+        # at a time that was reserved, which can be given up
+        for wrong in (uoj.web_time(-3600), uoj.web_time(40 * 86400), "next week", ""):
+            self.assertNotEqual(sitter.form(virtual, "reserve", start_time=wrong), "", wrong)
+        self.assertEqual(sitter.form(virtual, "reserve", start_time=uoj.web_time(3600)[:16].replace(" ", "T")), "")
+        page = sitter.get(virtual).text
+        self.assertIn('id="virtual-upcoming"', page)
+        self.assertNotIn('id="table-virtual-problems"', page)
+        self.assertEqual(self.standings(sitter, contest_id), [])
+        self.assertEqual(sitter.form(virtual, "cancel"), "")
+        self.assertNotEqual(sitter.form(virtual, "cancel"), "")
+        self.assertEqual(db_value("select count(*) from contest_virtuals where contest_id = %d" % contest_id), "0")
+
+        # or now
+        self.assertEqual(sitter.form(virtual, "start"), "")
+        self.assertNotEqual(sitter.form(virtual, "start"), "")
+        self.assertEqual(db_value("select last_min from contest_virtuals where contest_id = %d and username = 'p5_vp_sitter'" % contest_id), "60")
+        self.assertIn('id="virtual-running"', sitter.get(virtual).text)
+
+        # the test moves the start of the participation back to let its time go by, and what
+        # was submitted in it with it
+        mine = {}
+
+        def at(elapsed):
+            db("update contest_virtuals set start_time = '%s' where contest_id = %d and username = 'p5_vp_sitter'" % (uoj.web_time(-elapsed), contest_id))
+            for submission_id, seconds in mine.items():
+                db("update submissions set submit_time = date_add((select start_time from contest_virtuals where contest_id = %d and username = 'p5_vp_sitter'), interval %d second) where id = %d"
+                   % (contest_id, seconds, submission_id))  # fmt: skip
+            return self.standings(sitter, contest_id)
+
+        def submit(problem_id, code, seconds):
+            submission_id = sitter.submit(problem_id, code, path="%s/problem/%d" % (here, problem_id))
+            uoj.wait_submission(submission_id)
+            mine[submission_id] = seconds
+            return submission_id
+
+        me = lambda rows: [row for row in rows if row[3]][0]
+        # at the start nobody has anything
+        self.assertEqual(sorted(row[:3] for row in at(10)), [("p5_vp_early", 1, 0), ("p5_vp_late", 1, 0), ("p5_vp_sitter", 1, 0)])
+        # ten minutes in, the contestant who was early has the first problem
+        rows = at(600)
+        self.assertEqual([row[:3] for row in rows], [("p5_vp_early", 1, 100), ("p5_vp_sitter", 2, 0), ("p5_vp_late", 2, 0)])
+        self.assertEqual(me(rows)[:3], ("p5_vp_sitter", 2, 0))
+
+        # what is submitted to a problem of the contest counts, and is a submission like any other
+        own = submit(first_id, AB, 900)
+        self.assertEqual(db("select ifnull(contest_id, 'NULL'), score from submissions where id = %d" % own), [["NULL", "100"]])
+        self.assertIn('id="virtual-banner"', sitter.get("%s/problem/%d" % (here, first_id)).text)
+        self.assertNotIn('id="virtual-banner"', other.get("%s/problem/%d" % (here, first_id)).text)
+        rows = at(1000)
+        self.assertEqual([row[:3] for row in rows], [("p5_vp_early", 1, 100), ("p5_vp_sitter", 2, 100), ("p5_vp_late", 3, 0)])
+        # the others get what they got when they got it
+        self.assertEqual([row[:3] for row in at(2000)], [("p5_vp_early", 1, 100), ("p5_vp_sitter", 2, 100), ("p5_vp_late", 3, 100)])
+
+        # A problem that is still hidden is a problem of the contest to who sits it, and to
+        # nobody else who did not take part.
+        db("update problems set is_hidden = 1 where id = %d" % second_id)
+        self.assertIn("请耐心等待", other.submit_form("%s/problem/%d" % (here, second_id), "answer", {
+            "answer_answer_upload_type": "editor", "answer_answer_editor": AB, "answer_answer_language": "C++17",
+        }))  # fmt: skip
+        submit(second_id, AB, 2400)
+        rows = at(2500)
+        self.assertEqual([row[:3] for row in rows], [("p5_vp_sitter", 1, 200), ("p5_vp_early", 2, 100), ("p5_vp_late", 3, 100)])
+        page = sitter.get(virtual).text
+        self.assertRegex(page, r'id="virtual-score">200 ')
+        self.assertRegex(uoj.text_of(page), r"此刻排在第\s*1\s*名")
+
+        # when the time is up it is over: what comes later does not count
+        rows = at(4000)
+        page = sitter.get(virtual).text
+        self.assertIn('id="virtual-ended"', page)
+        self.assertRegex(uoj.text_of(page), r"相当于第\s*1\s*名")
+        late_one = sitter.submit(first_id, AB_WRONG, path="%s/problem/%d" % (here, first_id))
+        uoj.wait_submission(late_one)
+        self.assertEqual([row[:3] for row in self.standings(sitter, contest_id)], [("p5_vp_sitter", 1, 200), ("p5_vp_early", 2, 100), ("p5_vp_late", 3, 100)])
+        # and the contest itself is what it was
+        self.assertEqual(db_value("select count(*) from contests_registrants where contest_id = %d" % contest_id), "2")
+        self.assertEqual(db_value("select count(*) from contests_submissions where contest_id = %d" % contest_id), "3")
+        self.assertNotIn("p5_vp_sitter", admin.get(here + "/standings").text)
+
+        # it can be sat once more, from nothing
+        self.assertEqual(sitter.form(virtual, "start"), "")
+        mine.clear()
+        self.assertEqual(me(self.standings(sitter, contest_id))[2], 0)
+        self.assertEqual(db_value("select count(*) from contest_virtuals where contest_id = %d" % contest_id), "1")
+
+        # a contest that is not for everybody is sat virtually by the people who took part
+        self.assertEqual(admin.form(here + "/manage", "join_mode", join_mode="password", join_password="open sesame"), "")
+        self.assertEqual(other.get(virtual).status_code, 404)
+        self.assertNotEqual(other.form(virtual, "start"), "")
+        self.assertEqual(early.get(virtual).status_code, 200)
+        self.assertEqual(early.form(virtual, "start"), "")
+        # who took part is in the standings twice: as they were, and as they are now
+        rows = self.standings(early, contest_id)
+        self.assertEqual(sorted((row[0], row[3]) for row in rows), [("p5_vp_early", False), ("p5_vp_early", True), ("p5_vp_late", False)])
+
+
 class MailTest(unittest.TestCase):
     """the mailbox the site sends from is set on the site"""
 

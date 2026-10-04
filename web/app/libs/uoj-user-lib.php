@@ -40,6 +40,7 @@ function usernameColumns() {
 		'click_zans' => array('username'),
 		'contests_asks' => array('username'),
 		'contest_allowed_users' => array('username', 'added_by'),
+		'contest_virtuals' => array('username'),
 		'contests_permissions' => array('username'),
 		'contests_registrants' => array('username'),
 		'contests_submissions' => array('submitter'),

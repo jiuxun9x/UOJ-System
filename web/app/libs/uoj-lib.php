@@ -28,6 +28,7 @@
 	requirePHPLib('monitor');
 	requirePHPLib('backup');
 	requirePHPLib('upload');
+	requirePHPLib('virtual');
 	requirePHPLib('html');
 	
 	Session::init();

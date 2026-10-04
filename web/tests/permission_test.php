@@ -553,6 +553,12 @@ check_same(false, canViewContestProblem($permission_test_users['bob'], $facts->p
 check_same(true, canViewContestProblem($permission_test_users['setter'], $facts->problems[40], $locked_contest), 'and for who did');
 // a contest that says nothing about who may take part is one for everybody
 check_ability('contest.enter', fake_contest(11, CONTEST_FINISHED), array('nobody' => true, 'bob' => true), 'a contest from before there were lists');
+// a contest is sat virtually once its results are final, by whoever may go inside
+check_ability('contest.virtual', $open_contest, array('nobody' => false, 'alice' => true, 'bob' => true, 'root' => true), 'a contest that is finished');
+check_ability('contest.virtual', array('join_mode' => 'open') + fake_contest(33, CONTEST_PENDING_FINAL_TEST), array('alice' => false, 'root' => false), 'a contest whose results are not final');
+check_ability('contest.virtual', array('join_mode' => 'open') + fake_contest(34, CONTEST_IN_PROGRESS), array('alice' => false), 'a contest that runs');
+check_ability('contest.virtual', $locked_contest, array('alice' => false, 'setter' => true, 'helper' => true), 'a contest with a password, for who took part');
+check_ability('contest.virtual', $listed_contest, array('bob' => false, 'alice' => true, 'teacher' => false), 'a contest for a list, for who took part');
 // the lists of contests leave out what the rule above leaves out
 check_same('1', visibleContestsCond($permission_test_users['root']), 'an administrator sees every contest in a list');
 check_same("contests.join_mode != 'list'", visibleContestsCond(null), 'a visitor sees no contest for a list');

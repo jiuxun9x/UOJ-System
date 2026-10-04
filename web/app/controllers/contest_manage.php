@@ -400,4 +400,12 @@
 		</div>
 	</div>
 </div>
+<script type="text/javascript">
+// the tab the address names is the one that is open, as after saving who may take part
+$(document).ready(function() {
+	if (/^#tab-[a-z]+$/.test(window.location.hash)) {
+		$('a[href="' + window.location.hash + '"]').tab('show');
+	}
+});
+</script>
 <?php echoUOJPageFooter() ?>

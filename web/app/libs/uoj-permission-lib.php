@@ -615,6 +615,11 @@ function can($user, $ability, $resource = null) {
 		case 'contest.register':
 			return $name !== null && can($user, 'contest.view', $resource) && !can($user, 'contest.assist', $resource)
 				&& !$facts->hasRegistered($name, $resource['id']);
+		// Sitting a contest that is over, alone and against the clock. There are final results
+		// to be measured against once the contest is finished, and not before.
+		case 'contest.virtual':
+			return $name !== null && isset($resource['cur_progress']) && $resource['cur_progress'] == CONTEST_FINISHED
+				&& can($user, 'contest.enter', $resource);
 		// Getting inside once it has begun: its problems, its standings, what was submitted.
 		// A contest that is not for everybody stays with the people who registered for it,
 		// after it has ended as well. Whether a contest for everybody is open to somebody

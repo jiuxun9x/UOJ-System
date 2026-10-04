@@ -258,3 +258,59 @@ check_same(array(), $problem_kinds(backupFindProblems(false, $ok, $at('2026-09-0
 check_same(array('backup_failed', 'backup_overdue'), $problem_kinds(backupFindProblems(true, $failed, $at('2026-10-01 03:00:00'), $old_site, $now)), 'failing for days');
 check_same(array('—', '512 B', '1.5 KB', '2.0 MB', '3.5 GB'), array(backupSize(null), backupSize(512), backupSize(1536), backupSize(2097152), backupSize(3758096384)), 'sizes for people');
 
+// ---- sitting a contest virtually: its phases, and the standings replayed
+require_once __DIR__ . '/../app/libs/uoj-virtual-lib.php';
+
+$virtual = array('start_time' => '2026-10-10 14:00:00', 'last_min' => 180);
+check_same('upcoming', virtualPhase($virtual, $at('2026-10-10 13:59:59')), 'a virtual participation that was reserved');
+check_same('running', virtualPhase($virtual, $at('2026-10-10 14:00:00')), 'the moment it starts');
+check_same('running', virtualPhase($virtual, $at('2026-10-10 16:59:59')), 'its last second');
+check_same('ended', virtualPhase($virtual, $at('2026-10-10 17:00:00')), 'it lasts as long as the contest did');
+check_same(array(0, 1800, 10800), array(virtualElapsed($virtual, $at('2026-10-10 13:00:00')), virtualElapsed($virtual, $at('2026-10-10 14:30:00')), virtualElapsed($virtual, $at('2026-10-11 09:00:00'))), 'how much of it has gone by');
+check_same(array('0:00:00', '0:05:09', '2:59:59', '26:00:00'), array(virtualClock(0), virtualClock(309), virtualClock(10799), virtualClock(93600)), 'a clock for people');
+
+$now = $at('2026-10-10 12:00:00');
+check_same('', virtualStartError('', $now), 'starting now');
+check_same('', virtualStartError('2026-10-10 19:30:00', $now), 'reserving this evening');
+check_same('', virtualStartError('2026-11-09 12:00:00', $now), 'reserving thirty days ahead');
+foreach (array('2026-10-10 11:00:00', '2026-11-09 12:00:01', '2026-10-10T19:30', 'tomorrow', '2026-13-40 00:00:00', array('x')) as $bad) {
+	check_same(true, virtualStartError($bad, $now) !== '', 'refused as the start of a virtual participation: ' . json_encode($bad));
+}
+
+// a contest of three problems and an hour: ann solved A after 5 minutes and B after 40,
+// bob solved A after 30 and never got anything for C
+$people = array(array('ann', 1500, ''), array('bob', 1600, '小波'), array('20260101', 1500, ''));
+$final = array(array('ann', 0, 100, 300, 11), array('ann', 1, 60, 2400, 12), array('bob', 0, 100, 1800, 13), array('bob', 2, 0, 0, 14));
+$me = array('username' => 'me', 'nickname' => '', 'rating' => 1500);
+$board = function($mine, $elapsed, $ended = false, $version = 2) use ($people, $final, $me) {
+	$lines = array();
+	foreach (virtualStandings($people, $final, $me, $mine, $elapsed, $ended, $version) as $row) {
+		$lines[] = $row['rank'] . ' ' . $row['username'] . ($row['virtual'] ? '*' : '') . ' ' . $row['score'] . '/' . $row['penalty'];
+	}
+	return join(', ', $lines);
+};
+check_same('1 me* 0/0, 1 20260101 0/0, 1 ann 0/0, 1 bob 0/0', $board(array(), 0), 'at the start nobody has anything');
+check_same('1 ann 100/300, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $board(array(), 600), 'ten minutes in, ann has her first problem');
+check_same('1 ann 100/300, 2 me* 100/900, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 900, 0, 100)), 1000), 'solving it later ranks behind');
+check_same('1 me* 100/200, 2 ann 100/300, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 200, 0, 100)), 1000), 'and sooner ranks ahead');
+check_same('1 ann 160/2700, 2 me* 100/900, 3 bob 100/1800, 4 20260101 0/0', $board(array(array(21, 900, 0, 100)), 3000), 'the others get what they got when they got it');
+check_same('1 me* 100/300, 1 ann 100/300, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 300, 0, 100)), 600), 'the same score at the same time is the same rank');
+// the last submission to a problem is the one that counts, as in a contest
+check_same('1 ann 100/300, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $board(array(array(21, 200, 0, 100), array(22, 500, 0, 0)), 600), 'a later submission that fails takes the points away');
+check_same('1 ann 100/300, 2 20260101 0/0, 2 bob 0/0, 4 me* 0/500', $board(array(array(21, 200, 0, 100), array(22, 500, 0, 0)), 600, false, 1), 'with the time of it, by the old way of counting');
+check_same('1 me* 100/200, 2 ann 100/300, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 200, 0, 100), array(22, 900, 0, 0)), 600), 'what is submitted later has not happened yet');
+// a zero says nothing about when it was earned, so it is shown when everything is
+$cells_of = function($username, $elapsed, $ended) use ($people, $final, $me) {
+	foreach (virtualStandings($people, $final, $me, array(), $elapsed, $ended) as $row) {
+		if ($row['username'] === $username && !$row['virtual']) {
+			return array_keys($row['cells']);
+		}
+	}
+};
+check_same(array(0), $cells_of('bob', 3600, false), 'a zero is not shown while the participation runs');
+check_same(array(0, 2), $cells_of('bob', 3600, true), 'and is when it is over');
+check_same('20260101', virtualStandings($people, $final, $me, array(), 0, false)[1]['username'], 'a username that is a number is a string in the standings');
+// who sat the real contest and sits it again is there twice: as they were, and as they are now
+$again = virtualStandings($people, $final, array('username' => 'ann', 'nickname' => '', 'rating' => 1500), array(array(31, 100, 0, 100)), 600, false);
+check_same(array('ann', true, 'ann', false), array($again[0]['username'], $again[0]['virtual'], $again[1]['username'], $again[1]['virtual']), 'a contestant who sits the contest again');
+

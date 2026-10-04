@@ -468,6 +468,7 @@ EOD;
 	}
 	
 	function echoContestFinished() {
+		global $contest, $myUser;
 		$title = UOJLocale::get('contests::contest ended');
 		echo <<<EOD
  		<div class="card border-info">
@@ -476,6 +477,10 @@ EOD;
  			</div>
  		</div>
 EOD;
+		// the contest can be sat again, alone and against the clock
+		if (can($myUser, 'contest.virtual', $contest)) {
+			echo '<a class="btn btn-outline-primary btn-block top-buffer-md" id="link-virtual" href="/contest/', $contest['id'], '/virtual">虚拟参赛</a>';
+		}
 	}
 	
 	$page_header = HTML::stripTags($contest['name']) . ' - ';

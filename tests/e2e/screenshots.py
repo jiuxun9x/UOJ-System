@@ -125,9 +125,41 @@ def seed():
     teacher.form(new_training, "save", title="第二章 树与二叉树", status="draft", description_md="")
     uoj.wait_submission(students[0].submit(public_id, AB))
     uoj.wait_submission(students[2].submit(public_id, AB_WRONG))
+
+    # a contest of the site that is over, and a student who sits it again
+    second_public = admin.create_problem(ab_problem_files())
+    db("update problems set title = '括号匹配' where id = %d" % second_public)
+    contest_id = admin.new_contest("2026 秋 月赛（一）", minutes=180)
+    admin.contest_commands(contest_id, "problems", "+%d\n+%d" % (public_id, second_public))
+    for client in students[:2]:
+        client.register_for_contest(contest_id)
+    uoj.move_contest(contest_id, -600, minutes=180)
+    handed_in = [
+        (students[0].submit_in_contest(contest_id, public_id, AB), 1200),
+        (students[0].submit_in_contest(contest_id, second_public, AB), 5400),
+        (students[1].submit_in_contest(contest_id, public_id, AB), 3000),
+        (students[1].submit_in_contest(contest_id, second_public, AB_WRONG), 7000),
+    ]
+    uoj.wait_idle()
+    uoj.move_contest(contest_id, -5 * 86400, minutes=180)
+    for submission_id, seconds in handed_in:
+        db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d second) where id = %d"
+           % (contest_id, seconds, submission_id))  # fmt: skip
+    admin.submit_form("/contest/%d" % contest_id, "start_test")
+    uoj.wait_idle()
+    admin.submit_form("/contest/%d" % contest_id, "publish_result")
+    admin.form("/contest/%d/manage" % contest_id, "allow", names="\n".join(number for number, real_name in STUDENTS[:5]))
+    sitter = students[2]
+    sitter.form("/contest/%d/virtual" % contest_id, "start")
+    virtual_one = sitter.submit(public_id, AB, path="/contest/%d/problem/%d" % (contest_id, public_id))
+    uoj.wait_submission(virtual_one)
+    # an hour and a half into it
+    db("update contest_virtuals set start_time = '%s' where contest_id = %d" % (uoj.web_time(-5400), contest_id))
+    db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5400 + 2100), virtual_one))
     uoj.wait_idle()
     return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
-            "admin": admin, "past": past, "current": current, "training": training, "problem": own_id}  # fmt: skip
+            "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
+            "sitter": sitter, "contest": contest_id}  # fmt: skip
 
 
 def pages(seeded):
@@ -140,6 +172,10 @@ def pages(seeded):
         ("problem-statement", "student", d + "/problem/%d" % seeded["problem"]),
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
         ("monitor", "admin", "/super-manage/monitor"),
+        ("contests", "student", "/contests"),
+        ("contest-access", "admin", "/contest/%d/manage#tab-access" % seeded["contest"]),
+        ("virtual", "sitter", "/contest/%d/virtual" % seeded["contest"]),
+        ("virtual-standings", "sitter", "/contest/%d/virtual?tab=standings" % seeded["contest"]),
         ("trainings-student", "student", d + "/trainings"),
         ("trainings-teacher", "teacher", d + "/trainings"),
         ("training-student", "student", training),

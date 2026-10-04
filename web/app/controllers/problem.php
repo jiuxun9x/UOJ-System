@@ -49,6 +49,8 @@
 	
 	$is_in_contest = false;
 	$ban_in_contest = false;
+	// who sits the contest virtually right now: array of the participation, or null
+	$running_virtual = null;
 	if ($contest != null) {
 		if (!can($myUser, 'contest.assist', $contest)) {
 			if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
@@ -66,6 +68,14 @@
 					become404Page();
 				}
 				$ban_in_contest = !can($myUser, 'problem.view', $problem);
+			}
+		}
+		// Somebody who sits the contest virtually submits to its problems while that lasts,
+		// to the ones that are still hidden as well: they are problems of the contest to them.
+		if ($contest['cur_progress'] == CONTEST_FINISHED && can($myUser, 'contest.virtual', $contest)) {
+			$running_virtual = runningVirtual($contest['id'], $myUser);
+			if ($running_virtual) {
+				$ban_in_contest = false;
 			}
 		}
 	} elseif (!$homework) {
@@ -201,7 +211,7 @@
 			}
 			return '';
 		};
-		$zip_answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($homework ? homeworkUrl($domain, $homework) : '/submissions');
+		$zip_answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($running_virtual ? "/contest/{$contest['id']}/virtual" : ($homework ? homeworkUrl($domain, $homework) : '/submissions'));
 		$zip_answer_form->runAtServer();
 	}
 	
@@ -216,7 +226,7 @@
 		}
 		return '';
 	};
-	$answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($homework ? homeworkUrl($domain, $homework) : '/submissions');
+	$answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($running_virtual ? "/contest/{$contest['id']}/virtual" : ($homework ? homeworkUrl($domain, $homework) : '/submissions'));
 	$answer_form->runAtServer();
 
 	if ($custom_test_requirement) {
@@ -295,6 +305,14 @@ EOD
 <script type="text/javascript">
 checkContestNotice(<?= $contest['id'] ?>, '<?= UOJTime::$time_now_str ?>');
 $('#contest-countdown').countdown(<?= $contest['end_time']->getTimestamp() - UOJTime::$time_now->getTimestamp() ?>);
+</script>
+<?php elseif ($running_virtual): ?>
+<div class="alert alert-success py-2 clearfix" id="virtual-banner">
+	虚拟参赛进行中，这道题的提交会计入你的虚拟成绩。
+	<a class="alert-link" href="/contest/<?= $contest['id'] ?>/virtual">回到虚拟参赛</a>
+</div>
+<script type="text/javascript">
+$('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) + $running_virtual['last_min'] * 60 - UOJTime::$time_now->getTimestamp() ?>);
 </script>
 <?php endif ?>
 <?php else: ?>
