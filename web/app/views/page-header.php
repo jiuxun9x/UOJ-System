@@ -144,6 +144,7 @@
 		<script type="text/x-mathjax-config">
 			MathJax.Hub.Config({
 				showProcessingMessages: false,
+				messageStyle: "none",
 				tex2jax: {
 					inlineMath: [["$", "$"], ["\\\\(", "\\\\)"]],
 					processEscapes:true
