@@ -6,7 +6,7 @@
 	}
 	genMoreContestInfo($contest);
 
-	if (!hasContestPermission(Auth::user(), $contest)) {
+	if (!can($myUser, 'contest.assist', $contest)) {
 		if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 			header("Location: /contest/{$contest['id']}/register");
 			die();
@@ -38,7 +38,7 @@
 		)
 	);
 	
-	if (hasContestPermission(Auth::user(), $contest)) {
+	if (can($myUser, 'contest.assist', $contest)) {
 		$tabs_info['backstage'] = array(
 			'name' => UOJLocale::get('contests::contest backstage'),
 			'url' => "/contest/{$contest['id']}/backstage"
@@ -78,7 +78,7 @@
 		}
 	}
 	
-	if (isSuperUser($myUser)) {
+	if (can($myUser, 'contest.manage', $contest)) {
 		if (CONTEST_PENDING_FINAL_TEST <= $contest['cur_progress'] && $contest['cur_progress'] <= CONTEST_TESTING) {
 			$start_test_form = new UOJForm('start_test');
 			$start_test_form->handle = function() {
@@ -190,7 +190,7 @@ EOD;
 			$post_question = null;
 		}
 	} elseif ($cur_tab == 'backstage') {
-		if (isSuperUser(Auth::user())) {
+		if (can($myUser, 'contest.manage', $contest)) {
 			$post_notice = new UOJForm('post_notice');
 			$post_notice->addInput('title', 'text', '标题', '',
 				function($title) {
@@ -221,7 +221,7 @@ EOD;
 			$post_notice = null;
 		}
 		
-		if (hasContestPermission(Auth::user(), $contest)) {
+		if (can($myUser, 'contest.assist', $contest)) {
 			$reply_question = new UOJForm('reply_question');
 			$reply_question->addHidden('rid', '0',
 				function($id) {
@@ -396,7 +396,7 @@ EOD;
 		$contest_data = queryContestData($contest);
 		calcStandings($contest, $contest_data, $score, $standings);
 		
-		if ($contest['cur_progress'] >= CONTEST_FINISHED && hasContestPermission(Auth::user(), $contest)) {
+		if ($contest['cur_progress'] >= CONTEST_FINISHED && can(Auth::user(), 'contest.assist', $contest)) {
 			echo <<<EOD
 				<div>
 					<a class="btn btn-info" href="/contest/{$contest['id']}/export_standings">下载排名</a>
@@ -524,7 +524,7 @@ EOD;
 	<?php endif?>
 	
 		<a href="/contest/<?=$contest['id']?>/registrants" class="btn btn-info btn-block"><?= UOJLocale::get('contests::contest registrants') ?></a>
-		<?php if (isSuperUser($myUser)): ?>
+		<?php if (can($myUser, 'contest.manage', $contest)): ?>
 		<a href="/contest/<?=$contest['id']?>/manage" class="btn btn-primary btn-block">管理</a>
 		<?php if (isset($start_test_form)): ?>
 		<div class="top-buffer-sm">

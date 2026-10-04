@@ -2,7 +2,7 @@
 	requirePHPLib('form');
 	requirePHPLib('judger');
 	
-	if ($myUser == null || !isSuperUser($myUser)) {
+	if (!can($myUser, 'site.manage')) {
 		become403Page();
 	}
 	

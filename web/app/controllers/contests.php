@@ -86,7 +86,7 @@ EOD;
 		array('page_len' => 100,
 			'print_after_table' => function() {
 				global $myUser;
-				if (isSuperUser($myUser)) {
+				if (can($myUser, 'contest.create')) {
 					echo '<div class="text-right">';
 					echo '<a href="/contest/new" class="btn btn-primary">'.UOJLocale::get('contests::add new contest').'</a>';
 					echo '</div>';

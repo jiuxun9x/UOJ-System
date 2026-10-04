@@ -7,7 +7,7 @@
 				become404Page();
 			}
 			
-			$visible = isProblemVisibleToUser($problem, $myUser);
+			$visible = can($myUser, 'problem.view', $problem);
 			if (!$visible && $myUser != null) {
 				$result = DB::query("select contest_id from contests_problems where problem_id = {$_GET['id']}");
 				while (list($contest_id) = DB::fetch($result, MYSQLI_NUM)) {
@@ -32,7 +32,7 @@
 			if (!validateUInt($_GET['id']) || !($problem = queryProblemBrief($_GET['id']))) {
 				become404Page();
 			}
-			if (!hasProblemPermission($myUser, $problem)) {
+			if (!can($myUser, 'problem.manage', $problem)) {
 				become404Page();
 			}
 			if (!validateUInt($_GET['version']) || !($version_row = queryProblemDataVersion($problem['id'], $_GET['version']))) {

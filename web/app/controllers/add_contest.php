@@ -1,7 +1,7 @@
 <?php
 	requirePHPLib('form');
 	
-	if (!isSuperUser($myUser)) {
+	if (!can($myUser, 'contest.create')) {
 		become403Page();
 	}
 	$time_form = new UOJForm('time');

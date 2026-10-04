@@ -1,37 +1,5 @@
 <?php
 
-function hasProblemPermission($user, $problem) {
-	if ($user == null) {
-		return false;
-	}
-	if (isSuperUser($user)) {
-		return true;
-	}
-	return DB::selectFirst("select * from problems_permissions where username = '{$user['username']}' and problem_id = {$problem['id']}") != null;
-}
-function hasViewPermission($str,$user,$problem,$submission) {
-	if ($str=='ALL') {
-		return true;
-	}
-	if ($str=='ALL_AFTER_AC') {
-		return hasAC($user,$problem);
-	}
-	if ($str=='SELF') {
-		return $submission['submitter']==$user['username'];
-	}
-	return false;
-}
-
-function hasContestPermission($user, $contest) {
-	if ($user == null) {
-		return false;
-	}
-	if (isSuperUser($user)) {
-		return true;
-	}
-	return DB::selectFirst("select * from contests_permissions where username = '{$user['username']}' and contest_id = {$contest['id']}") != null;
-}
-
 function hasRegistered($user, $contest) {
 	return DB::selectFirst("select * from contests_registrants where username = '${user['username']}' and contest_id = ${contest['id']}") != null;
 }
@@ -104,68 +72,6 @@ function queryBlogTags($id) {
 }
 function queryBlogComment($id) {
 	return DB::selectFirst("select * from blogs_comments where id='$id'", MYSQLI_ASSOC);
-}
-
-function isProblemVisibleToUser($problem, $user) {
-	return !$problem['is_hidden'] || hasProblemPermission($user, $problem);
-}
-function isContestProblemVisibleToUser($problem, $contest, $user) {
-	if (isProblemVisibleToUser($problem, $user)) {
-		return true;
-	}
-	if ($contest['cur_progress'] >= CONTEST_PENDING_FINAL_TEST) {
-		return true;
-	}
-	if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
-		return false;
-	}
-	return hasRegistered($user, $contest);
-}
-
-function isSubmissionVisibleToUser($submission, $problem, $user) {
-	if (isSuperUser($user)) {
-		return true;
-	} elseif (!$submission['is_hidden']) {
-		return true;
-	} else {
-		return hasProblemPermission($user, $problem);
-	}
-}
-function isHackVisibleToUser($hack, $problem, $user) {
-	if (isSuperUser($user)) {
-		return true;
-	} elseif (!$hack['is_hidden']) {
-		return true;
-	} else {
-		return hasProblemPermission($user, $problem);
-	}
-}
-
-function isSubmissionFullVisibleToUser($submission, $contest, $problem, $user) {
-	if (isSuperUser($user)) {
-		return true;
-	} elseif (!$contest) {
-		return true;
-	} elseif ($contest['cur_progress'] > CONTEST_IN_PROGRESS) {
-		return true;
-	} elseif ($submission['submitter'] == $user['username']) {
-		return true;
-	} else {
-		return hasProblemPermission($user, $problem);
-	}
-}
-function isHackFullVisibleToUser($hack, $contest, $problem, $user) {
-	if (isSuperUser($user)) {
-		return true;
-	} elseif (!$contest) {
-		return true;
-	} elseif ($contest['cur_progress'] > CONTEST_IN_PROGRESS) {
-		return true;
-	} elseif ($hack['hacker'] == $user['username']) {
-		return true;
-	} else {
-		return hasProblemPermission($user, $problem);
-	}
 }
 
 function deleteBlog($id) {

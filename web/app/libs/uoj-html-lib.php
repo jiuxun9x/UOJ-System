@@ -372,17 +372,9 @@ function echoSubmissionsList($cond, $tail, $config, $user) {
 	
 	$table_name = isset($config['table_name']) ? $config['table_name'] : 'submissions';
 	
-	if (!isSuperUser($user)) {
-		if ($user != null) {
-			$permission_cond = "submissions.is_hidden = false or (submissions.is_hidden = true and submissions.problem_id in (select problem_id from problems_permissions where username = '{$user['username']}'))";
-		} else {
-			$permission_cond = "submissions.is_hidden = false";
-		}
-		if ($cond !== '1') {
-			$cond = "($cond) and ($permission_cond)";
-		} else {
-			$cond = $permission_cond;
-		}
+	$permission_cond = visibleSubmissionsCond($user);
+	if ($permission_cond !== '1') {
+		$cond = $cond !== '1' ? "($cond) and ($permission_cond)" : $permission_cond;
 	}
 	
 	$table_config = isset($config['table_config']) ? $config['table_config'] : null;
@@ -1032,17 +1024,9 @@ function echoHacksList($cond, $tail, $config, $user) {
 	}
 	$header_row .= '</tr>';
 
-	if (!isSuperUser($user)) {
-		if ($user != null) {
-			$permission_cond = "is_hidden = false or (is_hidden = true and problem_id in (select problem_id from problems_permissions where username = '{$user['username']}'))";
-		} else {
-			$permission_cond = "is_hidden = false";
-		}
-		if ($cond !== '1') {
-			$cond = "($cond) and ($permission_cond)";
-		} else {
-			$cond = $permission_cond;
-		}
+	$permission_cond = visibleHacksCond($user);
+	if ($permission_cond !== '1') {
+		$cond = $cond !== '1' ? "($cond) and ($permission_cond)" : $permission_cond;
 	}
 
 	echoLongTable($col_names, 'hacks', $cond, $tail, $header_row,

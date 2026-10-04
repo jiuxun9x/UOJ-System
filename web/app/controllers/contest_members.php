@@ -6,7 +6,7 @@
 	}
 	genMoreContestInfo($contest);
 	
-	$has_contest_permission = hasContestPermission($myUser, $contest);
+	$has_contest_permission = can($myUser, 'contest.assist', $contest);
 	$show_ip = $has_contest_permission;
 	
 	if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {

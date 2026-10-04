@@ -95,7 +95,7 @@ class UOJContext {
 					case 'userid':
 						return self::$data['user']['username'];
 					case 'hasBlogPermission':
-						return Auth::check() && (isSuperUser(Auth::user()) || Auth::id() == self::$data['user']['username']);
+						return can(Auth::user(), 'blog.manage', self::$data['user']['username']);
 					case 'isHis':
 						if (!isset($args[0])) {
 							return false;

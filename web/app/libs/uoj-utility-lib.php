@@ -129,9 +129,6 @@ function blog_name_decode($name) {
 	return $name;
 }
 
-function isSuperUser($user) {
-	return $user != null && $user['usergroup'] == 'S';
-}
 function getProblemExtraConfig($problem) {
 	$extra_config = json_decode($problem['extra_config'], true);
 	

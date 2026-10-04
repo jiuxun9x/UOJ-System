@@ -42,7 +42,7 @@
 			<?php if ($is_preview): ?>
   			<li class="list-inline-item"><a href="<?= HTML::blog_url(UOJContext::userid(), '/post/'.$blog['id']) ?>">阅读全文</a></li>
   			<?php endif ?>
-  			<?php if (Auth::check() && (isSuperUser(Auth::user()) || Auth::id() == $blog['poster'])): ?>
+  			<?php if (can(Auth::user(), 'blog.manage', $blog['poster'])): ?>
 			<li class="list-inline-item"><a href="<?=HTML::blog_url(UOJContext::userid(), '/'.$blog_type.'/'.$blog['id'].'/write')?>">修改</a></li>
 			<li class="list-inline-item"><a href="<?=HTML::blog_url(UOJContext::userid(), '/post/'.$blog['id'].'/delete')?>">删除</a></li>
 			<?php endif ?>

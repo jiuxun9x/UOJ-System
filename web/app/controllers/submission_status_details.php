@@ -20,7 +20,7 @@ foreach ($_GET['get'] as $id) {
 	}
 	
 	$problem = queryProblemBrief($submission['problem_id']);
-	if (!isSubmissionVisibleToUser($submission, $problem, Auth::user())) {
+	if (!can(Auth::user(), 'submission.view', $submission)) {
 		become403Page();
 	}
 	

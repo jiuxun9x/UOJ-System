@@ -15,11 +15,11 @@
 		$contest = null;
 	}
 
-	if (!isHackVisibleToUser($hack, $problem, $myUser)) {
+	if (!can($myUser, 'hack.view', $hack)) {
 		become403Page();
 	}
 	
-	if (isSuperUser($myUser)) {
+	if (can($myUser, 'hack.delete', $hack)) {
 		$delete_form = new UOJForm('delete');
 		$delete_form->handle = function() {
 			global $hack;
@@ -33,21 +33,14 @@
 		$delete_form->runAtServer();
 	}
 	
-	$should_show_content = hasViewPermission($problem_extra_config['view_content_type'], $myUser, $problem, $submission);
-	$should_show_all_details = hasViewPermission($problem_extra_config['view_all_details_type'], $myUser, $problem, $submission);
-	$should_show_details = hasViewPermission($problem_extra_config['view_details_type'], $myUser, $problem, $submission);
-	$should_show_details_to_me = isSuperUser($myUser);
-	if ($hack['success'] === null) {
-		$should_show_all_details = false;
-	}
-	if (!isSubmissionFullVisibleToUser($submission, $contest, $problem, $myUser)
-		|| !isHackFullVisibleToUser($hack, $contest, $problem, $myUser)) {
-		$should_show_content = $should_show_all_details = false;
-	}
+	$hack['submission'] = $submission;
+	$should_show_content = can($myUser, 'hack.view_source', $hack);
+	$should_show_all_details = $hack['success'] !== null && can($myUser, 'hack.view_details', $hack);
+	$should_show_details_to_me = can($myUser, 'hack.view_final_details', $hack);
 	
 	if ($should_show_all_details) {
 		$styler = new HackDetailsStyler();
-		if (!$should_show_details) {
+		if (!can($myUser, 'hack.view_test_details', $hack)) {
 			$styler->fade_all_details = true;
 			$styler->show_small_tip = false;
 		}

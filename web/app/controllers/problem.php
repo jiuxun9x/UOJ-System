@@ -22,7 +22,7 @@
 	$is_in_contest = false;
 	$ban_in_contest = false;
 	if ($contest != null) {
-		if (!hasContestPermission($myUser, $contest)) {
+		if (!can($myUser, 'contest.assist', $contest)) {
 			if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 				become404Page();
 			} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {
@@ -33,11 +33,11 @@
 					DB::update("update contests_registrants set has_participated = 1 where username = '{$myUser['username']}' and contest_id = {$contest['id']}");
 				}
 			} else {
-				$ban_in_contest = !isProblemVisibleToUser($problem, $myUser);
+				$ban_in_contest = !can($myUser, 'problem.view', $problem);
 			}
 		}
 	} else {
-		if (!isProblemVisibleToUser($problem, $myUser)) {
+		if (!can($myUser, 'problem.view', $problem)) {
 			become404Page();
 		}
 	}
@@ -61,7 +61,7 @@
 		} else {
 			ob_start();
 			$styler = new CustomTestSubmissionDetailsStyler();
-			if (!hasViewPermission($problem_extra_config['view_details_type'], $myUser, $problem, $submission)) {
+			if (!permissionViewTypeAllows('view_details_type', $myUser, array('problem_id' => $problem['id'], 'submitter' => null))) {
 				$styler->fade_all_details = true;
 			}
 			echoJudgementDetails($custom_test_submission_result['details'], $styler, 'custom_test_details');
@@ -244,7 +244,7 @@ $('#contest-countdown').countdown(<?= $contest['end_time']->getTimestamp() - UOJ
 	<?php if ($custom_test_requirement): ?>
 	<li class="nav-item"><a class="nav-link" href="#tab-custom-test" role="tab" data-toggle="tab"><span class="glyphicon glyphicon-console"></span> <?= UOJLocale::get('problems::custom test') ?></a></li>
 	<?php endif ?>
-	<?php if (hasProblemPermission($myUser, $problem)): ?>
+	<?php if (can($myUser, 'problem.manage', $problem)): ?>
 	<li class="nav-item"><a class="nav-link" href="/problem/<?= $problem['id'] ?>/manage/statement" role="tab"><?= UOJLocale::get('problems::manage') ?></a></li>
 	<?php endif ?>
 	<?php if ($contest): ?>

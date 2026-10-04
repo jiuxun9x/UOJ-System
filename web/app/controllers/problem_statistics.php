@@ -6,11 +6,11 @@
 	$contest = validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
 	if ($contest != null) {
 		genMoreContestInfo($contest);
-		if (!isContestProblemVisibleToUser($problem, $contest, $myUser)) {
+		if (!canViewContestProblem($myUser, $problem, $contest)) {
 			become404Page();
 		}
 	} else {
-		if (!isProblemVisibleToUser($problem, $myUser)) {
+		if (!can($myUser, 'problem.view', $problem)) {
 			become404Page();
 		}
 	}
@@ -61,7 +61,7 @@
 
 <h1 class="page-header text-center"><?= $problem['title'] ?> <?= UOJLocale::get('problems::statistics') ?></h1>
 
-<?php if ($contest && !hasContestPermission($myUser, $contest) && $contest['cur_progress'] <= CONTEST_IN_PROGRESS): ?>
+<?php if ($contest && !can($myUser, 'contest.assist', $contest) && $contest['cur_progress'] <= CONTEST_IN_PROGRESS): ?>
 <h2 class="text-center text-muted">比赛尚未结束</h2>
 <?php else: ?>
 <h2 class="text-center"><?= UOJLocale::get('problems::accepted submissions') ?></h2>

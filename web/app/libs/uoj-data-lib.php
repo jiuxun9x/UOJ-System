@@ -659,7 +659,7 @@
 				if (isset($this->problem_extra_config['custom_judger_fingerprint'])) {
 					$pending['custom_judger_fingerprint'] = null;
 				}
-			} elseif (isSuperUser($this->user)) {
+			} elseif (can($this->user, 'problem.approve_judger')) {
 				$pending['custom_judger_fingerprint'] = dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf);
 			}
 			foreach (array('after', 'hack_id') as $name) {
@@ -688,7 +688,7 @@
 		// Anybody else, including the sync after a successful hack that no user asked for, may
 		// only rebuild exactly what a super user synced before.
 		private function may_use_custom_judger() {
-			if (isSuperUser($this->user)) {
+			if (can($this->user, 'problem.approve_judger')) {
 				return true;
 			}
 			if (!isset($this->problem_extra_config['custom_judger_fingerprint'])) {

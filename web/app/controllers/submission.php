@@ -16,7 +16,7 @@
 	} else {
 		$contest = null;
 	}
-	if (!isSubmissionVisibleToUser($submission, $problem, $myUser)) {
+	if (!can($myUser, 'submission.view', $submission)) {
 		become403Page();
 	}
 	
@@ -64,7 +64,7 @@
 		$hack_form->runAtServer();
 	}
 
-	if ($submission['status'] == 'Judged' && hasProblemPermission($myUser, $problem)) {
+	if ($submission['status'] == 'Judged' && can($myUser, 'submission.rejudge', $submission)) {
 		$rejudge_form = new UOJForm('rejudge');
 		$rejudge_form->handle = function() {
 			global $submission;
@@ -76,7 +76,7 @@
 		$rejudge_form->runAtServer();
 	}
 	
-	if (isSuperUser($myUser)) {
+	if (can($myUser, 'submission.delete', $submission)) {
 		$delete_form = new UOJForm('delete');
 		$delete_form->handle = function() {
 			global $submission;
@@ -93,30 +93,17 @@
 		$delete_form->runAtServer();
 	}
 	
-	$should_show_content = hasViewPermission($problem_extra_config['view_content_type'], $myUser, $problem, $submission);
-	$should_show_all_details = hasViewPermission($problem_extra_config['view_all_details_type'], $myUser, $problem, $submission);
-	$should_show_details = hasViewPermission($problem_extra_config['view_details_type'], $myUser, $problem, $submission);
-	$should_show_details_to_me = isSuperUser($myUser);
-	if (explode(', ', $submission['status'])[0] != 'Judged') {
+	$is_contest_staff = $contest != null && can($myUser, 'contest.assist', $contest);
+	$should_show_content = can($myUser, 'submission.view_source', $submission);
+	$should_show_all_details = can($myUser, 'submission.view_details', $submission);
+	$should_show_details_to_me = can($myUser, 'submission.view_final_details', $submission);
+	if ($out_status != 'Judged' && !$is_contest_staff) {
 		$should_show_all_details = false;
-	}
-	if ($contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
-		if ($contest['extra_config']["problem_{$submission['problem_id']}"] === 'no-details') {
-			$should_show_details = false;
-		}
-	}
-	if (!isSubmissionFullVisibleToUser($submission, $contest, $problem, $myUser)) {
-		$should_show_content = $should_show_all_details = false;
-	}
-	if ($contest != null && hasContestPermission($myUser, $contest)) {
-		$should_show_details_to_me = true;
-		$should_show_content = true;
-		$should_show_all_details = true;
 	}
 	
 	if ($should_show_all_details) {
 		$styler = new SubmissionDetailsStyler();
-		if ((!$should_show_details || ($contest['extra_config']['contest_type']=='IOI' && $contest['cur_progress'] == CONTEST_IN_PROGRESS)) && !hasContestPermission($myUser, $contest)) {
+		if (!can($myUser, 'submission.view_test_details', $submission)) {
 			$styler->fade_all_details = true;
 			$styler->show_small_tip = false;
 			if ($contest['extra_config']['contest_type']=='IOI' && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
@@ -131,7 +118,7 @@
 <?php echoUOJPageHeader(UOJLocale::get('problems::submission').' #'.$submission['id']) ?>
 <?php echoSubmissionsListOnlyOne($submission, array(), $myUser) ?>
 
-<?php if (hasProblemPermission($myUser, $problem)): ?>
+<?php if (can($myUser, 'problem.manage', $problem)): ?>
 	<?php
 		// who judged the submission, with which data and which tools
 		$judgements = DB::selectAll("select * from submission_judgements where kind = 'submission' and target_id = {$submission['id']} order by id desc limit 10");

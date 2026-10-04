@@ -48,7 +48,7 @@
 							<h4 class="list-group-item-heading"><?= UOJLocale::get('motto') ?></h4>
 							<p class="list-group-item-text"><?= $esc_motto ?></p>
 						</div>
-						<?php if (isSuperUser($myUser)): ?>
+						<?php if (can($myUser, 'user.view_private', $user)): ?>
 						<div class="list-group-item">
 							<h4 class="list-group-item-heading">register time</h4>
 							<p class="list-group-item-text"><?= $user['register_time'] ?></p>

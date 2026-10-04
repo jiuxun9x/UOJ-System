@@ -6,7 +6,7 @@
 	}
 	genMoreContestInfo($contest);
 	
-	if (!isSuperUser($myUser)) {
+	if (!can($myUser, 'contest.manage', $contest)) {
 		become403Page();
 	}
 	
@@ -76,7 +76,7 @@
 			if (!validateUInt($problem_id) || !($problem = queryProblemBrief($problem_id))) {
 				return "不存在题号为{$problem_id}的题";
 			}
-			if (!hasProblemPermission(Auth::user(), $problem)) {
+			if (!can(Auth::user(), 'problem.manage', $problem)) {
 				return "无权添加题号为{$problem_id}的题";
 			}
 			return '';
@@ -115,7 +115,7 @@
 		}
 	);
 	
-	if (isSuperUser($myUser)) {
+	if (can($myUser, 'contest.rate', $contest)) {
 		$rating_k_form = new UOJForm('rating_k');
 		$rating_k_form->addInput('rating_k', 'text', 'rating 变化上限', isset($contest['extra_config']['rating_k']) ? $contest['extra_config']['rating_k'] : 400,
 			function ($x) {
@@ -202,7 +202,7 @@
 	<li class="nav-item"><a class="nav-link active" href="#tab-time" role="tab" data-toggle="tab">比赛时间</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-managers" role="tab" data-toggle="tab">管理者</a></li>
 	<li class="nav-item"><a class="nav-link" href="#tab-problems" role="tab" data-toggle="tab">试题</a></li>
-	<?php if (isSuperUser($myUser)): ?>
+	<?php if (can($myUser, 'contest.rate', $contest)): ?>
 	<li class="nav-item"><a class="nav-link" href="#tab-others" role="tab" data-toggle="tab">其它</a></li>
 	<?php endif ?>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?=$contest['id']?>" role="tab">返回</a></li>
@@ -257,7 +257,7 @@
 		<p class="text-center">命令格式：命令一行一个，+233表示把题号为233的试题加入比赛，-233表示把题号为233的试题从比赛中移除</p>
 		<?php $problems_form->printHTML(); ?>
 	</div>
-	<?php if (isSuperUser($myUser)): ?>
+	<?php if (can($myUser, 'contest.rate', $contest)): ?>
 	<div class="tab-pane" id="tab-others">
 		<div class="row">
 			<div class="col-sm-12">

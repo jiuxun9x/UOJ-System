@@ -7,7 +7,7 @@
 	
 	if ($myUser == null) {
 		redirectToLogin();
-	} elseif (hasContestPermission($myUser, $contest) || hasRegistered($myUser, $contest) || $contest['cur_progress'] != CONTEST_NOT_STARTED) {
+	} elseif (can($myUser, 'contest.assist', $contest) || hasRegistered($myUser, $contest) || $contest['cur_progress'] != CONTEST_NOT_STARTED) {
 		redirectTo('/contests');
 	}
 	

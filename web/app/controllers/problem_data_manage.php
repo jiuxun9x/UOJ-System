@@ -6,7 +6,7 @@
 	if (!validateUInt($_GET['id']) || !($problem = queryProblemBrief($_GET['id']))) {
 		become404Page();
 	}
-	if (!hasProblemPermission($myUser, $problem)) {
+	if (!can($myUser, 'problem.manage', $problem)) {
 		become403Page();
 	}
 	
@@ -168,7 +168,7 @@ $esc_extra_config
 </div>
 EOD
 	);
-	if (isSuperUser($myUser)) {
+	if (can($myUser, 'problem.edit_raw_config', $problem)) {
 		$info_form->addVInput('submission_requirement', 'text', '提交文件配置', $problem['submission_requirement'],
 			function ($submission_requirement, &$vdata) {
 				$submission_requirement = json_decode($submission_requirement, true);

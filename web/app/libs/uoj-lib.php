@@ -19,6 +19,7 @@
 	requirePHPLib('utility');
 	requirePHPLib('security');
 	requirePHPLib('contest');
+	requirePHPLib('permission');
 	requirePHPLib('html');
 	
 	Session::init();
