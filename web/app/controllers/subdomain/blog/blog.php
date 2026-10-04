@@ -54,7 +54,11 @@
 	};
 	$comment_form->ctrl_enter_submit = true;
 	
-	$comment_form->runAtServer();
+	// while blogs are switched off, the posts that are left are read, not discussed
+	$comments_open = blogsAreOpen();
+	if ($comments_open) {
+		$comment_form->runAtServer();
+	}
 	
 	$reply_form = new UOJForm('reply');
 	$reply_form->addHidden('reply_id', '0',
@@ -127,7 +131,9 @@
 	};
 	$reply_form->ctrl_enter_submit = true;
 	
-	$reply_form->runAtServer();
+	if ($comments_open) {
+		$reply_form->runAtServer();
+	}
 	
 	$comments_pag = new Paginator(array(
 		'col_names' => array('*'),
@@ -172,7 +178,7 @@
 					<div class="col-sm-6 text-right"><?= getClickZanBlock('BC', $comment['id'], $comment['zan']) ?></div>
 				</div>
 				<div class="comtbox1"><?= $comment['content'] ?></div>
-				<ul class="text-right list-inline bot-buffer-no"><li><small class="text-muted"><?= $comment['post_time'] ?></small></li><li><a id="reply-to-<?= $comment['id'] ?>" href="#">回复</a></li></ul>
+				<ul class="text-right list-inline bot-buffer-no"><li><small class="text-muted"><?= $comment['post_time'] ?></small></li><?php if ($comments_open): ?><li><a id="reply-to-<?= $comment['id'] ?>" href="#">回复</a></li><?php endif ?></ul>
 				<?php if ($replies): ?>
 				<div id="replies-<?= $comment['id'] ?>" class="comtbox5"></div>
 				<?php endif ?>
@@ -185,6 +191,7 @@
 </div>
 <?= $comments_pag->pagination() ?>
 
+<?php if ($comments_open): ?>
 <h3 class="mt-4">发表评论</h3>
 <p>可以用@mike来提到mike这个用户，mike会被高亮显示。如果你真的想打“@”这个字符，请用“@@”。</p>
 <?php $comment_form->printHTML() ?>
@@ -192,5 +199,8 @@
 <div id="div-form-reply" style="display:none">
 	<?php $reply_form->printHTML() ?>
 </div>
+<?php else: ?>
+<p class="text-muted mt-3" id="comments-closed">评论已关闭。</p>
+<?php endif ?>
 
 <?php echoUOJPageFooter() ?>

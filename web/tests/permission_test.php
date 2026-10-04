@@ -298,6 +298,13 @@ check_ability('domain.create', null, array('alice' => false, 'lead' => false, 't
 $facts->site_settings = array();
 check_same(false, siteSettingIsOn('no.such.setting'), 'a setting that does not exist');
 
+// blogs are closed until the switch is turned: then only the administrators of the site have one
+check_same(false, blogsAreOpen(), 'blogs are closed on a site where nobody opened them');
+check_same(array(true, true, false, false), array(blogExists($permission_test_users['root']), blogExists($permission_test_users['ojadmin']), blogExists($permission_test_users['teacher']), blogExists($permission_test_users['alice'])), 'the blogs that hold the announcements are the ones left');
+$facts->site_settings['blog.enabled'] = '1';
+check_same(array(true, true, true), array(blogsAreOpen(), blogExists($permission_test_users['root']), blogExists($permission_test_users['alice'])), 'everybody has a blog once they are opened');
+$facts->site_settings = array();
+
 // the settings of the site are of a kind each, and take the values of their kind only
 $kinds = siteSettings();
 check_same(465, siteSetting('mail.port'), 'a number nobody has set is what it is from the start');

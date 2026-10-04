@@ -224,7 +224,7 @@ class LocalResourcesTest(unittest.TestCase):
         admin = uoj.admin()
         problem_id = admin.create_problem(ab_problem_files())
         host = urlparse(uoj.BASE_URL).netloc
-        pages = ["/", "/problems", "/problem/%d" % problem_id, "/contests", "/submissions", "/hacks", "/blogs", "/ranklist",
+        pages = ["/", "/problems", "/problem/%d" % problem_id, "/contests", "/submissions", "/hacks", "/announcements", "/ranklist",
                  "/faq", "/domains", "/user/profile/" + uoj.ADMIN[0], "/user/modify-profile", "/user/msg", "/user/system-msg",
                  "/super-manage/users", "/super-manage/monitor", "/super-manage/settings",
                  "/problem/%d/manage/statement" % problem_id, "/problem/%d/manage/data" % problem_id]  # fmt: skip

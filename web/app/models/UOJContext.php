@@ -139,6 +139,10 @@ class UOJContext {
 		if (!validateUsername($username) || !(self::$data['user'] = queryUser($username))) {
 			become404Page();
 		}
+		// while blogs are switched off, only the administrators of the site have one
+		if (!blogExists(self::$data['user'])) {
+			become404Page();
+		}
 		if ($_GET['blog_username'] !== blog_name_encode(self::$data['user']['username'])) {
 			permanentlyRedirectTo(HTML::blog_url(self::$data['user']['username'], '/'));
 		}

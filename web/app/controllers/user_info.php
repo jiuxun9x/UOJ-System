@@ -85,7 +85,9 @@
 			<?php endif ?>
 			<?php endif ?>
 			
+			<?php if (blogExists($user)): ?>
 			<a type="button" class="btn btn-success btn-sm" href="<?= HTML::blog_url($user['username'], '/') ?>"><span class="glyphicon glyphicon-arrow-right"></span> <?= UOJLocale::get('visit his blog', $username) ?></a>
+			<?php endif ?>
 			
 			<div class="top-buffer-lg"></div>
 			<div class="list-group">

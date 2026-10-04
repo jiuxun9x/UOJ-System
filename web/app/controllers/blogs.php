@@ -1,6 +1,11 @@
 <?php
 	requirePHPLib('form');
 	
+	// while blogs are switched off, what there is to read are the announcements
+	if (!blogsAreOpen()) {
+		redirectTo('/announcements');
+	}
+	
 	function echoBlogCell($blog) {
 		echo '<tr>';
 		echo '<td>' . getBlogLink($blog['id']) . '</td>';

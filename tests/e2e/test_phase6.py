@@ -170,5 +170,87 @@ class DomainContestRatingTest(unittest.TestCase):
         )
 
 
+class BlogSwitchTest(unittest.TestCase):
+    """blogs are closed unless the system administrator opens them; announcements stay"""
+
+    def post(self, poster, title, announcement=False):
+        db("insert into blogs (title, content, content_md, post_time, poster, zan, is_hidden, type, is_draft)"
+           " values ('%s', '<p>text of %s</p>', 'text of %s', now(), '%s', 0, 0, 'B', 0)" % (title, title, title, poster))  # fmt: skip
+        blog_id = int(db_value("select max(id) from blogs where poster = '%s'" % poster))
+        if announcement:
+            db("insert into important_blogs (blog_id, level) values (%d, 0)" % blog_id)
+        return blog_id
+
+    def comment(self, client, blog_id, poster):
+        return client.submit_form("/blog/%s/post/%d" % (poster, blog_id), "comment", {"comment": "p6 comment by " + client.username})
+
+    def test_blogs_are_closed_until_the_system_administrator_opens_them(self):
+        import test_phase5 as p5
+
+        admin, visitor = uoj.admin(), uoj.Client()
+        writer, reader = p3.account("p6_blog_writer"), p3.account("p6_blog_reader")
+        oj_admin = p3.account("p6_blog_ojadmin")
+        self.assertEqual(admin.change_user("p6_blog_ojadmin", "grant:oj_admin"), "")
+        self.assertIsNone(db_value("select value from site_settings where name = 'blog.enabled'"))
+        news = self.post(uoj.ADMIN[0], "p6 期末安排", announcement=True)
+        diary = self.post("p6_blog_writer", "p6 日记")
+        comments = lambda: int(db_value("select count(*) from blogs_comments where blog_id in (%d, %d)" % (news, diary)))
+
+        # ---- closed: no blogs in the navigation, nobody but the administrators has one
+        for client in (reader, visitor):
+            self.assertNotIn('href="/blogs"', client.get("/").text)
+        r = reader.get("/blogs")
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/announcements"))
+        for client in (writer, reader, visitor):
+            for path in ("/", "/archive", "/post/%d" % diary, "/post/new/write"):
+                self.assertEqual(client.get("/blog/p6_blog_writer" + path).status_code, 404, path)
+        self.assertEqual(reader.get("/blogs/%d" % diary).headers.get("Location"), "/blog/p6_blog_writer/post/%d" % diary)
+        self.assertNotIn("/blog/p6_blog_writer", reader.get("/user/profile/p6_blog_writer").text)
+        # the announcements are there for everybody, and are not discussed
+        for client in (reader, visitor):
+            self.assertIn("p6 期末安排", client.get("/").text)
+            page = client.get("/blog/%s/post/%d" % (uoj.ADMIN[0], news))
+            self.assertEqual(page.status_code, 200)
+            self.assertIn("text of p6 期末安排", page.text)
+            self.assertIn('id="comments-closed"', page.text)
+            self.assertNotIn('id="form-comment"', page.text)
+        self.comment(reader, news, uoj.ADMIN[0])
+        self.assertEqual(comments(), 0)
+        # the administrators go on writing them
+        self.assertEqual(admin.get("/blog/%s/post/new/write" % uoj.ADMIN[0]).status_code, 200)
+        self.assertEqual(oj_admin.get("/blog/p6_blog_ojadmin/post/new/write").status_code, 200)
+
+        # ---- the switch is the system administrator's
+        settings = "/super-manage/settings"
+        self.assertEqual(oj_admin.get(settings).status_code, 403)
+        p5.site_settings(oj_admin, blog_enabled=True)
+        self.assertIsNone(db_value("select value from site_settings where name = 'blog.enabled'"))
+        self.assertIn("开放用户博客", admin.get(settings).text)
+        self.assertEqual(p5.site_settings(admin, blog_enabled=True), "")
+        try:
+            # ---- open: everybody has a blog, and posts are discussed
+            self.assertIn('href="/blogs"', reader.get("/").text)
+            self.assertEqual(reader.get("/blogs").status_code, 200)
+            self.assertIn("p6 日记", reader.get("/blogs").text)
+            self.assertEqual(reader.get("/blog/p6_blog_writer/post/%d" % diary).status_code, 200)
+            self.assertEqual(writer.get("/blog/p6_blog_writer/post/new/write").status_code, 200)
+            self.assertIn("/blog/p6_blog_writer", reader.get("/user/profile/p6_blog_writer").text)
+            page = reader.get("/blog/%s/post/%d" % (uoj.ADMIN[0], news)).text
+            self.assertIn('id="form-comment"', page)
+            self.assertNotIn('id="comments-closed"', page)
+            self.assertEqual(self.comment(reader, diary, "p6_blog_writer"), "")
+            self.assertEqual(comments(), 1)
+        finally:
+            self.assertEqual(p5.site_settings(admin, blog_enabled=False), "")
+        # ---- closed again: what was written is kept, and is out of sight
+        self.assertEqual(reader.get("/blog/p6_blog_writer/post/%d" % diary).status_code, 404)
+        self.assertEqual(db_value("select count(*) from blogs where id = %d" % diary), "1")
+        self.assertEqual(comments(), 1)
+        self.assertEqual(
+            db("select action, actor from audit_logs where resource_type = 'site_setting' and resource_id = 'blog.enabled' order by id"),
+            [["site.edit_setting", uoj.ADMIN[0]]] * 2,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

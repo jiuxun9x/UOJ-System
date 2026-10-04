@@ -201,6 +201,13 @@ function siteSettings() {
 			'help' => '关闭时，只有管理员、教师和被授予“可创建域”角色的用户能创建域。开启后，任何登录用户都能创建域，并在自己的域里新建题目、上传数据、布置作业和举办比赛。',
 			'default' => false
 		),
+		'blog.enabled' => array(
+			'type' => 'switch',
+			'group' => '博客',
+			'label' => '开放用户博客',
+			'help' => '关闭时，导航里没有博客，用户不能写博客，别人的博客页面都打不开，评论也关闭；只有管理员的博客还在，用来发公告，首页的公告照常显示。开启后，每个用户都有自己的博客，可以写文章、幻灯片和评论。关闭不会删除任何已有的文章，再开启时它们都还在。',
+			'default' => false
+		),
 		'mail.host' => array(
 			'type' => 'text',
 			'group' => '发信邮箱',
@@ -422,6 +429,19 @@ function userHasRole($user, $role) {
 // the two kinds of administrators
 function isSiteAdmin($user) {
 	return userHasRole($user, UOJ_ROLE_SYSTEM_ADMIN) || userHasRole($user, UOJ_ROLE_OJ_ADMIN);
+}
+
+// ---- blogs
+//
+// Blogs are a switch of the site, which the system administrator sets. While it is off the
+// blogs of the administrators of the site are all there is, because the announcements of
+// the site are their posts; nobody else has a blog, and nobody comments.
+function blogsAreOpen() {
+	return siteSettingIsOn('blog.enabled');
+}
+// whether a user has a blog: $owner is the row of the user
+function blogExists($owner) {
+	return blogsAreOpen() || isSiteAdmin($owner);
 }
 
 // The role of a user in a domain: 'owner' for the user the domain names as its owner, the role
