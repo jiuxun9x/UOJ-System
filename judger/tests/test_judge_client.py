@@ -574,6 +574,120 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
                     self.jc.build_problem_programs(self.root, [step], self.root)
             self.assertEqual(run_compiler.call_count, 0)
 
+    # ---- programs that were built before are not built again
+
+    def build(self, files, steps=None, binaries=True):
+        """unpack the files as the data of a problem and build its programs; the compiler is
+        one that writes down what it was asked for. Returns the folder and the builds done."""
+        data_dir = tempfile.mkdtemp(dir=self.root)
+        for name, content in files.items():
+            os.makedirs(os.path.dirname(os.path.join(data_dir, name)), exist_ok=True)
+            with open(os.path.join(data_dir, name), "wb") as f:
+                f.write(content)
+        built = []
+
+        def compiler(scratch_dir, work_path, time_limit, command, what):
+            built.append(what)
+            if binaries:
+                with open(os.path.join(data_dir, what), "wb") as f:
+                    f.write(b"binary of " + what.encode() + b" #%d" % self.builds)
+                self.builds += 1
+
+        with mock.patch.object(self.jc, "run_compiler", side_effect=compiler):
+            self.jc.build_problem_programs(data_dir, steps or [{"type": "compile", "name": "chk", "include": True}], self.root)
+        return data_dir, built
+
+    def read(self, data_dir, name):
+        with open(os.path.join(data_dir, name), "rb") as f:
+            return f.read()
+
+    CHECKER = b'#include "testlib.h"\n#include "tables.h"\nint main() {}\n'
+
+    def cache_set_up(self):
+        self.builds = 0
+        os.makedirs(os.path.join(self.root, "uoj_judger", "include"))
+        with open(os.path.join(self.root, "uoj_judger", "include", "testlib.h"), "wb") as f:
+            f.write(b"// testlib\n")
+        self.jc.include_digest = None
+
+    def test_program_that_did_not_change_is_not_built_again(self):
+        self.cache_set_up()
+        files = {"chk.cpp": self.CHECKER, "tables.h": b"int t[] = {1};\n", "input1.txt": b"1\n"}
+        first, built = self.build(files)
+        self.assertEqual(built, ["chk"])
+        # the next version of the data has other tests and the same checker
+        second, built = self.build(dict(files, **{"input1.txt": b"2\n", "input2.txt": b"3\n"}))
+        self.assertEqual(built, [])
+        self.assertEqual(self.read(second, "chk"), self.read(first, "chk"))
+        self.assertTrue(os.access(os.path.join(second, "chk"), os.X_OK))
+
+    def test_program_is_built_again_when_anything_it_is_made_of_changes(self):
+        self.cache_set_up()
+        files = {"chk.cpp": self.CHECKER, "tables.h": b"int t[] = {1};\n", "sub/deep.h": b"// deep\n"}
+        files["tables.h"] += b'#include "sub/deep.h"\n'
+        self.assertEqual(self.build(files)[1], ["chk"])
+        self.assertEqual(self.build(files)[1], [])
+        changed = {
+            "the source": {"chk.cpp": self.CHECKER + b"// changed\n"},
+            "a header it includes": {"tables.h": files["tables.h"] + b"// changed\n"},
+            "a header a header includes": {"sub/deep.h": b"// changed\n"},
+        }
+        for what, change in changed.items():
+            self.assertEqual(self.build(dict(files, **change))[1], ["chk"], what)
+        # the headers of the judger
+        with open(os.path.join(self.root, "uoj_judger", "include", "testlib.h"), "ab") as f:
+            f.write(b"// a newer testlib\n")
+        self.jc.include_digest = None
+        self.assertEqual(self.build(files)[1], ["chk"], "testlib.h")
+        # the compilers
+        self.jc.judger_identity = {"judger_version": "fedcba9876543210", "toolchain": '{"g++": "15"}'}
+        self.assertEqual(self.build(files)[1], ["chk"], "the toolchain")
+        # how it is built
+        self.assertEqual(self.build(files, [{"type": "compile", "name": "chk"}])[1], ["chk"], "the flags")
+        # and what it is called: the validator is not the checker, whatever is in it
+        self.assertEqual(self.build({"val.cpp": self.CHECKER, "tables.h": files["tables.h"], "sub/deep.h": files["sub/deep.h"]},
+                                    [{"type": "compile", "name": "val", "include": True}])[1], ["val"])  # fmt: skip
+        # none of which forgot what was built for the checker as it is now
+        self.assertEqual(self.build(files)[1], [])
+
+    def test_solution_with_an_implementer_depends_on_both(self):
+        self.cache_set_up()
+        step = [{"type": "compile", "name": "std", "impl": "implementer", "path": "require"}]
+        files = {"std.cpp": b"int solve();\n", "require/implementer.cpp": b"int main() {}\n"}
+        self.assertEqual(self.build(files, step)[1], ["std"])
+        self.assertEqual(self.build(files, step)[1], [])
+        self.assertEqual(self.build(dict(files, **{"require/implementer.cpp": b"int main() { return 0; }\n"}), step)[1], ["std"])
+
+    def test_program_is_built_every_time_when_what_it_reads_can_not_be_told(self):
+        self.cache_set_up()
+        unknowable = {
+            "another language": {"chk.pas": b"begin end.\n"},
+            "two sources": {"chk.cpp": b"int main() {}\n", "chk.c": b"int main() {}\n"},
+            "an include that is a macro": {"chk.cpp": b"#define T \"tables.h\"\n#include T\nint main() {}\n"},
+            "a file that is embedded": {"chk.cpp": b"const char d[] = {\n#embed \"input1.txt\"\n};\nint main() {}\n"},
+            "a file the assembler includes": {"chk.cpp": b'asm(".incbin \\"input1.txt\\"");\nint main() {}\n'},
+            "an include outside of the data": {"chk.cpp": b'#include "../../other/secret.h"\nint main() {}\n'},
+            "an include from anywhere on the judger": {"chk.cpp": b"#include </etc/hostname>\nint main() {}\n"},
+        }
+        for what, files in unknowable.items():
+            self.assertEqual(self.build(files)[1], ["chk"], what)
+            self.assertEqual(self.build(files)[1], ["chk"], what)
+        self.assertEqual(os.listdir(os.path.join(self.root, "uoj_judger", "cache")) if os.path.isdir(os.path.join(self.root, "uoj_judger", "cache")) else [], [])
+
+    def test_compiler_that_leaves_nothing_behind_fills_no_cache(self):
+        self.cache_set_up()
+        files = {"chk.cpp": b"int main() {}\n"}
+        self.assertEqual(self.build(files, binaries=False)[1], ["chk"])
+        self.assertEqual(self.build(files, binaries=False)[1], ["chk"])
+
+    def test_cache_keeps_the_programs_used_last(self):
+        self.cache_set_up()
+        self.jc.PROGRAM_CACHE_ENTRIES = 3
+        for n in range(5):
+            self.build({"chk.cpp": b"int main() { return %d; }\n" % n})
+            os.utime(self.jc.program_cache_path(os.listdir(self.jc.program_cache_path())[0]))
+        self.assertEqual(len(os.listdir(self.jc.program_cache_path())), 3)
+
     def run_compiler_with(self, result, message=b"", overloaded=False):
         """run run_compiler with a sandbox that writes the given result"""
 

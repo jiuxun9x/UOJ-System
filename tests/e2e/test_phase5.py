@@ -640,6 +640,39 @@ class VirtualTest(unittest.TestCase):
         self.assertEqual(sorted((row[0], row[3]) for row in rows), [("p5_vp_early", False), ("p5_vp_early", True), ("p5_vp_late", False)])
 
 
+class ProgramCacheTest(unittest.TestCase):
+    """a judger does not build again what it has built"""
+
+    def test_checker_that_did_not_change_is_not_built_again(self):
+        if uoj.N_JUDGERS != 1:
+            self.skipTest("with several judgers, which of them builds a version of the data is not told")
+        admin = uoj.admin()
+        hits = lambda: int(uoj.docker_exec(uoj.JUDGERS[0], "grep -c 'program_cache' /opt/uoj_judger/log/judge.log || true").strip() or 0)
+        # a checker no other test has
+        files = checker_problem_files()
+        files["chk.cpp"] += "// p5 program cache %s\n" % uoj.web_time()
+        before = hits()
+        problem_id = admin.create_problem(files)
+        self.assertEqual(hits(), before)
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, AB)).score, 100)
+
+        # other tests, the same checker: it is not built again
+        files["input3.txt"], files["output3.txt"] = "20 22\n", "42\n"
+        self.assertIn("上传成功", admin.upload_data(problem_id, files).text)
+        self.assertEqual(admin.sync(problem_id), "")
+        self.assertEqual(hits(), before + 1)
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, AB)).score, 100)
+        # and it is the checker of the problem that judges
+        self.assertLess(uoj.wait_submission(admin.submit(problem_id, AB_WRONG)).score, 100)
+
+        # a checker that changed is built
+        files["chk.cpp"] += "// changed\n"
+        self.assertIn("上传成功", admin.upload_data(problem_id, files).text)
+        self.assertEqual(admin.sync(problem_id), "")
+        self.assertEqual(hits(), before + 1)
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, AB)).score, 100)
+
+
 class MailTest(unittest.TestCase):
     """the mailbox the site sends from is set on the site"""
 

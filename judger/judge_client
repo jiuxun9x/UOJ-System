@@ -4,6 +4,7 @@ import json
 import sys
 import os
 import pipes
+import re
 import socket
 from threading import Thread
 import fcntl
@@ -417,6 +418,151 @@ def run_compiler(scratch_dir, work_path, time_limit, command, what):
     raise PrepareError("%s: compile error\n%s" % (what, message))
 
 
+# The programs that come with the data of a problem are kept once they are built, under a
+# name that says everything the build depends on. A checker that did not change is not built
+# again for the next version of the data, nor for the copy of the problem in another domain.
+PROGRAM_CACHE_ENTRIES = 500
+# what run/compile builds with g++ and gcc: the name of the program and one of these endings
+C_SOURCE_ENDINGS = [std + ".cpp" for std in ("", "98", "03", "11", "14", "17", "20", "23", "26")]
+C_SOURCE_ENDINGS += [std + ".c" for std in ("", "89", "99", "11", "17", "23")]
+INCLUDE_LINE = re.compile(rb"^[ \t]*#[ \t]*include\b[ \t]*(.*)$", re.MULTILINE)
+INCLUDED_FILE = re.compile(rb'^(?:"([^"\n]+)"|<([^>\n]+)>)[ \t]*(?://.*|/\*.*)?\r?$')
+# what pulls the contents of another file into a program without an #include the scan sees
+OPAQUE_SOURCE = re.compile(rb"#[ \t]*embed\b|incbin|__has_include|__has_embed")
+
+
+def program_cache_path(key=""):
+    return os.path.join(uoj_judger_path("/cache"), key)
+
+
+def program_sources(data_dir, step):
+    """the files the build of a program reads, as (name in the data, content) pairs, or None
+    where that can not be told for sure: then the program is built every time"""
+    name = step["name"]
+    sources = [f for f in os.listdir(data_dir) if f.startswith(name) and f[len(name) :] in C_SOURCE_ENDINGS]
+    if len(sources) != 1:
+        # another language, or more than one candidate
+        return None
+    roots = [sources[0]]
+    if step.get("impl") is not None:
+        ending = ".cpp" if sources[0].endswith(".cpp") else ".c"
+        roots.append(os.path.join("require", step["impl"] + ending))
+    include_dir = os.path.abspath(uoj_judger_path("/include"))
+
+    seen = {}
+    pending = list(roots)
+    while pending:
+        rel = os.path.normpath(pending.pop())
+        if rel in seen:
+            continue
+        if rel.startswith("..") or os.path.isabs(rel):
+            return None
+        path = os.path.join(data_dir, rel)
+        try:
+            with open(path, "rb") as f:
+                content = f.read()
+        except OSError:
+            return None
+        if OPAQUE_SOURCE.search(content):
+            return None
+        seen[rel] = content
+        for line in INCLUDE_LINE.findall(content):
+            found = INCLUDED_FILE.match(line.strip())
+            if not found:
+                # an #include whose file is the result of a macro
+                return None
+            included = (found.group(1) or found.group(2)).decode(errors="replace")
+            if included.startswith("/") or ".." in included.split("/"):
+                # a file somewhere else on the judger: not something to build on
+                return None
+            if found.group(1) is None:
+                continue
+            # the compiler looks beside the file that includes first, then where -I says
+            beside = os.path.join(os.path.dirname(rel), included)
+            if os.path.isfile(os.path.join(data_dir, beside)):
+                pending.append(beside)
+        if len(seen) > 200:
+            return None
+    return sorted(seen.items())
+
+
+def include_dir_digest():
+    """the headers of the judger that the programs of problems include, like testlib.h"""
+    global include_digest
+    if include_digest is None:
+        digest = hashlib.sha256()
+        root = uoj_judger_path("/include")
+        for folder, _, files in sorted(os.walk(root)):
+            for fname in sorted(files):
+                path = os.path.join(folder, fname)
+                digest.update(os.path.relpath(path, root).encode() + b"\0")
+                with open(path, "rb") as f:
+                    digest.update(hashlib.sha256(f.read()).digest())
+        include_digest = digest.hexdigest()
+    return include_digest
+
+
+include_digest = None
+
+
+def program_cache_key(data_dir, step):
+    """a name for everything the build of a program depends on, or None when it is not known"""
+    try:
+        sources = program_sources(data_dir, step)
+    except Exception:
+        traceback.print_exc()
+        return None
+    if sources is None:
+        return None
+    digest = hashlib.sha256()
+
+    def add(part):
+        digest.update(b"%d:" % len(part) + part)
+
+    add(json.dumps({key: step.get(key) for key in ("name", "include", "impl", "path")}, sort_keys=True).encode())
+    identity = describe_judger()
+    add((identity["judger_version"] + "\n" + identity["toolchain"]).encode())
+    add(include_dir_digest().encode())
+    for rel, content in sources:
+        add(rel.encode())
+        add(content)
+    return digest.hexdigest()
+
+
+def restore_cached_program(key, binary):
+    """put a program that was built before in its place, tell whether there was one"""
+    cached = program_cache_path(key)
+    if not os.path.isfile(cached):
+        return False
+    try:
+        shutil.copyfile(cached, binary)
+        os.chmod(binary, 0o755)
+        os.utime(cached)
+        return True
+    except OSError:
+        traceback.print_exc()
+        if os.path.exists(binary):
+            os.unlink(binary)
+        return False
+
+
+def store_cached_program(key, binary):
+    """keep a program that was just built; failing to keep it fails nothing"""
+    try:
+        if not os.path.isfile(binary):
+            return
+        os.makedirs(program_cache_path(), exist_ok=True)
+        tmp = program_cache_path(".tmp_%d_%s" % (os.getpid(), key))
+        shutil.copyfile(binary, tmp)
+        os.rename(tmp, program_cache_path(key))
+        entries = [program_cache_path(fname) for fname in os.listdir(program_cache_path())]
+        entries.sort(key=os.path.getmtime)
+        for path in entries[:-PROGRAM_CACHE_ENTRIES]:
+            os.unlink(path)
+    except OSError:
+        traceback.print_exc()
+
+
 def build_problem_programs(data_dir, steps, scratch_dir):
     """build the programs that come with the data of a problem: checker, validator and so on"""
     main_path = os.path.abspath(uoj_judger_path())
@@ -440,7 +586,14 @@ def build_problem_programs(data_dir, steps, scratch_dir):
                     raise PrepareError("unknown folder to build in: %r" % (step["path"],))
                 work_path = os.path.join(data_dir, "require")
                 target = "../" + name
+            key = program_cache_key(data_dir, step)
+            binary = os.path.join(data_dir, name)
+            if key is not None and restore_cached_program(key, binary):
+                log_event("program_cache", result="hit", program=name, key=key[:16])
+                continue
             run_compiler(scratch_dir, work_path, 15, command + [target], name)
+            if key is not None:
+                store_cached_program(key, binary)
         elif step.get("type") == "make":
             command = ["/usr/bin/make", "INCLUDE_PATH=" + main_path + "/include"]
             run_compiler(scratch_dir, data_dir, 60, command, "Makefile")
