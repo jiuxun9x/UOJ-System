@@ -4,3 +4,4 @@ uoj_data/
 .config.local.php
 shell.nix
 web/js/mathjax/
+.DS_Store
