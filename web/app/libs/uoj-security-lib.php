@@ -39,7 +39,7 @@ function crsf_check() {
 	} else {
 		return false;
 	}
-	return $_token === $_SESSION['_token'];
+	return is_string($_token) && isset($_SESSION['_token']) && hash_equals($_SESSION['_token'], $_token);
 }
 function crsf_defend() {
 	if (!crsf_check()) {

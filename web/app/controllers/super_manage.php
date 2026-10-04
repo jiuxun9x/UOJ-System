@@ -319,7 +319,7 @@
 	$paste_deleter = new UOJForm('paste_deleter');
 	$paste_deleter->addInput('paste_deleter_name', 'text', 'Paste ID', '',
 		function ($x, &$vdata) {
-			if (DB::selectCount("select count(*) from pastes where `index`='$x'")==0) {
+			if (!is_string($x) || !preg_match('/^[0-9a-zA-Z]{1,20}$/', $x) || DB::selectCount("select count(*) from pastes where `index`='$x'")==0) {
 				return '不合法';
 			}
 			$vdata['name'] = $x;

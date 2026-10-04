@@ -20,6 +20,9 @@ return [
 	],
 	'web' => [
 		'domain' => null,
+		// The addresses or networks of the reverse proxies in front of this server, like
+		// ['172.18.0.0/16']. X-Forwarded-Host, -Proto and -For are believed from them only.
+		'trusted-proxies' => [],
 		'main' => [
 			'protocol' => 'http',
 			'host' => '_httpHost_',

@@ -17,6 +17,7 @@ class Auth {
 		if (!validateUsername($username)) {
 			return;
 		}
+		Session::renew();
 		$_SESSION['username'] = $username;
 		if ($remember) {
 			$remember_token = DB::selectFirst("select remember_token from user_info where username = '$username'")['remember_token'];
@@ -31,11 +32,14 @@ class Auth {
 		}
 	}
 	public static function logout() {
-		unset($_SESSION['username']);
-		unset($_SESSION['last_visited']);
+		// nothing of the session survives, not even its token against forged requests
+		$_SESSION = array();
+		Session::renew();
 		Cookie::safeUnset('uoj_username', '/');
 		Cookie::safeUnset('uoj_remember_token', '/');
-		DB::update("update user_info set remember_token = '' where username = '".Auth::id()."'");
+		if (Auth::check()) {
+			DB::update("update user_info set remember_token = '' where username = '".DB::escape(Auth::id())."'");
+		}
 	}
 
 	private static function initMyUser() {
@@ -60,7 +64,8 @@ class Auth {
 				return;
 			}
 			$myUser = queryUser($username);
-			if ($myUser['remember_token'] !== $remember_token) {
+			// a user who logged out has no token, and no token is not a token to match
+			if (!$myUser || $myUser['remember_token'] === '' || !is_string($remember_token) || !hash_equals($myUser['remember_token'], $remember_token)) {
 				$myUser = null;
 			}
 			return;
@@ -76,7 +81,8 @@ class Auth {
 			}
 		}
 		if ($myUser) {
-			DB::update("update user_info set remote_addr = '".DB::escape($_SERVER['REMOTE_ADDR'])."', http_x_forwarded_for = '".DB::escape($_SERVER['HTTP_X_FORWARDED_FOR'])."' where username = '".DB::escape($myUser['username'])."'");
+			$forwarded_for = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? $_SERVER['HTTP_X_FORWARDED_FOR'] : '';
+			DB::update("update user_info set remote_addr = '".DB::escape(UOJContext::remoteAddr())."', http_x_forwarded_for = '".DB::escape($forwarded_for)."' where username = '".DB::escape($myUser['username'])."'");
 			$_SESSION['last_visited'] = time();
 		}
 	}

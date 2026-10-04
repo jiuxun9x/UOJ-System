@@ -9,12 +9,22 @@ class Cookie {
 		return isset($_COOKIE[$key]) ? $_COOKIE[$key] : null;
 	}
 	public static function set($key, $val, $expire = 0, $path = null, $config = array()) {
+		// Lax: the cookie is not sent with requests other sites make, except when the user
+		// follows a link here, which is how they come back from the single sign-on
 		$config = array_merge(array(
-			'secure' => false,
-			'httponly' => false
+			'secure' => UOJContext::isSecureSite(),
+			'httponly' => false,
+			'samesite' => 'Lax'
 		), $config);
 		$_COOKIE[$key] = $val;
-		return setcookie($key, $val, $expire, $path, UOJContext::cookieDomain(), $config['secure'], $config['httponly']);
+		return setcookie($key, $val, array(
+			'expires' => $expire,
+			'path' => (string)$path,
+			'domain' => UOJContext::cookieDomain(),
+			'secure' => $config['secure'],
+			'httponly' => $config['httponly'],
+			'samesite' => $config['samesite']
+		));
 	}
 	public static function unsetVar($key, $path = null) {
 		if (!isset($_COOKIE[$key])) {

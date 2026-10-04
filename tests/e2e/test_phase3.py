@@ -9,6 +9,8 @@ import re
 import unittest
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import requests
+
 import mock_idp
 import uoj
 from fixtures import *
@@ -400,6 +402,70 @@ class IdentityTest(unittest.TestCase):
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
         self.assertEqual(uoj.columns_holding("p3_after"), ["user_renames.new_username", "user_renames.old_username"])
         uoj.Client().login("p3_before", "p3-new-password")
+
+
+class SessionTest(unittest.TestCase):
+    """the session of a user is theirs alone"""
+
+    def session_with(self, cookies):
+        """another browser that presents these cookies"""
+        other = uoj.Client.__new__(uoj.Client)
+        other.http = requests.Session()
+        other.http.cookies.update(cookies)
+        return other
+
+    def test_session_cookie_is_kept_from_scripts_and_other_sites(self):
+        cookie = requests.get(uoj.BASE_URL + "/login").headers["Set-Cookie"].lower()
+        self.assertIn("uojsessid=", cookie)
+        self.assertIn("httponly", cookie)
+        self.assertIn("samesite=lax", cookie)
+
+    def test_session_moves_to_a_new_id_at_login(self):
+        client = uoj.Client()
+        before = client.http.cookies.get("UOJSESSID")
+        client.register("p3_session", "p3_session-password")
+        client.login("p3_session", "p3_session-password")
+        after = client.http.cookies.get("UOJSESSID")
+        self.assertEqual(who(client), "p3_session")
+        self.assertNotEqual(before, after)
+        # whoever knew the id from before the login is nobody
+        self.assertIsNone(who(self.session_with({"UOJSESSID": before})))
+        self.assertEqual(who(self.session_with({"UOJSESSID": after})), "p3_session")
+
+    def test_session_id_chosen_by_somebody_else_is_not_adopted(self):
+        # somebody plants an id in the browser of a user before the user logs in
+        planted = "p3plantedsessionid0000000000"
+        client = self.session_with({})
+        r = client.http.get(uoj.BASE_URL + "/login", headers={"Cookie": "UOJSESSID=" + planted})
+        client.token = re.search(r'_token : "([0-9a-zA-Z]+)"', r.text).group(1)
+        client.salt = re.search(r"\.val\(\), \"([^\"]*)\"\)", r.text).group(1)
+        self.assertNotIn(client.http.cookies.get("UOJSESSID"), (None, planted))
+        account("p3_session_victim")
+        client.login("p3_session_victim", "p3_session_victim-password")
+        self.assertEqual(who(client), "p3_session_victim")
+        self.assertIsNone(who(self.session_with({"UOJSESSID": planted})))
+
+    def test_logout_ends_the_session_and_the_remembered_login(self):
+        client = uoj.Client()
+        client.register("p3_leaver", "p3_leaver-password")
+        client.login("p3_leaver", "p3_leaver-password")
+        cookies = client.http.cookies.get_dict()
+        self.assertIn("uoj_remember_token", cookies)
+        self.assertEqual(who(self.session_with(cookies)), "p3_leaver")
+        logout(client)
+        self.assertIsNone(who(client))
+        # neither the id of the session nor the remembered login still work
+        self.assertIsNone(who(self.session_with(cookies)))
+        self.assertEqual(db_value("select remember_token from user_info where username = 'p3_leaver'"), "")
+        # and no token at all is not a token that matches
+        forged = dict(cookies, uoj_remember_token="")
+        self.assertIsNone(who(self.session_with(forged)))
+
+    def test_forwarded_host_of_a_stranger_is_not_believed(self):
+        r = requests.get(uoj.BASE_URL + "/login", headers={"X-Forwarded-Host": "evil.example"})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("evil.example", r.text)
+        self.assertIn(uoj.BASE_URL + "/", r.text)
 
 
 # ---------------------------------------------------------------------- single sign-on
