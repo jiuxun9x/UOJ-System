@@ -331,9 +331,13 @@ double run_delay_of(pid_t tid) {
  * processes kept it, or this tracer that it has to wait for, from running
  */
 double starved_time() {
+    // the first child only starts the program and then waits for it
     double starved = 0;
     for (size_t i = 1; i < rp_children.size(); i++) {
         starved = std::max(starved, run_delay_of(rp_children[i].pid));
+    }
+    if (!rp_children.empty()) {
+        starved += run_delay_of(rp_children[0].pid);
     }
     return starved + run_delay_of(getpid());
 }
@@ -513,7 +517,10 @@ run_event next_event() {
         return e;
     }
 
-    if (has_real_TLE()) {
+    // A process that has ended is not stopped for the real time it took. The record of how long
+    // it waited for a CPU disappears with it, so all of its real time would look like its own,
+    // and the timer has already had its say while the process was running.
+    if (!WIFEXITED(stat) && !WIFSIGNALED(stat) && has_real_TLE()) {
         e.type = ET_REAL_TLE;
         return e;
     }

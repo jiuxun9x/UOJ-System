@@ -115,11 +115,13 @@ class BusyMachineTest(unittest.TestCase):
         self.assertEqual(self.quiet["accepted"].score, 100, self.quiet["accepted"])
 
     def test_time_spent_waiting_for_a_cpu_does_not_count(self):
-        verdict, elapsed, report = run_in_sandbox(self.judger, "e2e_busy")
-        self.assertEqual(verdict, 0, report)
-        # the machine really was busy: the program took longer than the real time limit of three
-        # seconds that comes with a time limit of one second
-        self.assertGreater(elapsed, 3000, report)
+        # more than once: what goes wrong on a busy machine does not go wrong every time
+        for _ in range(8):
+            verdict, elapsed, report = run_in_sandbox(self.judger, "e2e_busy")
+            self.assertEqual(verdict, 0, report)
+            # the machine really was busy: the program took longer than the real time limit of
+            # three seconds that comes with a time limit of one second
+            self.assertGreater(elapsed, 3000, report)
 
     def test_time_spent_sleeping_still_counts(self):
         verdict, elapsed, report = run_in_sandbox(self.judger, "e2e_sleeping")
