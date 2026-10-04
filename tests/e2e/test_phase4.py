@@ -107,7 +107,8 @@ class DomainTest(unittest.TestCase):
 
         # the switch is of the system administrators alone
         self.assertEqual(self.admin.get(page).status_code, 200)
-        self.assertNotIn('checked="checked"', self.admin.get(page).text)
+        is_on = lambda: re.search(r'id="input-setting-domain-open_creation"[^>]*checked', self.admin.get(page).text) is not None
+        self.assertFalse(is_on())
         for client in (oj_admin, self.teacher, opener):
             self.assertIn(client.get(page).status_code, (403, 404))
             self.assertNotEqual(client.form(page, "site_settings", **switch), "")
@@ -119,7 +120,7 @@ class DomainTest(unittest.TestCase):
             self.assertEqual(self.admin.form(page, "site_settings", **switch), "")
             self.assertEqual(db("select value, updated_by from site_settings where name = 'domain.open_creation'"),
                              [["1", uoj.ADMIN[0]]])  # fmt: skip
-            self.assertIn('checked="checked"', self.admin.get(page).text)
+            self.assertTrue(is_on())
             # now whoever is logged in creates a domain, and owns it
             self.assertIn('id="button-new-domain"', opener.get("/domains").text)
             self.assertEqual(opener.get("/domain/new").status_code, 200)

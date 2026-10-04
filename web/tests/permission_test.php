@@ -294,6 +294,26 @@ check_ability('domain.create', null, array('alice' => false, 'lead' => false, 't
 $facts->site_settings = array();
 check_same(false, siteSettingIsOn('no.such.setting'), 'a setting that does not exist');
 
+// the settings of the site are of a kind each, and take the values of their kind only
+$kinds = siteSettings();
+check_same(465, siteSetting('mail.port'), 'a number nobody has set is what it is from the start');
+check_same('', siteSetting('mail.host'), 'so is a text');
+$facts->site_settings = array('mail.port' => '587', 'mail.secure' => 'tls', 'mail.host' => 'smtp.example.edu.cn');
+check_same(array(587, 'tls', 'smtp.example.edu.cn'), array(siteSetting('mail.port'), siteSetting('mail.secure'), siteSetting('mail.host')), 'what was set');
+$facts->site_settings = array('mail.port' => 'many', 'mail.secure' => 'rot13');
+check_same(array(465, 'ssl'), array(siteSetting('mail.port'), siteSetting('mail.secure')), 'what was stored and makes no sense counts as not set');
+$facts->site_settings = array();
+foreach (array('0', '65536', '25x', ' 25', '-1', '1.5', '', "25\n") as $bad) {
+	check_same(null, siteSettingParse($kinds['mail.port'], $bad), 'refused as a port: ' . json_encode($bad));
+}
+check_same(25, siteSettingParse($kinds['mail.port'], '25'), 'a port');
+foreach (array("a\nb", "a\x00b", str_repeat('x', 201), array('x'), null) as $bad) {
+	check_same(null, siteSettingParse($kinds['mail.host'], $bad), 'refused as a line of text: ' . json_encode($bad));
+}
+check_same('校园 OJ', siteSettingParse($kinds['mail.from_name'], '校园 OJ'), 'a line of text');
+check_same(null, siteSettingParse($kinds['mail.secure'], 'SSL'), 'a choice is one of the choices as they are written');
+check_same(array(true, false, null), array(siteSettingParse($kinds['domain.open_creation'], '1'), siteSettingParse($kinds['domain.open_creation'], '0'), siteSettingParse($kinds['domain.open_creation'], 'on')), 'a switch');
+
 // the owner is the user the domain names, and has no role as a member
 check_same('owner', permissionDomainRole($permission_test_users['lead'], $facts->domains[1]), 'the owner of a domain');
 check_same('ta', permissionDomainRole($permission_test_users['tutor'], $facts->domains[1]), 'a member of a domain');

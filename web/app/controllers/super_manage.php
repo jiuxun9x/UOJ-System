@@ -449,7 +449,8 @@ EOD;
 		become404Page();
 	}
 	
-	// the switches of the site: a box that is not ticked is not posted, which switches it off
+	// The settings of the site. A box that is not ticked is not posted, which switches it
+	// off; a secret that is left empty stays what it is.
 	$site_settings_error = '';
 	if ($cur_tab === 'settings') {
 		$site_settings_error = domainHandleForms(array(
@@ -458,13 +459,38 @@ EOD;
 				if (!can($myUser, 'site.manage_settings')) {
 					return '没有权限';
 				}
+				$posted = isset($_POST['setting']) && is_array($_POST['setting']) ? $_POST['setting'] : array();
+				$values = array();
 				foreach (siteSettings() as $name => $setting) {
-					$err = setSiteSetting($name, isset($_POST['setting'][$name]), $myUser);
-					if ($err !== '') {
-						return $err;
+					if ($setting['type'] === 'switch') {
+						$values[$name] = isset($posted[$name]);
+					} elseif (isset($posted[$name]) && !($setting['type'] === 'secret' && $posted[$name] === '')) {
+						$values[$name] = $posted[$name];
 					}
 				}
-				domainFlash('设置已保存。');
+				$err = setSiteSettings($values, $myUser);
+				if ($err === '') {
+					domainFlash('设置已保存。');
+				}
+				return $err;
+			},
+			// a mail to whoever asks, to see whether the mailbox works
+			'test_mail' => function() {
+				global $myUser;
+				if (!can($myUser, 'site.manage_settings')) {
+					return '没有权限';
+				}
+				$to = isset($_POST['to']) && is_string($_POST['to']) ? trim($_POST['to']) : '';
+				if (!validateEmail($to) || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+					return '收件地址不是一个邮箱地址';
+				}
+				$oj_name = HTML::escape(UOJConfig::$data['profile']['oj-name']);
+				$err = UOJMail::send(array($to), UOJConfig::$data['profile']['oj-name-short'] . ' 测试邮件', "<p>这是一封测试邮件。收到它说明 {$oj_name} 的发信邮箱设置正确。</p>");
+				auditLog('site.test_mail', 'mail', 'test', null, array('to' => $to, 'sent' => $err === ''));
+				if ($err !== '') {
+					return '发送失败：' . $err;
+				}
+				domainFlash("测试邮件已发往 {$to}，请到邮箱里确认。");
 				return '';
 			}
 		));
@@ -625,18 +651,79 @@ EOD;
 			<?php endif ?>
 			<?php echoDomainError($site_settings_error) ?>
 			<h3>站点设置</h3>
-			<form method="post" id="form-site-settings">
+			<?php
+				$setting_groups = array();
+				foreach (siteSettings() as $name => $setting) {
+					$setting_groups[$setting['group']][$name] = $setting;
+				}
+				$mail = UOJMail::settings();
+			?>
+			<form method="post" id="form-site-settings" class="text-left">
 				<?= HTML::hiddenToken() ?>
 				<input type="hidden" name="form" value="site_settings" />
-				<?php foreach (siteSettings() as $name => $setting): ?>
-				<?php $input_id = 'input-setting-' . str_replace('.', '-', $name); ?>
-				<div class="custom-control custom-switch text-left mb-3">
-					<input type="checkbox" class="custom-control-input" id="<?= $input_id ?>" name="setting[<?= $name ?>]"<?= siteSettingIsOn($name) ? ' checked="checked"' : '' ?> />
-					<label class="custom-control-label" for="<?= $input_id ?>"><?= $setting['label'] ?></label>
-					<small class="form-text text-muted"><?= $setting['help'] ?></small>
+				<?php foreach ($setting_groups as $group => $group_settings): ?>
+				<div class="card mb-3">
+					<div class="card-header"><?= $group ?></div>
+					<div class="card-body">
+						<?php if ($group === '发信邮箱'): ?>
+						<p class="text-muted small" id="mail-source">
+							<?php if ($mail['source'] === 'site'): ?>
+							现在用的是这里设置的邮箱。
+							<?php elseif (UOJMail::configured()): ?>
+							现在用的是配置文件里的邮箱（<?= HTML::escape($mail['username']) ?>）。在这里填写 SMTP 服务器后，以这里的为准。
+							<?php else: ?>
+							还没有设置发信邮箱：找回密码和告警邮件都发不出去。
+							<?php endif ?>
+						</p>
+						<?php endif ?>
+						<?php foreach ($group_settings as $name => $setting): ?>
+						<?php
+							$input_id = 'input-setting-' . str_replace('.', '-', $name);
+							$value = siteSetting($name);
+						?>
+						<?php if ($setting['type'] === 'switch'): ?>
+						<div class="custom-control custom-switch mb-3">
+							<input type="checkbox" class="custom-control-input" id="<?= $input_id ?>" name="setting[<?= $name ?>]"<?= $value ? ' checked="checked"' : '' ?> />
+							<label class="custom-control-label" for="<?= $input_id ?>"><?= $setting['label'] ?></label>
+							<small class="form-text text-muted"><?= $setting['help'] ?></small>
+						</div>
+						<?php else: ?>
+						<div class="form-group row">
+							<label class="col-sm-3 col-form-label" for="<?= $input_id ?>"><?= $setting['label'] ?></label>
+							<div class="col-sm-9">
+								<?php if ($setting['type'] === 'choice'): ?>
+								<select class="form-control" id="<?= $input_id ?>" name="setting[<?= $name ?>]">
+									<?php foreach ($setting['choices'] as $choice => $choice_label): ?>
+									<option value="<?= $choice ?>"<?= $value === $choice ? ' selected="selected"' : '' ?>><?= $choice_label ?></option>
+									<?php endforeach ?>
+								</select>
+								<?php elseif ($setting['type'] === 'number'): ?>
+								<input type="number" class="form-control" id="<?= $input_id ?>" name="setting[<?= $name ?>]" min="<?= $setting['min'] ?>" max="<?= $setting['max'] ?>" value="<?= $value ?>" />
+								<?php elseif ($setting['type'] === 'secret'): ?>
+								<input type="password" class="form-control" id="<?= $input_id ?>" name="setting[<?= $name ?>]" maxlength="<?= $setting['max'] ?>" value="" autocomplete="new-password" placeholder="<?= $value !== '' ? '已设置，留空表示不修改' : '未设置' ?>" />
+								<?php else: ?>
+								<input type="text" class="form-control" id="<?= $input_id ?>" name="setting[<?= $name ?>]" maxlength="<?= $setting['max'] ?>" value="<?= HTML::escape($value) ?>" />
+								<?php endif ?>
+								<?php if ($setting['help'] !== ''): ?>
+								<small class="form-text text-muted"><?= $setting['help'] ?></small>
+								<?php endif ?>
+							</div>
+						</div>
+						<?php endif ?>
+						<?php endforeach ?>
+					</div>
 				</div>
 				<?php endforeach ?>
 				<button type="submit" class="btn btn-primary" id="button-save-site-settings">保存</button>
+			</form>
+			<hr />
+			<form method="post" class="form-inline" id="form-test-mail">
+				<?= HTML::hiddenToken() ?>
+				<input type="hidden" name="form" value="test_mail" />
+				<label class="mr-2" for="input-test-mail-to">发一封测试邮件到</label>
+				<input type="text" class="form-control mr-2" id="input-test-mail-to" name="to" value="<?= HTML::escape($myUser['email']) ?>" style="min-width:18em" />
+				<button type="submit" class="btn btn-outline-primary" id="button-test-mail">发送</button>
+				<small class="form-text text-muted w-100 text-left">用已保存的设置发送。改了设置请先保存。</small>
 			</form>
 		<?php elseif ($cur_tab === 'audit'): ?>
 			<?php

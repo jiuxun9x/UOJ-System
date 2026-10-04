@@ -179,35 +179,165 @@ function permissionFacts($replacement = null) {
 	return $facts;
 }
 
-// The settings of the site that the system administrators change while it runs, each a
-// switch: 'name' => array('label', 'help', what it is when nobody has touched it).
+// The settings of the site that the system administrators change while it runs:
+// 'name' => array('type', 'group', 'label', 'help', 'default', ...). The types are
+//   switch  on or off
+//   text    a line of text, at most 'max' characters long
+//   number  a whole number from 'min' to 'max'
+//   choice  one of 'choices'
+//   secret  a line of text that is never shown again once it is saved
 function siteSettings() {
 	return array(
 		'domain.open_creation' => array(
+			'type' => 'switch',
+			'group' => '域',
 			'label' => '允许所有登录用户创建域',
 			'help' => '关闭时，只有管理员、教师和被授予“可创建域”角色的用户能创建域。开启后，任何登录用户都能创建域，并在自己的域里新建题目、上传数据、布置作业和举办比赛。',
 			'default' => false
+		),
+		'mail.host' => array(
+			'type' => 'text',
+			'group' => '发信邮箱',
+			'label' => 'SMTP 服务器',
+			'help' => '例如 smtp.exmail.qq.com。留空表示使用配置文件里的 mail.noreply。找回密码和告警邮件都从这个邮箱发出。',
+			'default' => '',
+			'max' => 200
+		),
+		'mail.port' => array(
+			'type' => 'number',
+			'group' => '发信邮箱',
+			'label' => '端口',
+			'help' => 'SSL 一般是 465，STARTTLS 一般是 587。',
+			'default' => 465,
+			'min' => 1,
+			'max' => 65535
+		),
+		'mail.secure' => array(
+			'type' => 'choice',
+			'group' => '发信邮箱',
+			'label' => '加密方式',
+			'help' => '',
+			'default' => 'ssl',
+			'choices' => array('ssl' => 'SSL', 'tls' => 'STARTTLS', 'none' => '不加密（仅限内网的邮件服务器）')
+		),
+		'mail.username' => array(
+			'type' => 'text',
+			'group' => '发信邮箱',
+			'label' => '邮箱地址',
+			'help' => '发件人地址，同时是登录 SMTP 服务器的用户名。',
+			'default' => '',
+			'max' => 200
+		),
+		'mail.password' => array(
+			'type' => 'secret',
+			'group' => '发信邮箱',
+			'label' => '密码或授权码',
+			'help' => '保存后不再显示。留空表示不修改。',
+			'default' => '',
+			'max' => 200
+		),
+		'mail.from_name' => array(
+			'type' => 'text',
+			'group' => '发信邮箱',
+			'label' => '发件人名称',
+			'help' => '留空则用站点的简称。',
+			'default' => '',
+			'max' => 60
 		)
 	);
 }
-function siteSettingIsOn($name) {
+// What a value that was stored or posted is worth for a setting: true or false for a switch,
+// a whole number for a number, a string for the rest. null when it is not a value the
+// setting can have.
+function siteSettingParse($setting, $raw) {
+	if (!is_string($raw)) {
+		return null;
+	}
+	switch ($setting['type']) {
+		case 'switch':
+			return $raw === '1' ? true : ($raw === '0' ? false : null);
+		case 'number':
+			if (!preg_match('/^(0|[1-9][0-9]{0,9})$/D', $raw) || (int)$raw < $setting['min'] || (int)$raw > $setting['max']) {
+				return null;
+			}
+			return (int)$raw;
+		case 'choice':
+			return isset($setting['choices'][$raw]) ? $raw : null;
+		case 'text':
+		case 'secret':
+			// one line, without what does not belong in one
+			if (preg_match('/[\x00-\x1f\x7f]/', $raw) || mb_strlen($raw, 'UTF-8') > $setting['max']) {
+				return null;
+			}
+			return $raw;
+	}
+	return null;
+}
+// Sets several settings at once, 'name' => what was posted for it: all of them, or none
+// when one of the values is refused. Returns '' or why.
+function setSiteSettings($values, $actor) {
+	foreach ($values as $name => $raw) {
+		$err = setSiteSetting($name, $raw, null);
+		if ($err !== '') {
+			return $err;
+		}
+	}
+	foreach ($values as $name => $raw) {
+		$err = setSiteSetting($name, $raw, $actor);
+		if ($err !== '') {
+			return $err;
+		}
+	}
+	return '';
+}
+// what a setting of the site is: what it was set to, or what it is when nobody has touched it
+function siteSetting($name) {
 	$settings = siteSettings();
 	if (!isset($settings[$name])) {
-		return false;
+		return null;
 	}
-	$value = permissionFacts()->siteSetting($name);
-	return $value === null ? $settings[$name]['default'] : $value === '1';
+	$stored = permissionFacts()->siteSetting($name);
+	$value = $stored === null ? null : siteSettingParse($settings[$name], $stored);
+	return $value === null ? $settings[$name]['default'] : $value;
 }
-// Switches a setting of the site on or off. Returns '' or why it was refused.
-function setSiteSetting($name, $on, $actor) {
-	if (!isset(siteSettings()[$name])) {
+function siteSettingIsOn($name) {
+	return siteSetting($name) === true;
+}
+// Sets a setting of the site to what was posted for it: a string, or true or false for a
+// switch. Returns '' or why it was refused. What a secret was or becomes is never written
+// to the audit log.
+function setSiteSetting($name, $raw, $actor) {
+	$settings = siteSettings();
+	if (!isset($settings[$name])) {
 		return '没有这个设置';
 	}
-	$before = siteSettingIsOn($name);
-	DB::insert("insert into site_settings (name, value, updated_by, updated_at) values ('".DB::escape($name)."', '".($on ? 1 : 0)."', '".DB::escape($actor['username'])."', now()) on duplicate key update value = values(value), updated_by = values(updated_by), updated_at = values(updated_at)");
+	$setting = $settings[$name];
+	if (is_bool($raw)) {
+		$raw = $raw ? '1' : '0';
+	}
+	if ($setting['type'] !== 'secret' && is_string($raw)) {
+		$raw = trim($raw);
+	}
+	$value = siteSettingParse($setting, $raw);
+	if ($value === null) {
+		return "“{$setting['label']}”的值无效";
+	}
+	if ($actor === null) {
+		// only asked whether the value would do
+		return '';
+	}
+	$before = siteSetting($name);
+	if ($before === $value) {
+		return '';
+	}
+	DB::insert("insert into site_settings (name, value, updated_by, updated_at) values ('".DB::escape($name)."', '".DB::escape($raw)."', '".DB::escape($actor['username'])."', now()) on duplicate key update value = values(value), updated_by = values(updated_by), updated_at = values(updated_at)");
 	permissionFacts()->forgetSiteSettings();
-	if ($before != (bool)$on) {
-		auditLog('site.edit_setting', 'site_setting', $name, array('on' => $before), array('on' => (bool)$on), $actor);
+	if ($setting['type'] === 'secret') {
+		auditLog('site.edit_setting', 'site_setting', $name, null, array('changed' => true), $actor);
+	} elseif ($setting['type'] === 'switch') {
+		auditLog('site.edit_setting', 'site_setting', $name, array('on' => $before), array('on' => $value), $actor);
+	} else {
+		auditLog('site.edit_setting', 'site_setting', $name, array('value' => $before), array('value' => $value), $actor);
 	}
 	return '';
 }
