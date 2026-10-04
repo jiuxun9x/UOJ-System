@@ -297,7 +297,7 @@ class IdentityTest(unittest.TestCase):
         user = account("p3_careful")
         self.assertNotEqual(user.update_profile(token=False, nickname="x"), "ok")
         self.assertNotEqual(user.update_profile(old_password="0" * 32, nickname="x"), "ok")
-        self.assertEqual(db_value("select nickname from user_info where username = 'p3_careful'"), "")
+        self.assertEqual(db_value("select concat('[', nickname, ']') from user_info where username = 'p3_careful'"), "[]")
 
     def test_username_columns_are_all_known(self):
         """a table that is added later and names users has to be renamed with them"""
@@ -356,9 +356,11 @@ class IdentityTest(unittest.TestCase):
 
         self.assertEqual(user.update_profile(username="p3_after"), "ok")
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_after")
-        # nothing is left behind under the old name but the journal of the change
+        # nothing is left behind under the old name but the journal of the change, and the name
+        # the password was hashed with
         self.assertEqual(
-            uoj.columns_holding("p3_before"), ["user_renames.old_username", "user_renames.renamed_by"]
+            uoj.columns_holding("p3_before"),
+            ["user_info.password_salt", "user_renames.old_username", "user_renames.renamed_by"],
         )
         self.assertEqual(len(uoj.columns_holding("p3_after")), len(before) + 1)
         self.assertEqual(db_value("select submitter from submissions where id = %d" % submission_id), "p3_after")
@@ -400,7 +402,10 @@ class IdentityTest(unittest.TestCase):
             "",
         )
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
-        self.assertEqual(uoj.columns_holding("p3_after"), ["user_renames.new_username", "user_renames.old_username"])
+        self.assertEqual(
+            uoj.columns_holding("p3_after"),
+            ["user_info.password_salt", "user_renames.new_username", "user_renames.old_username"],
+        )
         uoj.Client().login("p3_before", "p3-new-password")
 
 

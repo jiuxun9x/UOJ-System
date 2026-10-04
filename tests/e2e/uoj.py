@@ -219,7 +219,8 @@ class Client:
         data = {
             "change": "",
             "username": self.username,
-            "nickname": db_value("select nickname from user_info where username = '%s'" % self.username),
+            # db() drops empty lines, so an empty nickname comes back as no row at all
+            "nickname": db_value("select nickname from user_info where username = '%s'" % self.username) or "",
             "email": self.username + "@example.com",
             "old_password": self.password_hash(self.password),
             "ptag": "0",
