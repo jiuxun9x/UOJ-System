@@ -131,7 +131,8 @@
 				global $contest;
 				$contest_data = queryContestData($contest);
 				calcStandings($contest, $contest_data, $score, $standings, true);
-				if (!isset($contest['extra_config']['unrated'])) {
+				$rated = contestIsRated($contest);
+				if ($rated) {
 					$rating_k = isset($contest['extra_config']['rating_k']) ? $contest['extra_config']['rating_k'] : 400;
 					$ratings = calcRating($standings, $rating_k);
 				} else {
@@ -143,6 +144,10 @@
 
 				for ($i = 0; $i < count($standings); $i++) {
 					$user = queryUser($standings[$i][2][0]);
+					if (!$rated) {
+						// the rating somebody has now, not the one they registered with
+						$ratings[$i] = $user['rating'];
+					}
 					$change = $ratings[$i] - $user['rating'];
 					$user_link = getUserLink($user['username']);
 
@@ -158,12 +163,17 @@ EOD;
 <p class="indent2">您在 <a href="/contest/{$contest['id']}">{$contest['name']}</a> 这场比赛后Rating没有变化。当前Rating为 <strong style="color:red">{$ratings[$i]}</strong>。</p>
 EOD;
 					}
-					sendSystemMsg($user['username'], 'Rating变化通知', $content);
-					DB::query("update user_info set rating = {$ratings[$i]} where username = '{$standings[$i][2][0]}'");
+					// a contest of a domain has nothing to say about ratings
+					if (empty($contest['domain_id'])) {
+						sendSystemMsg($user['username'], 'Rating变化通知', $content);
+					}
+					if ($rated) {
+						DB::query("update user_info set rating = {$ratings[$i]} where username = '{$standings[$i][2][0]}'");
+					}
 					DB::query("update contests_registrants set rank = {$standings[$i][3]} where contest_id = {$contest['id']} and username = '{$standings[$i][2][0]}'");
 				}
 				DB::query("update contests set status = 'finished' where id = {$contest['id']}");
-				auditLog('contest.publish_results', 'contest', $contest['id'], null, array('rated' => !isset($contest['extra_config']['unrated']), 'participants' => count($standings)));
+				auditLog('contest.publish_results', 'contest', $contest['id'], null, array('rated' => $rated, 'participants' => count($standings)));
 			};
 			$publish_result_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
 			$publish_result_form->submit_button_config['smart_confirm'] = '';

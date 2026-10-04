@@ -122,6 +122,11 @@ var rating_data = [[
 	$last_rating = 1500;
 	while ($row = DB::fetch($result)) {
 		$contest = queryContest($row['contest_id']);
+		// The history of a rating is made of the contests of the site. What somebody did
+		// in a domain, or in a contest that is not for everybody, is not told here.
+		if (!$contest || $contest['domain_id'] || !can($myUser, 'contest.view', $contest)) {
+			continue;
+		}
 		$rating_delta = $row['user_rating'] - $last_rating;
 		if (!$is_first_row) {
 			echo "[$last_contest_time, {$row['user_rating']}, $last_contest_id, $last_contest_name, $last_rank, $rating_delta],";

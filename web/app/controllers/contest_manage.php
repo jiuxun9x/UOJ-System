@@ -387,7 +387,7 @@
 			</div>
 			<?php else: ?>
 			<div class="col-sm-12">
-				<p class="text-muted">此比赛<?= isset($contest['extra_config']['unrated']) ? '不计入' : '计入' ?> Rating。是否计入 Rating 由管理员设置。</p>
+				<p class="text-muted" id="contest-rated-note">此比赛<?= contestIsRated($contest) ? '计入' : '不计入' ?> Rating。<?= $contest['domain_id'] ? '域内的比赛都不计入 Rating。' : '是否计入 Rating 由管理员设置。' ?></p>
 			</div>
 			<?php endif ?>
 			<div class="col-sm-12 top-buffer-sm">

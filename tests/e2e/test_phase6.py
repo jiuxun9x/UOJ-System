@@ -8,6 +8,8 @@ See test_phase1.py for how to start the containers.
 import json
 import unittest
 
+import test_phase3 as p3
+import test_phase4 as p4
 import uoj
 from fixtures import *
 from uoj import db, db_value, docker_exec
@@ -115,6 +117,57 @@ class RunTwiceTest(unittest.TestCase):
         problem_id = self.admin.new_problem()
         self.admin.upload_data(problem_id, files)
         self.assertIn("relay", self.admin.sync(problem_id))
+
+
+class DomainContestRatingTest(unittest.TestCase):
+    """what happens in a domain stays out of the ratings of the site"""
+
+    def test_contest_of_a_domain_counts_for_no_rating(self):
+        admin = uoj.admin()
+        teacher = p3.account("p6_rate_teacher")
+        self.assertEqual(admin.change_user("p6_rate_teacher", "grant:teacher"), "")
+        did = teacher.new_domain("p6-rating")
+        pupils = [p3.account("p6_rate_pupil%d" % n) for n in range(2)]
+        for n in range(2):
+            self.assertEqual(p4.member_form(teacher, "p6-rating", "add", username="p6_rate_pupil%d" % n, role="member"), "")
+        self.assertEqual(teacher.form("/d/p6-rating/problems", "new"), "")
+        own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
+        self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(own_id), "")
+        self.assertEqual(teacher.form("/d/p6-rating/contests", "new", name="p6 域内赛", start_time=uoj.web_time(3600), last_min="60"), "")
+        contest_id = int(db_value("select id from contests where domain_id = %d" % did))
+        self.assertEqual(teacher.contest_commands(contest_id, "problems", "+%d" % uoj.pid(own_id)), "")
+
+        # a setting that says the contest is rated is not believed, whoever wrote it
+        db("update contests set extra_config = '{}' where id = %d" % contest_id)
+        self.assertIn("不计入", uoj.text_of(admin.get("/contest/%d/manage" % contest_id).text))
+        for pupil in pupils:
+            pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        uoj.wait_submission(pupils[0].submit_in_contest(contest_id, own_id, AB))
+        uoj.wait_submission(pupils[1].submit_in_contest(contest_id, own_id, AB_WRONG))
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "start_test"), "")
+        uoj.wait_idle()
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        self.assertEqual(db_value("select status from contests where id = %d" % contest_id), "finished")
+
+        for n in range(2):
+            name = "p6_rate_pupil%d" % n
+            self.assertEqual(db_value("select rating from user_info where username = '%s'" % name), "1500")
+            self.assertEqual(db_value("select count(*) from user_system_msg where receiver = '%s' and title like 'Rating%%'" % name), "0")
+            # and the history of the rating on the profile does not tell of the contest
+            profile = admin.get("/user/profile/" + name).text
+            self.assertNotIn("p6 域内赛", profile)
+        self.assertIn('"rated":false', db_value(
+            "select after_json from audit_logs where action = 'contest.publish_results' and resource_id = '%d'" % contest_id
+        ))  # fmt: skip
+        # the standings of the contest are there all the same
+        self.assertEqual(
+            db("select username, `rank` from contests_registrants where contest_id = %d order by `rank`" % contest_id),
+            [["p6_rate_pupil0", "1"], ["p6_rate_pupil1", "2"]],
+        )
 
 
 if __name__ == "__main__":

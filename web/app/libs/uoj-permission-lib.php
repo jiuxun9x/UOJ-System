@@ -491,8 +491,10 @@ function can($user, $ability, $resource = null) {
 		case 'site.manage':
 		case 'user.ban':
 		case 'user.view_private':
-		// the ratings of the whole site depend on it
+		// The ratings of the whole site depend on it. A contest of a domain is the business of
+		// the domain: it never counts for them, whoever asks.
 		case 'contest.rate':
+			return $is_admin && !(is_array($resource) && !empty($resource['domain_id']));
 		case 'submission.view_all':
 		case 'submission.delete':
 		case 'hack.delete':

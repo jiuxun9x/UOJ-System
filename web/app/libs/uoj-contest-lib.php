@@ -114,6 +114,12 @@ function contestCreate($name, $start_time_str, $last_min, $actor, $domain = null
 	return $contest_id;
 }
 
+// Whether the results of a contest change the ratings of the site. A contest of a domain
+// never does, whatever its settings say.
+function contestIsRated($contest) {
+	return empty($contest['domain_id']) && !isset($contest['extra_config']['unrated']);
+}
+
 // The problem that a number names to the people who run a contest: a problem of the site in
 // a contest of the site, a problem of the domain in a contest of a domain. A contest uses the
 // problems of where it is held; a domain copies a problem of the site before it uses it.

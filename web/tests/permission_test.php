@@ -442,7 +442,9 @@ check_ability('contest.view', $domain_contest, $outsiders + array('root' => true
 check_ability('contest.view', $facts->contests[10], array('nobody' => true, 'alice' => true, 'pupil' => true), 'a contest of the site');
 check_ability('contest.manage', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'owner' => false), 'a contest of a domain');
 check_ability('contest.assist', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a contest of a domain');
-check_ability('contest.rate', $domain_contest, array('lead' => false, 'lecturer' => false, 'root' => true), 'a contest of a domain');
+check_ability('contest.rate', $domain_contest, array('lead' => false, 'lecturer' => false, 'root' => false, 'owner' => false), 'a contest of a domain counts for no rating');
+check_ability('contest.rate', $facts->contests[10], array('root' => true, 'owner' => false, 'lecturer' => false), 'a contest of the site');
+check_ability('contest.rate', null, array('root' => true, 'lecturer' => false), 'contests in general');
 
 // ---- homework
 $facts->now = strtotime('2026-10-07 12:00:00');
