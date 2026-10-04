@@ -369,7 +369,7 @@ foreach ($wrong as $what => $changed) {
 foreach (array('ds', 'ds-2026-a', 'a1', '2026', str_repeat('a', 31)) as $slug) {
 	check_same(true, validateDomainSlug($slug), "the address $slug is accepted");
 }
-foreach (array('', 'a', 'DS-2026', 'ds_2026', '-ds', 'ds-', 'ds 2026', 'ds/2026', '数据结构', str_repeat('a', 32), array('ds')) as $slug) {
+foreach (array('', 'a', 'DS-2026', 'ds_2026', '-ds', 'ds-', 'ds 2026', 'ds/2026', "ds-2026\n", '数据结构', str_repeat('a', 32), array('ds')) as $slug) {
 	check_same(false, validateDomainSlug($slug), 'the address ' . json_encode($slug) . ' is refused');
 }
 

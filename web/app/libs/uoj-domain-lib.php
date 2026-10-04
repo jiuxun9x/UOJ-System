@@ -8,7 +8,7 @@
 // admin, teacher, ta or member there.
 
 function validateDomainSlug($slug) {
-	return is_string($slug) && preg_match('/^[a-z0-9][a-z0-9-]{1,30}$/', $slug) && substr($slug, -1) !== '-';
+	return is_string($slug) && preg_match('/^[a-z0-9][a-z0-9-]{1,30}$/D', $slug) && substr($slug, -1) !== '-';
 }
 
 function domainTypes() {

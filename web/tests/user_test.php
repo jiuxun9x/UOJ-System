@@ -57,7 +57,7 @@ foreach ($by_name as $name => $ignored) {
 	check_same(true, validateUsername($name), 'a username that was the key of an array: ' . json_encode($name));
 }
 check_same(true, is_int(array_keys($by_name)[0]), 'which PHP did turn into a number');
-foreach (array('', 'a b', str_repeat('1', 21), -5, 1.5, null, array('x')) as $bad) {
+foreach (array('', 'a b', "alice\n", "CS26010001\n", str_repeat('1', 21), -5, 1.5, null, array('x')) as $bad) {
 	check_same(false, validateUsername($bad), 'refused as a username: ' . json_encode($bad));
 }
 
@@ -65,11 +65,13 @@ foreach (array('', 'a b', str_repeat('1', 21), -5, 1.5, null, array('x')) as $ba
 // looks like, which is not always a number
 $default_config = require __DIR__ . '/../app/.default-config.php';
 $reserved = $default_config['sso']['reserved-username-pattern'];
-// two capital letters and eight digits is what the numbers of the school this was written for look like
-foreach (array('CS26010001', 'AB00000123', 'XY00000000', 'cs26010001', '20260101', '2021E8013282009', 'PB21000001', 'pb21000001', 'S2021001', '2021b1234', '202601011234567890', '0123456') as $number) {
+// the student numbers of the school are two capital letters and eight digits, zeros and all
+foreach (array('CS26010001', 'AB00000123', 'XY00000000', 'PB21000001', 'cs26010001', 'Cs26010001') as $number) {
 	check_same(1, preg_match($reserved, $number), "$number is kept for the student it belongs to");
 }
-foreach (array('alice', 'alice2024', 'zhang3', 'abcdef', '12345', 'bob_20260101', 'e2e_admin', str_repeat('1', 21)) as $name) {
-	check_same(0, preg_match($reserved, $name), "$name is a name anybody may take");
+$free = array('alice', 'alice2024', 'zhangsan12345', '20260101', '0123456', 'CS2601000', 'CS260100011', 'C126010001', 'CSE6010001',
+	'CS2601000a', 'CS_26010001', ' CS26010001', 'e2e_admin');
+foreach ($free as $name) {
+	check_same(0, preg_match($reserved, $name), json_encode($name) . ' is not a student number');
 }
 

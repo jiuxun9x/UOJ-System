@@ -854,11 +854,15 @@ class SingleSignOnTest(unittest.TestCase):
         self.assertIsNone(who(client))
 
     def test_student_number_can_not_be_registered_or_taken(self):
-        with self.assertRaises(Exception):
-            uoj.Client().register("20249999", "x")
-        self.assertEqual(db_value("select count(*) from user_info where username = '20249999'"), "0")
-        self.assertIn("统一身份认证", account("p3_sso_squatter").update_profile(username="20249998"))
-        self.assertEqual(db_value("select count(*) from user_info where username = '20249998'"), "0")
+        # two letters and eight digits, in capitals or not: usernames do not differ by their case
+        for number in ("ZZ20249999", "zz20249997"):
+            with self.assertRaises(Exception, msg=number):
+                uoj.Client().register(number, "x")
+            self.assertEqual(db_value("select count(*) from user_info where username = '%s'" % number), "0")
+        self.assertIn("统一身份认证", account("p3_sso_squatter").update_profile(username="ZZ20249998"))
+        self.assertEqual(db_value("select count(*) from user_info where username = 'ZZ20249998'"), "0")
+        # a name that is not a student number is for anybody to take
+        self.assertEqual(account("p3_sso_squatter").update_profile(username="p3squat12345"), "ok")
 
     def test_existing_user_with_the_student_number_is_bound_by_their_password(self):
         # somebody registered with their student number before the single sign-on existed

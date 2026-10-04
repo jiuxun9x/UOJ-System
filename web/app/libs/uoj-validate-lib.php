@@ -2,8 +2,9 @@
 
 // A username that is all digits, as a student number is, comes back as an integer from the
 // keys of an array: PHP turns such keys into numbers. It is the same name.
+// The pattern ends with D: without it the $ lets a name through that ends in a line break.
 function validateUsername($username) {
-	return (is_string($username) || is_int($username)) && preg_match('/^[a-zA-Z0-9_]{1,20}$/', (string)$username);
+	return (is_string($username) || is_int($username)) && preg_match('/^[a-zA-Z0-9_]{1,20}$/D', (string)$username);
 }
 
 function validatePassword($password) {
