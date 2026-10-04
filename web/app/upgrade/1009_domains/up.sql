@@ -3,14 +3,16 @@
 --
 -- The owner is a column of the domain, so that there is exactly one. The owner is not listed
 -- in domain_members.
+--
+-- A domain is seen by the people in it and by the administrators of the site, and by nobody
+-- else: there is nothing like a public domain. The ways in are being added by somebody who
+-- manages it, a roster, and an invitation.
 CREATE TABLE IF NOT EXISTS `domains` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `slug` varchar(32) NOT NULL,
   `name` varchar(100) NOT NULL,
   `description` text NOT NULL,
   `type` varchar(20) NOT NULL DEFAULT 'course',
-  `visibility` enum('public','unlisted','private') NOT NULL DEFAULT 'private',
-  `join_method` enum('none','all','code') NOT NULL DEFAULT 'none',
   `owner_username` varchar(20) NOT NULL,
   `created_by` varchar(20) NOT NULL,
   `created_at` datetime NOT NULL,
@@ -18,8 +20,7 @@ CREATE TABLE IF NOT EXISTS `domains` (
   `archived_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `slug` (`slug`),
-  KEY `owner_username` (`owner_username`),
-  KEY `visibility` (`visibility`,`archived_at`)
+  KEY `owner_username` (`owner_username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `domain_members` (

@@ -212,15 +212,10 @@ function can($user, $ability, $resource = null) {
 			return $is_admin || userHasRole($user, UOJ_ROLE_TEACHER) || userHasRole($user, UOJ_ROLE_DOMAIN_CREATOR);
 		case 'domain.manage_all':
 			return $is_admin;
-		// the page that says what the domain is and how to join it
-		case 'domain.view_landing':
-			return $resource['visibility'] !== 'private' || permissionDomainRoleAtLeast($user, $resource, 'member');
-		// what is inside
+		// A domain is seen by the people in it and by the administrators of the site. To
+		// everybody else it does not exist: no page, no list, no way to ask to be let in.
 		case 'domain.view':
 			return permissionDomainRoleAtLeast($user, $resource, 'member');
-		case 'domain.join':
-			return $name !== null && $resource['archived_at'] === null && $resource['visibility'] !== 'private'
-				&& $resource['join_method'] === 'all' && permissionDomainRole($user, $resource) === null;
 		// reading the grades and every submission
 		case 'domain.assist':
 			return permissionDomainRoleAtLeast($user, $resource, 'ta');

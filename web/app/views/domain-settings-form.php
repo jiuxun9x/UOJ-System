@@ -31,24 +31,8 @@
 				<?php endforeach ?>
 			</select>
 		</div>
-		<div class="form-group col-md-4">
-			<label for="input-visibility">可见性</label>
-			<select class="form-control" id="input-visibility" name="visibility">
-				<?php foreach (domainVisibilities() as $value => $label): ?>
-				<option value="<?= $value ?>"<?= $settings['visibility'] === $value ? ' selected="selected"' : '' ?>><?= $label ?></option>
-				<?php endforeach ?>
-			</select>
-		</div>
-		<div class="form-group col-md-4">
-			<label for="input-join_method">加入方式</label>
-			<select class="form-control" id="input-join_method" name="join_method">
-				<?php foreach (domainJoinMethods() as $value => $label): ?>
-				<option value="<?= $value ?>"<?= $settings['join_method'] === $value ? ' selected="selected"' : '' ?>><?= $label ?></option>
-				<?php endforeach ?>
-			</select>
-		</div>
 	</div>
-	<p class="text-muted small">无论怎样设置，域里的题目、作业和成绩都只有成员能看到。学校的正式课程建议使用“私有”加“只能由管理者添加”，再用名单导入学生。</p>
+	<p class="text-muted small">域只有它的成员和全站管理员能看到，其他人看不到它，也搜不到它。成员由管理者添加、按名单导入，或凭邀请链接加入。</p>
 	<button type="submit" class="btn btn-primary" id="button-submit-domain"><?= $is_new ? '创建' : '保存' ?></button>
 	<?php if ($is_new): ?>
 	<a class="btn btn-link" href="/domains">取消</a>

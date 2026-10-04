@@ -216,7 +216,9 @@
 			DB::insert("insert into best_ac_submissions (problem_id, submitter, submission_id, used_time, used_memory, tot_size, shortest_id, shortest_used_time, shortest_used_memory, shortest_tot_size) values ($problem_id, '$username', ${best['id']}, ${best['used_time']}, ${best['used_memory']}, ${best['tot_size']}, ${shortest['id']}, ${shortest['used_time']}, ${shortest['used_memory']}, ${shortest['tot_size']})");
 		}
 
-		$cnt = DB::selectCount("select count(*) from best_ac_submissions where submitter='$username'");
+		// The problems of a domain do not count for the site: nobody outside sees them, and
+		// the copy a homework makes of a public problem would count that problem twice.
+		$cnt = DB::selectCount("select count(*) from best_ac_submissions, problems where problems.id = best_ac_submissions.problem_id and problems.owner_domain_id is null and best_ac_submissions.submitter = '$username'");
 		DB::update("update user_info set ac_num = $cnt where username='$username'");
 		
 		DB::update("update problems set ac_num = (select count(*) from submissions where problem_id = problems.id and score = 100), submit_num = (select count(*) from submissions where problem_id = problems.id) where id = $problem_id");

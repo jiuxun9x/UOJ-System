@@ -239,8 +239,8 @@ check_ability('hack.view_details', $hack, array('nobody' => false, 'root' => tru
 $facts->problems_in_running_contests = array();
 
 // ---- domains
-function fake_domain($id, $owner, $visibility = 'private', $join_method = 'none', $archived_at = null) {
-	return array('id' => $id, 'owner_username' => $owner, 'visibility' => $visibility, 'join_method' => $join_method, 'archived_at' => $archived_at);
+function fake_domain($id, $owner, $archived_at = null) {
+	return array('id' => $id, 'owner_username' => $owner, 'archived_at' => $archived_at);
 }
 $permission_test_users += array(
 	'lead' => fake_user('lead'),
@@ -253,9 +253,9 @@ $permission_test_users += array(
 $facts->roles['creator'] = array('domain_creator');
 $facts->domains = array(
 	1 => fake_domain(1, 'lead'),
-	2 => fake_domain(2, 'setter', 'public', 'all'),
-	3 => fake_domain(3, 'lead', 'unlisted', 'code'),
-	4 => fake_domain(4, 'lead', 'private', 'none', '2026-01-01 00:00:00'),
+	2 => fake_domain(2, 'setter'),
+	3 => fake_domain(3, 'lead'),
+	4 => fake_domain(4, 'lead', '2026-01-01 00:00:00'),
 );
 $facts->domain_members = array('co_admin/1' => 'admin', 'lecturer/1' => 'teacher', 'tutor/1' => 'ta', 'pupil/1' => 'member', 'lecturer/4' => 'teacher', 'pupil/4' => 'member');
 
@@ -272,28 +272,23 @@ check_same(null, permissionDomainRole($permission_test_users['alice'], $facts->d
 check_same(null, permissionDomainRole($permission_test_users['root'], $facts->domains[1]), 'an administrator of the site is no member');
 check_same(null, permissionDomainRole(null, $facts->domains[1]), 'a visitor');
 
+// A domain is seen by the administrators of the site, by its owner and by its members, and
+// by nobody else: there is no domain that shows itself to the people outside.
 $private = $facts->domains[1];
 $everybody = array('nobody' => false, 'alice' => false, 'teacher' => false, 'creator' => false);
 check_ability('domain.view', $private, $everybody + array('root' => true, 'ojadmin' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => true), 'a private domain');
-check_ability('domain.view_landing', $private, $everybody + array('root' => true, 'lead' => true, 'pupil' => true), 'a private domain');
 check_ability('domain.assist', $private, $everybody + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a private domain');
 check_ability('domain.teach', $private, $everybody + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false), 'a private domain');
 foreach (array('domain.manage', 'member.manage') as $ability) {
 	check_ability($ability, $private, $everybody + array('root' => true, 'ojadmin' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => false, 'tutor' => false, 'pupil' => false), 'a private domain');
 }
 check_ability('domain.own', $private, $everybody + array('root' => true, 'ojadmin' => true, 'lead' => true, 'co_admin' => false, 'lecturer' => false, 'pupil' => false), 'a private domain');
-check_ability('domain.join', $private, array('nobody' => false, 'alice' => false, 'pupil' => false), 'a private domain');
 
 // what a role is worth ends at the border of its domain
-check_ability('domain.view', $facts->domains[2], array('lead' => false, 'co_admin' => false, 'pupil' => false, 'setter' => true, 'root' => true), 'another domain');
-check_ability('domain.manage', $facts->domains[2], array('lead' => false, 'co_admin' => false, 'setter' => true), 'another domain');
-
-// everybody may look at a domain that is not private, and join it if it says so
-check_ability('domain.view_landing', $facts->domains[2], array('nobody' => true, 'alice' => true, 'pupil' => true), 'a public domain');
-check_ability('domain.view', $facts->domains[2], array('nobody' => false, 'alice' => false), 'a public domain');
-check_ability('domain.join', $facts->domains[2], array('nobody' => false, 'alice' => true, 'setter' => false), 'a public domain that everybody may join');
-check_ability('domain.view_landing', $facts->domains[3], array('nobody' => true, 'alice' => true), 'an unlisted domain');
-check_ability('domain.join', $facts->domains[3], array('alice' => false), 'a domain that is joined by invitation');
+check_ability('domain.view', $facts->domains[2], array('nobody' => false, 'alice' => false, 'lead' => false, 'co_admin' => false, 'pupil' => false, 'setter' => true, 'root' => true, 'ojadmin' => true), 'another domain');
+foreach (array('domain.manage', 'domain.teach', 'domain.own') as $ability) {
+	check_ability($ability, $facts->domains[2], array('lead' => false, 'co_admin' => false, 'pupil' => false, 'setter' => true, 'root' => true, 'ojadmin' => true), 'another domain');
+}
 
 // an archived domain can be read, and nothing in it changed, until its owner brings it back
 $archived = $facts->domains[4];
@@ -331,17 +326,12 @@ check_same(false, $change('owner', 'member', 'owner'), 'owner is not a role a me
 check_same(false, $change('owner', 'member', 'superuser'), 'neither is a role that does not exist');
 
 // ---- the settings of a domain
-$settings = array('name' => '数据结构 1 班', 'slug' => 'ds-2026-a', 'description' => '', 'type' => 'course', 'visibility' => 'private', 'join_method' => 'none');
+$settings = array('name' => '数据结构 1 班', 'slug' => 'ds-2026-a', 'description' => '', 'type' => 'course');
 check_same('', domainSettingsError($settings), 'the settings of a course');
-check_same('', domainSettingsError(array('visibility' => 'public', 'join_method' => 'all') + $settings), 'a public domain everybody may join');
-check_same('', domainSettingsError(array('join_method' => 'code') + $settings), 'a private domain that is joined by invitation');
 $wrong = array(
-	'a private domain everybody may join' => array('join_method' => 'all'),
 	'no name' => array('name' => '  '),
 	'a name that is too long' => array('name' => str_repeat('长', 101)),
 	'an unknown type' => array('type' => 'guild'),
-	'an unknown visibility' => array('visibility' => 'secret'),
-	'an unknown way to join' => array('join_method' => 'bribe'),
 	'a description that is too long' => array('description' => str_repeat('x', 2001)),
 );
 foreach ($wrong as $what => $changed) {

@@ -20,20 +20,6 @@ function domainTypes() {
 		'organization' => '组织'
 	);
 }
-function domainVisibilities() {
-	return array(
-		'private' => '私有：只有成员能看到',
-		'unlisted' => '不公开列出：知道地址的人能看到介绍页',
-		'public' => '公开：出现在域列表里'
-	);
-}
-function domainJoinMethods() {
-	return array(
-		'none' => '只能由管理者添加',
-		'code' => '凭邀请加入',
-		'all' => '登录用户可自行加入'
-	);
-}
 // the roles a member can be given, from the most to the least powerful
 function domainMemberRoles() {
 	return array(
@@ -68,16 +54,6 @@ function domainSettingsError($settings) {
 	}
 	if (!isset($settings['type']) || !isset(domainTypes()[$settings['type']])) {
 		return '无效的类型';
-	}
-	if (!isset($settings['visibility']) || !isset(domainVisibilities()[$settings['visibility']])) {
-		return '无效的可见性';
-	}
-	if (!isset($settings['join_method']) || !isset(domainJoinMethods()[$settings['join_method']])) {
-		return '无效的加入方式';
-	}
-	// nobody can see a private domain to join it
-	if ($settings['visibility'] === 'private' && $settings['join_method'] === 'all') {
-		return '私有的域不能设为“登录用户可自行加入”，请改用邀请';
 	}
 	return '';
 }
@@ -135,6 +111,16 @@ function domainsOfUser($username) {
 	$esc_username = DB::escape($username);
 	return DB::selectAll("select domains.*, if(domains.owner_username = '$esc_username', 'owner', domain_members.role) as my_role from domains left join domain_members on domain_members.domain_id = domains.id and domain_members.username = '$esc_username' where domains.owner_username = '$esc_username' or domain_members.username is not null order by domains.archived_at is not null, domains.id desc");
 }
+// Every domain there is, for the administrators of the site: the newest first, the archived
+// ones last. $search narrows them down by name, address or owner.
+function domainsOfSite($search = '', $limit = 300) {
+	$cond = '1';
+	if (is_string($search) && trim($search) !== '') {
+		$like = "'%".DB::escape(addcslashes(trim($search), '%_\\'))."%'";
+		$cond = "(domains.name like $like or domains.slug like $like or domains.owner_username like $like)";
+	}
+	return DB::selectAll("select domains.*, (select count(*) from domain_members where domain_members.domain_id = domains.id and domain_members.username != domains.owner_username) + 1 as member_count from domains where $cond order by domains.archived_at is not null, domains.id desc limit ".(int)$limit);
+}
 // everybody in a domain: the owner first, then by role and name
 function domainMembers($domain) {
 	$esc_owner = DB::escape($domain['owner_username']);
@@ -154,7 +140,7 @@ function domainCreate($actor, $settings) {
 	}
 	$esc_slug = DB::escape($settings['slug']);
 	$esc_actor = DB::escape($actor['username']);
-	$ok = DB::insert("insert into domains (slug, name, description, type, visibility, join_method, owner_username, created_by, created_at, updated_at) values ('$esc_slug', '".DB::escape(trim($settings['name']))."', '".DB::escape($settings['description'])."', '{$settings['type']}', '{$settings['visibility']}', '{$settings['join_method']}', '$esc_actor', '$esc_actor', now(), now())");
+	$ok = DB::insert("insert into domains (slug, name, description, type, owner_username, created_by, created_at, updated_at) values ('$esc_slug', '".DB::escape(trim($settings['name']))."', '".DB::escape($settings['description'])."', '{$settings['type']}', '$esc_actor', '$esc_actor', now(), now())");
 	if (!$ok) {
 		return '这个地址已经被使用';
 	}
@@ -169,9 +155,9 @@ function domainUpdateSettings($domain, $settings, $actor) {
 	if ($err !== '') {
 		return $err;
 	}
-	$keys = array('name' => 0, 'description' => 0, 'type' => 0, 'visibility' => 0, 'join_method' => 0);
+	$keys = array('name' => 0, 'description' => 0, 'type' => 0);
 	$settings['name'] = trim($settings['name']);
-	DB::update("update domains set name = '".DB::escape($settings['name'])."', description = '".DB::escape($settings['description'])."', type = '{$settings['type']}', visibility = '{$settings['visibility']}', join_method = '{$settings['join_method']}', updated_at = now() where id = {$domain['id']}");
+	DB::update("update domains set name = '".DB::escape($settings['name'])."', description = '".DB::escape($settings['description'])."', type = '{$settings['type']}', updated_at = now() where id = {$domain['id']}");
 	auditLog('domain.edit', 'domain', $domain['id'], array_intersect_key($domain, $keys), array_intersect_key($settings, $keys), $actor);
 	return '';
 }
@@ -363,7 +349,7 @@ function domainRedeemInvite($token, $user) {
 			return false;
 		}
 		$domain = queryDomain($invite['domain_id']);
-		if (!$domain || $domain['archived_at'] !== null || $domain['join_method'] === 'none') {
+		if (!$domain || $domain['archived_at'] !== null) {
 			$domain = null;
 			return false;
 		}

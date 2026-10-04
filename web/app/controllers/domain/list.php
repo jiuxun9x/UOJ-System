@@ -1,10 +1,15 @@
 <?php
-	// the domains of the user, and the domains everybody may see
+	// The domains of the user. A domain is seen by the people in it only, so there is no list
+	// of the domains of everybody else, except for the administrators of the site, who see
+	// and manage them all.
 	$my_domains = Auth::check() ? domainsOfUser(Auth::id()) : array();
-	$public_domains = DB::selectAll("select domains.*, (select count(*) from domain_members where domain_members.domain_id = domains.id) + 1 as member_count from domains where visibility = 'public' and archived_at is null order by id desc limit 200");
-	$my_ids = array();
+	$sees_all = can($myUser, 'domain.manage_all');
+	$search = isset($_GET['q']) && is_string($_GET['q']) ? trim($_GET['q']) : '';
+	$all_limit = 300;
+	$all_domains = $sees_all ? domainsOfSite($search, $all_limit) : array();
+	$my_roles = array();
 	foreach ($my_domains as $domain) {
-		$my_ids[$domain['id']] = true;
+		$my_roles[$domain['id']] = $domain['my_role'];
 	}
 ?>
 <?php echoUOJPageHeader('域') ?>
@@ -24,7 +29,7 @@
 <?php if (Auth::check()): ?>
 <h3 class="uoj-domain-section-title">我的域</h3>
 <?php if (!$my_domains): ?>
-<div class="uoj-domain-empty">你还没有加入任何域。可以向老师要邀请链接，或在下面的公开域里看看。</div>
+<div class="uoj-domain-empty" id="domains-empty">你还没有加入任何域。域只有它的成员能看到：请向老师要邀请链接，或等老师把你加进名单。</div>
 <?php else: ?>
 <div class="row">
 	<?php foreach ($my_domains as $domain): ?>
@@ -51,38 +56,55 @@
 <?php endif ?>
 <?php endif ?>
 
-<h3 class="uoj-domain-section-title">公开的域</h3>
-<?php if (!$public_domains): ?>
-<div class="uoj-domain-empty">目前没有公开的域。</div>
+<?php if (!Auth::check()): ?>
+<div class="uoj-domain-empty">域只有它的成员能看到。请先 <a href="/login">登录</a>。</div>
+<?php endif ?>
+
+<?php if ($sees_all): ?>
+<div class="d-flex flex-wrap align-items-center mt-4">
+	<h3 class="uoj-domain-section-title mr-auto my-2">全部域 <small class="text-muted">全站管理员可以查看和管理每一个域</small></h3>
+	<form method="get" class="form-inline my-2" id="form-search-domains">
+		<input type="text" class="form-control form-control-sm mr-2" name="q" value="<?= HTML::escape($search) ?>" placeholder="名称、地址或所有者" />
+		<button type="submit" class="btn btn-outline-secondary btn-sm">搜索</button>
+	</form>
+</div>
+<?php if (!$all_domains): ?>
+<div class="uoj-domain-empty"><?= $search !== '' ? '没有符合条件的域。' : '还没有域。' ?></div>
 <?php else: ?>
 <div class="table-responsive">
-	<table class="table table-hover">
+	<table class="table table-hover" id="table-all-domains">
 		<thead>
 			<tr>
 				<th>名称</th>
+				<th style="width:12em">地址</th>
 				<th style="width:6em">类型</th>
 				<th style="width:12em">所有者</th>
 				<th style="width:6em">人数</th>
-				<th style="width:10em">加入方式</th>
+				<th style="width:8em">我的角色</th>
 			</tr>
 		</thead>
 		<tbody>
-			<?php foreach ($public_domains as $domain): ?>
+			<?php foreach ($all_domains as $domain): ?>
 			<tr>
 				<td>
 					<a href="<?= domainUrl($domain) ?>"><?= HTML::escape($domain['name']) ?></a>
-					<?php if (isset($my_ids[$domain['id']])): ?>
-					<span class="badge badge-primary">已加入</span>
+					<?php if ($domain['archived_at'] !== null): ?>
+					<span class="badge badge-warning">已归档</span>
 					<?php endif ?>
 				</td>
+				<td class="text-nowrap text-muted">/d/<?= $domain['slug'] ?></td>
 				<td><?= domainTypes()[$domain['type']] ?></td>
 				<td><?= getUserLink($domain['owner_username']) ?></td>
 				<td><?= $domain['member_count'] ?></td>
-				<td><?= array('none' => '由管理者添加', 'code' => '凭邀请', 'all' => '自行加入')[$domain['join_method']] ?></td>
+				<td><?= isset($my_roles[$domain['id']]) ? domainRoleName($my_roles[$domain['id']]) : '<span class="text-muted">全站管理员</span>' ?></td>
 			</tr>
 			<?php endforeach ?>
 		</tbody>
 	</table>
 </div>
+<?php if (count($all_domains) >= $all_limit): ?>
+<p class="text-muted small">只列出了最新的 <?= $all_limit ?> 个，其余的请用搜索查找。</p>
+<?php endif ?>
+<?php endif ?>
 <?php endif ?>
 <?php echoUOJPageFooter() ?>

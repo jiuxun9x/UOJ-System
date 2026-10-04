@@ -77,8 +77,7 @@ class DomainTest(unittest.TestCase):
 
     def test_who_may_create_a_domain(self):
         self.assertEqual(self.student.get("/domain/new").status_code, 403)
-        self.student.form("/domain/new", "create", name="x", slug="p4-not-allowed", description="", type="course",
-                          visibility="private", join_method="none")  # fmt: skip
+        self.student.form("/domain/new", "create", name="x", slug="p4-not-allowed", description="", type="course")
         self.assertEqual(db_value("select count(*) from domains where slug = 'p4-not-allowed'"), "0")
 
         # a teacher may, and so may whoever was given just that
@@ -102,60 +101,87 @@ class DomainTest(unittest.TestCase):
 
     def test_settings_are_checked(self):
         self.teacher.new_domain("p4-settings")
-        base = dict(name="x", description="", type="course", visibility="private", join_method="none")
+        base = dict(name="x", description="", type="course")
         for wrong in (dict(slug="P4-UPPER"), dict(slug="p4_under"), dict(slug="p4-"), dict(slug="p4-settings"),
-                      dict(slug="p4-ok", name=""), dict(slug="p4-ok", join_method="all"), dict(slug="p4-ok", type="x")):  # fmt: skip
+                      dict(slug="p4-ok", name=""), dict(slug="p4-ok", type="x")):  # fmt: skip
             self.assertNotEqual(self.teacher.form("/domain/new", "create", **dict(base, **wrong)), "", wrong)
         self.assertEqual(db_value("select count(*) from domains where slug in ('p4-ok', 'p4-', 'p4_under')"), "0")
 
         settings = "/d/p4-settings/settings"
-        self.assertIn("私有", self.teacher.form(settings, "settings", **dict(base, join_method="all")))
-        self.assertEqual(self.teacher.form(settings, "settings", **dict(base, name="新名字", visibility="public", join_method="all")), "")
-        self.assertEqual(db("select name, visibility, join_method, slug from domains where slug = 'p4-settings'"),
-                         [["新名字", "public", "all", "p4-settings"]])  # fmt: skip
+        self.assertNotEqual(self.teacher.form(settings, "settings", **dict(base, type="guild")), "")
+        self.assertEqual(self.teacher.form(settings, "settings", **dict(base, name="新名字", type="team", slug="p4-renamed")), "")
+        self.assertEqual(db("select name, type, slug from domains where id = %d" % domain_id("p4-settings")),
+                         [["新名字", "team", "p4-settings"]])  # fmt: skip
+        # there is no setting that shows a domain to the people outside
+        self.assertEqual(db("show columns from domains where Field in ('visibility', 'join_method')"), [])
 
-    def test_strangers_learn_nothing_about_a_private_domain(self):
-        self.teacher.new_domain("p4-private")
-        visitor = uoj.Client()
-        for path in ("", "/members", "/settings"):
-            # the same answers as for a domain that does not exist
-            self.assertEqual(self.student.get("/d/p4-private" + path).status_code, 404, path)
-            self.assertEqual(self.student.get("/d/p4-no-such-domain" + path).status_code, 404, path)
-            self.assertEqual(visitor.get("/d/p4-private" + path).status_code, 302, path)
+    def test_domain_is_seen_by_the_people_in_it_and_the_administrators_of_the_site(self):
+        self.teacher.new_domain("p4-seen", name="只有里面的人看得到")
+        co_admin, pupil = account("p4_seen_admin"), account("p4_seen_pupil")
+        other_teacher, oj_admin, visitor = account("p4_seen_teacher"), account("p4_seen_ojadmin"), uoj.Client()
+        self.assertEqual(self.admin.change_user("p4_seen_teacher", "grant:teacher"), "")
+        self.assertEqual(self.admin.change_user("p4_seen_ojadmin", "grant:oj_admin"), "")
+        self.assertEqual(member_form(self.teacher, "p4-seen", "add", username="p4_seen_admin", role="admin"), "")
+        self.assertEqual(member_form(self.teacher, "p4-seen", "add", username="p4_seen_pupil", role="member"), "")
+        pages = ("", "/members", "/settings", "/problems", "/contests", "/homeworks", "/announcements", "/homework/new")
+
+        # Whoever is not in it learns nothing, whatever they are elsewhere: the answers are
+        # the ones of a domain that does not exist.
+        for path in pages:
+            for stranger in (self.student, other_teacher):
+                self.assertEqual(stranger.get("/d/p4-seen" + path).status_code, 404, path)
+                self.assertEqual(stranger.get("/d/p4-no-such-domain" + path).status_code, 404, path)
+            self.assertEqual(visitor.get("/d/p4-seen" + path).status_code, 302, path)
             self.assertEqual(visitor.get("/d/p4-no-such-domain" + path).status_code, 302, path)
-        self.assertNotIn("p4-private", self.student.get("/domains").text)
-        self.assertNotIn("p4-private", visitor.get("/domains").text)
-        self.assertIn("p4-private", self.teacher.get("/domains").text)
-        self.student.form("/d/p4-private", "join")
-        self.assertIsNone(role_in("p4-private", "p4_student"))
+        for stranger in (self.student, other_teacher, visitor):
+            listed = stranger.get("/domains").text
+            self.assertNotIn("p4-seen", listed)
+            self.assertNotIn("只有里面的人看得到", listed)
+            self.assertNotIn('id="table-all-domains"', listed)
+            self.assertNotIn("只有里面的人看得到", stranger.get("/domains?q=p4-seen").text)
+        # and there is no door to knock on
+        self.assertIn("404", self.student.form("/d/p4-seen", "join"))
+        self.assertIsNone(role_in("p4-seen", "p4_student"))
 
-    def test_everybody_may_look_at_a_public_domain_and_join_if_it_says_so(self):
-        self.teacher.new_domain("p4-public", visibility="public", join_method="all", description="欢迎来到公开的域")
-        self.teacher.new_domain("p4-unlisted", visibility="unlisted", join_method="none")
-        visitor, joiner = uoj.Client(), account("p4_joiner")
-        self.assertIn("p4-public", visitor.get("/domains").text)
-        self.assertNotIn("p4-unlisted", visitor.get("/domains").text)
-        for client in (visitor, joiner):
-            page = client.get("/d/p4-public")
-            self.assertEqual(page.status_code, 200)
-            self.assertIn("欢迎来到公开的域", page.text)
-            self.assertEqual(client.get("/d/p4-unlisted").status_code, 200)
-        # what is inside is for members
-        self.assertEqual(joiner.get("/d/p4-public/members").status_code, 404)
-        self.assertEqual(visitor.get("/d/p4-public/members").status_code, 302)
+        # the owner and the administrator the owner appointed see it and manage it
+        for manager in (self.teacher, co_admin):
+            self.assertIn("只有里面的人看得到", manager.get("/domains").text)
+            for path in ("", "/members", "/settings"):
+                self.assertEqual(manager.get("/d/p4-seen" + path).status_code, 200, path)
+        self.assertEqual(member_form(co_admin, "p4-seen", "add", username="p4_student", role="ta"), "")
+        self.assertEqual(member_form(co_admin, "p4-seen", "remove", username="p4_student"), "")
+        # a member sees it, and manages nothing
+        self.assertIn("只有里面的人看得到", pupil.get("/domains").text)
+        self.assertEqual(pupil.get("/d/p4-seen").status_code, 200)
+        self.assertEqual(pupil.get("/d/p4-seen/settings").status_code, 403)
+        self.assertNotEqual(member_form(pupil, "p4-seen", "add", username="p4_student", role="member"), "")
+        self.assertIsNone(role_in("p4-seen", "p4_student"))
 
-        self.assertIn('id="button-join-domain"', joiner.get("/d/p4-public").text)
-        self.assertEqual(joiner.form("/d/p4-public", "join"), "")
-        self.assertEqual(role_in("p4-public", "p4_joiner"), "member")
-        self.assertEqual(joiner.get("/d/p4-public/members").status_code, 200)
-        self.assertIn("p4-public", joiner.get("/domains").text)
-        # nobody joins a domain that does not say so
-        self.assertNotIn('id="button-join-domain"', joiner.get("/d/p4-unlisted").text)
-        joiner.form("/d/p4-unlisted", "join")
-        self.assertIsNone(role_in("p4-unlisted", "p4_joiner"))
-        # whoever came by themselves may leave by themselves
-        self.assertEqual(joiner.form("/d/p4-public/members", "leave"), "")
-        self.assertIsNone(role_in("p4-public", "p4_joiner"))
+        # the administrators of the site see every domain and manage it, without being in it
+        for overseer in (self.admin, oj_admin):
+            listed = overseer.get("/domains").text
+            self.assertIn('id="table-all-domains"', listed)
+            self.assertIn("/d/p4-seen", listed)
+            self.assertIn("只有里面的人看得到", overseer.get("/domains?q=p4-seen").text)
+            self.assertNotIn("只有里面的人看得到", overseer.get("/domains?q=p4-nothing-like-it").text)
+            for path in ("", "/members", "/settings"):
+                self.assertEqual(overseer.get("/d/p4-seen" + path).status_code, 200, path)
+        self.assertEqual(self.teacher.form("/d/p4-seen/settings", "archive"), "")
+        self.assertIn("/d/p4-seen", self.admin.get("/domains").text)
+        self.assertEqual(self.student.get("/d/p4-seen").status_code, 404)
+
+    def test_who_came_with_an_invitation_may_leave_and_who_was_put_on_the_list_may_not(self):
+        self.teacher.new_domain("p4-leave")
+        guest, listed = account("p4_leave_guest"), account("p4_leave_listed")
+        self.assertEqual(redeem(guest, new_invite(self.teacher, "p4-leave")), "")
+        self.assertEqual(member_form(self.teacher, "p4-leave", "add", username="p4_leave_listed", role="member"), "")
+        self.assertIn('id="button-leave-domain"', guest.get("/d/p4-leave/members").text)
+        self.assertNotIn('id="button-leave-domain"', listed.get("/d/p4-leave/members").text)
+        self.assertNotEqual(listed.form("/d/p4-leave/members", "leave"), "")
+        self.assertEqual(role_in("p4-leave", "p4_leave_listed"), "member")
+        self.assertEqual(guest.form("/d/p4-leave/members", "leave"), "")
+        self.assertIsNone(role_in("p4-leave", "p4_leave_guest"))
+        self.assertEqual(guest.get("/d/p4-leave").status_code, 404)
 
     def test_members_are_managed_by_the_owner_and_the_administrators(self):
         self.teacher.new_domain("p4-staff")
@@ -231,20 +257,17 @@ class DomainTest(unittest.TestCase):
         self.assertEqual(db_value("select archived_at is null from domains where slug = 'p4-handover'"), "1")
 
     def test_archived_domain_is_read_only(self):
-        self.teacher.new_domain("p4-archived", visibility="public", join_method="all")
+        self.teacher.new_domain("p4-archived")
         pupil = account("p4_archived_pupil")
         self.assertEqual(member_form(self.teacher, "p4-archived", "add", username="p4_archived_pupil", role="member"), "")
         self.assertEqual(self.teacher.form("/d/p4-archived/settings", "archive"), "")
         self.assertEqual(db_value("select archived_at is not null from domains where slug = 'p4-archived'"), "1")
 
-        self.assertNotIn("p4-archived", uoj.Client().get("/domains").text)
         self.assertEqual(pupil.get("/d/p4-archived").status_code, 200)
         self.assertIn("已归档", pupil.get("/d/p4-archived").text)
         account("p4_archived_late")
         self.assertNotEqual(member_form(self.teacher, "p4-archived", "add", username="p4_archived_late", role="member"), "")
-        account("p4_archived_late").form("/d/p4-archived", "join")
-        self.assertIsNone(role_in("p4-archived", "p4_archived_late"))
-        base = dict(name="x", description="", type="course", visibility="public", join_method="all")
+        base = dict(name="x", description="", type="course")
         self.assertNotEqual(self.teacher.form("/d/p4-archived/settings", "settings", **base), "")
         self.assertEqual(db_value("select name from domains where slug = 'p4-archived'"), "域 p4-archived")
 
@@ -315,7 +338,7 @@ class DomainJoinTest(unittest.TestCase):
         assert uoj.admin().change_user("p4_join_teacher", "grant:teacher") == ""
 
     def test_invitation_is_a_secret_that_is_kept_only_as_a_hash(self):
-        self.teacher.new_domain("p4-invite", join_method="code")
+        self.teacher.new_domain("p4-invite")
         token = new_invite(self.teacher, "p4-invite", label="周二班")
         self.assertRegex(token, r"^[A-Za-z0-9_-]{24}$")
         # the database does not know the token, and the page shows it no second time
@@ -337,7 +360,7 @@ class DomainJoinTest(unittest.TestCase):
         self.assertIsNone(role_in("p4-invite", "p4_invited_2"))
 
     def test_invitation_expires_runs_out_and_is_revoked(self):
-        self.teacher.new_domain("p4-invite-ends", join_method="code")
+        self.teacher.new_domain("p4-invite-ends")
         did = domain_id("p4-invite-ends")
         clients = [account("p4_ends_%d" % n) for n in range(6)]
 
@@ -355,11 +378,11 @@ class DomainJoinTest(unittest.TestCase):
         self.assertEqual(member_form(self.teacher, "p4-invite-ends", "revoke", id=invite_id), "")
         self.assertIn("无效或已过期", redeem(clients[4], revoked))
 
-        # an invitation is worth nothing in a domain that lets nobody in
+        # an invitation is worth nothing while its domain is archived
         still_good = new_invite(self.teacher, "p4-invite-ends", label="closed")
-        db("update domains set join_method = 'none' where id = %d" % did)
+        self.assertEqual(self.teacher.form("/d/p4-invite-ends/settings", "archive"), "")
         self.assertIn("无效或已过期", redeem(clients[5], still_good))
-        db("update domains set join_method = 'code' where id = %d" % did)
+        self.assertEqual(self.teacher.form("/d/p4-invite-ends/settings", "archive"), "")
         self.assertEqual(redeem(clients[5], still_good), "")
 
         self.assertEqual(
@@ -372,7 +395,7 @@ class DomainJoinTest(unittest.TestCase):
         )
 
     def test_only_one_of_many_gets_the_last_use(self):
-        self.teacher.new_domain("p4-invite-race", join_method="code")
+        self.teacher.new_domain("p4-invite-race")
         did = domain_id("p4-invite-race")
         token = new_invite(self.teacher, "p4-invite-race", max_uses="1")
         clients = [account("p4_race_%d" % n) for n in range(10)]
@@ -391,7 +414,7 @@ class DomainJoinTest(unittest.TestCase):
         self.assertEqual(db_value("select uses from domain_invites where domain_id = %d" % did), "1")
 
     def test_member_does_not_use_up_an_invitation(self):
-        self.teacher.new_domain("p4-invite-member", join_method="code")
+        self.teacher.new_domain("p4-invite-member")
         did = domain_id("p4-invite-member")
         token = new_invite(self.teacher, "p4-invite-member", max_uses="1")
         member = account("p4_already_in")
@@ -405,7 +428,7 @@ class DomainJoinTest(unittest.TestCase):
         self.assertEqual(role_in("p4-invite-member", "p4_not_yet_in"), "member")
 
     def test_join_page_tells_nothing_about_domains(self):
-        self.teacher.new_domain("p4-invite-quiet", join_method="code")
+        self.teacher.new_domain("p4-invite-quiet")
         stranger = account("p4_quiet")
         expired = new_invite(self.teacher, "p4-invite-quiet")
         db("update domain_invites set expires_at = now() - interval 1 minute where domain_id = %d" % domain_id("p4-invite-quiet"))
@@ -559,6 +582,15 @@ class DomainProblemTest(unittest.TestCase):
             self.assertEqual(client.get("/submission/%d" % submission_id).status_code, 403)
             self.assertNotIn(link, client.get("/submissions?problem_id=%d" % problem_id).text)
             self.assertNotIn(link, client.get("/submissions").text)
+        # what somebody solved in a domain is not told on their profile, nor counted for the site
+        name = self.pupil.username
+        self.assertEqual(db_value("select count(*) from best_ac_submissions where submitter = '%s' and problem_id = %d" % (name, problem_id)), "1")
+        self.assertNotIn('href="/problem/%d"' % problem_id, self.stranger.get("/user/profile/" + name).text)
+        self.assertEqual(
+            db_value("select ac_num from user_info where username = '%s'" % name),
+            db_value("select count(*) from best_ac_submissions b, problems p where p.id = b.problem_id"
+                     " and p.owner_domain_id is null and b.submitter = '%s'" % name),  # fmt: skip
+        )
 
     def test_copy_is_a_problem_of_its_own(self):
         source_version, source_sha = self.data_version(self.public_id)

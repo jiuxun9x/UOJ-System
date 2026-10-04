@@ -348,9 +348,8 @@ class Client:
         return "HTTP %d: %s" % (r.status_code, text_of(r.text))
 
     def new_domain(self, slug, **settings):
-        """create a domain, private and joined through its managers unless told otherwise"""
-        fields = {"name": "域 " + slug, "slug": slug, "description": "", "type": "course",
-                  "visibility": "private", "join_method": "none"}  # fmt: skip
+        """create a domain"""
+        fields = {"name": "域 " + slug, "slug": slug, "description": "", "type": "course"}
         fields.update(settings)
         err = self.form("/domain/new", "create", **fields)
         if err:

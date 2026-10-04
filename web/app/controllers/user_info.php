@@ -95,7 +95,8 @@
 				</div>
 				<div class="list-group-item">
 					<?php
-						$ac_problems = DB::selectAll("select problem_id from best_ac_submissions where submitter = '{$user['username']}'");
+						// what somebody solved inside a domain is for the people of that domain
+						$ac_problems = DB::selectAll("select best_ac_submissions.problem_id from best_ac_submissions, problems where problems.id = best_ac_submissions.problem_id and problems.owner_domain_id is null and best_ac_submissions.submitter = '{$user['username']}' order by best_ac_submissions.problem_id");
 					?>
 					<h4 class="list-group-item-heading"><?= UOJLocale::get('accepted problems').'：'.UOJLocale::get('n problems in total', count($ac_problems))?> </h4>
 					<p class="list-group-item-text">

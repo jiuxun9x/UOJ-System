@@ -6,14 +6,14 @@
 		become403Page();
 	}
 	
-	$settings = array_intersect_key($domain, array('name' => 0, 'slug' => 0, 'description' => 0, 'type' => 0, 'visibility' => 0, 'join_method' => 0));
+	$settings = array_intersect_key($domain, array('name' => 0, 'slug' => 0, 'description' => 0, 'type' => 0));
 	$error = domainHandleForms(array(
 		'settings' => function() use ($domain, $can_manage, &$settings) {
 			global $myUser;
 			if (!$can_manage) {
 				return '没有权限';
 			}
-			foreach (array('name', 'description', 'type', 'visibility', 'join_method') as $key) {
+			foreach (array('name', 'description', 'type') as $key) {
 				$settings[$key] = isset($_POST[$key]) && is_string($_POST[$key]) ? $_POST[$key] : '';
 			}
 			$err = domainUpdateSettings($domain, $settings, $myUser);

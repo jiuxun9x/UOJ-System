@@ -2,8 +2,10 @@
 	$domain = domainOfPage();
 	$can_manage = can($myUser, 'member.manage', $domain);
 	$my_role = permissionDomainRole($myUser, $domain);
-	// whoever joined by themselves may leave by themselves
-	$can_leave = $my_role !== null && $my_role !== 'owner' && $domain['join_method'] !== 'none' && $domain['archived_at'] === null;
+	// Whoever came in with an invitation may leave again. Whoever was put on the list by the
+	// people who manage the domain, as the students of a class are, is taken off it by them.
+	$can_leave = $my_role !== null && $my_role !== 'owner' && $domain['archived_at'] === null
+		&& DB::selectFirst("select 1 from domain_members where domain_id = {$domain['id']} and username = '".DB::escape($myUser['username'])."' and added_by = ''") != null;
 	
 	$error = domainHandleForms(array(
 		'add' => function() use ($domain, $can_manage) {
@@ -317,9 +319,6 @@
 	</div>
 	<div class="col-lg-6">
 		<h3 class="uoj-domain-section-title">邀请</h3>
-		<?php if ($domain['join_method'] === 'none'): ?>
-		<div class="alert alert-warning py-2">当前加入方式是“只能由管理者添加”，邀请暂时不起作用。要使用邀请，请在设置里把加入方式改为“凭邀请加入”。</div>
-		<?php endif ?>
 		<form method="post" id="form-create-invite">
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="invite" />

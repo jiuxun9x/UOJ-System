@@ -32,7 +32,7 @@ def seed():
     admin.change_user("shot_teacher", "grant:teacher")
     teacher.update_profile(nickname="周老师")
     if db_value("select count(*) from domains where slug = '%s'" % SLUG) == "0":
-        teacher.new_domain(SLUG, name="2026 秋 数据结构 计科 1 班", join_method="code",
+        teacher.new_domain(SLUG, name="2026 秋 数据结构 计科 1 班",
                            description="周二 3-4 节，实验楼 302。\n作业每周日 23:59 截止，迟交两天内按 80% 计分。")  # fmt: skip
     members = "/d/%s/members" % SLUG
     for name, role in (("shot_co", "admin"), ("shot_ta", "ta")):
@@ -106,7 +106,7 @@ def seed():
     homework("第 4 次作业 树", begin_at=uoj.web_time(5 * 86400), penalty_since=uoj.web_time(12 * 86400), end_at=uoj.web_time(14 * 86400))
     uoj.wait_idle()
     return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
-            "past": past, "current": current}  # fmt: skip
+            "admin": admin, "past": past, "current": current}  # fmt: skip
 
 
 def pages(seeded):
@@ -128,6 +128,7 @@ def pages(seeded):
         ("contests-teacher", "teacher", d + "/contests"),
         ("domains-teacher", "teacher", "/domains"),
         ("domains-outsider", "outsider", "/domains"),
+        ("domains-admin", "admin", "/domains"),
         ("domain-new", "teacher", "/domain/new"),
         ("domain-join", "outsider", "/domains/join"),
         ("overview-teacher", "teacher", d),

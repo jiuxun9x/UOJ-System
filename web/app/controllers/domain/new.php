@@ -6,7 +6,7 @@
 		become403Page();
 	}
 	
-	$settings = array('name' => '', 'slug' => '', 'description' => '', 'type' => 'course', 'visibility' => 'private', 'join_method' => 'none');
+	$settings = array('name' => '', 'slug' => '', 'description' => '', 'type' => 'course');
 	foreach ($settings as $key => $default) {
 		if (isset($_POST[$key]) && is_string($_POST[$key])) {
 			$settings[$key] = $_POST[$key];
@@ -17,7 +17,7 @@
 			global $myUser;
 			$err = domainCreate($myUser, $settings);
 			if ($err === '') {
-				domainFlash('域已创建。接下来可以在“成员”里添加学生，或在“设置”里调整加入方式。');
+				domainFlash('域已创建。接下来可以在“成员”里添加学生、导入名单或生成邀请链接。');
 				redirectTo("/d/{$settings['slug']}");
 			}
 			return $err;
