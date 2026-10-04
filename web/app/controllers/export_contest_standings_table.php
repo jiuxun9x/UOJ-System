@@ -6,7 +6,7 @@ if (!validateUInt($_GET['id']) || !($contest = queryContest($_GET['id']))) {
 genMoreContestInfo($contest);
 
 if (!can(Auth::user(), 'contest.assist', $contest)) {
-	becomeMsgPage('您没有权限下载此比赛的排名。');
+	become403Page();
 }
 if ($contest['cur_progress'] < CONTEST_FINISHED) {
 	becomeMsgPage('比赛尚未结束，无法下载排名。');

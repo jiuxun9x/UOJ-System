@@ -10,6 +10,7 @@ They need the containers of docker-compose.yml and tests/e2e/docker-compose.e2e.
 import io
 import json
 import os
+import re
 import time
 import unittest
 import zipfile
@@ -29,7 +30,10 @@ class DatabaseUpgradeTest(unittest.TestCase):
     """2.5 and 2.6: upgrades run against a database on another host, and fail loudly"""
 
     CLI = "php /opt/uoj/web/app/cli.php"
-    UPGRADES = ["1001_expand_judgement_storage", "1002_problem_data_versions", "1003_judge_tracking"]
+    # every upgrade that comes with the source, in the order they are applied
+    UPGRADES = sorted(
+        name for name in os.listdir(os.path.join(REPO, "web", "app", "upgrade")) if re.match(r"^\d+_", name)
+    )
 
     def test_upgrades_were_applied_when_the_web_server_started(self):
         self.assertEqual(
