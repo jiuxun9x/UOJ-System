@@ -234,10 +234,37 @@ function can($user, $ability, $resource = null) {
 			return $name !== null && $resource != null && $resource['username'] === $name;
 
 		// ---- problems
+		// A problem that belongs to a domain is managed by the people who teach there, and seen
+		// by nobody outside of the domain.
 		case 'problem.manage':
-			return $is_admin || ($name !== null && $facts->managesProblem($name, $resource['id']));
+			if ($is_admin) {
+				return true;
+			}
+			if ($name === null) {
+				return false;
+			}
+			if (!empty($resource['owner_domain_id']) && can($user, 'domain.teach', $facts->domain($resource['owner_domain_id']))) {
+				return true;
+			}
+			return $facts->managesProblem($name, $resource['id']);
 		case 'problem.view':
-			return !$resource['is_hidden'] || can($user, 'problem.manage', $resource);
+			if (can($user, 'problem.manage', $resource)) {
+				return true;
+			}
+			if (!empty($resource['owner_domain_id']) && !can($user, 'domain.view', $facts->domain($resource['owner_domain_id']))) {
+				return false;
+			}
+			return !$resource['is_hidden'];
+		// Taking a copy of a problem into a domain: a problem of the site that the user can
+		// see, or a problem of another domain where the user teaches.
+		case 'problem.copy':
+			if ($name === null) {
+				return false;
+			}
+			if (!empty($resource['owner_domain_id'])) {
+				return can($user, 'domain.teach', $facts->domain($resource['owner_domain_id']));
+			}
+			return can($user, 'problem.view', $resource);
 
 		// ---- contests
 		case 'contest.manage':
@@ -256,6 +283,10 @@ function can($user, $ability, $resource = null) {
 				return true;
 			}
 			if ($resource['is_hidden']) {
+				return false;
+			}
+			// what is submitted in a domain stays in the domain
+			if (!empty($resource['domain_id']) && !can($user, 'domain.view', $facts->domain($resource['domain_id']))) {
 				return false;
 			}
 			// what is submitted in a contest is nobody else's business while the contest runs
@@ -321,7 +352,14 @@ function can($user, $ability, $resource = null) {
 
 		// ---- hacks, the resource is the hack with the submission it hacks in 'submission'
 		case 'hack.view':
-			return $is_admin || !$resource['is_hidden'] || can($user, 'problem.manage', $facts->problem($resource['problem_id']));
+			$problem = $facts->problem($resource['problem_id']);
+			if ($is_admin || can($user, 'problem.manage', $problem)) {
+				return true;
+			}
+			if (!empty($problem['owner_domain_id']) && !can($user, 'domain.view', $facts->domain($problem['owner_domain_id']))) {
+				return false;
+			}
+			return !$resource['is_hidden'];
 		case 'hack.view_source':
 			return can($user, 'submission.view_source', $resource['submission']);
 		case 'hack.view_details':
@@ -372,6 +410,10 @@ function permissionIsStaffOf($user, $submission) {
 	if (isSiteAdmin($user) || can($user, 'problem.manage', $facts->problem($submission['problem_id']))) {
 		return true;
 	}
+	// the people who assist in the domain a submission was made in
+	if (!empty($submission['domain_id']) && can($user, 'domain.assist', $facts->domain($submission['domain_id']))) {
+		return true;
+	}
 	$contest = $facts->contest($submission['contest_id']);
 	return $contest != null && can($user, 'contest.assist', $contest);
 }
@@ -402,21 +444,39 @@ function visibleSubmissionsCond($user) {
 	// the same rules as 'submission.view'
 	$in_running_contest = "submissions.contest_id in (select id from contests where ".runningContestsCond().")";
 	if ($user == null) {
-		return "submissions.is_hidden = false and (submissions.contest_id is null or not $in_running_contest)";
+		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or not $in_running_contest)";
 	}
 	$esc_username = DB::escape($user['username']);
 	$manages_problem = "submissions.problem_id in (select problem_id from problems_permissions where username = '$esc_username')";
 	$assists_contest = "submissions.contest_id in (select contest_id from contests_permissions where username = '$esc_username')";
-	return "$manages_problem or $assists_contest or (submissions.is_hidden = false and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username'))";
+	// the domains of the user, and the ones where they see everything
+	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";
+	$assists_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'ta').")";
+	return "$manages_problem or $assists_contest or $assists_domain or (submissions.is_hidden = false and (submissions.domain_id is null or $in_my_domain) and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username'))";
+}
+// a query for the ids of the domains in which a user has at least a role
+function domainIdsOfUserSql($esc_username, $role) {
+	$roles = array();
+	foreach (domainMemberRoles() as $member_role => $name) {
+		if (domainRoleRank($member_role) >= domainRoleRank($role)) {
+			$roles[] = "'$member_role'";
+		}
+	}
+	return "select id from domains where owner_username = '$esc_username' union select domain_id from domain_members where username = '$esc_username' and role in (".join(', ', $roles).")";
 }
 function visibleHacksCond($user) {
 	if (can($user, 'submission.view_all')) {
 		return '1';
 	}
-	if ($user != null) {
-		return "is_hidden = false or (is_hidden = true and problem_id in (select problem_id from problems_permissions where username = '".DB::escape($user['username'])."'))";
+	// a hack of a problem of a domain is shown in the domain only
+	$of_the_site = "problem_id in (select id from problems where owner_domain_id is null)";
+	if ($user == null) {
+		return "is_hidden = false and $of_the_site";
 	}
-	return "is_hidden = false";
+	$esc_username = DB::escape($user['username']);
+	$of_my_domain = "problem_id in (select id from problems where owner_domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
+	$i_teach = "problem_id in (select id from problems where owner_domain_id in (".domainIdsOfUserSql($esc_username, 'teacher')."))";
+	return "$i_teach or problem_id in (select problem_id from problems_permissions where username = '$esc_username') or (is_hidden = false and ($of_the_site or $of_my_domain))";
 }
 
 // A problem of a contest is shown to the people who registered once the contest has started,

@@ -8,6 +8,21 @@
 	
 	$problem_content = queryProblemContent($problem['id']);
 	
+	// A problem of a domain is shown inside its domain, to the people of the domain.
+	$domain = null;
+	if (isset($_GET['slug'])) {
+		$domain = domainOfPage();
+		if ($problem['owner_domain_id'] != $domain['id']) {
+			become404Page();
+		}
+	} elseif ($problem['owner_domain_id'] && !isset($_GET['contest_id'])) {
+		$owner_domain = queryDomain($problem['owner_domain_id']);
+		if (!$owner_domain || !can($myUser, 'problem.view', $problem)) {
+			become404Page();
+		}
+		redirectTo(domainProblemUrl($owner_domain, $problem['id']));
+	}
+	
 	$contest = validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
 	if ($contest != null) {
 		genMoreContestInfo($contest);
@@ -109,10 +124,12 @@
 		$result['status'] = "Waiting";
 		$result_json = json_encode($result);
 		
+		// what is submitted to a problem of a domain belongs to the domain
+		$domain_id = $problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : 'null';
 		if ($is_in_contest) {
-			DB::query("insert into submissions (problem_id, contest_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, ${contest['id']}, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
+			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, ${contest['id']}, $domain_id, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
 		} else {
-			DB::query("insert into submissions (problem_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', {$problem['is_hidden']})");
+			DB::query("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, $domain_id, now(), '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', {$problem['is_hidden']})");
 		}
 	}
 	function handleCustomTestUpload($zip_file_name, $content, $tot_size) {
@@ -206,7 +223,11 @@ EOD
 	$REQUIRE_LIB['mathjax'] = '';
 	$REQUIRE_LIB['hljs'] = '';
 ?>
+<?php if ($domain): ?>
+<?php echoDomainPageHeader($domain, 'problems', HTML::stripTags($problem['title'])) ?>
+<?php else: ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - ' . UOJLocale::get('problems::problem')) ?>
+<?php endif ?>
 <?php
 	$limit = getUOJConf("/var/uoj_data/{$problem['id']}/problem.conf");
 	$time_limit = $limit['time_limit'];

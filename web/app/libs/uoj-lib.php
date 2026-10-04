@@ -10,7 +10,8 @@
 		$REQUIRE_LIB[$name] = '';
 	}
 	function requirePHPLib($name) { // uoj php lib
-		require $_SERVER['DOCUMENT_ROOT'].'/app/libs/uoj-'.$name.'-lib.php';
+		// once: a library that needs another asks for it, whoever asked before
+		require_once $_SERVER['DOCUMENT_ROOT'].'/app/libs/uoj-'.$name.'-lib.php';
 	}
 	
 	requirePHPLib('validate');

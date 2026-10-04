@@ -206,6 +206,8 @@
 				unset($extra_config['custom_judger_fingerprint']);
 			} else {
 				$extra_config['custom_judger_fingerprint'] = $pending['custom_judger_fingerprint'];
+				// what was approved is this content, whichever problem it turns up in
+				dataRegisterApprovedJudger($pending['custom_judger_fingerprint'], $version_row['created_by'], $id);
 			}
 			$set[] = "extra_config = '" . DB::escape(json_encode($extra_config)) . "'";
 		}
@@ -321,6 +323,25 @@
 		$conf['memory_limit'] = $get('memory_limit');
 
 		return $conf;
+	}
+
+	// ---- approval of custom judgers by content
+	//
+	// A system administrator who syncs a problem with a custom judger approves what the files
+	// are, not the row of the problem. The fingerprint below depends on nothing but the content
+	// of the files and of problem.conf, so the same approval holds for a copy of the problem
+	// with the same files, and for no copy in which anything was changed.
+	function dataRegisterApprovedJudger($fingerprint, $approved_by, $problem_id) {
+		if (!is_string($fingerprint) || !preg_match('/^[0-9a-f]{64}$/', $fingerprint)) {
+			return;
+		}
+		DB::insert("insert ignore into approved_judger_fingerprints (fingerprint, approved_by, approved_at, problem_id) values ('$fingerprint', '".DB::escape($approved_by)."', now(), ".(int)$problem_id.")");
+	}
+	function dataIsApprovedJudger($fingerprint) {
+		if (!is_string($fingerprint) || !preg_match('/^[0-9a-f]{64}$/', $fingerprint)) {
+			return false;
+		}
+		return DB::selectFirst("select 1 from approved_judger_fingerprints where fingerprint = '$fingerprint'") != null;
 	}
 
 	// A fingerprint of everything the build of a custom judger can depend on: every uploaded
@@ -698,11 +719,17 @@
 			if (can($this->user, 'problem.approve_judger')) {
 				return true;
 			}
-			if (!isset($this->problem_extra_config['custom_judger_fingerprint'])) {
-				return false;
+			// Nothing is taken on trust from the record of the problem: the files that are about
+			// to be built are hashed, and that hash has to be one a system administrator approved,
+			// for this problem or, byte for byte the same, for another.
+			$fingerprint = dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf);
+			if (isset($this->problem_extra_config['custom_judger_fingerprint'])) {
+				$approved = $this->problem_extra_config['custom_judger_fingerprint'];
+				if (is_string($approved) && hash_equals($approved, $fingerprint)) {
+					return true;
+				}
 			}
-			$approved = $this->problem_extra_config['custom_judger_fingerprint'];
-			return is_string($approved) && hash_equals($approved, dataCustomJudgerFingerprint($this->upload_dir, $this->problem_conf));
+			return dataIsApprovedJudger($fingerprint);
 		}
 
 		private function is_stage_stale() {

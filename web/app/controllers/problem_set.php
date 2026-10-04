@@ -74,8 +74,11 @@ EOD;
 		$cond[] = "'".DB::escape($search_tag)."' in (select tag from problems_tags where problems_tags.problem_id = problems.id)";
 	}
 	if (isset($_GET["search"])) {
-		$cond[]="title like '%".DB::escape($_GET["search"])."%' or id like '%".DB::escape($_GET["search"])."%'";
+		$cond[]="(title like '%".DB::escape($_GET["search"])."%' or id like '%".DB::escape($_GET["search"])."%')";
 	}
+	
+	// the problems of a domain are listed in the domain
+	$cond[] = 'problems.owner_domain_id is null';
 	
 	if ($cond) {
 		$cond = join($cond, ' and ');

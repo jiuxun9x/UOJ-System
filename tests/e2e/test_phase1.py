@@ -491,7 +491,11 @@ class CustomJudgerHackTest(unittest.TestCase):
         manager = uoj.manager()
         problem_id = admin.new_problem()
         db("insert into problems_permissions (username, problem_id) values ('%s', %d)" % (uoj.MANAGER[0], problem_id))
-        r = manager.upload_data(problem_id, custom_judger_problem_files())
+        # a judger that no super user has seen: approval goes by the content of the files, and
+        # other tests have the very files of the fixture approved
+        files = custom_judger_problem_files()
+        files["Makefile"] += "\n# nobody approved this\n"
+        r = manager.upload_data(problem_id, files)
         self.assertIn("上传成功", r.text)
         self.assertIn("use_builtin_judger must be on", manager.sync(problem_id))
         self.assertEqual(docker_exec(uoj.WEB, "ls /var/uoj_data/%d" % problem_id).strip(), "")

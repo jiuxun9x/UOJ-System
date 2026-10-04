@@ -284,6 +284,7 @@ function domainHandleForms($forms, $redirect = null) {
 function domainTabs($domain, $user) {
 	$tabs = array(
 		'overview' => array('概览', domainUrl($domain)),
+		'problems' => array('题目', domainUrl($domain, '/problems')),
 		'members' => array('成员', domainUrl($domain, '/members')),
 		'announcements' => array('公告', domainUrl($domain, '/announcements'))
 	);
@@ -477,4 +478,90 @@ function domainSaveAnnouncement($domain, $id, $title, $content_md, $pinned, $act
 		auditLog('domain.edit_announcement', 'domain', $domain['id'], null, array('announcement_id' => (int)$id, 'title' => $title), $actor);
 	}
 	return '';
+}
+
+// ---- problems
+//
+// A problem with owner_domain_id belongs to that domain: the people who teach there manage it,
+// and nobody outside of the domain sees it. A problem of the site, or of another domain, gets
+// into a domain as a copy, which is a problem of its own from then on: where it came from is
+// remembered, and nothing follows from it.
+
+function domainProblemUrl($domain, $problem_id) {
+	return domainUrl($domain, "/problem/$problem_id");
+}
+
+// Creates an empty problem in a domain and returns its id.
+function domainNewProblem($domain, $actor) {
+	requirePHPLib('judger');
+	requirePHPLib('data');
+	DB::insert("insert into problems (title, is_hidden, submission_requirement, owner_domain_id) values ('New Problem', 1, '{}', {$domain['id']})");
+	$id = DB::insert_id();
+	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '', '')");
+	dataNewProblem($id);
+	auditLog('problem.create', 'problem', $id, null, array('domain_id' => (int)$domain['id']), $actor);
+	return $id;
+}
+
+// Copies a problem into a domain: its statement, tags and settings, and the files that were
+// uploaded for it, from which the data of the copy is built like after any upload. The copy
+// starts hidden. Returns array(id of the copy, '') or array(null, why not).
+//
+// What is not copied: submissions, hacks, statistics, who manages the problem, and whether
+// its custom judger was approved. The files of the copy are hashed when they are synced, and
+// have to be approved by what they are.
+function domainCopyProblem($source, $domain, $actor) {
+	requirePHPLib('judger');
+	requirePHPLib('data');
+	$source_version = dataCurrentVersion($source);
+	if (!$source_version) {
+		return array(null, "题目 #{$source['id']} 还没有数据，不能复制");
+	}
+	$extra_config = json_decode($source['extra_config'], true);
+	$extra_config = is_array($extra_config) ? $extra_config : array();
+	unset($extra_config['custom_judger_fingerprint']);
+	
+	if (!DB::insert("insert into problems (title, is_hidden, submission_requirement, hackable, extra_config, owner_domain_id, source_problem_id, source_data_version, imported_at, imported_by) values ('".DB::escape($source['title'])."', 1, '".DB::escape($source['submission_requirement'])."', ".(int)$source['hackable'].", '".DB::escape(json_encode($extra_config))."', {$domain['id']}, {$source['id']}, {$source_version['version']}, now(), '".DB::escape($actor['username'])."')")) {
+		return array(null, '复制失败');
+	}
+	$id = DB::insert_id();
+	$content = queryProblemContent($source['id']);
+	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '".DB::escape($content['statement'])."', '".DB::escape($content['statement_md'])."')");
+	foreach (queryProblemTags($source['id']) as $tag) {
+		DB::insert("insert into problems_tags (problem_id, tag) values ($id, '".DB::escape($tag)."')");
+	}
+	dataNewProblem($id);
+	auditLog('problem.copy', 'problem', $id, null, array('domain_id' => (int)$domain['id'], 'source_problem_id' => (int)$source['id'], 'source_data_version' => (int)$source_version['version']), $actor);
+	exec("cp -a ".escapeshellarg("/var/uoj_data/upload/{$source['id']}/.")." ".escapeshellarg("/var/uoj_data/upload/$id/"), $output, $status);
+	$err = $status === 0 ? dataSyncProblemData(queryProblemBrief($id), $actor, array('reason' => 'copy')) : '复制数据文件失败';
+	if ($err) {
+		// a copy without data is of no use to anybody
+		DB::delete("delete from problems where id = $id");
+		DB::delete("delete from problems_contents where id = $id");
+		DB::delete("delete from problems_tags where problem_id = $id");
+		exec("rm -rf ".escapeshellarg("/var/uoj_data/upload/$id")." ".escapeshellarg("/var/uoj_data/$id")." ".escapeshellarg("/var/uoj_data/$id.zip"));
+		auditLog('problem.copy_failed', 'problem', $id, null, array('reason' => strip_tags($err)), $actor);
+		return array(null, "复制题目 #{$source['id']} 失败：" . strip_tags($err));
+	}
+	return array($id, '');
+}
+
+// A copy of a problem that a domain has already and that nobody has touched since: the same
+// source at the same version of its data, and the data of the copy still the first it was given.
+function domainUntouchedCopy($domain, $source) {
+	requirePHPLib('judger');
+	requirePHPLib('data');
+	$source_version = dataCurrentVersion($source);
+	if (!$source_version) {
+		return null;
+	}
+	return DB::selectFirst("select problems.* from problems where owner_domain_id = {$domain['id']} and source_problem_id = {$source['id']} and source_data_version = {$source_version['version']} and not exists (select 1 from problem_data_versions where problem_id = problems.id and version > 1) order by id limit 1", MYSQLI_ASSOC);
+}
+// whether the data of a problem can be judged with: its newest version is published
+function domainProblemDataState($problem_id) {
+	$row = DB::selectFirst("select status, message from problem_data_versions where problem_id = ".(int)$problem_id." order by version desc limit 1");
+	if (!$row) {
+		return array('none', '');
+	}
+	return array($row['status'], (string)$row['message']);
 }

@@ -329,5 +329,44 @@ foreach (array('', 'a', 'DS-2026', 'ds_2026', '-ds', 'ds-', 'ds 2026', 'ds/2026'
 	check_same(false, validateDomainSlug($slug), 'the address ' . json_encode($slug) . ' is refused');
 }
 
+// ---- what belongs to a domain
+// problem 20 is a visible problem of domain 1, problem 21 a hidden one, problem 22 belongs to domain 2
+$facts->problems += array(
+	20 => array('id' => 20, 'is_hidden' => 0, 'extra_config' => '{}', 'owner_domain_id' => 1),
+	21 => array('id' => 21, 'is_hidden' => 1, 'extra_config' => '{}', 'owner_domain_id' => 1),
+	22 => array('id' => 22, 'is_hidden' => 0, 'extra_config' => '{}', 'owner_domain_id' => 2),
+	23 => array('id' => 23, 'is_hidden' => 0, 'extra_config' => '{}', 'owner_domain_id' => 4),
+);
+$outsiders = array('nobody' => false, 'alice' => false, 'teacher' => false, 'creator' => false);
+check_ability('problem.view', $facts->problems[20], $outsiders + array('root' => true, 'ojadmin' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => true), 'a problem of a domain');
+check_ability('problem.view', $facts->problems[21], $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false), 'a hidden problem of a domain');
+check_ability('problem.manage', $facts->problems[20], $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'setter' => false), 'a problem of a domain');
+check_ability('problem.view', $facts->problems[22], array('lead' => false, 'lecturer' => false, 'pupil' => false, 'setter' => true), 'a problem of another domain');
+check_ability('problem.manage', $facts->problems[22], array('lead' => false, 'lecturer' => false, 'setter' => true), 'a problem of another domain');
+// in an archived domain the problems can be read, and no longer changed
+check_ability('problem.view', $facts->problems[23], array('lecturer' => true, 'pupil' => true, 'alice' => false), 'a problem of an archived domain');
+check_ability('problem.manage', $facts->problems[23], array('lead' => false, 'lecturer' => false, 'root' => true), 'a problem of an archived domain');
+
+// a copy is taken of a problem of the site one can see, or of a problem one teaches
+check_ability('problem.copy', $facts->problems[1], array('nobody' => false, 'alice' => true, 'lecturer' => true), 'a public problem');
+check_ability('problem.copy', $facts->problems[2], array('alice' => false, 'lecturer' => false, 'setter' => true, 'root' => true), 'a hidden problem');
+check_ability('problem.copy', $facts->problems[20], array('nobody' => false, 'lead' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'alice' => false, 'setter' => false), 'a problem of a domain');
+
+// what is submitted in a domain stays in the domain
+$in_domain = array('domain_id' => 1) + fake_submission('pupil', 20);
+check_ability('submission.view', $in_domain, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => true, 'setter' => false), 'a submission in a domain');
+check_ability('submission.view_source', $in_domain, $outsiders + array('lead' => true, 'tutor' => true, 'pupil' => true, 'co_admin' => true), 'a submission in a domain');
+// the people who assist in a domain see all of every submission there, the students what the problem lets them
+$facts->problems[24] = array('id' => 24, 'is_hidden' => 0, 'extra_config' => '{"view_content_type": "SELF", "view_all_details_type": "SELF", "view_details_type": "SELF"}', 'owner_domain_id' => 1);
+$own_only = array('domain_id' => 1) + fake_submission('pupil', 24);
+$facts->domain_members['classmate/1'] = 'member';
+$permission_test_users['classmate'] = fake_user('classmate');
+foreach (array('submission.view_source', 'submission.view_details', 'submission.view_final_details') as $ability) {
+	check_ability($ability, $own_only, array('lead' => true, 'lecturer' => true, 'tutor' => true, 'classmate' => false, 'alice' => false), 'a submission in a domain to a problem that shows nothing');
+}
+check_ability('submission.view', $own_only, array('classmate' => true, 'alice' => false), 'a submission in a domain to a problem that shows nothing');
+check_ability('submission.rejudge', $in_domain, array('lead' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'alice' => false), 'a submission in a domain');
+check_ability('hack.view', array('is_hidden' => 0, 'problem_id' => 20), $outsiders + array('pupil' => true, 'lead' => true, 'root' => true), 'a hack in a domain');
+
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');

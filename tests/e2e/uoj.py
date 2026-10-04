@@ -365,8 +365,9 @@ class Client:
 
     # ---- submissions
 
-    def submit(self, problem_id, code, language="C++17"):
-        err = self.submit_form("/problem/%d" % problem_id, "answer", {
+    def submit(self, problem_id, code, language="C++17", path=None):
+        """submit to a problem; path is the address of the problem where it is not /problem/<id>"""
+        err = self.submit_form(path or "/problem/%d" % problem_id, "answer", {
             "answer_answer_upload_type": "editor",
             "answer_answer_editor": code,
             "answer_answer_language": language,

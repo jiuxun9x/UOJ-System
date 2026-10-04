@@ -3,6 +3,7 @@
 See test_phase1.py for how to start the containers.
 """
 
+import json
 import re
 import threading
 import unittest
@@ -52,6 +53,14 @@ def new_invite(client, slug, **fields):
 
 def redeem(client, token):
     return client.form("/domains/join", "redeem", token=token)
+
+
+def refusal(client, path, form, **fields):
+    """the words a page refuses a form with"""
+    fields["form"] = form
+    page = client.post(path, fields)
+    assert page.status_code == 200, page.status_code
+    return re.search(r'class="alert alert-danger"[^>]*>([^<]*)<', page.text).group(1)
 
 
 class DomainTest(unittest.TestCase):
@@ -399,13 +408,11 @@ class DomainJoinTest(unittest.TestCase):
         expired = new_invite(self.teacher, "p4-invite-quiet")
         db("update domain_invites set expires_at = now() - interval 1 minute where domain_id = %d" % domain_id("p4-invite-quiet"))
 
-        def refusal(token):
-            page = stranger.post("/domains/join", {"form": "redeem", "token": token})
-            self.assertEqual(page.status_code, 200)
-            return re.search(r'class="alert alert-danger"[^>]*>([^<]*)<', page.text).group(1)
-
         # an invitation that ended, one that never was, and nonsense are refused in the same words
-        answers = {refusal(token) for token in (expired, "A" * 24, "p4-invite-quiet", "", "x" * 64)}
+        answers = {
+            refusal(stranger, "/domains/join", "redeem", token=token)
+            for token in (expired, "A" * 24, "p4-invite-quiet", "", "x" * 64)
+        }
         self.assertEqual(len(answers), 1, answers)
         self.assertNotIn("p4-invite-quiet", answers.pop())
         self.assertEqual(uoj.Client().get("/domains/join").status_code, 200)
@@ -468,6 +475,202 @@ class DomainJoinTest(unittest.TestCase):
         self.assertIsNone(role_in("p4-roster-roles", "p4_roster_target"))
         self.assertEqual(member_form(co, "p4-roster-roles", "import", roster="p4_roster_target", role="ta"), "")
         self.assertEqual(role_in("p4-roster-roles", "p4_roster_target"), "ta")
+
+
+class DomainProblemTest(unittest.TestCase):
+    """problems that belong to a domain, and copies of problems"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher = account("p4_prob_teacher")
+        assert cls.admin.change_user("p4_prob_teacher", "grant:teacher") == ""
+        cls.teacher.new_domain("p4-problems")
+        cls.did = domain_id("p4-problems")
+        cls.pupil = account("p4_prob_pupil")
+        cls.stranger = account("p4_prob_stranger")
+        assert member_form(cls.teacher, "p4-problems", "add", username="p4_prob_pupil", role="member") == ""
+        cls.public_id = cls.admin.create_problem(ab_problem_files())
+
+    def copy(self, client, problem_id, slug="p4-problems"):
+        return client.form("/d/%s/problems" % slug, "copy", problem_id=str(problem_id))
+
+    def newest_problem(self, did=None):
+        return int(db_value("select max(id) from problems where owner_domain_id = %d" % (did or self.did)))
+
+    def data_version(self, problem_id):
+        return db("select problems.data_version, sha256 from problems, problem_data_versions"
+                  " where problems.id = %d and problem_id = problems.id and version = data_version" % problem_id)[0]  # fmt: skip
+
+    def test_problem_of_a_domain_is_seen_in_the_domain_only(self):
+        problems = "/d/p4-problems/problems"
+        # students do not create problems
+        count = lambda: db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
+        before = count()
+        self.pupil.form(problems, "new")
+        self.assertEqual(count(), before)
+        self.assertEqual(self.teacher.form(problems, "new"), "")
+        self.assertEqual(int(count()), int(before) + 1)
+        problem_id = self.newest_problem()
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % problem_id), "1")
+        # whoever teaches in the domain manages its problems, without being listed for them
+        self.assertEqual(db_value("select count(*) from problems_permissions where problem_id = %d" % problem_id), "0")
+        self.assertIn("上传成功", self.teacher.upload_data(problem_id, ab_problem_files()).text)
+        self.assertEqual(self.teacher.sync(problem_id), "")
+        self.assertEqual(self.pupil.get("/problem/%d/manage/data" % problem_id).status_code, 403)
+
+        here = "/d/p4-problems/problem/%d" % problem_id
+        self.assertEqual(self.teacher.get(here).status_code, 200)
+        self.assertEqual(self.pupil.get(here).status_code, 404)
+        db("update problems set is_hidden = 0 where id = %d" % problem_id)
+        page = self.pupil.get(here)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("域 p4-problems", page.text)
+        # its address on the site leads the people of the domain to it, and nobody else anywhere
+        r = self.pupil.get("/problem/%d" % problem_id)
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, here))
+        for client in (self.stranger, uoj.Client()):
+            self.assertEqual(client.get("/problem/%d" % problem_id).status_code, 404)
+            self.assertIn(client.get(here).status_code, (302, 404))
+            self.assertEqual(client.get("/problem/%d/statistics" % problem_id).status_code, 404)
+        # another domain is no way in either
+        self.teacher.new_domain("p4-problems-other")
+        self.assertEqual(self.teacher.get("/d/p4-problems-other/problem/%d" % problem_id).status_code, 404)
+
+        # the list of the site does not have it, the list of the domain does
+        for client in (self.admin, self.pupil, self.stranger):
+            self.assertNotIn('href="/problem/%d"' % problem_id, client.get("/problems?search=%d" % problem_id).text)
+            self.assertIn('href="/problem/%d"' % self.public_id, client.get("/problems?search=%d" % self.public_id).text)
+        self.assertIn(here, self.pupil.get(problems).text)
+
+        # what is submitted to it stays in the domain
+        submission_id = self.pupil.submit(problem_id, AB + "// p4-domain-source\n", path=here)
+        self.assertEqual(db_value("select domain_id from submissions where id = %d" % submission_id), str(self.did))
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        tutor = account("p4_prob_tutor")
+        self.assertEqual(member_form(self.teacher, "p4-problems", "add", username="p4_prob_tutor", role="ta"), "")
+        link = 'href="/submission/%d"' % submission_id
+        for client in (self.pupil, self.teacher, tutor, self.admin):
+            self.assertIn("p4-domain-source", client.get("/submission/%d" % submission_id).text)
+            self.assertIn(link, client.get("/submissions?problem_id=%d" % problem_id).text)
+        for client in (self.stranger, uoj.Client()):
+            self.assertEqual(client.get("/submission/%d" % submission_id).status_code, 403)
+            self.assertNotIn(link, client.get("/submissions?problem_id=%d" % problem_id).text)
+            self.assertNotIn(link, client.get("/submissions").text)
+
+    def test_copy_is_a_problem_of_its_own(self):
+        source_version, source_sha = self.data_version(self.public_id)
+        earlier = self.pupil.submit(self.public_id, AB)
+        self.assertEqual(uoj.wait_submission(earlier).score, 100)
+
+        self.assertEqual(self.copy(self.teacher, self.public_id), "")
+        copy_id = self.newest_problem()
+        self.assertNotEqual(copy_id, self.public_id)
+        self.assertEqual(
+            db("select owner_domain_id, source_problem_id, source_data_version, is_hidden, imported_by, title"
+               " from problems where id = %d" % copy_id),
+            [[str(self.did), str(self.public_id), source_version, "1", "p4_prob_teacher",
+              db_value("select title from problems where id = %d" % self.public_id)]],
+        )  # fmt: skip
+        self.assertEqual(uoj.wait_data_version(copy_id), "")
+        self.assertEqual(self.data_version(copy_id)[0], "1")
+        # neither the submissions nor who manages the source come along
+        self.assertEqual(db_value("select count(*) from submissions where problem_id = %d" % copy_id), "0")
+        self.assertEqual(db_value("select ac_num from problems where id = %d" % copy_id), "0")
+
+        # the copy is judged with its own data
+        here = "/d/p4-problems/problem/%d" % copy_id
+        self.assertEqual(uoj.wait_submission(self.teacher.submit(copy_id, AB, path=here)).score, 100)
+
+        # changing the copy leaves the source alone
+        stricter = ab_problem_files()
+        stricter["output1.txt"] = "no program prints this\n"
+        self.assertIn("上传成功", self.teacher.upload_data(copy_id, stricter).text)
+        self.assertEqual(self.teacher.sync(copy_id), "")
+        self.assertEqual(self.data_version(copy_id)[0], "2")
+        self.assertEqual(self.data_version(self.public_id), [source_version, source_sha])
+        self.assertLess(uoj.wait_submission(self.teacher.submit(copy_id, AB, path=here)).score, 100)
+        self.assertEqual(uoj.wait_submission(self.pupil.submit(self.public_id, AB)).score, 100)
+
+        # and changing the source leaves the copy alone
+        copy_version = self.data_version(copy_id)
+        self.assertIn("上传成功", self.admin.upload_data(self.public_id, ab_problem_files()).text)
+        self.assertEqual(self.admin.sync(self.public_id), "")
+        self.assertNotEqual(self.data_version(self.public_id)[0], source_version)
+        self.assertEqual(self.data_version(copy_id), copy_version)
+        self.assertEqual(db_value("select source_data_version from problems where id = %d" % copy_id), source_version)
+        log = db("select action, actor from audit_logs where resource_type = 'problem' and resource_id = '%d' order by id limit 2" % copy_id)
+        self.assertEqual(log, [["problem.copy", "p4_prob_teacher"], ["problem.sync_data", "p4_prob_teacher"]])
+
+    def test_who_may_take_a_copy(self):
+        hidden_id = self.admin.new_problem()
+        count = lambda: db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
+        before = count()
+        # a problem one may not see is refused in the same words as one that does not exist
+        refusals = {
+            refusal(self.teacher, "/d/p4-problems/problems", "copy", problem_id=str(problem_id))
+            for problem_id in (hidden_id, 99999999)
+        }
+        self.assertEqual(len(refusals), 1, refusals)
+        # students and strangers copy nothing
+        self.assertNotEqual(self.copy(self.pupil, self.public_id), "")
+        self.assertNotEqual(self.copy(self.stranger, self.public_id), "")
+        self.assertEqual(count(), before)
+
+        # a problem of another domain is copied by somebody who teaches there
+        other = account("p4_prob_other_teacher")
+        self.assertEqual(self.admin.change_user("p4_prob_other_teacher", "grant:teacher"), "")
+        other.new_domain("p4-problems-theirs")
+        self.assertEqual(other.form("/d/p4-problems-theirs/problems", "new"), "")
+        theirs = self.newest_problem(domain_id("p4-problems-theirs"))
+        self.assertIn("上传成功", other.upload_data(theirs, ab_problem_files()).text)
+        self.assertEqual(other.sync(theirs), "")
+        db("update problems set is_hidden = 0 where id = %d" % theirs)
+        self.assertNotEqual(self.copy(self.teacher, theirs), "")
+        self.assertEqual(member_form(other, "p4-problems-theirs", "add", username="p4_prob_teacher", role="member"), "")
+        self.assertNotEqual(self.copy(self.teacher, theirs), "")
+        self.assertEqual(count(), before)
+        self.assertEqual(member_form(other, "p4-problems-theirs", "role", username="p4_prob_teacher", role="teacher"), "")
+        self.assertEqual(self.copy(self.teacher, theirs), "")
+        self.assertEqual(db_value("select source_problem_id from problems where id = %d" % self.newest_problem()), str(theirs))
+
+    def test_custom_judger_of_a_copy_is_approved_by_what_it_is(self):
+        files = custom_judger_problem_files()
+        files["Makefile"] += "\n# the judger of the copies\n"
+        source_id = self.admin.create_problem(files)
+        fingerprint = json.loads(db_value("select extra_config from problems where id = %d" % source_id))["custom_judger_fingerprint"]
+        # what the system administrator synced is on record by its content
+        self.assertEqual(
+            db("select approved_by, problem_id from approved_judger_fingerprints where fingerprint = '%s'" % fingerprint),
+            [[uoj.ADMIN[0], str(source_id)]],
+        )
+
+        # the copy does not carry the approval along, and is built because its files are the approved ones
+        self.assertEqual(self.copy(self.teacher, source_id), "")
+        copy_id = self.newest_problem()
+        self.assertNotIn("custom_judger_fingerprint", db_value("select extra_config from problems where id = %d" % copy_id))
+        self.assertEqual(uoj.wait_data_version(copy_id), "")
+        here = "/d/p4-problems/problem/%d" % copy_id
+        self.assertEqual(uoj.wait_submission(self.teacher.submit(copy_id, AB, path=here)).score, 100)
+        # the teacher may sync it again as it is
+        self.assertEqual(self.teacher.sync(copy_id), "")
+
+        # with anything changed that the judger is built from, it is nobody's approved judger
+        changed = dict(files)
+        changed["Makefile"] += "# and one more line\n"
+        self.assertIn("上传成功", self.teacher.upload_data(copy_id, {"Makefile": changed["Makefile"]}).text)
+        self.assertIn("use_builtin_judger must be on", self.teacher.sync(copy_id))
+        self.assertEqual(db_value("select data_version from problems where id = %d" % copy_id), "2")
+        # until a system administrator syncs exactly that
+        self.assertEqual(self.admin.sync(copy_id), "")
+        self.assertEqual(db_value("select count(*) from approved_judger_fingerprints where problem_id = %d" % copy_id), "1")
+        self.assertEqual(self.teacher.sync(copy_id), "")
+        # and then it holds for every other problem with the same files
+        self.assertEqual(self.teacher.form("/d/p4-problems/problems", "new"), "")
+        twin_id = self.newest_problem()
+        self.assertIn("上传成功", self.teacher.upload_data(twin_id, changed).text)
+        self.assertEqual(self.teacher.sync(twin_id), "")
+        uoj.wait_idle()
 
 
 if __name__ == "__main__":
