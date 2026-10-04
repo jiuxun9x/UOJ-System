@@ -161,12 +161,21 @@ function backupRun($reason = 'manual') {
 	try {
 		// whatever still says that it runs does not: the lock is ours
 		DB::update("update backup_runs set status = 'failed', finished_at = now(), message = '备份被中断' where status = 'running'");
+		// A backup is named by the second it starts in. Two in one second would be one
+		// directory, so the second of them waits for a name of its own.
 		$name = 'uoj-' . date('Ymd-His');
+		while (file_exists(backupRoot() . "/$name")) {
+			sleep(1);
+			$name = 'uoj-' . date('Ymd-His');
+		}
 		DB::insert("insert into backup_runs (name, reason, status, started_at) values ('$name', '".DB::escape($reason)."', 'running', now())");
 		$run_id = (int)DB::insert_id();
 		list($summary, $err) = backupMake($name);
 		if ($err !== '') {
-			backupExec("rm -rf " . escapeshellarg(backupRoot() . "/$name"));
+			// what is left of it goes, and never a backup that is complete
+			if (is_dir(backupRoot() . "/$name") && !is_file(backupRoot() . "/$name/.complete")) {
+				backupExec("rm -rf " . escapeshellarg(backupRoot() . "/$name"));
+			}
 			DB::update("update backup_runs set status = 'failed', finished_at = now(), message = '".DB::escape(mb_substr($err, 0, 480, 'UTF-8'))."' where id = $run_id");
 			auditLog('backup.fail', 'backup', $name, null, array('reason' => $reason, 'error' => $err), false);
 			return array(null, $err);

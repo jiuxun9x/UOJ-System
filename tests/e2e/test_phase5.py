@@ -442,6 +442,11 @@ def open_alerts():
     return sorted(row[0] for row in db("select kind from site_alerts where active_slot = 1"))
 
 
+def judging_alerts():
+    """the open alerts about the judgers and the queue: a backup has its own, at its own time"""
+    return [kind for kind in open_alerts() if kind in ("no_judger", "judger_silent", "queue_stuck")]
+
+
 class MonitorTest(unittest.TestCase):
     """the administrators are told when the judgers are gone, and when they are back"""
 
@@ -467,15 +472,16 @@ class MonitorTest(unittest.TestCase):
     def test_judgers_that_are_gone_are_reported_and_so_is_their_return(self):
         monitor = "/super-manage/monitor"
         admin_name = uoj.ADMIN[0]
-        told = lambda: int(db_value("select count(*) from user_system_msg where receiver = '%s' and (title like '告警：%%' or title like '已恢复：%%')" % admin_name))
+        told = lambda: int(db_value("select count(*) from user_system_msg where receiver = '%s' and title like '%%评测%%' and (title like '告警：%%' or title like '已恢复：%%')" % admin_name))
+        mails = lambda: [mail for mail in self.smtp.messages if "评测" in mail.subject]
         uoj.wait_idle()
-        uoj.wait_until("nothing is wrong", lambda: site_tick() and open_alerts() == [], timeout=180)
+        uoj.wait_until("nothing is wrong", lambda: site_tick() and judging_alerts() == [], timeout=180)
         page = self.admin.get(monitor).text
-        self.assertIn('id="monitor-ok"', page)
-        self.assertNotIn('id="site-alerts-banner"', page)
+        self.assertNotIn("没有在线的评测机，提交无法评测 <small>（从", page)
         for name in uoj.JUDGER_NAMES:
             self.assertRegex(page, r'(?s)data-judger="%s">.*?badge-success">在线' % name)
-        told_before, mails_before, alerts_before = told(), len(self.smtp.messages), int(db_value("select count(*) from site_alerts"))
+        count = "select count(*) from site_alerts where kind in ('no_judger', 'judger_silent', 'queue_stuck')"
+        told_before, mails_before, alerts_before = told(), len(mails()), int(db_value(count))
 
         problem_id = self.admin.create_problem(ab_problem_files())
         with uoj.judgers_paused():
@@ -484,12 +490,12 @@ class MonitorTest(unittest.TestCase):
             waiting = self.admin.submit(problem_id, AB)
             db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-3600), waiting))
             site_tick()
-            self.assertEqual(open_alerts(), ["no_judger", "queue_stuck"])
+            self.assertEqual(judging_alerts(), ["no_judger", "queue_stuck"])
             # looking again tells nothing twice
             for _ in range(3):
                 site_tick()
-            self.assertEqual(open_alerts(), ["no_judger", "queue_stuck"])
-            self.assertEqual(int(db_value("select count(*) from site_alerts")), alerts_before + 2)
+            self.assertEqual(judging_alerts(), ["no_judger", "queue_stuck"])
+            self.assertEqual(int(db_value(count)), alerts_before + 2)
 
             # the administrators see it on every page, the others do not
             self.assertIn('id="site-alerts-banner"', self.admin.get("/").text)
@@ -502,24 +508,24 @@ class MonitorTest(unittest.TestCase):
             self.assertIn('badge-danger">离线', page)
             # they get a message each time something goes wrong, and a mail where they asked for it
             self.assertEqual(told(), told_before + 2)
-            mails = self.smtp.messages[mails_before:]
-            self.assertEqual(len(mails), 2)
-            self.assertEqual([mail.recipients for mail in mails], [["ops@example.edu.cn"]] * 2)
-            self.assertTrue(all("告警" in mail.subject for mail in mails), [mail.subject for mail in mails])
-            self.assertIn("没有在线的评测机", "".join(mail.text for mail in mails))
+            sent = mails()[mails_before:]
+            self.assertEqual(len(sent), 2)
+            self.assertEqual([mail.recipients for mail in sent], [["ops@example.edu.cn"]] * 2)
+            self.assertTrue(all("告警" in mail.subject for mail in sent), [mail.subject for mail in sent])
+            self.assertIn("没有在线的评测机", "".join(mail.text for mail in sent))
 
         # the judgers are back: the submission is judged, and the alerts close by themselves
         self.assertEqual(uoj.wait_submission(waiting).score, 100)
-        uoj.wait_until("the alerts are over", lambda: site_tick() and open_alerts() == [], timeout=180)
+        uoj.wait_until("the alerts are over", lambda: site_tick() and judging_alerts() == [], timeout=180)
         self.assertEqual(told(), told_before + 4)
-        mails = self.smtp.messages[mails_before:]
-        self.assertEqual(len(mails), 4)
-        self.assertTrue(all("已恢复" in mail.subject for mail in mails[2:]), [mail.subject for mail in mails])
+        sent = mails()[mails_before:]
+        self.assertEqual(len(sent), 4)
+        self.assertTrue(all("已恢复" in mail.subject for mail in sent[2:]), [mail.subject for mail in sent])
         page = self.admin.get(monitor).text
-        self.assertIn('id="monitor-ok"', page)
-        self.assertNotIn('id="site-alerts-banner"', page)
-        closed = "select count(*) from site_alerts where resolved_at is not null and mailed_at is not null and started_at > now() - interval 10 minute"
-        self.assertGreaterEqual(int(db_value(closed)), 2)
+        for name in uoj.JUDGER_NAMES:
+            self.assertRegex(page, r'(?s)data-judger="%s">.*?badge-success">在线' % name)
+        self.assertNotIn("没有在线的评测机，提交无法评测 <small>（从", page)
+        self.assertGreaterEqual(int(db_value(count + " and resolved_at is not null and mailed_at is not null and started_at > now() - interval 10 minute")), 2)
 
         # the state of the site is for its administrators
         oj_admin = account("p5_mon_ojadmin")
@@ -530,14 +536,14 @@ class MonitorTest(unittest.TestCase):
     def test_mail_is_not_sent_unless_asked_for(self):
         self.assertEqual(site_settings(self.admin, alert_email=False), "")
         try:
-            mails_before = len(self.smtp.messages)
-            uoj.wait_until("nothing is wrong", lambda: site_tick() and open_alerts() == [], timeout=180)
+            mails_before = len([mail for mail in self.smtp.messages if "评测" in mail.subject])
+            uoj.wait_until("nothing is wrong", lambda: site_tick() and judging_alerts() == [], timeout=180)
             with uoj.judgers_paused():
                 db("update judger_info set last_heartbeat_at = now() - interval 10 minute")
                 site_tick()
-                self.assertEqual(open_alerts(), ["no_judger"])
-            uoj.wait_until("the alert is over", lambda: site_tick() and open_alerts() == [], timeout=180)
-            self.assertEqual(len(self.smtp.messages), mails_before)
+                self.assertEqual(judging_alerts(), ["no_judger"])
+            uoj.wait_until("the alert is over", lambda: site_tick() and judging_alerts() == [], timeout=180)
+            self.assertEqual(len([mail for mail in self.smtp.messages if "评测" in mail.subject]), mails_before)
         finally:
             self.assertEqual(site_settings(self.admin, alert_email=True), "")
 
