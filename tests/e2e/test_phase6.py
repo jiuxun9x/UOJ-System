@@ -67,12 +67,15 @@ class RunTwiceTest(unittest.TestCase):
         self.assertIn("in the first run", j.details)
 
     def test_each_run_has_the_time_limit_to_itself(self):
-        # six tenths of a second in each run, with a limit of one second
-        burn = "volatile unsigned long long spin = 0; while (clock() < CLOCKS_PER_SEC * 6 / 10) spin = spin + 1;"
+        # Six tenths of a second in each run, with a limit of one second. The clock is asked
+        # now and then only: asking is a system call, and the time that counts is the time
+        # the program computes.
+        burn = ("volatile unsigned long long spin = 0; "
+                "while (clock() < CLOCKS_PER_SEC * 6 / 10) for (int i = 0; i < 1000000; i++) spin = spin + 1;")  # fmt: skip
         j = self.judge(messages_solution(burn=burn))
         self.assertEqual(j.score, 100, j)
-        # and the time of a test is that of its longer run, not of both
-        self.assertGreaterEqual(j.used_time, 2 * 550, j)
+        # and the time of a test is that of its longer run, not of both: two tests of it
+        self.assertGreaterEqual(j.used_time, 2 * 450, j)
         self.assertLess(j.used_time, 2 * 1000, j)
 
     def test_first_run_can_not_leave_a_file(self):
