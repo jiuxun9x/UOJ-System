@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import unittest
 
 import uoj
@@ -48,9 +49,27 @@ def run_in_sandbox(judger, name, time_limit=1):
     return verdict, int(elapsed.group(3)) if elapsed else None, report
 
 
+BUSY_PIDS = "/tmp/uoj_e2e_busy.pids"
+
+
+def start_busy_processes(judger, count):
+    """keep the CPUs of a judger busy with processes that never stop computing"""
+    # They run in the container of the judger: the CPUs are shared between containers first,
+    # so processes anywhere else would not take much from the programs that are judged.
+    uoj.run(
+        "docker", "exec", "-d", judger, "sh", "-c",
+        "for i in $(seq %d); do (while :; do :; done) & echo $! >> %s; done; wait" % (count, BUSY_PIDS),
+    )  # fmt: skip
+
+
+def stop_busy_processes(judger):
+    uoj.docker_exec(judger, "if [ -f %s ]; then kill $(cat %s); rm -f %s; fi; true" % ((BUSY_PIDS,) * 3))
+
+
 class BusyMachineTest(unittest.TestCase):
-    # with this many busy processes on every CPU, a program gets a tenth of a CPU or less
-    BUSY_PROCESSES_PER_CPU = 10
+    # with this many busy processes for every CPU it can use, a program gets less than a tenth
+    # of a CPU
+    BUSY_PROCESSES_PER_CPU = 12
 
     @classmethod
     def setUpClass(cls):
@@ -67,17 +86,13 @@ class BusyMachineTest(unittest.TestCase):
             for name, code in cls.submissions().items()
         }
 
-        cls.busy_processes = [
-            subprocess.Popen(["sh", "-c", "while :; do :; done"])
-            for _ in range(cls.BUSY_PROCESSES_PER_CPU * os.cpu_count())
-        ]
-
-    @classmethod
-    def tearDownClass(cls):
-        for process in cls.busy_processes:
-            process.kill()
-        for process in cls.busy_processes:
-            process.wait()
+        # when all judgers are busy, each of them gets its share of the CPUs of the machine
+        cpus = -(-os.cpu_count() // len(uoj.JUDGERS))
+        for judger in uoj.JUDGERS:
+            # the judgers must not stay busy for the tests that follow, whatever happens here
+            cls.addClassCleanup(stop_busy_processes, judger)
+            start_busy_processes(judger, cls.BUSY_PROCESSES_PER_CPU * cpus)
+        time.sleep(3)
 
     @staticmethod
     def submissions():
@@ -113,8 +128,9 @@ class BusyMachineTest(unittest.TestCase):
         self.assertLess(elapsed, 15000, report)
 
     def test_verdicts_are_the_same_as_on_a_quiet_machine(self):
-        for name, code in self.submissions().items():
-            j = uoj.wait_submission(uoj.admin().submit(self.problem_id, code), timeout=900)
+        submitted = {name: uoj.admin().submit(self.problem_id, code) for name, code in self.submissions().items()}
+        for name, submission_id in submitted.items():
+            j = uoj.wait_submission(submission_id, timeout=1800)
             quiet = self.quiet[name]
             self.assertEqual((j.score, j.error, j.infos), (quiet.score, quiet.error, quiet.infos), name)
 
