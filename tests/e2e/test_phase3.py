@@ -181,5 +181,77 @@ class RolesTest(unittest.TestCase):
         self.assertEqual(usergroup_of("p3_second_admin"), "U")
 
 
+class ClosedContestTest(unittest.TestCase):
+    """while a contest runs, the submissions to its problems are closed"""
+
+    def source_is_shown(self, client, submission_id, marker):
+        r = client.get("/submission/%d" % submission_id)
+        self.assertEqual(r.status_code, 200)
+        return marker in r.text
+
+    def test_submissions_are_closed_while_the_contest_runs(self):
+        admin = uoj.admin()
+        alice, bob, carol = account("p3_alice"), account("p3_bob"), account("p3_carol")
+        assistant = account("p3_contest_assistant")
+        visitor = uoj.Client()
+
+        problem_id = admin.create_problem(ab_problem_files())
+        # carol solved the problem long before the contest
+        earlier = carol.submit(problem_id, AB + "// p3-earlier-source\n")
+        self.assertTrue(self.source_is_shown(bob, earlier, "p3-earlier-source"))
+
+        contest_id = admin.new_contest("p3 closed contest")
+        self.assertEqual(admin.contest_commands(contest_id, "problems", "+%d" % problem_id), "")
+        self.assertEqual(admin.contest_commands(contest_id, "managers", "+p3_contest_assistant"), "")
+        alice.register_for_contest(contest_id)
+        bob.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        in_contest = alice.submit_in_contest(contest_id, problem_id, AB + "// p3-contest-source\n")
+        self.assertEqual(db_value("select contest_id from submissions where id = %d" % in_contest), str(contest_id))
+
+        # ---- what was submitted in the contest is shown to its owner and the staff only
+        for client in (alice, admin, assistant):
+            self.assertTrue(self.source_is_shown(client, in_contest, "p3-contest-source"), client.username)
+        for client in (bob, carol, visitor):
+            self.assertEqual(client.get("/submission/%d" % in_contest).status_code, 403, client.username)
+
+        link = 'href="/submission/%d"' % in_contest
+        for client in (alice, admin, assistant):
+            self.assertIn(link, client.get("/submissions?problem_id=%d" % problem_id).text, client.username)
+        for client in (bob, carol, visitor):
+            listing = client.get("/submissions?problem_id=%d" % problem_id).text
+            self.assertNotIn(link, listing, client.username)
+            self.assertIn('href="/submission/%d"' % earlier, listing, client.username)
+        # another participant who asks for all the submissions of the contest gets their own
+        listing = bob.get("/contest/%d/submissions" % contest_id, cookies={"show_all_submissions": ""})
+        self.assertEqual(listing.status_code, 200)
+        self.assertNotIn(link, listing.text)
+
+        # ---- what was submitted to the problem before is still listed, but its source is closed
+        for client in (bob, alice, visitor):
+            self.assertFalse(self.source_is_shown(client, earlier, "p3-earlier-source"), client.username)
+        for client in (carol, admin):
+            self.assertTrue(self.source_is_shown(client, earlier, "p3-earlier-source"), client.username)
+
+        # ---- once the contest is over, everybody reads everything again
+        uoj.move_contest(contest_id, -7200, 60)
+        for client in (bob, carol, visitor):
+            self.assertTrue(self.source_is_shown(client, in_contest, "p3-contest-source"), client.username)
+            self.assertTrue(self.source_is_shown(client, earlier, "p3-earlier-source"), client.username)
+            self.assertIn(link, client.get("/submissions?problem_id=%d" % problem_id).text, client.username)
+        uoj.wait_idle()
+
+    def test_settings_of_a_problem_never_hide_a_submission_from_its_staff(self):
+        admin = uoj.admin()
+        dave, erin = account("p3_dave"), account("p3_erin")
+        problem_id = admin.create_problem(ab_problem_files(), extra_config={"view_content_type": "SELF"})
+        submission_id = dave.submit(problem_id, AB + "// p3-private-source\n")
+        self.assertTrue(self.source_is_shown(dave, submission_id, "p3-private-source"))
+        self.assertTrue(self.source_is_shown(admin, submission_id, "p3-private-source"))
+        self.assertFalse(self.source_is_shown(erin, submission_id, "p3-private-source"))
+        self.assertFalse(self.source_is_shown(uoj.Client(), submission_id, "p3-private-source"))
+        uoj.wait_idle()
+
+
 if __name__ == "__main__":
     unittest.main()

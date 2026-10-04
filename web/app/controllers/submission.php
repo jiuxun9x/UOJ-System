@@ -31,6 +31,10 @@
 	}
 	
 	$hackable = $submission['score'] == 100 && $problem['hackable'] == 1;
+	// a visitor is shown the form and sent to the login when they use it
+	if ($hackable && !can($myUser, $myUser == null ? 'submission.view_source' : 'submission.hack', $submission)) {
+		$hackable = false;
+	}
 	if ($hackable) {
 		$hack_form = new UOJForm('hack');	
 		

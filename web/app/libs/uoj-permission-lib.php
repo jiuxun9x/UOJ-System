@@ -36,6 +36,7 @@ class UOJPermissionFacts {
 	private $contests = array();
 
 	private $roles = array();
+	private $running = array();
 
 	public function grantedRoles($username) {
 		if (!isset($this->roles[$username])) {
@@ -59,6 +60,15 @@ class UOJPermissionFacts {
 	}
 	public function hasAccepted($username, $problem_id) {
 		return DB::selectFirst("select 1 from best_ac_submissions where submitter = '".DB::escape($username)."' and problem_id = ".(int)$problem_id) != null;
+	}
+	// A problem is closed while a contest it is part of runs. The clock is the one of the web
+	// server, the same that decides whether a contest has started.
+	public function problemIsInRunningContest($problem_id) {
+		$problem_id = (int)$problem_id;
+		if (!isset($this->running[$problem_id])) {
+			$this->running[$problem_id] = DB::selectFirst("select 1 from contests_problems, contests where contests_problems.problem_id = $problem_id and contests.id = contests_problems.contest_id and ".runningContestsCond()." limit 1") != null;
+		}
+		return $this->running[$problem_id];
 	}
 	public function problem($problem_id) {
 		$problem_id = (int)$problem_id;
@@ -157,24 +167,49 @@ function can($user, $ability, $resource = null) {
 
 		// ---- submissions
 		case 'submission.view':
-		case 'hack.view':
-			return $is_admin || !$resource['is_hidden'] || can($user, 'problem.manage', $facts->problem($resource['problem_id']));
+			if (permissionIsStaffOf($user, $resource)) {
+				return true;
+			}
+			if ($resource['is_hidden']) {
+				return false;
+			}
+			// what is submitted in a contest is nobody else's business while the contest runs
+			$contest = $facts->contest($resource['contest_id']);
+			if ($contest != null && $contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
+				return $name !== null && $resource['submitter'] === $name;
+			}
+			return true;
 		case 'submission.rejudge':
 			return can($user, 'problem.manage', $facts->problem($resource['problem_id']));
 		case 'submission.view_source':
-		case 'submission.view_details':
-			$contest = $facts->contest($resource['contest_id']);
-			if ($contest != null && can($user, 'contest.assist', $contest)) {
+			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
-			$setting = $ability == 'submission.view_source' ? 'view_content_type' : 'view_all_details_type';
-			return permissionViewTypeAllows($setting, $user, $resource) && permissionIsOpen($user, $resource, $resource['submitter']);
+			if (!can($user, 'submission.view', $resource)) {
+				return false;
+			}
+			if ($name !== null && $resource['submitter'] === $name) {
+				return true;
+			}
+			return !permissionIsClosed($resource) && permissionViewTypeAllows('view_content_type', $user, $resource);
+		// the verdict of every test
+		case 'submission.view_details':
+			if (permissionIsStaffOf($user, $resource)) {
+				return true;
+			}
+			if (!can($user, 'submission.view', $resource)) {
+				return false;
+			}
+			if (permissionIsClosed($resource) && !($name !== null && $resource['submitter'] === $name)) {
+				return false;
+			}
+			return permissionViewTypeAllows('view_all_details_type', $user, $resource);
 		// what every test did, not only its verdict
 		case 'submission.view_test_details':
-			$contest = $facts->contest($resource['contest_id']);
-			if ($is_admin || ($contest != null && can($user, 'contest.assist', $contest))) {
+			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
+			$contest = $facts->contest($resource['contest_id']);
 			if ($contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
 				$contest_config = $contest['extra_config'];
 				if (isset($contest_config['contest_type']) && $contest_config['contest_type'] == 'IOI') {
@@ -187,20 +222,36 @@ function can($user, $ability, $resource = null) {
 			return permissionViewTypeAllows('view_details_type', $user, $resource);
 		// everything the judgers reported, whatever the contest shows to its participants
 		case 'submission.view_final_details':
-			$contest = $facts->contest($resource['contest_id']);
-			return $is_admin || ($contest != null && can($user, 'contest.assist', $contest));
+			return permissionIsStaffOf($user, $resource);
+		// Hacking needs the source, and a successful hack changes the data of the problem and
+		// judges everything again: not while a contest with the problem runs.
+		case 'submission.hack':
+			if ($name === null) {
+				return false;
+			}
+			if (permissionIsStaffOf($user, $resource)) {
+				return true;
+			}
+			return !permissionIsClosed($resource) && can($user, 'submission.view_source', $resource);
 
-		// ---- hacks, the resource is the hack with its submission in 'submission'
+		// ---- hacks, the resource is the hack with the submission it hacks in 'submission'
+		case 'hack.view':
+			return $is_admin || !$resource['is_hidden'] || can($user, 'problem.manage', $facts->problem($resource['problem_id']));
 		case 'hack.view_source':
+			return can($user, 'submission.view_source', $resource['submission']);
 		case 'hack.view_details':
-			$setting = $ability == 'hack.view_source' ? 'view_content_type' : 'view_all_details_type';
-			return permissionViewTypeAllows($setting, $user, $resource['submission'])
-				&& permissionIsOpen($user, $resource['submission'], $resource['submission']['submitter'])
-				&& permissionIsOpen($user, $resource['submission'], $resource['hacker']);
+			if (permissionIsStaffOf($user, $resource['submission'])) {
+				return true;
+			}
+			$involved = $name !== null && ($name === $resource['hacker'] || $name === $resource['submission']['submitter']);
+			if (permissionIsClosed($resource['submission']) && !$involved) {
+				return false;
+			}
+			return permissionViewTypeAllows('view_all_details_type', $user, $resource['submission']);
 		case 'hack.view_test_details':
-			return permissionViewTypeAllows('view_details_type', $user, $resource['submission']);
+			return permissionIsStaffOf($user, $resource['submission']) || permissionViewTypeAllows('view_details_type', $user, $resource['submission']);
 		case 'hack.view_final_details':
-			return $is_admin;
+			return permissionIsStaffOf($user, $resource['submission']);
 	}
 
 	// a typo in the name of an ability must not open a door
@@ -226,21 +277,36 @@ function permissionViewTypeAllows($setting, $user, $submission) {
 	return false;
 }
 
-// While its contest runs, a submission is closed to everybody but the user it belongs to and
-// the people who manage its problem.
-function permissionIsOpen($user, $submission, $owner) {
+// The people who are responsible for a submission: the administrators, whoever manages its
+// problem, and the staff of the contest it was made in. They see all of it, always.
+function permissionIsStaffOf($user, $submission) {
+	if ($user == null) {
+		return false;
+	}
 	$facts = permissionFacts();
-	if (isSiteAdmin($user)) {
+	if (isSiteAdmin($user) || can($user, 'problem.manage', $facts->problem($submission['problem_id']))) {
 		return true;
 	}
 	$contest = $facts->contest($submission['contest_id']);
-	if ($contest == null || $contest['cur_progress'] > CONTEST_IN_PROGRESS) {
+	return $contest != null && can($user, 'contest.assist', $contest);
+}
+
+// While a contest runs, the submissions to its problems are closed: nobody but their owners
+// and the staff reads their source or their details, whenever and wherever they were
+// submitted. Outside of that, the settings of the problem decide.
+function permissionIsClosed($submission) {
+	$facts = permissionFacts();
+	$contest = $facts->contest($submission['contest_id']);
+	if ($contest != null && $contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
 		return true;
 	}
-	if ($user != null && $owner == $user['username']) {
-		return true;
-	}
-	return can($user, 'problem.manage', $facts->problem($submission['problem_id']));
+	return $facts->problemIsInRunningContest($submission['problem_id']);
+}
+
+// the contests that are running, as a condition on the table contests
+function runningContestsCond() {
+	$now = UOJTime::$time_now_str;
+	return "contests.status = 'unfinished' and contests.start_time <= '$now' and date_add(contests.start_time, interval contests.last_min minute) > '$now'";
 }
 
 // The conditions that keep what a user may not see out of the lists of submissions and hacks.
@@ -248,17 +314,22 @@ function visibleSubmissionsCond($user) {
 	if (can($user, 'submission.view_all')) {
 		return '1';
 	}
-	if ($user != null) {
-		return "submissions.is_hidden = false or (submissions.is_hidden = true and submissions.problem_id in (select problem_id from problems_permissions where username = '{$user['username']}'))";
+	// the same rules as 'submission.view'
+	$in_running_contest = "submissions.contest_id in (select id from contests where ".runningContestsCond().")";
+	if ($user == null) {
+		return "submissions.is_hidden = false and (submissions.contest_id is null or not $in_running_contest)";
 	}
-	return "submissions.is_hidden = false";
+	$esc_username = DB::escape($user['username']);
+	$manages_problem = "submissions.problem_id in (select problem_id from problems_permissions where username = '$esc_username')";
+	$assists_contest = "submissions.contest_id in (select contest_id from contests_permissions where username = '$esc_username')";
+	return "$manages_problem or $assists_contest or (submissions.is_hidden = false and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username'))";
 }
 function visibleHacksCond($user) {
 	if (can($user, 'submission.view_all')) {
 		return '1';
 	}
 	if ($user != null) {
-		return "is_hidden = false or (is_hidden = true and problem_id in (select problem_id from problems_permissions where username = '{$user['username']}'))";
+		return "is_hidden = false or (is_hidden = true and problem_id in (select problem_id from problems_permissions where username = '".DB::escape($user['username'])."'))";
 	}
 	return "is_hidden = false";
 }

@@ -13,6 +13,7 @@ class FakePermissionFacts {
 	public $accepted = array();
 	public $problems = array();
 	public $contests = array();
+	public $problems_in_running_contests = array();
 
 	public function managesProblem($username, $problem_id) {
 		return in_array(array($username, $problem_id), $this->problem_managers);
@@ -28,6 +29,9 @@ class FakePermissionFacts {
 	}
 	public function hasAccepted($username, $problem_id) {
 		return in_array(array($username, $problem_id), $this->accepted);
+	}
+	public function problemIsInRunningContest($problem_id) {
+		return in_array($problem_id, $this->problems_in_running_contests);
 	}
 	public function problem($problem_id) {
 		return $this->problems[$problem_id];
@@ -132,52 +136,73 @@ check_ability('contest.manage', $facts->contests[12], array('root' => true, 'own
 // ---- blogs
 check_ability('blog.manage', 'alice', array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'alice' => true, 'bob' => false), 'the blog of alice');
 
-// ---- submissions outside of contests
+// ---- submissions outside of contests: everybody reads everything, solved or not
 $open = fake_submission('alice', 1);
 foreach (array('submission.view', 'submission.view_source', 'submission.view_details', 'submission.view_test_details') as $ability) {
-	check_ability($ability, $open, array('nobody' => true, 'root' => true, 'setter' => true, 'alice' => true, 'bob' => true), 'a submission to a public problem');
+	check_ability($ability, $open, array('nobody' => true, 'root' => true, 'teacher' => true, 'setter' => true, 'alice' => true, 'bob' => true), 'a submission to a public problem');
 }
-check_ability('submission.view_final_details', $open, array('nobody' => false, 'root' => true, 'setter' => false, 'alice' => false), 'a submission to a public problem');
-check_ability('submission.rejudge', $open, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => false, 'bob' => false), 'a submission to a public problem');
+check_ability('submission.view_final_details', $open, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'setter' => true, 'alice' => false), 'a submission to a public problem');
+check_ability('submission.rejudge', $open, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'setter' => true, 'alice' => false, 'bob' => false), 'a submission to a public problem');
+check_ability('submission.hack', $open, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => true, 'bob' => true), 'a submission to a public problem');
 
 $hidden = fake_submission('alice', 2, null, 1);
 check_ability('submission.view', $hidden, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'setter' => true, 'alice' => false, 'bob' => false), 'a submission to a hidden problem');
+check_ability('submission.view_source', $hidden, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => false, 'bob' => false), 'a submission to a hidden problem');
 
 // the problem decides who reads what: the source after solving it, the details only the owner
 $restricted = fake_submission('alice', 3);
-check_ability('submission.view_source', $restricted, array('nobody' => false, 'alice' => false, 'bob' => true), 'ALL_AFTER_AC');
-check_ability('submission.view_details', $restricted, array('nobody' => false, 'alice' => true, 'bob' => false), 'SELF');
+check_ability('submission.view_source', $restricted, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'setter' => false, 'alice' => true, 'bob' => true, 'helper' => false), 'ALL_AFTER_AC');
+check_ability('submission.view_details', $restricted, array('nobody' => false, 'root' => true, 'alice' => true, 'bob' => false), 'SELF');
 check_ability('submission.view_test_details', $restricted, array('nobody' => false, 'root' => true, 'alice' => true, 'bob' => false), 'SELF');
+check_ability('submission.hack', $restricted, array('nobody' => false, 'alice' => true, 'bob' => true, 'helper' => false), 'hacking needs the source');
 
-// ---- submissions of a contest that is running
+// ---- submissions of a contest that is running: closed to everybody but the owner and the staff
+$facts->problems_in_running_contests = array(1);
 $running = fake_submission('alice', 1, 10);
-check_ability('submission.view', $running, array('nobody' => true, 'bob' => true), 'during the contest');
-foreach (array('submission.view_source', 'submission.view_details') as $ability) {
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
 	check_ability($ability, $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'owner' => true, 'setter' => true, 'helper' => true, 'alice' => true, 'bob' => false), 'during the contest');
 }
-check_ability('submission.view_final_details', $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'owner' => true, 'setter' => false, 'helper' => true, 'alice' => false), 'during the contest');
+check_ability('submission.view_final_details', $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'owner' => true, 'setter' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during the contest');
 check_ability('submission.view_test_details', $running, array('root' => true, 'helper' => true, 'alice' => true), 'during the contest');
 check_ability('submission.view_test_details', fake_submission('alice', 1, 12), array('root' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during an IOI contest');
 $facts->contests[10]['extra_config']['problem_1'] = 'no-details';
 check_ability('submission.view_test_details', $running, array('root' => true, 'helper' => true, 'alice' => false), 'a problem without details, during the contest');
 unset($facts->contests[10]['extra_config']['problem_1']);
+check_ability('submission.hack', $running, array('nobody' => false, 'root' => true, 'setter' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'during the contest');
 
-// ---- and once the contest is over
+// what was submitted to the problem outside of the contest is still listed, but is closed as well
+foreach (array($open, fake_submission('alice', 1, 11)) as $earlier) {
+	check_ability('submission.view', $earlier, array('nobody' => true, 'alice' => true, 'bob' => true), 'an earlier submission, during the contest');
+	foreach (array('submission.view_source', 'submission.view_details') as $ability) {
+		check_ability($ability, $earlier, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => true, 'bob' => false), 'an earlier submission, during the contest');
+	}
+	check_ability('submission.hack', $earlier, array('nobody' => false, 'setter' => true, 'alice' => false, 'bob' => false), 'an earlier submission, during the contest');
+}
+// the staff of the contest is staff for what was submitted in it, not for the whole problem
+check_ability('submission.view_source', $open, array('helper' => false, 'owner' => false), 'an earlier submission, during the contest');
+// a problem that is in no running contest is not affected
+check_ability('submission.view_source', fake_submission('alice', 3), array('bob' => true), 'another problem, during the contest');
+$facts->problems_in_running_contests = array();
+
+// ---- and once the contest is over, everything opens up again
 $over = fake_submission('alice', 1, 11);
-foreach (array('submission.view_source', 'submission.view_details', 'submission.view_test_details') as $ability) {
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details', 'submission.view_test_details', ) as $ability) {
 	check_ability($ability, $over, array('nobody' => true, 'helper' => true, 'alice' => true, 'bob' => true), 'after the contest');
 }
+check_ability('submission.hack', $over, array('nobody' => false, 'alice' => true, 'bob' => true), 'after the contest');
 
 // ---- hacks
 $hack = array('hacker' => 'bob', 'problem_id' => 1, 'is_hidden' => 0, 'submission' => $open);
 foreach (array('hack.view', 'hack.view_source', 'hack.view_details', 'hack.view_test_details') as $ability) {
 	check_ability($ability, $hack, array('nobody' => true, 'alice' => true, 'bob' => true), 'a hack');
 }
-check_ability('hack.view_final_details', $hack, array('nobody' => false, 'root' => true, 'setter' => false, 'bob' => false), 'a hack');
+check_ability('hack.view_final_details', $hack, array('nobody' => false, 'root' => true, 'setter' => true, 'bob' => false), 'a hack');
 check_ability('hack.view', array('is_hidden' => 1, 'problem_id' => 2), array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => false), 'a hack of a hidden problem');
-// both the hacker and the hacked user have to be allowed to see it while the contest runs
-$contest_hack = array('hacker' => 'bob', 'problem_id' => 1, 'is_hidden' => 0, 'submission' => $running);
-check_ability('hack.view_source', $contest_hack, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => false, 'bob' => false), 'a hack during the contest');
+// while a contest with the problem runs, a hack shows the source to nobody new
+$facts->problems_in_running_contests = array(1);
+check_ability('hack.view_source', $hack, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => true, 'bob' => false), 'a hack during the contest');
+check_ability('hack.view_details', $hack, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => true, 'bob' => true, 'helper' => false), 'a hack during the contest');
+$facts->problems_in_running_contests = array();
 
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');
