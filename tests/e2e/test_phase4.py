@@ -1360,6 +1360,16 @@ class HomeworkStateTest(unittest.TestCase):
             counted = sum(float(row[n] or 0) for n in range(3, len(head) - 1) if not head[n].endswith("(未结算)"))
             self.assertEqual(float(row[-1]), counted, row)
         self.assertNotIn("p4_st_teacher", grades)
+        # a username that is a number is a user like any other on the scoreboard
+        digits = account("40418")
+        self.assertEqual(member_form(self.teacher, self.slug, "add", username="40418", role="member"), "")
+        self.assertEqual(digits.form(self.url(running), "claim"), "")
+        self.assertEqual(submit(digits, running, AB), 100)
+        board = self.teacher.get(self.url(running, "/scoreboard")).text
+        for name in ("40418", "p4_st_pupil0"):
+            self.assertRegex(board, r'<span class="uoj-username"[^>]*>%s</span>' % name)
+        self.assertEqual(scores_of(self.teacher, self.slug, running)["40418"]["Total"], "100")
+        self.assertEqual(member_form(self.teacher, self.slug, "remove", username="40418"), "")
         self.assertIn('id="table-grades"', self.teacher.get(page).text)
 
         # the grades are for the people who look after the domain
@@ -1506,6 +1516,9 @@ class TrainingTest(unittest.TestCase):
         cls.pupil, cls.other, cls.tutor, cls.stranger = (account("p4_tr_" + name) for name in ("pupil", "other", "tutor", "stranger"))
         for name, role in (("pupil", "member"), ("other", "member"), ("tutor", "ta")):
             assert member_form(cls.teacher, cls.slug, "add", username="p4_tr_" + name, role=role) == ""
+        # a student whose username is a number, as the ones who come through the single sign-on are
+        cls.digits = account("40417")
+        assert member_form(cls.teacher, cls.slug, "add", username="40417", role="member") == ""
         assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
         cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
         assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
@@ -1588,7 +1601,11 @@ class TrainingTest(unittest.TestCase):
         self.assertIsNone(self.progress(self.pupil, training_id))
         public, mine = "#%d" % self.public_id, "#%d" % self.own_id
         rows = self.progress(self.tutor, training_id)
-        self.assertEqual(sorted(rows), ["p4_tr_other", "p4_tr_pupil"])
+        self.assertEqual(sorted(rows), ["40417", "p4_tr_other", "p4_tr_pupil"])
+        # a username that is a number is a user like any other in the table
+        matrix = self.tutor.get(here + "?view=progress").text
+        for name in ("40417", "p4_tr_pupil"):
+            self.assertRegex(matrix, r'<span class="uoj-username"[^>]*>%s</span>' % name)
         self.assertEqual([rows["p4_tr_pupil"][key] for key in (public, mine, "solved", "done")], ["100", "0", "1", "no"])
         self.assertEqual([rows["p4_tr_other"][key] for key in (public, mine, "solved", "done")], ["", "", "0", "no"])
 

@@ -34,7 +34,7 @@ function homeworkPhaseName($phase) {
 		'publishing' => array('发布中', 'badge-info'),
 		'upcoming' => array('未开始', 'badge-info'),
 		'running' => array('进行中', 'badge-success'),
-		'penalty' => array('延期中', 'badge-warning'),
+		'penalty' => array('迟交期', 'badge-warning'),
 		'ended' => array('已截止', 'badge-dark')
 	);
 	return $names[$phase];

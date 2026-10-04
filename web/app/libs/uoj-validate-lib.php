@@ -1,7 +1,9 @@
 <?php
 
+// A username that is all digits, as a student number is, comes back as an integer from the
+// keys of an array: PHP turns such keys into numbers. It is the same name.
 function validateUsername($username) {
-	return is_string($username) && preg_match('/^[a-zA-Z0-9_]{1,20}$/', $username);
+	return (is_string($username) || is_int($username)) && preg_match('/^[a-zA-Z0-9_]{1,20}$/', (string)$username);
 }
 
 function validatePassword($password) {

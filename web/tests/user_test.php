@@ -49,3 +49,15 @@ check_same(true, hasUsablePassword($user), 'a local user has one');
 check_same(false, hasUsablePassword(array('password' => '')), 'an empty password is none');
 check_same(false, checkPassword($sso_user, $sso_user['password']), 'the placeholder is not a password');
 check_same(false, $sso_user['password'] === unusablePassword(), 'the placeholder is random');
+
+// A username that is all digits, as a student number is, becomes an integer when it is the
+// key of an array. It has to be taken for the name it is.
+$by_name = array('20260101' => 1, 'alice' => 2);
+foreach ($by_name as $name => $ignored) {
+	check_same(true, validateUsername($name), 'a username that was the key of an array: ' . json_encode($name));
+}
+check_same(true, is_int(array_keys($by_name)[0]), 'which PHP did turn into a number');
+foreach (array('', 'a b', str_repeat('1', 21), -5, 1.5, null, array('x')) as $bad) {
+	check_same(false, validateUsername($bad), 'refused as a username: ' . json_encode($bad));
+}
+
