@@ -24,6 +24,7 @@
 		$delete_form->handle = function() {
 			global $hack;
 			DB::query("delete from hacks where id = {$hack['id']}");
+			auditLog('hack.delete', 'hack', $hack['id'], array('hacker' => $hack['hacker'], 'owner' => $hack['owner'], 'submission_id' => (int)$hack['submission_id'], 'success' => $hack['success']), null);
 		};
 		$delete_form->submit_button_config['class_str'] = 'btn btn-danger';
 		$delete_form->submit_button_config['text'] = '删除此Hack';

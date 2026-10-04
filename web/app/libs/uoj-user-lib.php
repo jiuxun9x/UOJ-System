@@ -145,6 +145,8 @@ function renameUser($user, $new_username, $actor, $options = array()) {
 			}
 			return '修改失败';
 		}
+		$renamed = queryUser($new_username);
+		auditLog('user.rename', 'user', $new_username, array('username' => $user['username']), array('username' => $new_username), $actor['username'] === $user['username'] ? $renamed : $actor);
 		return '';
 	});
 	DB::query("select release_lock('uoj_rename_user')");

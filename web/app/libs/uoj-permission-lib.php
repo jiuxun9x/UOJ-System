@@ -131,6 +131,7 @@ function can($user, $ability, $resource = null) {
 		// ---- the site
 		case 'user.manage_roles':
 		case 'user.rename':
+		case 'audit.view':
 		case 'judger.manage':
 		case 'problem.edit_raw_config':
 		// a judger of a problem runs unrestricted on the judgers
@@ -395,12 +396,14 @@ function changeUserStanding($actor, $target, $op) {
 			return '不能取消最后一位系统管理员';
 		}
 		$usergroup = $op == 'banneduser' ? 'B' : 'U';
+		$before = array('usergroup' => $target['usergroup'], 'roles' => permissionFacts()->grantedRoles($target['username']));
 		DB::update("update user_info set usergroup = '$usergroup' where username = '$esc_username'");
 		if ($op == 'banneduser') {
 			// a banned user keeps nothing that would work again by accident later
 			DB::delete("delete from user_roles where username = '$esc_username'");
 			DB::update("update user_info set remember_token = '' where username = '$esc_username'");
 		}
+		auditLog('user.set_usergroup', 'user', $target['username'], $before, array('usergroup' => $usergroup), $actor);
 		return '';
 	}
 
@@ -409,6 +412,7 @@ function changeUserStanding($actor, $target, $op) {
 	}
 	if ($op == 'superuser') {
 		DB::update("update user_info set usergroup = 'S' where username = '$esc_username'");
+		auditLog('user.set_usergroup', 'user', $target['username'], array('usergroup' => $target['usergroup']), array('usergroup' => 'S'), $actor);
 		return '';
 	}
 	$parts = explode(':', $op, 2);
@@ -418,9 +422,11 @@ function changeUserStanding($actor, $target, $op) {
 		}
 		if ($parts[0] == 'grant') {
 			grantRole($target['username'], $parts[1], $actor['username']);
+			auditLog('user.grant_role', 'user', $target['username'], null, array('role' => $parts[1]), $actor);
 			return '';
 		} elseif ($parts[0] == 'revoke') {
 			revokeRole($target['username'], $parts[1]);
+			auditLog('user.revoke_role', 'user', $target['username'], array('role' => $parts[1]), null, $actor);
 			return '';
 		}
 	}

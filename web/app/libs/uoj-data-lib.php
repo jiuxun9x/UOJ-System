@@ -681,6 +681,13 @@
 			if ($version_row == null) {
 				throw new Exception("failed to register the new version of the data");
 			}
+			// without a user, this is the sync after a successful hack
+			auditLog('problem.sync_data', 'problem', $this->problem['id'], null, array(
+				'version' => (int)$version_row['version'],
+				'sha256' => $version_row['sha256'],
+				'reason' => $version_row['reason'],
+				'hackable' => $this->problem['hackable'] ? 1 : 0
+			) + (isset($this->options['hack_id']) ? array('hack_id' => $this->options['hack_id']) : array()), $this->user ? $this->user : false);
 			return $version_row;
 		}
 

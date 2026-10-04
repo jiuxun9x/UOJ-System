@@ -34,6 +34,7 @@
 			return 'bound';
 		}
 		unset($_SESSION['sso_bind']);
+		auditLog('sso.bind', 'user', $user['username'], null, array('provider' => $provider->name, 'student_id' => $pending['identity']['student_id']), $user);
 		Auth::login($user['username']);
 		return 'ok';
 	}

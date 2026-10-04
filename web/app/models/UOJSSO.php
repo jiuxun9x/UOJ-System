@@ -158,6 +158,7 @@ class UOJSSO {
 		if (!self::bind($provider_name, $identity, $user)) {
 			throw new RuntimeException('绑定统一身份认证账号失败，请联系管理员');
 		}
+		auditLog('sso.create_user', 'user', $user['username'], null, array('provider' => $provider_name, 'student_id' => $identity['student_id']), $user);
 		return array('user' => $user, 'created' => true);
 	}
 

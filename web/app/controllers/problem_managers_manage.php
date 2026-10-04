@@ -19,8 +19,10 @@
 			global $problem;
 			if ($type == '+') {
 				DB::query("insert into problems_permissions (problem_id, username) values (${problem['id']}, '$username')");
+				auditLog('problem.add_manager', 'problem', $problem['id'], null, array('username' => $username));
 			} elseif ($type == '-') {
 				DB::query("delete from problems_permissions where problem_id = ${problem['id']} and username = '$username'");
+				auditLog('problem.remove_manager', 'problem', $problem['id'], array('username' => $username), null);
 			}
 		}
 	);

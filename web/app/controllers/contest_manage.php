@@ -48,6 +48,9 @@
 		$esc_name = DB::escape($esc_name);
 		
 		DB::update("update contests set start_time = '$start_time_str', last_min = {$_POST['last_min']}, name = '$esc_name' where id = {$contest['id']}");
+		auditLog('contest.edit', 'contest', $contest['id'],
+			array('name' => $contest['name'], 'start_time' => $contest['start_time_str'], 'last_min' => (int)$contest['last_min']),
+			array('name' => $_POST['name'], 'start_time' => $start_time_str, 'last_min' => (int)$_POST['last_min']));
 	};
 	
 	// "+mike" makes mike an assistant, "+mike [owner]" an owner, "-mike" takes mike off the staff
@@ -73,8 +76,10 @@
 			list($username, $role) = $parse_manager_cmd($cmd);
 			if ($type == '+') {
 				DB::query("insert into contests_permissions (contest_id, username, role) values (${contest['id']}, '$username', '$role') on duplicate key update role = '$role'");
+				auditLog('contest.add_staff', 'contest', $contest['id'], null, array('username' => $username, 'role' => $role));
 			} elseif ($type == '-') {
 				DB::query("delete from contests_permissions where contest_id = ${contest['id']} and username = '$username'");
+				auditLog('contest.remove_staff', 'contest', $contest['id'], array('username' => $username), null);
 			}
 		}
 	);
@@ -104,8 +109,10 @@
 			
 			if ($type == '+') {
 				DB::insert("insert into contests_problems (contest_id, problem_id) values ({$contest['id']}, '$problem_id')");
+				auditLog('contest.add_problem', 'contest', $contest['id'], null, array('problem_id' => (int)$problem_id, 'setting' => isset($matches[2]) ? $matches[2] : ''));
 			} elseif ($type == '-') {
 				DB::delete("delete from contests_problems where contest_id = {$contest['id']} and problem_id = '$problem_id'");
+				auditLog('contest.remove_problem', 'contest', $contest['id'], array('problem_id' => (int)$problem_id), null);
 			}
 			
 			if (isset($matches[2])) {
@@ -142,6 +149,7 @@
 			global $contest;
 			$contest['extra_config']['rating_k'] = $_POST['rating_k'];
 			$esc_extra_config = json_encode($contest['extra_config']);
+			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
 			$esc_extra_config = DB::escape($esc_extra_config);
 			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
 		};
@@ -156,6 +164,7 @@
 				$contest['extra_config']['unrated'] = '';
 			}
 			$esc_extra_config = json_encode($contest['extra_config']);
+			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
 			$esc_extra_config = DB::escape($esc_extra_config);
 			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
 		};
@@ -179,6 +188,7 @@
 			global $contest;
 			$contest['extra_config']['standings_version'] = $_POST['standings_version'];
 			$esc_extra_config = json_encode($contest['extra_config']);
+			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
 			$esc_extra_config = DB::escape($esc_extra_config);
 			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
 		};
@@ -198,6 +208,7 @@
 			global $contest;
 			$contest['extra_config']['contest_type'] = $_POST['contest_type'];
 			$esc_extra_config = json_encode($contest['extra_config']);
+			auditLog('contest.edit_config', 'contest', $contest['id'], null, $contest['extra_config']);
 			$esc_extra_config = DB::escape($esc_extra_config);
 			DB::update("update contests set extra_config = '$esc_extra_config' where id = {$contest['id']}");
 		};

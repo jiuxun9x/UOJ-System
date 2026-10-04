@@ -176,3 +176,26 @@ function sendSystemMsg($username, $title, $content) {
 	$title = DB::escape($title);
 	DB::insert("insert into user_system_msg (receiver, title, content, send_time) values ('$username', '$title', '$content', now())");
 }
+
+// Records who did what to the audit log. $before and $after are what changed, as far as it is
+// worth keeping. The actor is the user who is logged in, unless one is given; without a user
+// it is the system itself, as when a successful hack changes the data of a problem.
+// The log never stops what it records: a failure to write it is only reported.
+function auditLog($action, $resource_type, $resource_id, $before = null, $after = null, $actor = null) {
+	if ($actor === null) {
+		$actor = Auth::user();
+	}
+	$json = function($value) {
+		return $value === null ? 'null' : "'".DB::escape(json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR))."'";
+	};
+	$ok = DB::insert("insert into audit_logs (actor, actor_id, actor_type, action, resource_type, resource_id, before_json, after_json, ip, created_at) values ("
+		."'".($actor ? DB::escape($actor['username']) : '')."', "
+		.($actor && isset($actor['id']) ? (int)$actor['id'] : 'null').", "
+		."'".($actor ? 'user' : 'system')."', "
+		."'".DB::escape($action)."', '".DB::escape($resource_type)."', '".DB::escape($resource_id)."', "
+		.$json($before).", ".$json($after).", "
+		."'".DB::escape(UOJContext::remoteAddr())."', now())");
+	if (!$ok) {
+		error_log("audit log: failed to record $action of $resource_type $resource_id");
+	}
+}

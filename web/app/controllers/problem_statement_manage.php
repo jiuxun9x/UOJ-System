@@ -27,7 +27,10 @@
 	));
 	
 	$problem_editor->save = function($data) {
-		global $problem, $problem_tags;
+		global $problem, $problem_tags, $problem_content;
+		auditLog('problem.edit_statement', 'problem', $problem['id'],
+			array('title' => $problem['title'], 'is_hidden' => (int)$problem['is_hidden'], 'tags' => $problem_tags, 'statement_sha256' => hash('sha256', $problem_content['statement_md'])),
+			array('title' => $data['title'], 'is_hidden' => (int)$data['is_hidden'], 'tags' => $data['tags'], 'statement_sha256' => hash('sha256', $data['content_md'])));
 		DB::update("update problems set title = '".DB::escape($data['title'])."' where id = {$problem['id']}");
 		DB::update("update problems_contents set statement = '".DB::escape($data['content'])."', statement_md = '".DB::escape($data['content_md'])."' where id = {$problem['id']}");
 		

@@ -99,6 +99,7 @@
 					}
 				}
 				DB::query("update contests set status = 'testing' where id = {$contest['id']}");
+				auditLog('contest.start_final_test', 'contest', $contest['id']);
 			};
 			$start_test_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
 			$start_test_form->submit_button_config['smart_confirm'] = '';
@@ -152,6 +153,7 @@ EOD;
 					DB::query("update contests_registrants set rank = {$standings[$i][3]} where contest_id = {$contest['id']} and username = '{$standings[$i][2][0]}'");
 				}
 				DB::query("update contests set status = 'finished' where id = {$contest['id']}");
+				auditLog('contest.publish_results', 'contest', $contest['id'], null, array('rated' => !isset($contest['extra_config']['unrated']), 'participants' => count($standings)));
 			};
 			$publish_result_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
 			$publish_result_form->submit_button_config['smart_confirm'] = '';

@@ -273,6 +273,7 @@
 		$judger_adder->handle = function(&$vdata) {
 			$password=uojRandString(32);
 			DB::insert("insert into judger_info (judger_name,password) values('{$vdata['name']}','{$password}')");
+			auditLog('judger.add', 'judger', $vdata['name']);
 		};
 		$judger_adder->runAtServer();
 	
@@ -292,6 +293,7 @@
 		);
 		$judger_deleter->handle = function(&$vdata) {
 			DB::delete("delete from judger_info where judger_name='{$vdata['name']}'");
+			auditLog('judger.delete', 'judger', $vdata['name']);
 		};
 		$judger_deleter->runAtServer();
 
@@ -312,6 +314,7 @@
 		);
 		$judger_switcher->handle = function(&$vdata) {
 			DB::update("update judger_info set enabled = 1 - enabled where judger_name='{$vdata['name']}'");
+			auditLog('judger.switch', 'judger', $vdata['name'], null, array('enabled' => (int)DB::selectFirst("select enabled from judger_info where judger_name='{$vdata['name']}'")['enabled']));
 		};
 		$judger_switcher->runAtServer();
 	}
@@ -428,6 +431,12 @@ EOD;
 	);
 	if (!$can_manage_judgers) {
 		unset($tabs_info['judger']);
+	}
+	if (can($myUser, 'audit.view')) {
+		$tabs_info['audit'] = array(
+			'name' => '审计日志',
+			'url' => '/super-manage/audit'
+		);
 	}
 	
 	if (!isset($tabs_info[$cur_tab])) {
@@ -582,6 +591,41 @@ EOD;
 			</div>
 			<h3>评测机列表</h3>
 			<?php echoLongTable($judgerlist_cols, 'judger_info', "1=1", '', $judgerlist_header_row, $judgerlist_print_row, $judgerlist_config) ?>
+		<?php elseif ($cur_tab === 'audit'): ?>
+			<?php
+				// who changed what: the newest first, of one user or one kind of thing if asked for
+				$audit_conds = array();
+				if (isset($_GET['actor']) && validateUsername($_GET['actor'])) {
+					$audit_conds[] = "actor = '{$_GET['actor']}'";
+				}
+				if (isset($_GET['resource_type']) && preg_match('/^[a-z_]{1,20}$/', $_GET['resource_type'])) {
+					$audit_conds[] = "resource_type = '{$_GET['resource_type']}'";
+				}
+				if (isset($_GET['resource_id']) && preg_match('/^[a-zA-Z0-9_]{1,40}$/', $_GET['resource_id'])) {
+					$audit_conds[] = "resource_id = '{$_GET['resource_id']}'";
+				}
+			?>
+			<form class="form-inline bot-buffer-md" method="get">
+				<input type="text" class="form-control input-sm" name="actor" placeholder="操作者" value="<?= HTML::escape(isset($_GET['actor']) ? $_GET['actor'] : '') ?>" />
+				<input type="text" class="form-control input-sm ml-2" name="resource_type" placeholder="对象类型，如 problem" value="<?= HTML::escape(isset($_GET['resource_type']) ? $_GET['resource_type'] : '') ?>" />
+				<input type="text" class="form-control input-sm ml-2" name="resource_id" placeholder="对象编号" value="<?= HTML::escape(isset($_GET['resource_id']) ? $_GET['resource_id'] : '') ?>" />
+				<button type="submit" class="btn btn-secondary btn-sm ml-2">筛选</button>
+			</form>
+			<?php
+				echoLongTable(array('*'), 'audit_logs', $audit_conds ? join(' and ', $audit_conds) : '1', 'order by id desc',
+					'<tr><th>时间</th><th>操作者</th><th>操作</th><th>对象</th><th>修改前</th><th>修改后</th><th>IP</th></tr>',
+					function($row) {
+						echo '<tr>';
+						echo '<td><small>', $row['created_at'], '</small></td>';
+						echo '<td>', $row['actor_type'] == 'user' ? HTML::escape($row['actor']) . ' <small class="text-muted">#' . $row['actor_id'] . '</small>' : '系统', '</td>';
+						echo '<td>', HTML::escape($row['action']), '</td>';
+						echo '<td>', HTML::escape($row['resource_type']), ' ', HTML::escape($row['resource_id']), '</td>';
+						echo '<td class="text-left"><small>', HTML::escape($row['before_json']), '</small></td>';
+						echo '<td class="text-left"><small>', HTML::escape($row['after_json']), '</small></td>';
+						echo '<td><small>', HTML::escape($row['ip']), '</small></td>';
+						echo '</tr>';
+					}, array('page_len' => 50));
+			?>
 		<?php elseif ($cur_tab === 'paste'): ?>
 			<div>
 				<h4>Paste管理</h4>

@@ -65,6 +65,7 @@
 					$zip->extractTo("/var/uoj_data/upload/{$problem['id']}");
 					$zip->close();
 					exec("cd /var/uoj_data/upload/{$problem['id']}; if [ -z \"`find . -maxdepth 1 -type f`\" ]; then for sub_dir in `find -maxdepth 1 -type d ! -name .`; do mv -f \$sub_dir/* . && rm -rf \$sub_dir; done; fi");
+					auditLog('problem.upload_data', 'problem', $problem['id'], null, array('size' => filesize($up_filename), 'sha256' => hash_file('sha256', $up_filename)));
 					echo "<script>alert('上传成功！')</script>";
 				} else {
 					$errmsg = "解压失败！";
@@ -85,11 +86,15 @@
 		if ($new_problem_conf !== null) {
 			$set_filename="/var/uoj_data/upload/{$problem['id']}/problem.conf";
 			$has_legacy=false;
+			$old_problem_conf = null;
 			if (file_exists($set_filename)) {
 				$has_legacy=true;
+				$old_problem_conf = getUOJConf($set_filename);
 				unlink($set_filename);
 			}
 			putUOJConf($set_filename, $new_problem_conf);
+			// the limits of the problem are in here
+			auditLog('problem.edit_conf', 'problem', $problem['id'], is_array($old_problem_conf) ? $old_problem_conf : null, $new_problem_conf);
 			if (!$has_legacy) {
 				echo "<script>alert('添加成功！')</script>";
 			} else {
@@ -192,6 +197,9 @@ EOD
 			$esc_submission_requirement = DB::escape($vdata['submission_requirement']);
 			$esc_extra_config = DB::escape($vdata['extra_config']);
 			DB::update("update problems set submission_requirement = '$esc_submission_requirement', extra_config = '$esc_extra_config' where id = {$problem['id']}");
+			auditLog('problem.edit_raw_config', 'problem', $problem['id'],
+				array('submission_requirement' => $problem['submission_requirement'], 'extra_config' => $problem['extra_config']),
+				array('submission_requirement' => $vdata['submission_requirement'], 'extra_config' => $vdata['extra_config']));
 		};
 	} else {
 		$info_form->no_submit = true;
@@ -480,6 +488,7 @@ EOD
 	$clear_data_form->handle = function() {
 		global $problem;
 		dataClearProblemData($problem);
+		auditLog('problem.clear_data', 'problem', $problem['id']);
 	};
 	$clear_data_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
 	$clear_data_form->submit_button_config['text'] = '清空题目数据';
@@ -489,6 +498,7 @@ EOD
 	$rejudge_form->handle = function() {
 		global $problem;
 		rejudgeProblem($problem);
+		auditLog('problem.rejudge', 'problem', $problem['id'], null, array('scope' => 'all'));
 	};
 	$rejudge_form->succ_href = "/submissions?problem_id={$problem['id']}";
 	$rejudge_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
@@ -499,6 +509,7 @@ EOD
 	$rejudgege97_form->handle = function() {
 		global $problem;
 		rejudgeProblemGe97($problem);
+		auditLog('problem.rejudge', 'problem', $problem['id'], null, array('scope' => 'score >= 97'));
 	};
 	$rejudgege97_form->succ_href = "/submissions?problem_id={$problem['id']}";
 	$rejudgege97_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
@@ -541,6 +552,8 @@ EOD
 		$config['view_details_type'] = $_POST['view_details_type'];
 		$esc_config = DB::escape(json_encode($config));
 		DB::query("update problems set extra_config = '$esc_config' where id = '{$problem['id']}'");
+		$view_types = array('view_content_type' => 0, 'view_all_details_type' => 0, 'view_details_type' => 0);
+		auditLog('problem.edit_visibility', 'problem', $problem['id'], array_intersect_key($problem_extra_config, $view_types), array_intersect_key($config, $view_types));
 	};
 	$view_type_form->submit_button_config['class_str'] = 'btn btn-warning btn-block top-buffer-sm';
 	

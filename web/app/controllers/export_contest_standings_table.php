@@ -70,6 +70,7 @@ foreach ($standings as $rank => $row) {
 }
 
 $csv = array2csv($export_data);
+auditLog('contest.export_standings', 'contest', $contest['id'], null, array('rows' => count($standings), 'with_identity' => $with_identity));
 
 header("Cache-Control: max-age=0, no-cache, must-revalidate, proxy-revalidate");
 header("Last-Modified: {$now} GMT");

@@ -46,6 +46,7 @@
 		DB::query("insert into contests (name, start_time, last_min, status, extra_config) values ('$esc_name', '$start_time_str', ${_POST['last_min']}, 'unfinished', '$esc_extra_config')");
 		$contest_id = DB::insert_id();
 		DB::insert("insert into contests_permissions (username, contest_id, role) values ('".Auth::id()."', $contest_id, 'owner')");
+		auditLog('contest.create', 'contest', $contest_id, null, array('name' => $_POST['name'], 'start_time' => $start_time_str, 'last_min' => (int)$_POST['last_min']));
 	};
 	$time_form->succ_href="/contests";
 	$time_form->runAtServer();

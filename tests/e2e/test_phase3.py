@@ -468,6 +468,90 @@ class SessionTest(unittest.TestCase):
         self.assertIn(uoj.BASE_URL + "/", r.text)
 
 
+class AuditLogTest(unittest.TestCase):
+    """who changed what"""
+
+    def log_of(self, resource_type, resource_id):
+        return db(
+            "select action, actor, actor_type, ifnull(before_json, ''), ifnull(after_json, '') from audit_logs"
+            " where resource_type = '%s' and resource_id = '%s' order by id" % (resource_type, resource_id)
+        )
+
+    def test_changes_are_recorded_with_who_made_them(self):
+        admin = uoj.admin()
+        teacher, student = account("p3_audit_teacher"), account("p3_audit_student")
+        self.assertEqual(admin.change_user("p3_audit_teacher", "grant:teacher"), "")
+        (action, actor, actor_type, before, after), = self.log_of("user", "p3_audit_teacher")
+        self.assertEqual((action, actor, actor_type), ("user.grant_role", uoj.ADMIN[0], "user"))
+        self.assertEqual(json.loads(after), {"role": "teacher"})
+        actor_id, ip = db("select actor_id, ip from audit_logs where resource_type = 'user' and resource_id = 'p3_audit_teacher'")[0]
+        self.assertEqual(actor_id, db_value("select id from user_info where username = '%s'" % uoj.ADMIN[0]))
+        self.assertNotEqual(ip, "")
+
+        # a problem: created, its data uploaded and synced
+        problem_id = teacher.create_problem(ab_problem_files())
+        log = self.log_of("problem", problem_id)
+        self.assertEqual([row[0] for row in log], ["problem.create", "problem.upload_data", "problem.sync_data"])
+        self.assertEqual({row[1] for row in log}, {"p3_audit_teacher"})
+        self.assertEqual(json.loads(log[2][4])["version"], 1)
+        self.assertEqual(
+            json.loads(log[2][4])["sha256"],
+            db_value("select sha256 from problem_data_versions where problem_id = %d and version = 1" % problem_id),
+        )
+
+        # a submission that is judged again
+        submission_id = student.submit(problem_id, AB)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        self.assertEqual(teacher.submit_form("/submission/%d" % submission_id, "rejudge"), "")
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        (action, actor, actor_type, before, after), = self.log_of("submission", submission_id)
+        self.assertEqual((action, actor, json.loads(before)), ("submission.rejudge", "p3_audit_teacher", {"score": "100"}))
+
+        # a contest, from its creation to the export of its standings
+        contest_id = teacher.new_contest("p3 audited contest")
+        self.assertEqual(teacher.contest_commands(contest_id, "problems", "+%d" % problem_id), "")
+        self.assertEqual(teacher.contest_commands(contest_id, "managers", "+p3_audit_student"), "")
+        self.assertEqual(teacher.contest_commands(contest_id, "managers", "-p3_audit_student"), "")
+        start = uoj.web_time(-7200)
+        self.assertEqual(
+            teacher.submit_form(
+                "/contest/%d/manage" % contest_id, "time", {"name": "p3 audited contest", "start_time": start, "last_min": "90"}
+            ),
+            "",
+        )
+        self.assertEqual(teacher.submit_form("/contest/%d" % contest_id, "start_test"), "")
+        self.assertEqual(teacher.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        self.assertEqual(admin.get("/contest/%d/export_standings" % contest_id).status_code, 200)
+        log = self.log_of("contest", contest_id)
+        self.assertEqual(
+            [(row[0], row[1]) for row in log],
+            [
+                ("contest.create", "p3_audit_teacher"),
+                ("contest.add_problem", "p3_audit_teacher"),
+                ("contest.add_staff", "p3_audit_teacher"),
+                ("contest.remove_staff", "p3_audit_teacher"),
+                ("contest.edit", "p3_audit_teacher"),
+                ("contest.start_final_test", "p3_audit_teacher"),
+                ("contest.publish_results", "p3_audit_teacher"),
+                ("contest.export_standings", uoj.ADMIN[0]),
+            ],
+        )
+        edit = log[4]
+        self.assertEqual(json.loads(edit[3])["last_min"], 60)
+        self.assertEqual((json.loads(edit[4])["last_min"], json.loads(edit[4])["start_time"]), (90, start))
+        self.assertEqual(json.loads(log[2][4]), {"username": "p3_audit_student", "role": "assistant"})
+        uoj.wait_idle()
+
+    def test_log_is_read_by_system_administrators_only(self):
+        account("p3_audit_reader")
+        self.assertEqual(uoj.admin().change_user("p3_audit_reader", "grant:oj_admin"), "")
+        page = uoj.admin().get("/super-manage/audit?resource_type=user&resource_id=p3_audit_reader")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("user.grant_role", page.text)
+        self.assertEqual(account("p3_audit_reader").get("/super-manage/audit").status_code, 404)
+        self.assertEqual(account("p3_audit_bystander").get("/super-manage/audit").status_code, 403)
+
+
 # ---------------------------------------------------------------------- single sign-on
 
 

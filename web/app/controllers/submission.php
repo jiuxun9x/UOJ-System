@@ -73,6 +73,7 @@
 		$rejudge_form->handle = function() {
 			global $submission;
 			rejudgeSubmission($submission);
+			auditLog('submission.rejudge', 'submission', $submission['id'], array('score' => $submission['score']), null);
 		};
 		$rejudge_form->submit_button_config['class_str'] = 'btn btn-primary';
 		$rejudge_form->submit_button_config['text'] = '重新测试';
@@ -88,6 +89,7 @@
 			unlink(UOJContext::storagePath().$content['file_name']);
 			DB::delete("delete from submissions where id = {$submission['id']}");
 			updateBestACSubmissions($submission['submitter'], $submission['problem_id']);
+			auditLog('submission.delete', 'submission', $submission['id'], array('submitter' => $submission['submitter'], 'problem_id' => (int)$submission['problem_id'], 'contest_id' => $submission['contest_id'], 'score' => $submission['score'], 'submit_time' => $submission['submit_time']), null);
 		};
 		$delete_form->submit_button_config['class_str'] = 'btn btn-danger';
 		$delete_form->submit_button_config['text'] = '删除此提交记录';
