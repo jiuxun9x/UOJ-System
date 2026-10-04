@@ -358,7 +358,9 @@ class IdentityTest(unittest.TestCase):
         # a hack that was judged already, so that no judger takes it
         db("insert into hacks (problem_id, submission_id, hacker, owner, input, input_type, submit_time, judge_time, details, is_hidden, success)"
            " values (%d, %d, 'p3_before', 'p3_before', '', 'USE_FORMATTER', now(), now(), '', 1, 0)" % (problem_id, submission_id))  # fmt: skip
-        before = uoj.columns_holding("p3_before")
+        # the audit log keeps the names as they were, next to the number of the user
+        held = lambda name: [column for column in uoj.columns_holding(name) if not column.startswith("audit_logs.")]
+        before = held("p3_before")
         self.assertGreaterEqual(len(before), 17, before)
 
         # a name that is taken, or is no name at all, is refused
@@ -371,10 +373,9 @@ class IdentityTest(unittest.TestCase):
         # nothing is left behind under the old name but the journal of the change, and the name
         # the password was hashed with
         self.assertEqual(
-            uoj.columns_holding("p3_before"),
-            ["user_info.password_salt", "user_renames.old_username", "user_renames.renamed_by"],
+            held("p3_before"), ["user_info.password_salt", "user_renames.old_username", "user_renames.renamed_by"]
         )
-        self.assertEqual(len(uoj.columns_holding("p3_after")), len(before) + 1)
+        self.assertEqual(len(held("p3_after")), len(before) + 1)
         self.assertEqual(db_value("select submitter from submissions where id = %d" % submission_id), "p3_after")
 
         # the user is still logged in, keeps what they had, and logs in with the password they had
@@ -415,9 +416,15 @@ class IdentityTest(unittest.TestCase):
         )
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
         self.assertEqual(
-            uoj.columns_holding("p3_after"),
-            ["user_info.password_salt", "user_renames.new_username", "user_renames.old_username"],
+            held("p3_after"), ["user_info.password_salt", "user_renames.new_username", "user_renames.old_username"]
         )
+        # the log names who changed the name, by number as well
+        renames = db(
+            "select actor, actor_id, resource_id from audit_logs where action = 'user.rename'"
+            " and resource_id in ('p3_after', 'p3_before') order by id"
+        )
+        admin_id = db_value("select id from user_info where username = '%s'" % uoj.ADMIN[0])
+        self.assertEqual(renames, [["p3_after", user_id, "p3_after"], [uoj.ADMIN[0], admin_id, "p3_before"]])
         uoj.Client().login("p3_before", "p3-new-password")
 
 
@@ -473,7 +480,9 @@ class SessionTest(unittest.TestCase):
         self.assertIsNone(who(client))
         # neither the id of the session nor the remembered login still work
         self.assertIsNone(who(self.session_with(cookies)))
-        self.assertEqual(db_value("select remember_token from user_info where username = 'p3_leaver'"), "")
+        self.assertEqual(
+            db_value("select concat('[', remember_token, ']') from user_info where username = 'p3_leaver'"), "[]"
+        )
         # and no token at all is not a token that matches
         forged = dict(cookies, uoj_remember_token="")
         self.assertIsNone(who(self.session_with(forged)))
