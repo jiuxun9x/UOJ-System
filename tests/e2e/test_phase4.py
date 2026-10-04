@@ -618,8 +618,8 @@ class DomainProblemTest(unittest.TestCase):
         self.assertEqual(count(), before)
 
         # a problem of another domain is copied by somebody who teaches there
-        other = account("p4_prob_other_teacher")
-        self.assertEqual(self.admin.change_user("p4_prob_other_teacher", "grant:teacher"), "")
+        other = account("p4_prob_teacher2")
+        self.assertEqual(self.admin.change_user("p4_prob_teacher2", "grant:teacher"), "")
         other.new_domain("p4-problems-theirs")
         self.assertEqual(other.form("/d/p4-problems-theirs/problems", "new"), "")
         theirs = self.newest_problem(domain_id("p4-problems-theirs"))
