@@ -6,6 +6,7 @@ See test_phase1.py for how to start the containers.
 """
 
 import json
+import re
 import unittest
 
 import test_phase3 as p3
@@ -171,6 +172,80 @@ class DomainContestRatingTest(unittest.TestCase):
             db("select username, `rank` from contests_registrants where contest_id = %d order by `rank`" % contest_id),
             [["p6_rate_pupil0", "1"], ["p6_rate_pupil1", "2"]],
         )
+
+
+def submit_and_follow(client, path, code):
+    """submit a program to the problem at an address: where the site sends the user afterwards"""
+    r = client.post(path, {
+        "submit-answer": "answer",
+        "answer_answer_upload_type": "editor",
+        "answer_answer_editor": code,
+        "answer_answer_language": "C++17",
+    })  # fmt: skip
+    assert r.status_code in (301, 302), r.status_code
+    return r.headers["Location"]
+
+
+def last_submission(username):
+    return int(db_value("select max(id) from submissions where submitter = '%s'" % username))
+
+
+class AfterSubmittingTest(unittest.TestCase):
+    """where somebody is taken after submitting: to what they submitted, where they submitted it"""
+
+    def test_submitting_to_a_homework_leads_to_what_one_submitted_to_it(self):
+        admin = uoj.admin()
+        site_problem = admin.create_problem(ab_problem_files())
+        teacher, pupil, other = (p3.account("p6_hw_" + name) for name in ("teacher", "pupil", "other"))
+        self.assertEqual(admin.change_user("p6_hw_teacher", "grant:teacher"), "")
+        slug = "p6-homework"
+        did = teacher.new_domain(slug)
+        for name in ("pupil", "other"):
+            self.assertEqual(p4.member_form(teacher, slug, "add", username="p6_hw_" + name, role="member"), "")
+        self.assertEqual(teacher.form("/d/%s/problems" % slug, "new"), "")
+        own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
+        self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(own_id), "")
+        db("update problems set is_hidden = 0 where id = %d" % own_id)
+        homework_id = p4.new_homework(teacher, slug, title="p6 作业")
+        self.assertEqual(p4.homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(uoj.pid(own_id)), score="100"), "")
+        self.assertEqual(p4.homework_form(teacher, slug, homework_id, "publish"), "")
+        uoj.wait_until("published", lambda: p4.tick() and p4.homework_row(homework_id, "status")[0] == "published")
+        for client in (pupil, other):
+            self.assertEqual(client.form("/d/%s/homework/%d" % (slug, homework_id), "claim"), "")
+
+        # in a homework: the list of what one submitted to the homework
+        in_homework = "/d/%s/homework/%d/problem/%d" % (slug, homework_id, uoj.pid(own_id))
+        mine = "/submissions?homework_id=%d&submitter=p6_hw_pupil" % homework_id
+        self.assertEqual(submit_and_follow(pupil, in_homework, AB_WRONG), mine)
+        submission_id = last_submission("p6_hw_pupil")
+        uoj.wait_submission(submission_id)
+        listing = pupil.get(mine)
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn('href="/submission/%d"' % submission_id, listing.text)
+        self.assertIn('id="submissions-of-homework"', listing.text)
+        self.assertIn("p6 作业", listing.text)
+        # and how it did on every test, as when practising
+        page = pupil.get("/submission/%d" % submission_id).text
+        self.assertIn("Test #", page)
+        self.assertIn("Wrong Answer", page)
+        # what the others submitted to it is not there while it runs
+        self.assertNotIn('href="/submission/%d"' % submission_id, other.get("/submissions?homework_id=%d" % homework_id).text)
+        self.assertIn('href="/submission/%d"' % submission_id, teacher.get("/submissions?homework_id=%d" % homework_id).text)
+        # a homework nobody may see filters nothing, and names nothing
+        stranger = p3.account("p6_hw_stranger")
+        listing = stranger.get("/submissions?homework_id=%d" % homework_id).text
+        self.assertNotIn("p6 作业", listing)
+        self.assertNotIn('id="submissions-of-homework"', listing)
+
+        # outside of the homework, in the domain: what one submitted to the problem
+        in_domain = "/d/%s/problem/%d" % (slug, uoj.pid(own_id))
+        self.assertEqual(submit_and_follow(pupil, in_domain, AB), "/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id)
+        practice = last_submission("p6_hw_pupil")
+        self.assertIn('href="/submission/%d"' % practice, pupil.get("/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id).text)
+        # and on the site as ever
+        self.assertEqual(submit_and_follow(pupil, "/problem/%d" % site_problem, AB), "/submissions")
+        uoj.wait_idle()
 
 
 class BlogSwitchTest(unittest.TestCase):

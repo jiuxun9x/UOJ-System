@@ -201,6 +201,20 @@
 		DB::insert("insert into custom_test_submissions (problem_id, submit_time, submitter, content, status, result) values ({$problem['id']}, now(), '{$myUser['username']}', '$esc_content', '{$result['status']}', '$result_json')");
 	}
 	
+	// Where somebody is taken after submitting: to the list of what they submitted, in the
+	// contest, the homework or the domain they submitted in.
+	if ($is_in_contest) {
+		$after_submitting = "/contest/{$contest['id']}/submissions";
+	} elseif ($running_virtual) {
+		$after_submitting = "/contest/{$contest['id']}/virtual";
+	} elseif ($homework) {
+		$after_submitting = '/submissions?homework_id=' . $homework['id'] . (Auth::check() ? '&submitter=' . Auth::id() : '');
+	} elseif ($domain && Auth::check()) {
+		$after_submitting = '/submissions?problem_id=' . $problem['id'] . '&submitter=' . Auth::id();
+	} else {
+		$after_submitting = '/submissions';
+	}
+
 	if ($can_use_zip_upload) {
 		$zip_answer_form = newZipSubmissionForm('zip_answer',
 			$submission_requirement,
@@ -213,7 +227,7 @@
 			}
 			return '';
 		};
-		$zip_answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($running_virtual ? "/contest/{$contest['id']}/virtual" : ($homework ? homeworkUrl($domain, $homework) : '/submissions'));
+		$zip_answer_form->succ_href = $after_submitting;
 		$zip_answer_form->runAtServer();
 	}
 	
@@ -228,7 +242,7 @@
 		}
 		return '';
 	};
-	$answer_form->succ_href = $is_in_contest ? "/contest/{$contest['id']}/submissions" : ($running_virtual ? "/contest/{$contest['id']}/virtual" : ($homework ? homeworkUrl($domain, $homework) : '/submissions'));
+	$answer_form->succ_href = $after_submitting;
 	$answer_form->runAtServer();
 
 	if ($custom_test_requirement) {

@@ -6,6 +6,15 @@
 	$q_min_score = isset($_GET['min_score']) && validateUInt($_GET['min_score']) ? $_GET['min_score'] : null;
 	$q_max_score = isset($_GET['max_score']) && validateUInt($_GET['max_score']) ? $_GET['max_score'] : null;
 	$q_language = isset($_GET['language']) ? $_GET['language'] : null;
+	// what was submitted to a homework: who may see which of it is decided as everywhere
+	$q_homework = isset($_GET['homework_id']) && validateUInt($_GET['homework_id']) ? queryHomework($_GET['homework_id']) : null;
+	$q_homework_domain = $q_homework ? queryDomain($q_homework['domain_id']) : null;
+	if ($q_homework && !($q_homework_domain && can($myUser, 'homework.view', $q_homework))) {
+		$q_homework = null;
+	}
+	if ($q_homework) {
+		$conds[] = "submissions.homework_id = {$q_homework['id']}";
+	}
 	if ($q_problem_id != null) {
 		$conds[] = "problem_id = $q_problem_id";
 	}
@@ -31,6 +40,10 @@
 	}
 ?>
 <?php echoUOJPageHeader(UOJLocale::get('submissions')) ?>
+<?php if ($q_homework): ?>
+<p class="uoj-domain-back" id="submissions-of-homework"><a href="<?= homeworkUrl($q_homework_domain, $q_homework) ?>"><span class="glyphicon glyphicon-chevron-left"></span> 作业：<?= HTML::escape($q_homework['title']) ?></a>
+<span class="text-muted">下面是提交到这个作业的记录。</span></p>
+<?php endif ?>
 <div class="d-none d-sm-block">
 	<?php if ($myUser != null): ?>
 	<div class="float-right">
@@ -40,7 +53,7 @@
 	<form id="form-search" class="form-inline" method="get">
 		<div id="form-group-problem_id" class="form-group">
 			<label for="input-problem_id" class="control-label"><?= UOJLocale::get('problems::problem id')?>:</label>
-			<input type="text" class="form-control input-sm" name="problem_id" id="input-problem_id" value="<?= $q_problem_id ?>" maxlength="4" style="width:4em" />
+			<input type="text" class="form-control input-sm" name="problem_id" id="input-problem_id" value="<?= $q_problem_id ?>" maxlength="10" style="width:6em" />
 		</div>
 		<div id="form-group-submitter" class="form-group">
 			<label for="input-submitter" class="control-label"><?= UOJLocale::get('username')?>:</label>
@@ -69,6 +82,9 @@
 					qs.push(this + '=' + encodeURIComponent($('#input-' + this).val()));
 				}
 			});
+			<?php if ($q_homework): ?>
+			qs.push('homework_id=<?= $q_homework['id'] ?>');
+			<?php endif ?>
 			if (qs.length > 0) {
 				url += '?' + qs.join('&');
 			}
