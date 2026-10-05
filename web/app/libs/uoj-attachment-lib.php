@@ -150,7 +150,7 @@ function attachmentsAddUploaded($owner_type, $owner_id, $field, $actor) {
 			continue;
 		}
 		if ($code != UPLOAD_ERR_OK) {
-			$errors[] = "$name 没有传完（错误 $code）" . ($code == UPLOAD_ERR_INI_SIZE || $code == UPLOAD_ERR_FORM_SIZE ? '：文件太大' : '');
+			$errors[] = "$name 没有传完（错误 {$code}）" . ($code == UPLOAD_ERR_INI_SIZE || $code == UPLOAD_ERR_FORM_SIZE ? '：文件太大' : '');
 			continue;
 		}
 		$err = attachmentAdd($owner_type, $owner_id, $_FILES[$field]['tmp_name'][$index], is_string($name) ? uojFileBaseName($name) : '', $actor);
