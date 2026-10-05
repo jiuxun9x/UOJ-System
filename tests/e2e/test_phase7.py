@@ -387,8 +387,9 @@ class StatementTest(unittest.TestCase):
         self.assertIn("$a_1,a_2,\\ldots,a_n$ $(1\\le a_i\\le 10^9)$", page)
 
         # ---- the slides set their formulas the same way, with a configuration the site carries
+        # (what is stored of slides begins with a line of their settings)
         db("insert into blogs (title, content, content_md, post_time, poster, zan, is_hidden, type, is_draft)"
-           " values ('p7 slides', '<section><p>$x_1$</p></section>', 'x', now(), '%s', 0, 0, 'S', 0)" % uoj.ADMIN[0])  # fmt: skip
+           " values ('p7 slides', concat('{}', char(10), '<section><p>$x_1$</p></section>'), 'x', now(), '%s', 0, 0, 'S', 0)" % uoj.ADMIN[0])  # fmt: skip
         slide_id = int(db_value("select max(id) from blogs where type = 'S'"))
         slides = admin.get("/blog/%s/slide/%d" % (uoj.ADMIN[0].replace("_", "-").lower(), slide_id))
         self.assertEqual(slides.status_code, 200)
