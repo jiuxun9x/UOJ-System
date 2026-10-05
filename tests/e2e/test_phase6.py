@@ -653,7 +653,8 @@ class BlogSwitchTest(unittest.TestCase):
         r = reader.get("/blogs")
         self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/announcements"))
         for client in (writer, reader, visitor):
-            for path in ("/", "/archive", "/post/%d" % diary, "/post/new/write"):
+            # the address of a blog has no slash at its end: the web server takes one away
+            for path in ("", "/archive", "/post/%d" % diary, "/post/new/write"):
                 self.assertEqual(client.get("/blog/p6_blog_writer" + path).status_code, 404, path)
         self.assertEqual(reader.get("/blogs/%d" % diary).headers.get("Location"), "/blog/p6_blog_writer/post/%d" % diary)
         self.assertNotIn("/blog/p6_blog_writer", reader.get("/user/profile/p6_blog_writer").text)

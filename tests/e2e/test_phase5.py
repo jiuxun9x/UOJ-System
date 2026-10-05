@@ -810,8 +810,11 @@ class MonitorTest(unittest.TestCase):
     def test_judgers_that_are_gone_are_reported_and_so_is_their_return(self):
         monitor = "/super-manage/monitor"
         admin_name = uoj.ADMIN[0]
-        told = lambda: int(db_value("select count(*) from user_system_msg where receiver = '%s' and title like '%%评测%%' and (title like '告警：%%' or title like '已恢复：%%')" % admin_name))
-        mails = lambda: [mail for mail in self.smtp.messages if "评测" in mail.subject]
+        # The two things this test makes go wrong: no judger at all, and a queue that is stuck.
+        # With several judgers, one of them may come back a moment before the others, and
+        # that the others are still silent is then reported as well: that is not counted.
+        told = lambda: int(db_value("select count(*) from user_system_msg where receiver = '%s' and (title like '%%评测机全部离线%%' or title like '%%评测积压%%') and (title like '告警：%%' or title like '已恢复：%%')" % admin_name))
+        mails = lambda: [mail for mail in self.smtp.messages if "评测机全部离线" in mail.subject or "评测积压" in mail.subject]
         uoj.wait_idle()
         wait_for_calm()
         page = self.admin.get(monitor).text

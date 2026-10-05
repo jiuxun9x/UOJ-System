@@ -1088,7 +1088,7 @@ class HomeworkTest(unittest.TestCase):
         self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(copy_id)), "")
         promised = [[str(copy_id), "NULL", "100", "1"], [str(self.own_id), "NULL", "50", "0"]]
         self.assertEqual(self.problems_of(homework_id), promised)
-        page = teacher.get(self.url(homework_id, "/manage")).text
+        page = teacher.get(self.url(homework_id, "/manage?tab=problems")).text
         self.assertIn("#%d. " % copy_number, page)
         self.assertIn("复制自 主站 #%d" % self.public_id, page)
         for client in (alice, tutor):
