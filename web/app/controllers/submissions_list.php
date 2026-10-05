@@ -122,6 +122,7 @@
 	<div class="top-buffer-sm"></div>
 </div>
 <?php
-	echoSubmissionsList($cond, 'order by id desc', array('judge_time_hidden' => ''), $myUser);
+	// in the list of one homework a problem is called what it is called in the homework
+	echoSubmissionsList($cond, 'order by id desc', array('judge_time_hidden' => '') + ($q_homework ? array('inside' => '') : array()), $myUser);
 ?>
 <?php echoUOJPageFooter() ?>

@@ -161,7 +161,7 @@
 		</div>
 		<?php if ($is_participant): ?>
 		<h4 class="uoj-domain-section-title">我在这个作业里的提交</h4>
-		<?php echoSubmissionsList("submissions.homework_id = {$homework['id']} and submissions.submitter = '".DB::escape(Auth::id())."'", 'order by id desc', array('judge_time_hidden' => '', 'submitter_hidden' => ''), $myUser) ?>
+		<?php echoSubmissionsList("submissions.homework_id = {$homework['id']} and submissions.submitter = '".DB::escape(Auth::id())."'", 'order by id desc', array('judge_time_hidden' => '', 'submitter_hidden' => '', 'inside' => ''), $myUser) ?>
 		<?php endif ?>
 		<?php endif ?>
 	</div>

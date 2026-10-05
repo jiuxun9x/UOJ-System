@@ -170,7 +170,8 @@ function getContestProblemLink($problem, $contest_id, $problem_title = '!title_o
 }
 // A problem of a homework is read in the homework: the page of the problem itself may be
 // closed to the people who do the homework. Whoever does not get into the homework is given
-// the address of the problem as it is.
+// the address of the problem as it is. In a homework a problem is called by its letter, as
+// in a contest.
 function getHomeworkProblemLink($problem, $homework_id, $problem_title = '!title_only') {
 	static $homeworks = array();
 	global $myUser;
@@ -180,15 +181,71 @@ function getHomeworkProblemLink($problem, $homework_id, $problem_title = '!title
 		$domain = $homework ? queryDomain($homework['domain_id']) : null;
 		$homeworks[$homework_id] = $homework && $domain && can($myUser, 'homework.solve', $homework) ? homeworkUrl($domain, $homework) : null;
 	}
-	if ($homeworks[$homework_id] === null) {
-		return getProblemLink($problem, $problem_title);
-	}
 	if ($problem_title == '!title_only') {
 		$problem_title = $problem['title'];
 	} elseif ($problem_title == '!id_and_title') {
-		$problem_title = problemLabel($problem) . ". {$problem['title']}";
+		$letter = homeworkProblemLetter($homework_id, $problem['id']);
+		$problem_title = ($letter !== null ? $letter : problemLabel($problem)) . ". {$problem['title']}";
 	}
-	return '<a href="'.$homeworks[$homework_id].'/problem/'.problemNumber($problem).'">'.$problem_title.'</a>';
+	$url = $homeworks[$homework_id] === null ? problemUrl($problem) : $homeworks[$homework_id] . '/problem/' . problemNumber($problem);
+	return '<a href="'.$url.'">'.$problem_title.'</a>';
+}
+// the letter a problem has in a homework: its place among the problems of the homework
+function homeworkProblemLetter($homework_id, $problem_id) {
+	static $orders = array();
+	$homework_id = (int)$homework_id;
+	if (!isset($orders[$homework_id])) {
+		$orders[$homework_id] = array();
+		foreach (DB::selectAll("select problem_id from homework_problems where homework_id = $homework_id order by position, problem_id") as $row) {
+			$orders[$homework_id][] = (int)$row['problem_id'];
+		}
+	}
+	$index = array_search((int)$problem_id, $orders[$homework_id], true);
+	return $index === false || $index >= 26 ? null : chr(ord('A') + $index);
+}
+// What a contest or a homework is called where there is little room: the beginning of its
+// name, ready to be printed. $is_html says the name is kept the way pages print it.
+function shortNameOfContext($name, $is_html) {
+	$plain = $is_html ? html_entity_decode(strip_tags((string)$name), ENT_QUOTES, 'UTF-8') : (string)$name;
+	return HTML::escape(mb_strimwidth($plain, 0, 22, '…', 'UTF-8'));
+}
+// What a submission was sent to, as a link, in a list of submissions.
+//
+// $inside: the list is the list of one contest or one homework. There a problem is what it
+// is called there: A, B, C.
+//
+// Anywhere else submissions to all kinds of problems stand together, and a letter alone says
+// nothing. A problem that is open in the problem set is called by its number there (the
+// number it has in its domain, with the name of the domain, when it is a problem of a
+// domain) and leads to its own page. A problem that is not open is known only from the
+// contest or the homework it was submitted in: it is called "the contest-A", and leads there.
+function getSubmissionProblemLink($problem, $contest_id, $homework_id, $inside = false) {
+	if ($inside) {
+		if ($contest_id) {
+			return getContestProblemLink($problem, $contest_id, '!id_and_title');
+		}
+		if ($homework_id) {
+			return getHomeworkProblemLink($problem, $homework_id, '!id_and_title');
+		}
+		return getProblemLink($problem, '!id_and_title');
+	}
+	if (!$problem['is_hidden']) {
+		return getProblemLink($problem, '!id_and_title');
+	}
+	if ($contest_id) {
+		$letter = contestProblemLetter($contest_id, $problem['id']);
+		$contest = $letter !== null ? queryContest((int)$contest_id) : null;
+		if ($contest) {
+			return getContestProblemLink($problem, $contest_id, shortNameOfContext($contest['name'], true) . "-$letter. {$problem['title']}");
+		}
+	} elseif ($homework_id) {
+		$letter = homeworkProblemLetter($homework_id, $problem['id']);
+		$homework = $letter !== null ? queryHomework((int)$homework_id) : null;
+		if ($homework) {
+			return getHomeworkProblemLink($problem, $homework_id, shortNameOfContext($homework['title'], false) . "-$letter. {$problem['title']}");
+		}
+	}
+	return getProblemLink($problem, '!id_and_title');
 }
 function getBlogLink($id) {
 	if (validateUInt($id) && $blog = queryBlog($id)) {
@@ -338,13 +395,8 @@ function echoSubmission($submission, $config, $user) {
 		echo '<td><a href="/submission/', $submission['id'], '">#', $submission['id'], '</a></td>';
 	}
 	if (!isset($config['problem_hidden'])) {
-		if ($submission['contest_id']) {
-			echo '<td>', getContestProblemLink($problem, $submission['contest_id'], '!id_and_title'), '</td>';
-		} elseif (!empty($submission['homework_id'])) {
-			echo '<td>', getHomeworkProblemLink($problem, $submission['homework_id'], '!id_and_title'), '</td>';
-		} else {
-			echo '<td>', getProblemLink($problem, '!id_and_title'), '</td>';
-		}
+		// 'inside': the list is the list of one contest or one homework
+		echo '<td>', getSubmissionProblemLink($problem, $submission['contest_id'], isset($submission['homework_id']) ? $submission['homework_id'] : null, isset($config['inside'])), '</td>';
 	}
 	if (!isset($config['submitter_hidden'])) {
 		echo '<td>', $submitterLink, '</td>';
@@ -1030,11 +1082,7 @@ function echoHack($hack, $config, $user) {
 		echo '<td><a href="/submission/', $hack['submission_id'], '">#', $hack['submission_id'], '</a></td>';
 	}
 	if (!isset($config['problem_hidden'])) {
-		if ($hack['contest_id']) {
-			echo '<td>', getContestProblemLink($problem, $hack['contest_id'], '!id_and_title'), '</td>';
-		} else {
-			echo '<td>', getProblemLink($problem, '!id_and_title'), '</td>';
-		}
+		echo '<td>', getSubmissionProblemLink($problem, $hack['contest_id'], null), '</td>';
 	}
 	if (!isset($config['hacker_hidden'])) {
 		echo '<td>', getUserLink($hack['hacker']), '</td>';

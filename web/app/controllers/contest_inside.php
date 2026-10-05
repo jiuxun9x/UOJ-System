@@ -422,9 +422,9 @@ EOD;
 			</script>
 EOD;
 		if ($show_all) {
-			echoSubmissionsList("contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => ''), $myUser);
+			echoSubmissionsList("contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => '', 'inside' => ''), $myUser);
 		} else {
-			echoSubmissionsList("submitter = '{$myUser['username']}' and contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => ''), $myUser);
+			echoSubmissionsList("submitter = '{$myUser['username']}' and contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => '', 'inside' => ''), $myUser);
 		}
 	}
 	

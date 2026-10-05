@@ -371,6 +371,10 @@ class AfterSubmittingTest(unittest.TestCase):
         for page in (listing.text, pupil.get("/submission/%d" % submission_id).text, pupil.get("/d/%s/homework/%d" % (slug, homework_id)).text):
             self.assertIn('<a href="%s">' % in_homework, page)
             self.assertNotIn('href="%s"' % in_domain, page)
+        # in the list of the homework it is called by its letter there; anywhere else, for as
+        # long as it is not open, it is that letter of this homework
+        self.assertIn('<a href="%s">A. New Problem</a>' % in_homework, listing.text)
+        self.assertIn('<a href="%s">p6 作业-A. New Problem</a>' % in_homework, pupil.get("/submission/%d" % submission_id).text)
         self.assertEqual(pupil.get(in_homework).status_code, 200)
         # and how it did on every test, as when practising
         page = pupil.get("/submission/%d" % submission_id).text
@@ -389,7 +393,13 @@ class AfterSubmittingTest(unittest.TestCase):
         db("update problems set is_hidden = 0 where id = %d" % own_id)
         self.assertEqual(submit_and_follow(pupil, in_domain, AB), "/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id)
         practice = last_submission("p6_hw_pupil")
-        self.assertIn('href="/submission/%d"' % practice, pupil.get("/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id).text)
+        page = pupil.get("/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id).text
+        self.assertIn('href="/submission/%d"' % practice, page)
+        # now that the problem is open, it is the problem of the domain with its number there,
+        # also for what was submitted to it in the homework; in the homework it is still A
+        self.assertEqual(page.count('<a href="%s">%s#%d. New Problem</a>' % (in_domain, slug, uoj.pid(own_id))), 2)
+        self.assertNotIn("p6 作业-A", page)
+        self.assertIn('<a href="%s">A. New Problem</a>' % in_homework, pupil.get(mine).text)
 
         # ---- the way to what was submitted: from the homework, for the people who look after
         # it to everything, for who does it to their own
@@ -588,10 +598,13 @@ class IcpcTest(unittest.TestCase):
         only_mine = admin.get(here + "/submissions", cookies={"show_all_submissions": "0"}).text
         self.assertNotIn('href="/submission/%d"' % bob_first, only_mine)
         # the problem is called what it is called in the contest, here and on the board
-        for told in (listing, page, ann.get(here + "/standings").text):
+        for told in (listing, ann.get(here + "/standings").text):
             self.assertIn('href="%s/problem/A"' % here, told)
             self.assertNotIn('href="%s/problem/%d"' % (here, first), told)
         self.assertRegex(listing, r'<a href="%s/problem/A">A\. ' % here)
+        # outside of the lists of the contest, a problem that is open in the problem set is
+        # the problem with its number there
+        self.assertIn('<a href="/problem/%d">#%d. ' % (first, first), page)
         # also after the board froze, about what is one's own
         self.assertRegex(cat.get(here + "/submissions").text, r'href="/submission/%d" class="uoj-verdict text-success"' % cat_first)
 
@@ -823,9 +836,21 @@ class ContestFormTest(unittest.TestCase):
         # (these problems have no data to submit to: what was submitted is written down as such)
         db("insert into submissions (problem_id, contest_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden)"
            " values (%d, %d, now(), 'p6_form_pupil', '{}', 'C++', 10, 'Judged', '{}', 0)" % (first, contest_id))  # fmt: skip
-        for page in (pupil.get("/contest/%d/submissions" % contest_id).text, pupil.get("/submissions?submitter=p6_form_pupil").text):
-            self.assertIn('<a href="/contest/%d/problem/B">B. p6 甲</a>' % contest_id, page)
-            self.assertNotIn("#%d. p6 甲" % first, page)
+        # In the list of the contest it is B. Among all submissions, where a letter alone says
+        # nothing, it is B of this contest for as long as the problem is not open.
+        inside = '<a href="/contest/%d/problem/B">B. p6 甲</a>' % contest_id
+        outside = '<a href="/contest/%d/problem/B">p6 改了名字-B. p6 甲</a>' % contest_id
+        self.assertIn(inside, pupil.get("/contest/%d/submissions" % contest_id).text)
+        everywhere = pupil.get("/submissions?submitter=p6_form_pupil").text
+        self.assertIn(outside, everywhere)
+        self.assertNotIn("#%d. p6 甲" % first, everywhere)
+        # once the problem is open in the problem set, it is called by its number there
+        db("update problems set is_hidden = 0 where id = %d" % first)
+        everywhere = pupil.get("/submissions?submitter=p6_form_pupil").text
+        self.assertIn('<a href="/problem/%d">#%d. p6 甲</a>' % (first, first), everywhere)
+        self.assertNotIn(outside, everywhere)
+        self.assertIn(inside, pupil.get("/contest/%d/submissions" % contest_id).text)
+        db("update problems set is_hidden = 1 where id = %d" % first)
 
         # ---- the people who run it
         helper = p3.account("p6_form_helper")
