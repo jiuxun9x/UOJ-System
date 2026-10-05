@@ -483,20 +483,6 @@ function domainSaveAnnouncement($domain, $id, $title, $content_md, $pinned, $act
 // remembered, and nothing follows from it.
 
 
-// Creates an empty problem in a domain and returns its id.
-function domainNewProblem($domain, $actor) {
-	requirePHPLib('judger');
-	requirePHPLib('data');
-	$id = problemCreate(array('title' => "'New Problem'", 'is_hidden' => 1, 'submission_requirement' => "'{}'"), $domain['id']);
-	if ($id === null) {
-		return null;
-	}
-	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '', '')");
-	dataNewProblem($id);
-	auditLog('problem.create', 'problem', $id, null, array('domain_id' => (int)$domain['id']), $actor);
-	return $id;
-}
-
 // Copies a problem into a domain: its statement, tags and settings, and the files that were
 // uploaded for it, from which the data of the copy is built like after any upload. The copy
 // starts hidden. Returns array(id of the copy, '') or array(null, why not).

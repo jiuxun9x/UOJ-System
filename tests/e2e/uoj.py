@@ -261,10 +261,26 @@ class Client:
 
     # ---- problems
 
-    def new_problem(self):
-        err = self.submit_form("/problems", "new_problem")
+    def new_problem_form(self, domain=None, files=None, **fields):
+        """send the form that makes a problem, on the site or in the domain with this slug:
+        '' or why it was refused. files: (field, (name, content, type)) pairs."""
+        form = {"form": "create", "title": "New Problem", "type": "traditional", "time_limit": "1", "memory_limit": "256",
+                "checker": "wcmp", "scoring": "per_test"}  # fmt: skip
+        form.update(fields)
+        r = self.post("/d/%s/problem/new" % domain if domain else "/problem/new", form, files)
+        if r.status_code in (301, 302):
+            return ""
+        return "HTTP %d: %s" % (r.status_code, text_of(r.text))
+
+    def new_problem(self, domain=None, files=None, **fields):
+        """make a problem and return its id: hidden and without data unless told otherwise"""
+        err = self.new_problem_form(domain, files, **fields)
         if err:
             raise Exception("failed to create a problem: " + err[-800:])
+        if domain:
+            return int(db_value(
+                "select max(problems.id) from problems, domains where domains.slug = '%s' and owner_domain_id = domains.id" % domain
+            ))  # fmt: skip
         # the problems of domains have ids of their own, far above those of the site
         return int(db_value("select max(id) from problems where owner_domain_id is null"))
 

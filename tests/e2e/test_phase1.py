@@ -320,10 +320,10 @@ class ProblemDataFormTest(unittest.TestCase):
         cls.problem_id = uoj.admin().create_problem(ab_problem_files())
         cls.upload_dir = "/var/uoj_data/upload/%d" % cls.problem_id
 
+    # the form that says how a problem is judged: its tests are found by the names of its files
     SETTINGS = dict(
-        problem_settings_file_submit="submit", use_builtin_checker="ncmp", n_tests="3", n_ex_tests="1",
-        n_sample_tests="1", input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
-        time_limit="1", memory_limit="256",
+        form="judge_settings", type="traditional", time_limit="1", memory_limit="256", checker="ncmp",
+        scoring="per_test", n_samples="1",
     )  # fmt: skip
 
     def post_settings(self, token=True, **overrides):
@@ -346,17 +346,22 @@ class ProblemDataFormTest(unittest.TestCase):
     def test_settings_can_not_add_lines_to_problem_conf(self):
         before = uoj.tree_sha256(uoj.WEB, self.upload_dir)
         for name, value in (
-            ("input_pre", "input\nuse_builtin_judger off"),
+            ("time_limit", "1\nuse_builtin_judger off"),
             ("memory_limit", "256\ntime_limit 100"),
-            ("output_suf", "txt extra"),
+            ("checker", "ncmp extra"),
+            ("type", "traditional\nrun_twice on"),
+            ("n_samples", "1\nn_tests 99"),
         ):
             r = self.post_settings(**{name: value})
-            self.assertIn("添加配置文件失败", r.text, name)
+            self.assertIn('id="judge-settings-error"', r.text, name)
             self.assertEqual(uoj.tree_sha256(uoj.WEB, self.upload_dir), before, name)
 
     def test_valid_settings_are_written(self):
         r = self.post_settings(time_limit="2", memory_limit="128")
-        self.assertIn("替换成功", r.text)
+        self.assertEqual(r.status_code, 302, uoj.text_of(r.text)[-300:])
+        # saving them has the data published with them
+        self.assertEqual(uoj.wait_data_version(self.problem_id), "")
+        self.assertEqual(published_conf(self.problem_id)["time_limit"], "2")
         written = docker_exec(uoj.WEB, "cat %s/problem.conf" % self.upload_dir)
         self.assertEqual(written, conf(
             use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=3, n_ex_tests=1, n_sample_tests=1,

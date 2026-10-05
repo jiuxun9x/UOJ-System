@@ -650,9 +650,9 @@ class DomainProblemTest(unittest.TestCase):
         # students do not create problems
         count = lambda: db_value("select count(*) from problems where owner_domain_id = %d" % self.did)
         before = count()
-        self.pupil.form(problems, "new")
+        self.pupil.new_problem_form("p4-problems")
         self.assertEqual(count(), before)
-        self.assertEqual(self.teacher.form(problems, "new"), "")
+        self.assertEqual(self.teacher.new_problem_form("p4-problems"), "")
         self.assertEqual(int(count()), int(before) + 1)
         problem_id = self.newest_problem()
         self.assertEqual(db_value("select is_hidden from problems where id = %d" % problem_id), "1")
@@ -692,7 +692,7 @@ class DomainProblemTest(unittest.TestCase):
         self.teacher.new_domain("p4-problems-other")
         self.assertEqual(self.teacher.get("/d/p4-problems-other/problem/%d" % number).status_code, 404)
         # the numbers of a domain are its own: the first problem of the other domain is its number 1
-        self.assertEqual(self.teacher.form("/d/p4-problems-other/problems", "new"), "")
+        self.assertEqual(self.teacher.new_problem_form("p4-problems-other"), "")
         self.assertEqual(uoj.pid(self.newest_problem(domain_id("p4-problems-other"))), 1)
         # and the id of a problem is not a number of it anywhere in a domain
         self.assertEqual(self.teacher.get("/d/p4-problems/problem/%d" % problem_id).status_code, 404)
@@ -790,7 +790,7 @@ class DomainProblemTest(unittest.TestCase):
         other = account("p4_prob_teacher2")
         self.assertEqual(self.admin.change_user("p4_prob_teacher2", "grant:teacher"), "")
         other.new_domain("p4-problems-theirs")
-        self.assertEqual(other.form("/d/p4-problems-theirs/problems", "new"), "")
+        self.assertEqual(other.new_problem_form("p4-problems-theirs"), "")
         theirs = self.newest_problem(domain_id("p4-problems-theirs"))
         self.assertIn("上传成功", other.upload_data(theirs, ab_problem_files()).text)
         self.assertEqual(other.sync(theirs), "")
@@ -839,7 +839,7 @@ class DomainProblemTest(unittest.TestCase):
         self.assertEqual(db_value("select count(*) from approved_judger_fingerprints where problem_id = %d" % copy_id), "1")
         self.assertEqual(self.teacher.sync(copy_id), "")
         # and then it holds for every other problem with the same files
-        self.assertEqual(self.teacher.form("/d/p4-problems/problems", "new"), "")
+        self.assertEqual(self.teacher.new_problem_form("p4-problems"), "")
         twin_id = self.newest_problem()
         self.assertIn("上传成功", self.teacher.upload_data(twin_id, changed).text)
         self.assertEqual(self.teacher.sync(twin_id), "")
@@ -894,12 +894,12 @@ class DomainContestTest(unittest.TestCase):
 
         # its problems are the ones of the domain: a problem of the site is copied into it first
         public_id = admin.create_problem(ab_problem_files())
-        self.assertEqual(teacher.form("/d/p4-contests/problems", "new"), "")
+        self.assertEqual(teacher.new_problem_form("p4-contests"), "")
         own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
         self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
         self.assertEqual(teacher.sync(own_id), "")
         teacher.new_domain("p4-contests-other")
-        self.assertEqual(teacher.form("/d/p4-contests-other/problems", "new"), "")
+        self.assertEqual(teacher.new_problem_form("p4-contests-other"), "")
         foreign_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % domain_id("p4-contests-other")))
         copy_id = teacher.copy_problem("p4-contests", public_id)
         self.assertEqual(uoj.wait_data_version(copy_id), "")
@@ -1011,7 +1011,7 @@ class HomeworkTest(unittest.TestCase):
         cls.stranger = account("p4_hw_stranger")
         # a problem of the domain, and a public problem of the site with the copy the domain took of it
         cls.public_id = cls.admin.create_problem(ab_problem_files())
-        assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
+        assert cls.teacher.new_problem_form(cls.slug) == ""
         cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
         assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
         assert cls.teacher.sync(cls.own_id) == ""
@@ -1331,7 +1331,7 @@ class HomeworkStateTest(unittest.TestCase):
         for n in range(3):
             assert member_form(cls.teacher, cls.slug, "add", username="p4_st_pupil%d" % n, role="member") == ""
         assert member_form(cls.teacher, cls.slug, "add", username="p4_st_lecturer", role="teacher") == ""
-        assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
+        assert cls.teacher.new_problem_form(cls.slug) == ""
         cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
         assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
         assert cls.teacher.sync(cls.own_id) == ""
@@ -1513,7 +1513,7 @@ class HomeworkStateTest(unittest.TestCase):
 
     def test_homework_that_can_not_be_published_goes_back_to_a_draft(self):
         # a problem of the domain that has no data yet
-        self.assertEqual(self.teacher.form("/d/%s/problems" % self.slug, "new"), "")
+        self.assertEqual(self.teacher.new_problem_form(self.slug), "")
         empty_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % self.did))
         homework_id = new_homework(self.teacher, self.slug, title="p4 发布失败")
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_problem", problem_id=str(uoj.pid(empty_id)), score="100"), "")
@@ -1637,7 +1637,7 @@ class TrainingTest(unittest.TestCase):
         # a student whose username is a number, as the ones who come through the single sign-on are
         cls.digits = account("40417")
         assert member_form(cls.teacher, cls.slug, "add", username="40417", role="member") == ""
-        assert cls.teacher.form("/d/%s/problems" % cls.slug, "new") == ""
+        assert cls.teacher.new_problem_form(cls.slug) == ""
         cls.own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % cls.did))
         assert "上传成功" in cls.teacher.upload_data(cls.own_id, ab_problem_files()).text
         assert cls.teacher.sync(cls.own_id) == ""
@@ -1672,7 +1672,7 @@ class TrainingTest(unittest.TestCase):
 
         # its problems are problems of the domain, named by the numbers they have there
         self.teacher.new_domain("p4-trainings-other")
-        self.assertEqual(self.teacher.form("/d/p4-trainings-other/problems", "new"), "")
+        self.assertEqual(self.teacher.new_problem_form("p4-trainings-other"), "")
         foreign_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % domain_id("p4-trainings-other")))
         own, copy = uoj.pid(self.own_id), uoj.pid(self.copy_id)
         problems = db_value("select count(*) from problems")

@@ -79,7 +79,8 @@ class RolesTest(unittest.TestCase):
 
         problems = db_value("select count(*) from problems")
         contests = db_value("select count(*) from contests")
-        self.student.submit_form("/problems", "new_problem")
+        self.assertEqual(self.student.get("/problem/new").status_code, 403)
+        self.student.new_problem_form()
         self.student.form("/contest/new", "create", name="x", start_time=uoj.web_time(), last_min="60", rule="OI", join_mode="open")
         self.assertEqual(db_value("select count(*) from problems"), problems)
         self.assertEqual(db_value("select count(*) from contests"), contests)

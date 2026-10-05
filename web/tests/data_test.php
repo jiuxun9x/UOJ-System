@@ -71,36 +71,124 @@ check_same(false, judgerPasswordMatches('', ''), 'a judger without a password');
 check_same(false, judgerPasswordIsHashed($judger_password), 'a password is not a hash');
 check_same(true, judgerPasswordIsHashed($stored), 'a hash is a hash');
 
-// problem.conf built from the settings form
-$settings = [
-	'use_builtin_checker' => 'ncmp', 'n_tests' => '10', 'n_ex_tests' => '', 'n_sample_tests' => '2',
-	'input_pre' => 'data', 'input_suf' => 'in', 'output_pre' => 'data', 'output_suf' => 'out',
-	'time_limit' => '1', 'memory_limit' => '256',
-];
-check_same([
-	'use_builtin_judger' => 'on', 'use_builtin_checker' => 'ncmp', 'n_tests' => '10', 'n_ex_tests' => '0', 'n_sample_tests' => '2',
-	'input_pre' => 'data', 'input_suf' => 'in', 'output_pre' => 'data', 'output_suf' => 'out',
-	'time_limit' => '1', 'memory_limit' => '256',
-], dataProblemConfFromSettings($settings), 'settings of an ordinary problem');
-check_same(false, isset(dataProblemConfFromSettings(['use_builtin_checker' => 'ownchk'] + $settings)['use_builtin_checker']), 'a custom checker');
-check_same('0.5', dataProblemConfFromSettings(['time_limit' => '0.5'] + $settings)['time_limit'], 'a fractional time limit');
+// ---- setting up a problem: the form, the files, problem.conf
+require_once __DIR__ . '/../app/libs/uoj-problem-lib.php';
 
-$invalid = [
-	'a line break adds a setting' => ['input_pre' => "data\nuse_builtin_judger off"],
-	'a space adds a value' => ['output_suf' => 'out extra'],
-	'a carriage return' => ['memory_limit' => "256\rtime_limit 100"],
-	'a checker with a path' => ['use_builtin_checker' => '../../bin/sh'],
-	'a file name with a path' => ['input_pre' => '../data'],
-	'no tests' => ['n_tests' => '0'],
-	'a negative number of tests' => ['n_tests' => '-1'],
-	'a missing value' => ['input_suf' => ''],
-	'an array instead of a value' => ['time_limit' => ['1']],
-	'a time limit that is not a number' => ['time_limit' => '1s'],
-	'no time limit' => ['time_limit' => '0'],
-	'a memory limit that is not a number' => ['memory_limit' => '256MB'],
-];
-foreach ($invalid as $what => $override) {
-	check_same(null, dataProblemConfFromSettings($override + $settings), $what);
+// what the form says
+$form = array('type' => 'traditional', 'time_limit' => '1.5', 'memory_limit' => '512', 'checker' => 'wcmp', 'scoring' => 'per_test', 'subtasks' => '', 'n_samples' => '');
+list($settings, $err) = problemSettingsFromForm($form);
+check_same(array('', 'traditional', '1.5', 512, 'wcmp', 'per_test', array(), null),
+	array($err, $settings['type'], $settings['time_limit'], $settings['memory_limit'], $settings['checker'], $settings['scoring'], $settings['subtasks'], $settings['n_samples']), 'the form of an ordinary problem');
+list($with_subtasks, $err) = problemSettingsFromForm(array('scoring' => 'subtasks', 'subtasks' => "3 30\r\n 7, 30 \n\n10：40\n") + $form);
+check_same(array('', array(array(3, 30), array(7, 30), array(10, 40))), array($err, $with_subtasks['subtasks']), 'subtasks: the last test and the score of each, a line each');
+check_same("3 30\n7 30\n10 40", problemSubtasksText($with_subtasks['subtasks']), 'and back as the text of the form');
+check_same(2, problemSettingsFromForm(array('n_samples' => '2') + $form)[0]['n_samples'], 'how many of the extra tests are samples');
+check_same('hcmp', problemSettingsFromForm(array('checker' => 'hcmp') + $form)[0]['checker'], 'a builtin checker that the form does not list is kept');
+foreach (array(
+	array('type' => 'quiz'), array('type' => ''), array('time_limit' => '0'), array('time_limit' => '1s'), array('time_limit' => '601'), array('time_limit' => "1\ntime_limit 9"),
+	array('time_limit' => array('1')), array('memory_limit' => '0'), array('memory_limit' => '256MB'), array('memory_limit' => "256\nrun_twice on"), array('memory_limit' => '99999'),
+	array('checker' => '../../bin/sh'), array('checker' => 'wcmp extra'), array('checker' => ''), array('scoring' => 'curve'), array('n_samples' => '-1'), array('n_samples' => 'all'),
+	array('scoring' => 'subtasks', 'subtasks' => ''), array('scoring' => 'subtasks', 'subtasks' => '10 100'), array('scoring' => 'subtasks', 'subtasks' => "5 50\n3 50"),
+	array('scoring' => 'subtasks', 'subtasks' => "5 50\n10 40"), array('scoring' => 'subtasks', 'subtasks' => "5 fifty\n10 50"), array('scoring' => 'subtasks', 'subtasks' => "5 50 on\n10 50")
+) as $wrong) {
+	check_same(true, problemSettingsFromForm($wrong + $form)[1] !== '', 'refused in the form of a problem: ' . json_encode($wrong));
+}
+
+// which files are the tests
+check_same(array(array('in', '1'), array('out', '1'), array('out', 'a b'), array('in', '3.txt'), array('out', '3.txt'), array('in', 'ex_2.txt'), array('out', 'ex_2.dat'), array('in', '.txt')),
+	array(problemTestFileRole('1.in'), problemTestFileRole('1.out'), problemTestFileRole('a b.ANS'), problemTestFileRole('input3.txt'), problemTestFileRole('output3.txt'),
+		problemTestFileRole('ex_in2.txt'), problemTestFileRole('ex_answer2.dat'), problemTestFileRole('in.txt')), 'the two files of a test, by ending or by a word in the name');
+foreach (array('problem.conf', 'chk.cpp', 'main.txt', 'index.txt', 'info.txt', 'readme.txt', 'std.cpp', 'testlib.h', 'printout.txt', 'Makefile', '.in', 'statement.md') as $other) {
+	check_same(null, problemTestFileRole($other), "no test data: $other");
+}
+check_same(array('data', 'in'), problemNamesPattern(array('data2.in', 'data1.in', 'data3.in')), 'names the judgers read as they are');
+check_same(array('a1b', 'txt'), problemNamesPattern(array('a1b1.txt', 'a1b2.txt')), 'a number in the name that is not the number of the test');
+check_same(array('input', 'txt'), problemNamesPattern(array('ex_input1.txt'), 'ex_'), 'the same for extra tests');
+foreach (array(array('1.in', '2.in'), array('data01.in', 'data02.in'), array('data0.in', 'data1.in'), array('data1.in', 'data3.in'), array('a1.in', 'b2.in'), array('data1.in', 'data2.txt'), array('数据1.in'), array()) as $names) {
+	check_same(null, problemNamesPattern($names), 'names the judgers do not read as they are: ' . json_encode($names, JSON_UNESCAPED_UNICODE));
+}
+
+// files that are called what the judgers call them stay as they are
+$found = problemDetectTests(array('problem.conf', 'input2.txt', 'output1.txt', 'input1.txt', 'output2.txt', 'ex_input1.txt', 'ex_output1.txt', 'chk.cpp'));
+check_same(array(array(array('input1.txt', 'output1.txt'), array('input2.txt', 'output2.txt')), array(array('ex_input1.txt', 'ex_output1.txt')), array('input', 'txt', 'output', 'txt'), array(), array(), array()),
+	array($found['tests'], $found['extra'], $found['pattern'], $found['renames'], $found['create'], $found['unpaired']), 'the data of a problem as UOJ wants it');
+$found = problemDetectTests(array('data10.in', 'data10.out', 'data2.in', 'data2.out', 'data1.in', 'data1.out', 'data3.in', 'data3.out', 'data4.in', 'data4.out', 'data5.in', 'data5.out',
+	'data6.in', 'data6.out', 'data7.in', 'data7.out', 'data8.in', 'data8.out', 'data9.in', 'data9.out'));
+check_same(array(10, array('data10.in', 'data10.out'), array()), array(count($found['tests']), $found['tests'][9], $found['renames']), 'ten tests in the order of their numbers');
+// any other names are paired, put in their natural order, and called what the judgers call them
+$found = problemDetectTests(array('10.in', '10.ans', '2.in', '2.ans', '1.in', '1.ans', 'sample2.in', 'sample2.out', 'sample1.in', 'sample1.out', 'std.cpp', 'notes.txt'));
+check_same(array(array('data', 'in', 'data', 'out'), array(array('data1.in', 'data1.out'), array('data2.in', 'data2.out'), array('data3.in', 'data3.out')), array(array('ex_data1.in', 'ex_data1.out'), array('ex_data2.in', 'ex_data2.out'))),
+	array($found['pattern'], $found['tests'], $found['extra']), 'tests named by number alone, and samples named samples');
+check_same(array('1.in' => 'data1.in', '1.ans' => 'data1.out', '2.in' => 'data2.in', '2.ans' => 'data2.out', '10.in' => 'data3.in', '10.ans' => 'data3.out',
+	'sample1.in' => 'ex_data1.in', 'sample1.out' => 'ex_data1.out', 'sample2.in' => 'ex_data2.in', 'sample2.out' => 'ex_data2.out'), $found['renames'], 'what is called what afterwards');
+$found = problemDetectTests(array('small.in', 'small.out', 'big.in', 'orphan.out', 'data1.in'));
+check_same(array(array(array('data1.in', 'data1.out')), array('small.in' => 'data1.in', 'small.out' => 'data1.out'), array('big.in', 'data1.in', 'orphan.out')),
+	array($found['tests'], $found['renames'], $found['unpaired']), 'half a test is no test, and is said to be there');
+// a problem whose answer is not a file has tests of an input alone
+$found = problemDetectTests(array('a.in', 'b.in', 'b.out', 'ex_c.in'), true);
+check_same(array(array(array('data1.in', 'data1.out'), array('data2.in', 'data2.out')), array(array('ex_data1.in', 'ex_data1.out')), array('data1.out', 'ex_data1.out'), array()),
+	array($found['tests'], $found['extra'], $found['create'], $found['unpaired']), 'the answer files that are missing are made');
+$found = problemDetectTests(array('input1.txt', 'input2.txt'), true);
+check_same(array(array('data', 'in', 'data', 'out'), array('input1.txt' => 'data1.in', 'input2.txt' => 'data2.in'), array('data1.out', 'data2.out')), array($found['pattern'], $found['renames'], $found['create']), 'also where the inputs had good names');
+check_same(array(array(), array()), array(problemDetectTests(array('problem.conf', 'std.cpp'))['tests'], problemDetectTests(array())['tests']), 'no tests');
+
+// problem.conf from the two
+$ten = problemDetectTests(array('1.in', '1.out', '2.in', '2.out', 'sample1.in', 'sample1.out', 'sample2.in', 'sample2.out'));
+check_same(array(array('use_builtin_judger' => 'on', 'use_builtin_checker' => 'wcmp', 'n_tests' => 2, 'n_ex_tests' => 2, 'n_sample_tests' => 2, 'input_pre' => 'data', 'input_suf' => 'in',
+	'output_pre' => 'data', 'output_suf' => 'out', 'time_limit' => '1.5', 'memory_limit' => 512), ''), problemConfFromSettings($settings, $ten), 'an ordinary problem');
+$conf_of = function($changes, $old = array()) use ($settings, $ten) {
+	return problemConfFromSettings($changes + $settings, $ten, $old)[0];
+};
+check_same(false, isset($conf_of(array('checker' => 'custom'))['use_builtin_checker']), 'a checker of its own');
+check_same(1, $conf_of(array('n_samples' => 1))['n_sample_tests'], 'one of the extra tests is a sample');
+check_same(2, $conf_of(array('n_samples' => 9))['n_sample_tests'], 'no more samples than extra tests');
+check_same(array('on', false), array($conf_of(array('type' => 'interactive'))['interaction_mode'], isset($conf_of(array('type' => 'interactive'))['use_builtin_checker'])), 'an interactive problem is checked by its interactor');
+check_same(array('on', 'wcmp'), array($conf_of(array('type' => 'run_twice'))['run_twice'], $conf_of(array('type' => 'run_twice'))['use_builtin_checker']), 'a run-twice problem');
+check_same('on', $conf_of(array('type' => 'grader'))['with_implementer'], 'a problem with a grader');
+$answers = $conf_of(array('type' => 'submit_answer'));
+check_same(array('on', 0, 0, false, false), array($answers['submit_answer'], $answers['n_ex_tests'], $answers['n_sample_tests'], isset($answers['time_limit']), isset($answers['memory_limit'])), 'a problem that asks for answers has no limits and no extra tests');
+check_same(1, $conf_of(array('scoring' => 'all'))['n_subtasks'], 'all or nothing is one subtask');
+$parts = $conf_of(array('scoring' => 'subtasks', 'subtasks' => array(array(1, 40), array(2, 60))));
+check_same(array(2, 1, 40, 2, 60), array($parts['n_subtasks'], $parts['subtask_end_1'], $parts['subtask_score_1'], $parts['subtask_end_2'], $parts['subtask_score_2']), 'subtasks');
+check_same(true, strpos(problemConfFromSettings(array('scoring' => 'subtasks', 'subtasks' => array(array(1, 40), array(5, 60))) + $settings, $ten)[1], '2 个测试点') !== false, 'subtasks that do not end where the tests end');
+// what the form does not decide is kept, what it decides is replaced
+$old = array('use_builtin_judger' => 'on', 'n_tests' => '7', 'time_limit' => '9', 'interaction_mode' => 'on', 'n_subtasks' => '3', 'subtask_end_1' => '2', 'subtask_score_1' => '10',
+	'output_limit' => '128', 'time_limit_2' => '5', 'point_score_1' => '70', 'token' => 'abc');
+$kept = $conf_of(array(), $old);
+check_same(array('128', '5', '70', 'abc', 2, '1.5', false, false, false), array($kept['output_limit'], $kept['time_limit_2'], $kept['point_score_1'], $kept['token'], $kept['n_tests'], $kept['time_limit'],
+	isset($kept['interaction_mode']), isset($kept['n_subtasks']), isset($kept['subtask_end_1'])), 'keys the form knows nothing of stay');
+check_same(false, isset($conf_of(array('scoring' => 'all'), $old)['point_score_1']), 'the score of a single test means nothing where tests are not scored one by one');
+// and back: the form shows what a problem.conf says
+$shown = problemSettingsOfConf($parts + array('n_tests' => 2));
+check_same(array('traditional', '1.5', 512, 'wcmp', 'subtasks', array(array(1, 40), array(2, 60)), 2), array($shown['type'], $shown['time_limit'], $shown['memory_limit'], $shown['checker'], $shown['scoring'], $shown['subtasks'], $shown['n_samples']), 'the settings of a problem.conf');
+check_same(array('run_twice', 'custom', 'all'), array_values(array_intersect_key(problemSettingsOfConf(array('run_twice' => 'on', 'n_subtasks' => '1', 'n_tests' => '3')), array('type' => 0, 'checker' => 0, 'scoring' => 0))), 'of a run-twice problem with a checker of its own');
+check_same(array('interactive', 'submit_answer', 'grader', 'traditional'), array(problemSettingsOfConf(array('interaction_mode' => 'on'))['type'], problemSettingsOfConf(array('submit_answer' => 'on'))['type'],
+	problemSettingsOfConf(array('with_implementer' => 'on'))['type'], problemSettingsOfConf(-1)['type']), 'the kinds of problems');
+
+// the files are called what was decided, also where one takes the name of another
+$dir = sys_get_temp_dir() . '/uoj_arrange_test_' . getmypid();
+exec('rm -rf ' . escapeshellarg($dir));
+mkdir($dir);
+foreach (array('data1.in' => 'second', 'data1.out' => 'second answer', 'a.in' => 'first', 'a.out' => 'first answer', 'only.in' => 'third', 'notes.txt' => 'notes') as $name => $content) {
+	file_put_contents("$dir/$name", $content);
+}
+$found = problemDetectTests(problemUploadedNames($dir), true);
+check_same('', problemArrangeFiles($dir, $found), 'arranging the files');
+$names = problemUploadedNames($dir);
+sort($names);
+check_same(array('data1.in', 'data1.out', 'data2.in', 'data2.out', 'data3.in', 'data3.out', 'notes.txt'), $names, 'the files afterwards');
+check_same(array('first', 'first answer', 'second', 'second answer', 'third', ''), array(file_get_contents("$dir/data1.in"), file_get_contents("$dir/data1.out"), file_get_contents("$dir/data2.in"),
+	file_get_contents("$dir/data2.out"), file_get_contents("$dir/data3.in"), file_get_contents("$dir/data3.out")), 'and what is in them');
+check_same(array(array(), array()), array(problemDetectTests($names, true)['renames'], problemDetectTests($names, true)['create']), 'arranging them again changes nothing');
+exec('rm -rf ' . escapeshellarg($dir));
+
+// what the form that makes a problem says about the problem itself
+list($basics, $err) = problemBasicsFromForm(array('title' => ' A + B Problem ', 'statement_md' => "# 题目描述\n", 'tags' => '入门， 模拟,入门', 'public' => 'on'));
+check_same(array('', 'A + B Problem', array('入门', '模拟'), 0), array($err, $basics['title'], $basics['tags'], $basics['is_hidden']), 'a title, tags and whether everybody sees it');
+check_same(1, problemBasicsFromForm(array('title' => 'x'))[0]['is_hidden'], 'a problem is hidden unless it is said to be public');
+foreach (array(array('title' => ' '), array('title' => str_repeat('长', 34)), array('title' => array('x')), array('title' => 'x', 'tags' => str_repeat('t', 31)), array('title' => 'x', 'tags' => 'a,b,c,d,e,f,g,h,i,j,k'),
+	array('title' => 'x', 'statement_md' => str_repeat('x', 1000001))) as $wrong) {
+	check_same(true, problemBasicsFromForm($wrong)[1] !== '', 'refused in the form that makes a problem: ' . substr(json_encode($wrong, JSON_UNESCAPED_UNICODE), 0, 60));
 }
 
 // the files of a version of the data of a problem
@@ -182,7 +270,8 @@ check_same(true, strpos($errors_of(array(), -1), '还没有上传') !== false, '
 check_same(true, strpos($errors_of(array('in1.txt'), -1), 'problem.conf') !== false, 'no problem.conf');
 check_same(true, strpos($errors_of($files, -2), '语法错误') !== false, 'a problem.conf that can not be read');
 check_same(true, strpos($errors_of(array_diff($files, array('out2.txt', 'ex_in1.txt')), $conf), 'out2.txt、ex_in1.txt') !== false, 'files that are missing are named');
-check_same(true, strpos($errors_of($files, array('n_tests' => '0') + $conf), 'n_tests') !== false, 'no tests');
+check_same(true, strpos($errors_of($files, array('n_tests' => '0') + $conf), '还没有测试数据') !== false, 'a problem the form wrote before it had data');
+check_same(true, strpos($errors_of($files, array('n_tests' => 'many') + $conf), 'n_tests') !== false, 'a number of tests that is none');
 check_same(true, strpos($errors_of($files, array('n_sample_tests' => '2') + $conf), 'n_sample_tests') !== false, 'more samples than extra tests');
 $without = $conf;
 unset($without['n_sample_tests']);

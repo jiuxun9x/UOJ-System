@@ -66,7 +66,7 @@ def seed():
     teacher.form(members, "invite", label="周二班", hours="168", max_uses="60")
 
     # a problem of the domain, a homework that is over and settled, one that runs, and a draft
-    teacher.form("/d/%s/problems" % SLUG, "new")
+    teacher.new_problem_form(SLUG)
     own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
     teacher.upload_data(own_id, ab_problem_files())
     teacher.sync(own_id)
@@ -158,9 +158,30 @@ def seed():
     db("update contest_virtuals set start_time = '%s' where contest_id = %d" % (uoj.web_time(-5400), contest_id))
     db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5400 + 2100), virtual_one))
     uoj.wait_idle()
+
+    # a file that comes with a problem, and an ICPC contest that runs with its board frozen
+    teacher.post("/d/%s/problem/%d/manage/attachments" % (SLUG, uoj.pid(own_id)), {"form": "add_attachments"},
+                 [("attachments[]", ("本地测试工具.py", b"print('try your solution')\n", "text/x-python")),
+                  ("attachments[]", ("大样例.zip", b"PK\x05\x06" + bytes(18), "application/zip"))])  # fmt: skip
+    icpc = admin.new_contest("2026 秋 ICPC 校内选拔", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d %d" % (public_id, second_public))
+    admin.post("/contest/%d/manage" % icpc, {"form": "add_attachments", "tab": "attachments"},
+               [("attachments[]", ("statements.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))])  # fmt: skip
+    for client in students[:3]:
+        client.register_for_contest(icpc)
+    uoj.move_contest(icpc, -250 * 60, 300)
+    # who submitted what, and how many minutes into the contest; None is now, after the board froze
+    timeline = [(students[0], public_id, AB_WRONG, 10), (students[0], public_id, AB, 20), (students[1], public_id, AB, 30),
+                (students[1], second_public, AB_WRONG, 50), (students[0], second_public, AB, 95),
+                (students[1], second_public, AB, None), (students[2], public_id, AB, None)]  # fmt: skip
+    for client, problem_id, code, minute in timeline:
+        submission_id = client.submit_in_contest(icpc, problem_id, code)
+        if minute is not None:
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
+               % (icpc, minute, submission_id))  # fmt: skip
+    uoj.wait_idle()
     return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
             "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
-            "sitter": sitter, "contest": contest_id}  # fmt: skip
+            "sitter": sitter, "contest": contest_id, "icpc": icpc}  # fmt: skip
 
 
 def pages(seeded):
@@ -169,6 +190,16 @@ def pages(seeded):
     past, current = d + "/homework/%d" % seeded["past"], d + "/homework/%d" % seeded["current"]
     training = d + "/training/%d" % seeded["training"]
     return [
+        ("problem-new", "teacher", d + "/problem/new"),
+        ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"])),
+        ("problem-attachments", "teacher", d + "/problem/%d/manage/attachments" % uoj.pid(seeded["problem"])),
+        ("contest-new", "admin", "/contest/new"),
+        ("contest-manage", "admin", "/contest/%d/manage" % seeded["icpc"]),
+        ("contest-manage-problems", "admin", "/contest/%d/manage#tab-problems" % seeded["icpc"]),
+        ("icpc-home", "student", "/contest/%d" % seeded["icpc"]),
+        ("icpc-standings-frozen", "student", "/contest/%d/standings" % seeded["icpc"]),
+        ("icpc-standings-staff", "admin", "/contest/%d/standings" % seeded["icpc"]),
+        ("icpc-submissions", "student", "/contest/%d/submissions" % seeded["icpc"]),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"])),
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),

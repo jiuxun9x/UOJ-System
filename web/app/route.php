@@ -18,6 +18,7 @@ Route::group([
 		Route::any('/', '/index.php');
 		Route::any('/problems', '/problem_set.php');
 		Route::any('/problems/template', '/problem_set.php?tab=template');
+		Route::any('/problem/new', '/problem_new.php');
 		Route::any('/problem/{id}', '/problem.php');
 		Route::any('/problem/{id}/statistics', '/problem_statistics.php');
 		Route::any('/problem/{id}/manage/statement', '/problem_statement_manage.php');
@@ -60,6 +61,7 @@ Route::group([
 		Route::any('/d/{slug}/homework/{homework_id}/manage', '/domain/homework_manage.php');
 		Route::any('/d/{slug}/homework/{homework_id}/scoreboard', '/domain/homework_scoreboard.php');
 		Route::any('/d/{slug}/homework/{homework_id}/problem/{id}', '/problem.php');
+		Route::any('/d/{slug}/problem/new', '/problem_new.php');
 		Route::any('/d/{slug}/problem/{id}', '/problem.php');
 		Route::any('/d/{slug}/problem/{id}/statistics', '/problem_statistics.php');
 		Route::any('/d/{slug}/problem/{id}/manage/statement', '/problem_statement_manage.php');

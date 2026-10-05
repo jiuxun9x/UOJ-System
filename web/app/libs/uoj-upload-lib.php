@@ -225,7 +225,7 @@ function uploadPreflight($files, $conf, $hackable) {
 		return $report;
 	}
 	if ($conf === -1 || !isset($has['problem.conf'])) {
-		$report['errors'][] = '缺少 problem.conf。可以用右侧的“添加配置文件”生成，或者放在压缩包里一起上传';
+		$report['errors'][] = '缺少 problem.conf：在“评测设置”里点保存就会生成，也可以自己写好放在压缩包里一起上传';
 		return $report;
 	}
 	if ($conf === -2 || !is_array($conf)) {
@@ -258,6 +258,11 @@ function uploadPreflight($files, $conf, $hackable) {
 		return $report;
 	}
 	$n_tests = getUOJConfVal($conf, 'n_tests', 10);
+	if ((string)$n_tests === '0') {
+		// what the form writes for a problem that has no data yet
+		$report['errors'][] = '还没有测试数据：上传数据包后，测试点会按文件名自动识别';
+		return $report;
+	}
 	if (!validateUInt($n_tests) || $n_tests <= 0) {
 		$report['errors'][] = 'n_tests 必须是正整数';
 		return $report;

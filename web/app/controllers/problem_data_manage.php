@@ -2,6 +2,7 @@
 	requirePHPLib('form');
 	requirePHPLib('judger');
 	requirePHPLib('data');
+	requirePHPLib('problem');
 	
 	// the number in the address is the number of the problem where the address is: on the
 	// site, or in a domain
@@ -51,63 +52,55 @@
 	}
 
 
-	//上传数据
+	$data_page = problemUrl($problem, '/manage/data');
+
+	// ---- an archive of data is uploaded
+	$upload_message = null;
 	if ($_POST['problem_data_file_submit']=='submit') {
 		crsf_defend();
-		if ($_FILES["problem_data_file"]["error"] > 0) {
-			$errmsg = "Error: ".$_FILES["problem_data_file"]["error"];
-			becomeMsgPage('<div>' . $errmsg . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
+		list($uploaded, $message) = problemTakeUploadedData($problem, 'problem_data_file', $myUser);
+		if ($uploaded === 'refused') {
+			becomeMsgPage('<div id="upload-refused">' . HTML::escape($message) . '</div><a href="'.$data_page.'">返回</a>');
+		} elseif ($uploaded === 'none') {
+			becomeMsgPage('<div id="upload-refused">请选择要上传的 zip 文件</div><a href="'.$data_page.'">返回</a>');
+		}
+		$upload_message = "上传成功！写入了 $message 个文件。";
+		// Data that does not say how it is to be judged is set up from the names of its
+		// files: when there is no problem.conf, and when the one there is was written
+		// before there was any data. A problem.conf that speaks of tests is left alone.
+		if (problemAwaitsSetup($problem)) {
+			list($found, $err) = problemApplySettings($problem, problemSettingsOfConf(problemUploadedConf($problem)), $myUser);
+			$upload_message .= $err === '' ? join('。', $found) . '。' : '没有能自动识别测试点：' . $err;
 		} else {
-			$zip_mime_types = array('application/zip', 'application/x-zip', 'application/x-zip-compressed');
-			if (in_array($_FILES["problem_data_file"]["type"], $zip_mime_types) || $_FILES["problem_data_file"]["type"] == 'application/octet-stream' && substr($_FILES["problem_data_file"]["name"], -4) == '.zip') {
-				$up_filename = tempnam(sys_get_temp_dir(), 'uoj_data_');
-				move_uploaded_file($_FILES["problem_data_file"]["tmp_name"], $up_filename);
-				// The archive is looked at before anything of it is written: how much it
-				// holds, and where its files would go. Its files are then written one by one.
-				list($unpacked, $errmsg) = uploadUnpack($up_filename, "/var/uoj_data/upload/{$problem['id']}", uploadLimits());
-				$upload_facts = array('size' => filesize($up_filename), 'sha256' => hash_file('sha256', $up_filename));
-				unlink($up_filename);
-				if ($errmsg === '') {
-					auditLog('problem.upload_data', 'problem', $problem['id'], null, $upload_facts + array('files' => $unpacked));
-					echo "<script>alert('上传成功！')</script>";
-				} else {
-					auditLog('problem.upload_refused', 'problem', $problem['id'], null, $upload_facts + array('error' => $errmsg));
-					becomeMsgPage('<div id="upload-refused">' . HTML::escape($errmsg) . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
-				}
-			} else {
-				$errmsg = "请上传zip格式！";
-				becomeMsgPage('<div>' . $errmsg . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
-			}
+			$upload_message .= '评测设置没有变。如果测试点的个数变了，在下面保存一次评测设置，测试点会重新识别。';
 		}
 	}
 
-	//添加配置文件
-	if ($_POST['problem_settings_file_submit']=='submit') {
+	// ---- how the problem is judged
+	$settings_error = '';
+	if (isset($_POST['form']) && $_POST['form'] === 'judge_settings') {
 		crsf_defend();
-		$new_problem_conf = dataProblemConfFromSettings($_POST);
-		if ($new_problem_conf !== null) {
-			$set_filename="/var/uoj_data/upload/{$problem['id']}/problem.conf";
-			$has_legacy=false;
-			$old_problem_conf = null;
-			if (file_exists($set_filename)) {
-				$has_legacy=true;
-				$old_problem_conf = getUOJConf($set_filename);
-				unlink($set_filename);
-			}
-			putUOJConf($set_filename, $new_problem_conf);
-			// the limits of the problem are in here
-			auditLog('problem.edit_conf', 'problem', $problem['id'], is_array($old_problem_conf) ? $old_problem_conf : null, $new_problem_conf);
-			if (!$has_legacy) {
-				echo "<script>alert('添加成功！')</script>";
-			} else {
-				echo "<script>alert('替换成功!')</script>";
-			}
+		// a problem with a judger of its own is set up by the problem.conf somebody wrote for it
+		$conf_now = problemUploadedConf($problem);
+		if (is_array($conf_now) && isset($conf_now['use_builtin_judger']) && $conf_now['use_builtin_judger'] !== 'on') {
+			$settings_error = '这道题使用自己的评测程序，评测设置在它的 problem.conf 里';
 		} else {
-			$errmsg = "添加配置文件失败，请检查是否所有输入框都已填写，且填写的内容合法！";
-			becomeMsgPage('<div>' . $errmsg . '</div><a href="'.problemUrl($problem, '/manage/data').'">返回</a>');
+			list($checked, $settings_error) = problemSettingsFromForm($_POST);
+		}
+		if ($settings_error === '') {
+			list($found, $settings_error) = problemApplySettings($problem, $checked, $myUser);
+		}
+		if ($settings_error === '') {
+			$went_well = true;
+			// the settings take effect when the data is published with them
+			if (problemUploadedTestCount($problem) > 0) {
+				list($went_well, $note) = problemSync($problem, $myUser);
+				$found[] = $note;
+			}
+			domainFlash('评测设置已保存。' . join('。', $found) . '。', $went_well ? 'success' : 'warning');
+			redirectTo($data_page);
 		}
 	}
-
 
 	$info_form = new UOJForm('info');
 	$http_host = HTML::escape(UOJContext::httpHost());
@@ -626,6 +619,13 @@ EOD
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - 数据 - 题目管理') ?>
 <h1 class="page-header" align="center">#<?= problemNumber($problem) ?> : <?=$problem['title']?> 管理</h1>
 <?php echoProblemManageTabs($problem, 'data') ?>
+<?php $data_flash = domainTakeFlash(); ?>
+<?php if ($data_flash): ?>
+<div class="alert alert-<?= $data_flash[0] ?> text-left" role="alert" id="data-flash"><?= HTML::escape($data_flash[1]) ?></div>
+<?php endif ?>
+<?php if ($upload_message !== null): ?>
+<div class="alert alert-success text-left" role="alert" id="upload-done"><?= HTML::escape($upload_message) ?></div>
+<?php endif ?>
 
 <?php
 	$data_versions = DB::selectAll("select version, status, sha256, size, created_at, created_by, reason, message, judger_name from problem_data_versions where problem_id = {$problem['id']} order by version desc limit 20");
@@ -671,7 +671,52 @@ EOD
 			<?php endforeach ?>
 		</ul>
 		<?php endif ?>
-		<small class="text-muted d-block mt-1">上传 → 这里没有红字 → 点“与 svn 仓库同步”发布。这里只检查文件是否齐全；校验器等程序能否编译，要同步后由评测机告诉你。</small>
+		<small class="text-muted d-block mt-1">上传数据 → 保存评测设置 → 这里没有红字，数据就会发布。这里只检查文件是否齐全；校验器等程序能否编译，由评测机在同步时告诉你，结果在页面最上方和下面的“数据版本”里。</small>
+	</div>
+</div>
+<?php
+	// The form that says how the problem is judged. A problem with a judger of its own says
+	// that in a problem.conf somebody wrote, which no form knows how to write.
+	$current_conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
+	$has_own_judger = is_array($current_conf) && isset($current_conf['use_builtin_judger']) && $current_conf['use_builtin_judger'] !== 'on';
+	$judge_settings = problemSettingsOfConf($current_conf);
+	if ($settings_error !== '') {
+		foreach (array('type', 'time_limit', 'memory_limit', 'checker', 'scoring') as $field) {
+			if (isset($_POST[$field]) && is_string($_POST[$field])) {
+				$judge_settings[$field] = $_POST[$field];
+			}
+		}
+		if (!isset(problemTypes()[$judge_settings['type']])) {
+			$judge_settings['type'] = 'traditional';
+		}
+	}
+?>
+<div class="card mb-3 text-left" id="card-judge-settings">
+	<div class="card-header d-flex justify-content-between align-items-center">
+		<span>评测设置</span>
+		<button type="button" class="btn btn-sm btn-primary" data-toggle="modal" data-target="#UploadDataModal"><span class="glyphicon glyphicon-upload"></span> 上传数据</button>
+	</div>
+	<div class="card-body">
+		<?php if ($has_own_judger): ?>
+		<p class="mb-0 text-muted">这道题使用自己的评测程序（problem.conf 里 <code>use_builtin_judger</code> 不是 <code>on</code>），怎么评测由它的 problem.conf 和 Makefile 决定，这里没有可填的设置。要改，上传新的 problem.conf。</p>
+		<?php else: ?>
+		<?php if ($settings_error !== ''): ?>
+		<div class="alert alert-danger" role="alert" id="judge-settings-error"><?= HTML::escape($settings_error) ?></div>
+		<?php endif ?>
+		<form method="post" id="form-judge-settings">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="judge_settings" />
+			<?php uojIncludeView('problem-settings-form', array('settings' => $judge_settings)) ?>
+			<?php if ($settings_error !== '' && isset($_POST['subtasks']) && is_string($_POST['subtasks'])): ?>
+			<script type="text/javascript">$('textarea[name=subtasks]').val(<?= json_encode($_POST['subtasks']) ?>);</script>
+			<?php endif ?>
+			<button type="submit" class="btn btn-primary" id="button-save-judge-settings">保存并同步数据</button>
+			<small class="form-text text-muted">
+				保存时会按文件名重新识别测试点（成对的 <code>1.in</code>/<code>1.out</code>、<code>input1.txt</code>/<code>output1.txt</code> 等；<code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点），写出 problem.conf，然后把数据交给评测机校验、发布。
+				这里没有的设置（如个别测试点的时限 <code>time_limit_3</code>、子任务依赖）可以写在 problem.conf 里上传，保存时会原样保留。
+			</small>
+		</form>
+		<?php endif ?>
 	</div>
 </div>
 <div class="row">
@@ -746,9 +791,6 @@ EOD
 		<div class="top-buffer-md">
 			<button type="button" class="btn btn-block btn-primary" data-toggle="modal" data-target="#UploadDataModal">上传数据</button>
 		</div>
-		<div class="top-buffer-md">
-			<button type="button" class="btn btn-block btn-primary" data-toggle="modal" data-target="#ProblemSettingsFileModal">试题配置</button>
-		</div>
 	</div>
 
 	<div class="col-md-12 top-buffer-md">
@@ -797,9 +839,9 @@ EOD
         				<form action="" method="post" enctype="multipart/form-data" role="form">
 							<?= HTML::hiddenToken() ?>
 							<div class="form-group">
-									<label for="exampleInputFile">上传zip文件</label>
-									<input type="file" name="problem_data_file" id="problem_data_file">
-									<p class="help-block">说明：请将所有数据放置于压缩包根目录内。若压缩包内仅存在文件夹而不存在文件，则会将这些一级子文件夹下的内容移动到根目录下，然后这些一级子文件夹删除；若这些子文件夹内存在同名文件，则会发生随机替换，仅保留一个副本。</p>
+									<label for="problem_data_file">上传 zip 文件</label>
+									<input type="file" name="problem_data_file" id="problem_data_file" accept=".zip,application/zip">
+									<p class="help-block text-muted small mt-2">所有文件直接放在压缩包里，都放在一个文件夹里也可以。上传的文件加进这道题已有的文件里，同名的被替换；要从头再来，先点“清空题目数据”。<br />测试点成对即可（<code>1.in</code> 和 <code>1.out</code>、<code>input1.txt</code> 和 <code>output1.txt</code>……），<code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点；校验器 <code>chk.cpp</code>、交互器 <code>interactor.cpp</code>、中转程序 <code>relay.cpp</code> 放在同一个包里。包里带 <code>problem.conf</code> 时完全按它来。</p>
 							</div>
 							<input type="hidden" name="problem_data_file_submit" value="submit">
       				</div>
@@ -812,91 +854,5 @@ EOD
   		</div>
 	</div>
 
-	<div class="modal fade" id="ProblemSettingsFileModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
-  		<div class="modal-dialog">
-    			<div class="modal-content">
-      				<div class="modal-header">
-						<h4 class="modal-title" id="myModalLabel">试题配置</h4>
-        				<button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
-      				</div>
-      				<div class="modal-body">
-        				<form class="form-horizontal" action="" method="post" role="form">
-        					<?= HTML::hiddenToken() ?>
-        					<div class="form-group row">
-    							<label for="use_builtin_checker" class="col-sm-5 control-label">比对函数</label>
-    							<div class="col-sm-7">
-								<select class="form-control" id="use_builtin_checker" name="use_builtin_checker">
-  									<option value="ncmp">单行整数序列</option>
-  									<option value="wcmp">单行字符串序列</option>
-  									<option value="fcmp">多行数据（不忽略行末空格，但忽略文末回车）</option>
-									<option value="ownchk">自定义校验器</option>
-								</select>
-      								<!--<input type="hidden" class="form-control" id="use_builtin_checker" name="use_builtin_checker" placeholder="比对函数">-->
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="n_tests" class="col-sm-5 control-label">n_tests</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="n_tests" name="n_tests" placeholder="数据点个数">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="n_ex_tests" class="col-sm-5 control-label">n_ex_tests</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="n_ex_tests" name="n_ex_tests" placeholder="额外数据点个数">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="n_sample_tests" class="col-sm-5 control-label">n_sample_tests</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="n_sample_tests" name="n_sample_tests" placeholder="样例测试点个数">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="input_pre" class="col-sm-5 control-label">input_pre</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="input_pre" name="input_pre" placeholder="输入文件名称">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="input_suf" class="col-sm-5 control-label">input_suf</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="input_suf" name="input_suf" placeholder="输入文件后缀">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="output_pre" class="col-sm-5 control-label">output_pre</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="output_pre" name="output_pre" placeholder="输出文件名称">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="output_suf" class="col-sm-5 control-label">output_suf</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="output_suf" name="output_suf" placeholder="输出文件后缀">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="time_limit" class="col-sm-5 control-label">time_limit</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="time_limit" name="time_limit" placeholder="时间限制（不能为小数！）">
-    							</div>
-  							</div>
-  							<div class="form-group row">
-    							<label for="memory_limit" class="col-sm-5 control-label">memory_limit</label>
-    							<div class="col-sm-7">
-      								<input type="text" class="form-control" id="memory_limit" name="memory_limit" placeholder="内存限制">
-    							</div>
-  							</div>
-							<input type="hidden" name="problem_settings_file_submit" value="submit">
-      				</div>
-      				<div class="modal-footer">
-						<button type="submit" class="btn btn-success">确定</button>
-						</form>
-        				<button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
-      				</div>
-    			</div>
-  		</div>
-	</div>
 </div>
 <?php echoUOJPageFooter() ?>

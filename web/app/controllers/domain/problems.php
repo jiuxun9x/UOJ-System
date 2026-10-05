@@ -3,17 +3,6 @@
 	$can_teach = can($myUser, 'domain.teach', $domain);
 	
 	$error = domainHandleForms(array(
-		'new' => function() use ($domain, $can_teach) {
-			global $myUser;
-			if (!$can_teach) {
-				return '没有权限';
-			}
-			$id = domainNewProblem($domain, $myUser);
-			if ($id === null) {
-				return '新建题目失败，请再试一次';
-			}
-			redirectTo(problemUrl(queryProblemBrief($id), '/manage/statement'));
-		},
 		'copy' => function() use ($domain, $can_teach) {
 			global $myUser;
 			if (!$can_teach) {
@@ -52,11 +41,7 @@
 <?php if ($can_teach): ?>
 <div class="card mb-3">
 	<div class="card-body d-flex flex-wrap align-items-center">
-		<form method="post" class="mr-3 mb-2">
-			<?= HTML::hiddenToken() ?>
-			<input type="hidden" name="form" value="new" />
-			<button type="submit" class="btn btn-primary" id="button-new-domain-problem"><span class="glyphicon glyphicon-plus"></span> 新建题目</button>
-		</form>
+		<a class="btn btn-primary mr-3 mb-2" id="button-new-domain-problem" href="<?= domainUrl($domain, '/problem/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建题目</a>
 		<form method="post" class="form-inline mb-2" id="form-copy-problem">
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="copy" />

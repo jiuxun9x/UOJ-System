@@ -3,25 +3,8 @@
 	requirePHPLib('judger');
 	requirePHPLib('data');
 	
-	if (can($myUser, 'problem.create')) {
-		$new_problem_form = new UOJForm('new_problem');
-		$new_problem_form->handle = function() {
-			$id = problemCreate(array('title' => "'New Problem'", 'is_hidden' => 1, 'submission_requirement' => "'{}'"));
-			if ($id === null) {
-				becomeMsgPage('新建题目失败，请再试一次');
-			}
-			DB::query("insert into problems_contents (id, statement, statement_md) values ($id, '', '')");
-			DB::insert("insert ignore into problems_permissions (username, problem_id) values ('".Auth::id()."', $id)");
-			auditLog('problem.create', 'problem', $id);
-			dataNewProblem($id);
-		};
-		$new_problem_form->submit_button_config['align'] = 'right';
-		$new_problem_form->submit_button_config['class_str'] = 'btn btn-primary';
-		$new_problem_form->submit_button_config['text'] = UOJLocale::get('problems::add new');
-		$new_problem_form->submit_button_config['smart_confirm'] = '';
-		
-		$new_problem_form->runAtServer();
-	}
+	// where a problem is made: one form for everything it needs
+	$new_problem_link = '<div class="text-right"><a class="btn btn-primary" id="button-new-problem" href="/problem/new"><span class="glyphicon glyphicon-plus"></span> ' . UOJLocale::get('problems::add new') . '</a></div>';
 	
 	function echoProblem($problem) {
 		global $myUser;
@@ -121,8 +104,8 @@ EOD;
 			'print_after_table' => function() {
 				global $myUser;
 				if (can($myUser, 'problem.create')) {
-					global $new_problem_form;
-					$new_problem_form->printHTML();
+					global $new_problem_link;
+					echo $new_problem_link;
 				}
 			},
 			'head_pagination' => true
@@ -193,7 +176,7 @@ $('#input-show_submit_mode').click(function() {
 	echo '</div>';
 	
 	if (can($myUser, 'problem.create')) {
-		$new_problem_form->printHTML();
+		echo $new_problem_link;
 	}
 	
 	echo $pag->pagination();

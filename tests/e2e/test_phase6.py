@@ -134,7 +134,7 @@ class DomainContestRatingTest(unittest.TestCase):
         pupils = [p3.account("p6_rate_pupil%d" % n) for n in range(2)]
         for n in range(2):
             self.assertEqual(p4.member_form(teacher, "p6-rating", "add", username="p6_rate_pupil%d" % n, role="member"), "")
-        self.assertEqual(teacher.form("/d/p6-rating/problems", "new"), "")
+        self.assertEqual(teacher.new_problem_form("p6-rating"), "")
         own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
         self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
         self.assertEqual(teacher.sync(own_id), "")
@@ -222,7 +222,7 @@ class AfterSubmittingTest(unittest.TestCase):
         did = teacher.new_domain(slug)
         for name in ("pupil", "other"):
             self.assertEqual(p4.member_form(teacher, slug, "add", username="p6_hw_" + name, role="member"), "")
-        self.assertEqual(teacher.form("/d/%s/problems" % slug, "new"), "")
+        self.assertEqual(teacher.new_problem_form(slug), "")
         own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
         self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
         self.assertEqual(teacher.sync(own_id), "")
@@ -791,6 +791,213 @@ class AttachmentTest(unittest.TestCase):
         self.assertEqual(admin.form(manage, "delete_attachment", attachment_id=str(notes_id), tab="attachments"), "")
         self.assertEqual(sorted(attachments_of("contest", contest_id)), ["statements.pdf"])
         self.assertEqual(outsider.get("/attachment/%d" % notes_id).status_code, 404)
+
+
+def data_zip(files):
+    return ("data", ("data.zip", uoj.make_zip(files), "application/zip"))
+
+
+def uploaded_conf(problem_id):
+    """the problem.conf of the data that was uploaded for a problem, as a dict"""
+    text = docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/problem.conf" % problem_id)
+    return dict(line.split(None, 1) for line in text.splitlines() if line.strip())
+
+
+def uploaded_files(problem_id):
+    return sorted(docker_exec(uoj.WEB, "ls /var/uoj_data/upload/%d" % problem_id).split())
+
+
+class ProblemFormTest(unittest.TestCase):
+    """a problem is made with one form, and how it is judged is said in a form, not in a file"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher = p3.account("p6_prob_teacher")
+        assert cls.admin.change_user("p6_prob_teacher", "grant:teacher") == ""
+
+    def settings(self, problem_id, **changes):
+        fields = dict(form="judge_settings", type="traditional", time_limit="1", memory_limit="256", checker="wcmp", scoring="per_test")
+        fields.update(changes)
+        return self.admin.post("/problem/%d/manage/data" % problem_id, fields)
+
+    def test_problem_is_made_with_everything_it_needs(self):
+        teacher = self.teacher
+        page = teacher.get("/problem/new").text
+        for field in ('name="title"', 'name="statement_md"', 'name="tags"', 'name="public"', 'value="traditional"', 'value="interactive"',
+                      'value="run_twice"', 'value="submit_answer"', 'name="time_limit"', 'name="memory_limit"', 'name="checker"',
+                      'name="scoring"', 'name="data"', 'name="attachments[]"'):  # fmt: skip
+            self.assertIn(field, page, field)
+        self.assertIn('href="/problem/new"', teacher.get("/problems").text)
+        problems = lambda: db_value("select count(*) from problems")
+        before = problems()
+        # what is wrong is said, and no problem is made
+        for wrong, said in ((dict(title=" "), "标题"), (dict(time_limit="fast"), "时间限制"), (dict(memory_limit="0"), "内存限制"),
+                            (dict(type="quiz"), "题目类型"), (dict(checker=""), "比较方式"), (dict(scoring="subtasks", subtasks="5 100"), "子任务")):  # fmt: skip
+            self.assertIn(said, teacher.new_problem_form(**wrong), wrong)
+        self.assertEqual(problems(), before)
+        # and what was typed is still in the form
+        page = teacher.post("/problem/new", dict(form="create", title="p6 写了一半", type="run_twice", time_limit="x", memory_limit="64", checker="ncmp", scoring="all")).text
+        self.assertIn('value="p6 写了一半"', page)
+        self.assertRegex(page, r'value="run_twice" checked')
+        self.assertRegex(page, r'value="all" checked')
+
+        # ---- one form: title, statement, tags, limits, checker, data named the way people name it, a file to go with it
+        data = {"1.in": "1 2\n", "1.out": "3\n", "2.in": "1000 2000\n", "2.ans": "3000\n", "10.in": "999999999 1\n", "10.out": "1000000000\n",
+                "sample1.in": "5 7\n", "sample1.out": "12\n", "std.cpp": AB}  # fmt: skip
+        problem_id = teacher.new_problem(
+            title="p6 A + B", statement_md="### 题目描述\n\n求 $a + b$。", tags="入门， 模拟", public="on",
+            time_limit="2", memory_limit="128", checker="ncmp",
+            files=[data_zip(data), ("attachments[]", ("notes.txt", b"notes", "text/plain"))],
+        )
+        # the page it leads to says what was made of the data
+        landed = teacher.get("/problem/%d/manage/data" % problem_id).text
+        self.assertIn('id="data-flash"', landed)
+        told = uoj.text_of(landed)
+        for fact in ("题目 #%d 已创建" % problem_id, "识别到 3 个测试点、1 个额外测试点", "重命名了 8 个文件"):
+            self.assertIn(fact, told)
+        self.assertEqual(db("select title, is_hidden from problems where id = %d" % problem_id), [["p6 A + B", "0"]])
+        statement, statement_md = db("select hex(statement), hex(statement_md) from problems_contents where id = %d" % problem_id)[0]
+        self.assertIn("<h3>题目描述</h3>", bytes.fromhex(statement).decode())
+        self.assertIn("求 $a + b$。", bytes.fromhex(statement_md).decode())
+        self.assertEqual(sorted(row[0] for row in db("select tag from problems_tags where problem_id = %d" % problem_id)), sorted(["入门", "模拟"]))
+        self.assertEqual(db("select username from problems_permissions where problem_id = %d" % problem_id), [["p6_prob_teacher"]])
+        self.assertEqual(list(attachments_of("problem", problem_id)), ["notes.txt"])
+        # the tests were found, put in their natural order and called what the judgers call them
+        self.assertEqual(uploaded_files(problem_id), sorted(
+            ["data1.in", "data1.out", "data2.in", "data2.out", "data3.in", "data3.out", "ex_data1.in", "ex_data1.out", "problem.conf", "std.cpp"]
+        ))  # fmt: skip
+        self.assertEqual(docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/data3.in" % problem_id).strip(), "999999999 1")
+        self.assertEqual(docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/problem.conf" % problem_id), uoj.conf(
+            use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=3, n_ex_tests=1, n_sample_tests=1,
+            input_pre="data", input_suf="in", output_pre="data", output_suf="out", time_limit=2, memory_limit=128,
+        ))  # fmt: skip
+        # and the data was published: the problem is judged
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        j = uoj.wait_submission(teacher.submit(problem_id, AB))
+        self.assertEqual((j.score, j.infos), (100, ["Accepted"] * 3 + ["Extra Test Passed"]), j)
+        self.assertIn("p6 A + B", uoj.Client().get("/problem/%d" % problem_id).text)
+
+    def test_run_twice_problem_is_made_by_choosing_its_kind(self):
+        # inputs alone: the answer of such a problem is not a file
+        data = {"relay.cpp": MESSAGES_RELAY, "chk.cpp": MESSAGES_CHECKER, "a.in": "first\n3\n5\n123456789\n0\n", "b.in": "first\n1\n7\n"}
+        problem_id = self.admin.new_problem(title="p6 通信题", type="run_twice", checker="custom", scoring="all", public="on", files=[data_zip(data)])
+        conf = uploaded_conf(problem_id)
+        self.assertEqual((conf["run_twice"], conf["n_tests"], conf["n_subtasks"], "use_builtin_checker" in conf), ("on", "2", "1", False))
+        self.assertEqual(uploaded_files(problem_id), sorted(["chk.cpp", "data1.in", "data1.out", "data2.in", "data2.out", "problem.conf", "relay.cpp"]))
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        j = uoj.wait_submission(self.admin.submit(problem_id, messages_solution()))
+        self.assertEqual(j.score, 100, j)
+        # all or nothing: the first test that fails is the last that is judged
+        j = uoj.wait_submission(self.admin.submit(problem_id, messages_solution(width=41)))
+        self.assertEqual((j.score, j.infos), (0, ["Wrong Answer"]), j)
+        self.assertIn("通信题", uoj.text_of(self.admin.get("/problem/%d/manage/data" % problem_id).text))
+
+    def test_problem_conf_that_comes_with_the_data_is_used_as_it_is(self):
+        problem_id = self.admin.new_problem(title="p6 自带配置", time_limit="1", checker="wcmp", files=[data_zip(ab_problem_files(time_limit=3))])
+        self.assertIn("数据包里带有 problem.conf", uoj.text_of(self.admin.get("/problem/%d/manage/data" % problem_id).text))
+        conf = uploaded_conf(problem_id)
+        self.assertEqual((conf["time_limit"], conf["use_builtin_checker"], conf["input_pre"]), ("3", "ncmp", "input"))
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertEqual(published_conf(problem_id)["time_limit"], "3")
+
+    def test_settings_are_kept_until_the_data_comes_and_changed_in_a_form(self):
+        admin = self.admin
+        problem_id = admin.new_problem(title="p6 先建题", time_limit="3", checker="ncmp")
+        manage = "/problem/%d/manage/data" % problem_id
+        conf = uploaded_conf(problem_id)
+        self.assertEqual((conf["n_tests"], conf["time_limit"], conf["use_builtin_checker"]), ("0", "3", "ncmp"))
+        page = admin.get(manage).text
+        self.assertIn("还没有测试数据", page)
+        self.assertIn('id="form-judge-settings"', page)
+        self.assertRegex(page, r'name="time_limit"[^>]*value="3"')
+        self.assertEqual(db_value("select data_version from problems where id = %d" % problem_id), "0")
+
+        # the data arrives without a problem.conf: its tests are found, what was said before holds
+        r = admin.upload_data(problem_id, {"input1.txt": "1 2\n", "output1.txt": "3\n", "input2.txt": "2 2\n", "output2.txt": "4\n"})
+        self.assertIn("上传成功", r.text)
+        self.assertIn("识别到 2 个测试点", r.text)
+        conf = uploaded_conf(problem_id)
+        self.assertEqual((conf["n_tests"], conf["input_pre"], conf["output_suf"], conf["time_limit"], conf["use_builtin_checker"]), ("2", "input", "txt", "3", "ncmp"))
+        self.assertEqual(uploaded_files(problem_id), sorted(["input1.txt", "input2.txt", "output1.txt", "output2.txt", "problem.conf"]))
+        self.assertEqual(admin.sync(problem_id), "")
+        db("update problems set is_hidden = 0 where id = %d" % problem_id)
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, AB)).score, 100)
+
+        # ---- the form on the page of the data says how the problem is judged, and saving it publishes
+        versions = lambda: int(db_value("select count(*) from problem_data_versions where problem_id = %d" % problem_id))
+        before = versions()
+        r = self.settings(problem_id, time_limit="1.5", memory_limit="64", scoring="subtasks", subtasks="1 40\n2 60")
+        self.assertEqual(r.status_code, 302, uoj.text_of(r.text)[-300:])
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertEqual(versions(), before + 1)
+        conf = published_conf(problem_id)
+        self.assertEqual((conf["time_limit"], conf["memory_limit"], conf["use_builtin_checker"], conf["n_subtasks"], conf["subtask_end_1"], conf["subtask_score_2"]),
+                         ("1.5", "64", "wcmp", "2", "1", "60"))  # fmt: skip
+        page = admin.get(manage).text
+        self.assertIn("评测设置已保存", page)
+        self.assertRegex(page, r'value="subtasks" checked')
+        # a subtask is scored as a whole
+        half = AB.replace('printf("%lld\\n", a + b);', 'printf("%lld\\n", a == 1 ? a + b : 0);')
+        self.assertNotEqual(half, AB)
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, half)).score, 40)
+
+        # what is wrong is said and changes nothing
+        for wrong, said in ((dict(time_limit="0"), "时间限制"), (dict(scoring="subtasks", subtasks="1 40\n5 60"), "2 个测试点")):
+            r = self.settings(problem_id, **wrong)
+            self.assertIn('id="judge-settings-error"', r.text, wrong)
+            self.assertIn(said, uoj.text_of(r.text), wrong)
+        self.assertEqual(uploaded_conf(problem_id)["time_limit"], "1.5")
+        self.assertEqual(versions(), before + 1)
+        # what the form does not decide is kept when it is saved
+        docker_exec(uoj.WEB, "echo 'output_limit 32' >> /var/uoj_data/upload/%d/problem.conf" % problem_id)
+        self.assertEqual(self.settings(problem_id, time_limit="2").status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        conf = published_conf(problem_id)
+        self.assertEqual((conf["output_limit"], conf["time_limit"], "n_subtasks" in conf), ("32", "2", False))
+        # a problem.conf somebody wrote is not written over because data was uploaded
+        self.assertIn("评测设置没有变", admin.upload_data(problem_id, {"input3.txt": "3 3\n", "output3.txt": "6\n"}).text)
+        self.assertEqual(uploaded_conf(problem_id)["n_tests"], "2")
+        # saving the form finds the new test
+        self.assertEqual(self.settings(problem_id, time_limit="2").status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertEqual(published_conf(problem_id)["n_tests"], "3")
+
+    def test_problem_with_a_judger_of_its_own_has_no_form(self):
+        problem_id = self.admin.create_problem(custom_judger_problem_files())
+        page = self.admin.get("/problem/%d/manage/data" % problem_id).text
+        self.assertNotIn('id="form-judge-settings"', page)
+        self.assertIn("使用自己的评测程序", page)
+        before = uoj.tree_sha256(uoj.WEB, "/var/uoj_data/upload/%d" % problem_id)
+        self.settings(problem_id, time_limit="9")
+        self.assertEqual(uoj.tree_sha256(uoj.WEB, "/var/uoj_data/upload/%d" % problem_id), before)
+
+    def test_problems_are_made_by_the_people_who_may(self):
+        student = p3.account("p6_prob_student")
+        self.assertEqual(student.get("/problem/new").status_code, 403)
+        self.assertNotIn('href="/problem/new"', student.get("/problems").text)
+        before = db_value("select count(*) from problems")
+        self.assertNotEqual(student.new_problem_form(title="x"), "")
+        self.assertEqual(db_value("select count(*) from problems"), before)
+        # in a domain: the people who teach there, and the problem is the domain's
+        teacher = self.teacher
+        did = teacher.new_domain("p6-problem-form")
+        self.assertEqual(p4.member_form(teacher, "p6-problem-form", "add", username="p6_prob_student", role="member"), "")
+        new = "/d/p6-problem-form/problem/new"
+        self.assertEqual(student.get(new).status_code, 403)
+        self.assertNotEqual(student.new_problem_form("p6-problem-form", title="x"), "")
+        self.assertIn('href="%s"' % new, teacher.get("/d/p6-problem-form/problems").text)
+        self.assertNotIn('href="%s"' % new, student.get("/d/p6-problem-form/problems").text)
+        self.assertIn('name="title"', teacher.get(new).text)
+        problem_id = teacher.new_problem("p6-problem-form", title="p6 域内题", public="on", files=[data_zip({"1.in": "1 2\n", "1.out": "3\n"})])
+        self.assertEqual(db("select owner_domain_id, domain_pid, is_hidden from problems where id = %d" % problem_id), [[str(did), "1", "0"]])
+        self.assertEqual(db_value("select count(*) from problems_permissions where problem_id = %d" % problem_id), "0")
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        here = "/d/p6-problem-form/problem/1"
+        self.assertIn("p6 域内题", student.get(here).text)
+        self.assertEqual(uoj.wait_submission(student.submit(problem_id, AB, path=here)).score, 100)
+        # the page it led to, with the number the problem has in the domain
+        self.assertIn("题目 #1 已创建", uoj.text_of(teacher.get(here + "/manage/data").text))
 
 
 class BlogSwitchTest(unittest.TestCase):

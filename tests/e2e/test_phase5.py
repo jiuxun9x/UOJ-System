@@ -317,8 +317,8 @@ class UploadTest(unittest.TestCase):
             r = upload_zip(self.admin, problem_id, zip_of(entries))
             self.assertIn('id="upload-refused"', r.text, what)
             self.assertNotIn("上传成功", r.text, what)
-            # nothing of it was written
-            self.assertEqual(self.uploaded(problem_id), [], what)
+            # nothing of it was written: there is what the problem was made with, and no more
+            self.assertEqual(self.uploaded(problem_id), ["./problem.conf"], what)
         self.assertEqual(web_sh("ls /var/uoj_data/ /var/uoj_data/upload | grep -c p5_ || true"), "0")
         self.assertIn('id="upload-refused"', upload_zip(self.admin, problem_id, b"this is no archive").text)
         # the refusals are written down
@@ -334,13 +334,13 @@ class UploadTest(unittest.TestCase):
         r = upload_zip(self.admin, problem_id, bomb.getvalue())
         self.assertIn('id="upload-refused"', r.text)
         self.assertIn("600", uoj.text_of(r.text))
-        self.assertEqual(self.uploaded(problem_id), [])
+        self.assertEqual(self.uploaded(problem_id), ["./problem.conf"])
 
     def test_data_page_says_what_is_wrong_before_a_sync(self):
         problem_id = self.admin.new_problem()
         state, page = self.state(problem_id)
         self.assertEqual(state, "有问题，同步会失败")
-        self.assertIn("还没有上传任何数据", page)
+        self.assertIn("还没有测试数据", page)
 
         files = ab_problem_files()
         del files["output2.txt"], files["ex_input1.txt"]
