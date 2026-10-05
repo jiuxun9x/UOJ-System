@@ -1492,7 +1492,8 @@ class ProblemDataPageTest(unittest.TestCase):
         problem_id = admin.new_problem(title="p6 选校验器", public="on")
         manage = "/problem/%d/manage/data" % problem_id
         upload_dir = "/var/uoj_data/upload/%d" % problem_id
-        self.assertIn('id="data-files-empty"', admin.get(manage).text)
+        # a problem that was just made has what the form wrote about it, and nothing else
+        self.assertEqual(file_roles(admin.get(manage).text), {"problem.conf": "评测设置"})
 
         # ---- files are uploaded as they are, several at once
         files = {"1.in": "1 2\n", "1.out": "3\n", "2.in": "5 5\n", "2.out": "10\n", "sample1.in": "2 2\n", "sample1.out": "4\n",

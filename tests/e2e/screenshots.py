@@ -300,6 +300,14 @@ def upload_dialog(page, seeded):
     assert page.get_attribute("#input-data-files", "multiple") is not None
 
 
+def board_names_problems_by_letter(page, seeded):
+    """the board the browser draws: its problems are reached by their letters"""
+    page.wait_for_selector("#standings thead a")
+    links = page.eval_on_selector_all("#standings thead a", "links => links.map(a => a.getAttribute('href') + ' ' + a.textContent)")
+    here = "/contest/%d/problem/" % seeded["contest"]
+    assert links == [here + "A A", here + "B B"], links
+
+
 def pages(seeded):
     """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
@@ -325,6 +333,9 @@ def pages(seeded):
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
         ("monitor", "admin", "/super-manage/monitor"),
         ("contests", "student", "/contests"),
+        ("submissions", "student", "/submissions"),
+        ("contest-submissions", "admin", "/contest/%d/submissions" % seeded["contest"]),
+        ("contest-standings", "student", "/contest/%d/standings" % seeded["contest"], board_names_problems_by_letter),
         ("contest-access", "admin", "/contest/%d/manage#tab-access" % seeded["contest"]),
         ("virtual", "sitter", "/contest/%d/virtual" % seeded["contest"]),
         ("virtual-standings", "sitter", "/contest/%d/virtual?tab=standings" % seeded["contest"]),
@@ -364,6 +375,9 @@ def pages(seeded):
 def main(out):
     os.makedirs(out, exist_ok=True)
     clients = seed()
+    # a page that does not do what it is there for does not stop the pictures of the others:
+    # all of them are taken, and then all that went wrong is said
+    failures = []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         for name, who, path, *then in pages(clients):
@@ -376,13 +390,18 @@ def main(out):
                     )
                 page = context.new_page()
                 page.goto(uoj.BASE_URL + path, wait_until="networkidle")
-                for act in then:
-                    act(page, clients)
+                try:
+                    for act in then:
+                        act(page, clients)
+                except Exception as e:
+                    failures.append("%s (%s): %s: %s" % (name, label, type(e).__name__, str(e).strip().split("\n")[0][:400]))
                 page.screenshot(path=os.path.join(out, "%s-%s.png" % (name, label)), full_page=True)
                 context.close()
                 print("took", name, label)
         browser.close()
     p3.IDP.stop()
+    if failures:
+        raise SystemExit("pages that did not do what they are there for:\n" + "\n".join(failures))
 
 
 if __name__ == "__main__":
