@@ -530,27 +530,21 @@ $(document).ready(function() {
 		<?php if (!$participants): ?>
 		<p class="text-muted">还没有人认领。</p>
 		<?php else: ?>
-		<div class="uoj-homework-names" id="list-participants">
-			<?php foreach ($participants as $username): ?>
-			<form method="post" class="d-inline-block mr-2 mb-2" onsubmit="return confirm('把 <?= $username ?> 移出这个作业吗？已有的提交会保留。');">
-				<?= HTML::hiddenToken() ?>
-				<input type="hidden" name="form" value="remove_participant" />
-				<input type="hidden" name="username" value="<?= $username ?>" />
-				<span class="badge badge-light border p-2"><?= getUserLink($username) ?> <button type="submit" class="close ml-1" style="font-size:1rem" title="移出">&times;</button></span>
-			</form>
-			<?php endforeach ?>
-		</div>
+		<?php
+			echoRoster('list-participants', $participants, function($username) {
+				return '<form method="post" onsubmit="return confirm(\'把 ' . $username . ' 移出这个作业吗？已有的提交会保留。\');">'
+					. HTML::hiddenToken() . '<input type="hidden" name="form" value="remove_participant" />'
+					. '<input type="hidden" name="username" value="' . $username . '" />'
+					. '<button type="submit" class="btn btn-outline-danger btn-sm">移出</button></form>';
+			});
+		?>
 		<?php endif ?>
 
 		<h4 class="uoj-domain-section-title">未认领的学生 <small class="text-muted">(<?= count($unclaimed) ?>)</small></h4>
 		<?php if (!$unclaimed): ?>
 		<p class="text-muted">域里的学生都认领了。</p>
 		<?php else: ?>
-		<p id="list-unclaimed">
-			<?php foreach ($unclaimed as $username): ?>
-			<span class="badge badge-light border p-2 mr-1 mb-1"><?= getUserLink($username) ?></span>
-			<?php endforeach ?>
-		</p>
+		<?php echoRoster('list-unclaimed', $unclaimed) ?>
 		<form method="post" onsubmit="return confirm('把这 <?= count($unclaimed) ?> 位学生都加入作业吗？');">
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="add_all" />
@@ -561,11 +555,7 @@ $(document).ready(function() {
 
 		<?php if ($withdrawn): ?>
 		<h4 class="uoj-domain-section-title">已退出 <small class="text-muted">(<?= count($withdrawn) ?>)</small></h4>
-		<p>
-			<?php foreach ($withdrawn as $username): ?>
-			<span class="badge badge-light border p-2 mr-1 mb-1"><?= getUserLink($username) ?></span>
-			<?php endforeach ?>
-		</p>
+		<?php echoRoster('list-withdrawn', $withdrawn) ?>
 		<?php endif ?>
 	</div>
 	<div class="col-lg-4">

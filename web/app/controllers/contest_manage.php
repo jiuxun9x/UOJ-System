@@ -282,19 +282,28 @@
 		</p>
 		<h5>名单 <small class="text-muted">（<?= count($allowed_users) ?> 人）</small></h5>
 		<?php if ($allowed_users): ?>
-		<div class="mb-3" id="list-allowed-users">
-			<?php foreach ($allowed_users as $allowed): ?>
-			<form method="post" class="d-inline">
-				<?= HTML::hiddenToken() ?>
-				<input type="hidden" name="form" value="disallow" />
-				<input type="hidden" name="tab" value="access" />
-				<input type="hidden" name="username" value="<?= HTML::escape($allowed['username']) ?>" />
-				<span class="badge badge-light border p-2 mr-1 mb-1">
-					<?= $allowed['user'] !== null ? getUserLink($allowed['user']) : HTML::escape($allowed['username']) . ' <small class="text-muted">还没有登录过</small>' ?>
-					<button type="submit" class="close ml-1" style="font-size:1rem" title="从名单里移除">&times;</button>
-				</span>
-			</form>
-			<?php endforeach ?>
+		<div class="table-responsive uoj-roster-box mb-3">
+			<table class="table table-bordered table-hover table-sm uoj-roster" id="list-allowed-users" style="max-width:48em">
+				<thead><tr><th style="width:4em">#</th><th>名单里写的</th><th>用户</th><th style="width:7em">操作</th></tr></thead>
+				<tbody>
+					<?php foreach ($allowed_users as $index => $allowed): ?>
+					<tr>
+						<td><?= $index + 1 ?></td>
+						<td><?= HTML::escape($allowed['username']) ?></td>
+						<td><?= $allowed['user'] !== null ? getUserLink($allowed['user']) : '<small class="text-muted">还没有登录过</small>' ?></td>
+						<td>
+							<form method="post">
+								<?= HTML::hiddenToken() ?>
+								<input type="hidden" name="form" value="disallow" />
+								<input type="hidden" name="tab" value="access" />
+								<input type="hidden" name="username" value="<?= HTML::escape($allowed['username']) ?>" />
+								<button type="submit" class="btn btn-outline-danger btn-sm" title="从名单里移除">移除</button>
+							</form>
+						</td>
+					</tr>
+					<?php endforeach ?>
+				</tbody>
+			</table>
 		</div>
 		<?php endif ?>
 		<form method="post" id="form-allow-users">
@@ -314,7 +323,7 @@
 		<p class="text-muted">这是域内的比赛：域的所有者、管理员和教师都能管理它，助教能进入后台。下面是另外指定的人。</p>
 		<?php endif ?>
 		<?php if ($managers): ?>
-		<table class="table table-hover" id="table-contest-managers" style="max-width:40em">
+		<table class="table table-bordered table-hover table-sm uoj-roster" id="table-contest-managers" style="max-width:40em">
 			<thead>
 				<tr>
 					<th>用户</th>
@@ -327,7 +336,7 @@
 				<tr>
 					<td><?= getUserLink($manager['username']) ?></td>
 					<td><?= $manager['role'] == 'owner' ? '负责人' : '助理' ?></td>
-					<td class="text-right">
+					<td>
 						<form method="post" class="d-inline" onsubmit="return confirm('移除这位管理者？');">
 							<?= HTML::hiddenToken() ?>
 							<input type="hidden" name="form" value="remove_manager" />

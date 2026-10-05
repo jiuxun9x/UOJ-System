@@ -1554,7 +1554,7 @@ class HomeworkStateTest(unittest.TestCase):
         self.assertEqual(uoj.wait_submission(submission_id).score, 100)
 
         page = self.teacher.get(self.url(homework_id, "/manage?tab=participants")).text
-        unclaimed = re.search(r'(?s)id="list-unclaimed">(.*?)</p>', page).group(1)
+        unclaimed = re.search(r'(?s)id="list-unclaimed">(.*?)</table>', page).group(1)
         self.assertIn("p4_st_pupil1", unclaimed)
         self.assertIn("p4_st_pupil2", unclaimed)
         self.assertNotIn("p4_st_pupil0", unclaimed)

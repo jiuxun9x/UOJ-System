@@ -156,8 +156,12 @@
 	}
 }
 
-/* a table of scores: the names stay in place while the problems scroll */
-.uoj-scoreboard th, .uoj-scoreboard td {
+/* a table of scores: everything stands in the middle of its cell, as on the boards of the
+   site, and the names stay in place while the problems scroll */
+.uoj-scoreboard {
+	font-variant-numeric: tabular-nums;
+}
+.uoj-scoreboard thead th, .uoj-scoreboard tbody td {
 	text-align: center;
 	vertical-align: middle;
 	white-space: nowrap;
@@ -166,8 +170,42 @@
 	position: sticky;
 	left: 0;
 	background: #fff;
-	text-align: left;
 	z-index: 1;
+}
+/* a cell that stays in place hides what scrolls under it: it has the colour of its row */
+.uoj-scoreboard.table-striped tbody tr:nth-of-type(odd) .uoj-scoreboard-name {
+	background: #f2f2f2;
+}
+/* what stands under the main thing of a cell: smaller and quieter, on every board alike */
+.uoj-scoreboard small, .uoj-scoreboard .uoj-icpc-under {
+	display: block;
+	font-size: 85%;
+	font-weight: normal;
+	line-height: 1.3;
+	color: #6c757d;
+}
+
+/* a list of people: a table like the other lists of the site */
+.uoj-roster thead th, .uoj-roster tbody td {
+	text-align: center;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+.uoj-roster form {
+	margin: 0;
+}
+.uoj-roster select {
+	display: inline-block;
+	width: auto;
+}
+/* a long list scrolls in its place instead of pushing the page down */
+.uoj-roster-box {
+	max-height: 32rem;
+	overflow-y: auto;
+	margin-bottom: 1rem;
+}
+.uoj-roster-box .uoj-roster {
+	margin-bottom: 0;
 }
 .uoj-scoreboard .uoj-score-full {
 	background: #d4edda;
@@ -199,14 +237,6 @@
 .uoj-icpc-board th, .uoj-icpc-board td {
 	padding: 0.45rem 0.3rem;
 	line-height: 1.35;
-}
-.uoj-scoreboard .uoj-icpc-under {
-	color: #212529;
-	font-weight: normal;
-}
-.uoj-scoreboard th .uoj-icpc-under {
-	font-size: 85%;
-	font-weight: bold;
 }
 /* a problem somebody solved */
 .uoj-scoreboard th.uoj-icpc-solved-by {

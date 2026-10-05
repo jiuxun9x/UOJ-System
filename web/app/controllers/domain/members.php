@@ -204,7 +204,7 @@
 <?php endif ?>
 
 <div class="table-responsive">
-	<table class="table table-hover uoj-domain-members" id="table-members">
+	<table class="table table-bordered table-hover uoj-domain-members uoj-roster" id="table-members">
 		<thead>
 			<tr>
 				<th style="width:3em">#</th>
@@ -252,7 +252,7 @@
 				</td>
 				<td><small class="text-muted"><?= substr($member['joined_at'], 0, 10) ?></small></td>
 				<?php if ($can_manage): ?>
-				<td class="text-right">
+				<td>
 					<?php if ($may_change): ?>
 					<form method="post" onsubmit="return confirm('确定要把 <?= $member['username'] ?> 移出这个域吗？');">
 						<?= HTML::hiddenToken() ?>
@@ -274,7 +274,7 @@
 <h3 class="uoj-domain-section-title">等待首次登录的学生 <small class="text-muted">(<?= count($pending_members) ?>)</small></h3>
 <p class="text-muted small">名单里这些学号还没有账号。学生首次通过统一身份认证登录后会自动成为成员。</p>
 <div class="table-responsive">
-	<table class="table table-sm" id="table-pending-members">
+	<table class="table table-bordered table-sm uoj-roster" id="table-pending-members">
 		<thead><tr><th>学号</th><th style="width:8em">角色</th><th style="width:12em">导入时间</th><th style="width:6em"></th></tr></thead>
 		<tbody>
 			<?php foreach ($pending_members as $pending): ?>
@@ -282,7 +282,7 @@
 				<td><?= HTML::escape($pending['student_id']) ?></td>
 				<td><?= domainRoleName($pending['role']) ?></td>
 				<td><small class="text-muted"><?= $pending['created_at'] ?></small></td>
-				<td class="text-right">
+				<td>
 					<form method="post">
 						<?= HTML::hiddenToken() ?>
 						<input type="hidden" name="form" value="unpend" />

@@ -87,6 +87,52 @@ function getUserLink($username, $rating = null) {
 	}
 }
 
+// who the people of a list are to the school: username => array(student_id, real_name)
+function rosterIdentities($usernames) {
+	$identities = array();
+	$names = array();
+	foreach ($usernames as $username) {
+		$names[] = "'".DB::escape((string)$username)."'";
+	}
+	if ($names) {
+		foreach (DB::selectAll("select username, student_id, real_name from external_identities where username in (".join(',', $names).") order by id desc") as $row) {
+			$identities[$row['username']] = $row;
+		}
+	}
+	return $identities;
+}
+// A list of people, as the lists of the site are: a table with everything in the middle of
+// its cell. Every row has a number and who it is and, where the school knows them, the
+// student number and the name. $action gives what a row ends with for a username, or is null.
+function echoRoster($id, $usernames, $action = null) {
+	$identities = rosterIdentities($usernames);
+	echo '<div class="table-responsive uoj-roster-box">';
+	echo '<table class="table table-bordered table-hover table-sm uoj-roster" id="', $id, '">';
+	echo '<thead><tr><th style="width:4em">#</th><th>用户</th>';
+	if ($identities) {
+		echo '<th>学号</th><th>姓名</th>';
+	}
+	if ($action !== null) {
+		echo '<th style="width:7em">操作</th>';
+	}
+	echo '</tr></thead><tbody>';
+	$number = 0;
+	foreach ($usernames as $username) {
+		$username = (string)$username;
+		$number++;
+		echo '<tr data-username="', HTML::escape($username), '"><td>', $number, '</td><td>', getUserLink($username), '</td>';
+		if ($identities) {
+			echo '<td>', isset($identities[$username]) ? HTML::escape($identities[$username]['student_id']) : '', '</td>';
+			echo '<td>', isset($identities[$username]) ? HTML::escape($identities[$username]['real_name']) : '', '</td>';
+		}
+		if ($action !== null) {
+			echo '<td>', $action($username), '</td>';
+		}
+		echo '</tr>';
+	}
+	echo '</tbody></table></div>';
+}
+
 // the tabs of the pages that manage a problem
 function echoProblemManageTabs($problem, $active) {
 	$tabs = array(
