@@ -193,6 +193,7 @@ docker compose up -d --force-recreate uoj-judger
 | `JUDGER_PASSWORD` | `_judger_password_` | 评测机的密码，要和登记时得到的一致 | 不一致时评测机取不到任务，日志里是 `judger authentication failed` |
 | `SOCKET_PORT` | `2333` | 评测机本地的控制端口（见 6.6） | 一般不用改 |
 | `SOCKET_PASSWORD` | `_judger_socket_password_` | 控制端口的口令 | 评测机不在可信网络里时换一个 |
+| `MAX_JUDGING_SECONDS` | `3600` | 一份提交的评测最长多少秒（见 6.1）。可以不写 | 正常的评测远远用不到；只有题目把 `judger_time_limit` 调到一小时以上时才需要跟着调大 |
 
 其他项：
 
@@ -410,6 +411,13 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 评测机自带的头文件 + 编译器版本 + 编译方式”为准：这些都没变，就不再重新编译。所以只改测试数据、或者把题目复制到另一个域时，
 校验器不会重编。缓存在评测机容器内部（最多 500 个），重建评测机容器后会重新编译一次，不需要人工清理。
 用 `#embed`、宏拼出来的 `#include`、或者包含数据目录之外的文件的程序，每次都重新编译。
+
+**评测机不会被一份提交拖住。** 选手程序、校验器的每一次运行都有自己的时间限制，到时由沙箱杀掉，连同它启动的所有进程；
+一份提交的整次评测默认不超过 10 分钟（题目可以在 `problem.conf` 里用 `judger_time_limit` 调整）。
+在这之外还有最后一道保险：评测超过 `MAX_JUDGING_SECONDS`（默认 3600 秒）还没结束，评测机杀掉这次评测的全部进程，
+把结果记为 `Judgment Failed`，然后继续取下一个任务，日志里有一行 `main_judger is not done after … seconds, killing it`。
+每次评测结束后（无论怎么结束的），评测机都会清点并杀掉这次评测留下的进程，开始下一次评测前清空工作目录。
+已经在运行的评测机（配置文件里没有这一项）用默认值；要改的话在 `.conf.json` 里加 `"max_judging_seconds": 秒数` 后重启评测机。
 
 ### 6.2 更换默认评测机的密码
 

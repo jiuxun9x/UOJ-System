@@ -669,3 +669,25 @@ def run_twice_plain_problem_files():
         files["input%d.txt" % num] = "first %d\n" % n
         files["output%d.txt" % num] = "%d\n" % (2 * n)
     return files
+
+
+# The judger of a problem that never ends. It starts a process that leaves its process group,
+# which is where a judger is looked for when it is killed for taking too long.
+HANGING_JUDGER = r"""
+#include <unistd.h>
+int main() {
+    if (fork() == 0) {
+        setpgid(0, 0);
+        for (;;) pause();
+    }
+    for (;;) pause();
+}
+"""
+
+
+def hanging_judger_problem_files():
+    # the judger is given three seconds, not the ten minutes that are usual
+    files = ab_problem_files(use_builtin_judger="off", judger_time_limit=3)
+    files["judger.cpp"] = HANGING_JUDGER
+    files["Makefile"] = CUSTOM_JUDGER_MAKEFILE
+    return files

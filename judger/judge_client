@@ -1,12 +1,14 @@
 #!/usr/bin/python3
 
+import html
 import json
+import signal
 import sys
 import os
 import pipes
 import re
 import socket
-from threading import Thread
+from threading import Lock, Thread, Timer
 import fcntl
 import hashlib
 import shutil
@@ -43,10 +45,11 @@ def uoj_judger_path(path=""):
 def clean_up_folder(path):
     for f in os.listdir(path):
         f_path = os.path.join(path, f)
-        if os.path.isfile(f_path):
-            os.unlink(f_path)
+        if os.path.isdir(f_path) and not os.path.islink(f_path):
+            # whatever was made in it, and whatever rights were taken away from it
+            remove_tree(f_path)
         else:
-            shutil.rmtree(f_path)
+            os.unlink(f_path)
 
 
 def execute(cmd):
@@ -61,7 +64,119 @@ def freopen(f, g):
 
 def remove_tree(path):
     quoted_path = pipes.quote(path)
-    os.system("chmod -R 700 %s && rm -rf %s" % (quoted_path, quoted_path))
+    os.system("chmod -R 700 %s; rm -rf %s" % (quoted_path, quoted_path))
+    if os.path.lexists(path):
+        raise Exception("failed to remove: %s" % path)
+
+
+# A judgement that takes longer than this many seconds is given up, unless max_judging_seconds
+# in .conf.json says another number. Nothing that is judged should come near it: every program
+# that is run has a time limit of its own, and is killed by run_program when it is over. This is
+# for what nobody thought of, so that something that hangs holds a judger for an hour and not
+# for ever.
+MAX_JUDGING_SECONDS = 3600
+
+
+def max_judging_seconds():
+    limit = jconf.get("max_judging_seconds", MAX_JUDGING_SECONDS)
+    if isinstance(limit, bool) or not isinstance(limit, (int, float)) or limit <= 0:
+        return MAX_JUDGING_SECONDS
+    return limit
+
+
+def process_stat(pid):
+    """the state and the session of a process, as /proc tells them, or None if it is gone"""
+    try:
+        with open("/proc/%d/stat" % pid, "rb") as f:
+            # the name of the program is in brackets and may hold anything, brackets too
+            fields = f.read().rsplit(b")", 1)[1].split()
+        return fields[0].decode(), int(fields[3])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def session_of(pid):
+    stat = process_stat(pid)
+    return None if stat is None else stat[1]
+
+
+def kill_session(sid):
+    """Kills every process of a session but its leader, and returns how many were alive.
+
+    A process that is dead and only waits to be waited for does not count: it holds nothing
+    but its number, and who started it will wait for it. If that is this process, it does now.
+    """
+    alive = 0
+    for name in os.listdir("/proc"):
+        if not name.isdigit() or int(name) == sid:
+            continue
+        stat = process_stat(int(name))
+        if stat is None or stat[1] != sid:
+            continue
+        try:
+            if stat[0] != "Z":
+                alive += 1
+                os.kill(int(name), signal.SIGKILL)
+            os.waitpid(int(name), os.WNOHANG)
+        except OSError:
+            pass
+    return alive
+
+
+def run_main_judger():
+    """Runs main_judger and waits until it is over. Returns "done" when it ended well, "failed"
+    when it ended badly, and "given up" when it was killed for taking too long.
+
+    main_judger and everything it starts are a session of their own, and when this function
+    returns no process of that session is left: neither when main_judger ended by itself, nor
+    when it was killed, nor when one of its programs got away from it.
+    """
+    limit = max_judging_seconds()
+    process = subprocess.Popen(["./main_judger"], cwd=uoj_judger_path(), start_new_session=True)
+    lock = Lock()
+    state = {"over": False, "given_up": False}
+
+    def give_up():
+        with lock:
+            if not state["over"]:
+                state["given_up"] = True
+                log("main_judger is not done after %s seconds, killing it" % limit)
+                # not process.kill(), which would look whether the process has ended first, and
+                # take it out of the table of processes if it has
+                try:
+                    os.kill(process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+
+    timer = Timer(limit, give_up)
+    timer.daemon = True
+    timer.start()
+    try:
+        # Waits for main_judger to end without taking it out of the table of processes. As long
+        # as it is in there, its number is the number of its session and of nothing else, so
+        # what is killed below is what main_judger left behind and nothing else.
+        os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
+    finally:
+        with lock:
+            state["over"] = True
+        timer.cancel()
+    deadline = time.time() + 30
+    left = kill_session(process.pid)
+    while left and time.time() < deadline:
+        time.sleep(0.05)
+        left = kill_session(process.pid)
+    code = process.wait()
+    if left:
+        raise Exception("%d processes of a judgement could not be killed" % left)
+    if state["given_up"]:
+        return "given up"
+    return "done" if code == 0 else "failed"
+
+
+def write_judgement_failed(message):
+    """the result of a judgement that this client gave up, the way main_judger writes its own"""
+    with open(uoj_judger_path("/result/result.txt"), "w") as fres:
+        fres.write("error Judgment Failed\ndetails\n<error>%s</error>\n" % html.escape(message))
 
 
 def log(*args):
@@ -735,8 +850,20 @@ def judge():
             print("custom_test on", file=fconf)
 
     judging_started = True
-    execute("cd %s && ./main_judger" % (pipes.quote(uoj_judger_path())))
-    judging_started = False
+    try:
+        outcome = run_main_judger()
+    finally:
+        judging_started = False
+    if outcome == "given up":
+        # Another judger would wait as long for the same thing. The verdict is that of a
+        # judgement that failed, and this judger goes on with the next one.
+        clean_up_folder(uoj_judger_path("/result"))
+        write_judgement_failed(
+            "the judgement was not done after %s seconds and was given up" % max_judging_seconds()
+        )
+        return get_judger_result()
+    if outcome != "done":
+        raise Exception("failed to execute: main_judger")
 
     # run_program leaves this file when it gave up because the machine was too busy to judge
     if os.path.exists(uoj_judger_path("/result/uoj_overloaded")):

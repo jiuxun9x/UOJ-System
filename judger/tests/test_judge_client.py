@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -757,6 +758,130 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
                 report = self.jc.prepare()
         self.assertEqual(report["ok"], "0")
         self.assertEqual(report["message"], "chk: compile error\nexpected ';'")
+
+
+class CleanUpFolderTest(JudgeClientTestCase):
+    def test_folder_that_nobody_may_look_into_is_removed(self):
+        os.makedirs(self.work_path("passes", "nextpass.in"))
+        os.chmod(self.work_path("passes", "nextpass.in"), 0)
+        os.makedirs(self.work_path("deep", "deeper"))
+        with open(self.work_path("deep", "deeper", "file.txt"), "w") as f:
+            f.write("x")
+        os.chmod(self.work_path("deep", "deeper"), 0o500)
+        with open(self.work_path("file.txt"), "w") as f:
+            f.write("x")
+        os.symlink(self.data_path(), self.work_path("link"))
+        self.jc.clean_up_folder(self.work_path())
+        self.assertEqual(os.listdir(self.work_path()), [])
+        # what a link pointed to is not touched
+        self.assertTrue(os.path.isdir(self.data_path()))
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "the sessions of processes are read from /proc")
+class RunMainJudgerTest(JudgeClientTestCase):
+    """a judgement comes to an end, and nothing of it is left when it has"""
+
+    # A main_judger that starts a process which leaves its process group, the way run_program
+    # puts every program it runs into a group of its own, and then does as it is told.
+    MAIN_JUDGER = """#!%s
+import os, time
+if os.fork() == 0:
+    os.setpgid(0, 0)
+    with open("child.pid.tmp", "w") as f:
+        f.write(str(os.getpid()))
+    os.rename("child.pid.tmp", "child.pid")
+    time.sleep(1000)
+    os._exit(0)
+while not os.path.exists("child.pid"):
+    time.sleep(0.01)
+%s
+"""
+
+    def write_main_judger(self, then):
+        path = os.path.join(self.root, "uoj_judger", "main_judger")
+        with open(path, "w") as f:
+            f.write(self.MAIN_JUDGER % (sys.executable, then))
+        os.chmod(path, 0o755)
+        if os.path.exists(os.path.join(self.root, "uoj_judger", "child.pid")):
+            os.unlink(os.path.join(self.root, "uoj_judger", "child.pid"))
+
+    def child(self):
+        with open(os.path.join(self.root, "uoj_judger", "child.pid")) as f:
+            return int(f.read())
+
+    def runs(self, pid):
+        """whether a process is there and is more than an entry that waits to be read"""
+        try:
+            with open("/proc/%d/stat" % pid, "rb") as f:
+                return f.read().rsplit(b")", 1)[1].split()[0] != b"Z"
+        except OSError:
+            return False
+
+    def test_session_of_a_process_is_read(self):
+        self.assertEqual(self.jc.session_of(os.getpid()), os.getsid(0))
+        process = subprocess.Popen(["sleep", "1000"], start_new_session=True)
+        try:
+            self.assertEqual(self.jc.session_of(process.pid), process.pid)
+        finally:
+            process.kill()
+            process.wait()
+        self.assertIsNone(self.jc.session_of(process.pid))
+
+    def test_main_judger_that_ends_leaves_nothing(self):
+        self.write_main_judger("os._exit(0)")
+        self.assertEqual(self.jc.run_main_judger(), "done")
+        self.assertFalse(self.runs(self.child()))
+
+        self.write_main_judger("os._exit(3)")
+        self.assertEqual(self.jc.run_main_judger(), "failed")
+        self.assertFalse(self.runs(self.child()))
+
+    def test_main_judger_that_does_not_end_is_killed_with_all_it_started(self):
+        self.jc.jconf["max_judging_seconds"] = 1
+        self.write_main_judger("time.sleep(1000)")
+        started = time.time()
+        self.assertEqual(self.jc.run_main_judger(), "given up")
+        self.assertLess(time.time() - started, 20)
+        self.assertFalse(self.runs(self.child()))
+
+    def test_only_the_processes_of_the_judgement_are_killed(self):
+        bystander = subprocess.Popen(["sleep", "1000"], start_new_session=True)
+        try:
+            self.write_main_judger("os._exit(0)")
+            self.assertEqual(self.jc.run_main_judger(), "done")
+            self.assertTrue(self.runs(bystander.pid))
+            self.assertTrue(self.runs(os.getpid()))
+        finally:
+            bystander.kill()
+            bystander.wait()
+
+
+class GivenUpJudgementTest(JudgeClientTestCase):
+    def judge_with(self, outcome):
+        self.jc.submission = {"id": 1, "problem_id": 1, "content": {"file_name": "/submission/1", "config": []}}
+        with open(os.path.join(self.root, "uoj_judger", "result", "result.txt"), "w") as f:
+            f.write("score 100\ntime 1\nmemory 1\ndetails\n<tests></tests>\n")
+        with mock.patch.object(self.jc, "update_problem_data"), mock.patch.object(self.jc, "uoj_download"):
+            with mock.patch.object(self.jc, "execute"), mock.patch.object(self.jc, "clean_up_folder"):
+                with mock.patch.object(self.jc, "run_main_judger", return_value=outcome):
+                    return self.jc.judge()
+
+    def test_judgement_that_was_given_up_is_a_judgement_that_failed(self):
+        self.assertEqual(self.judge_with("done")["score"], 100)
+        self.jc.jconf["max_judging_seconds"] = 7
+        res = self.judge_with("given up")
+        self.assertEqual((res["score"], res["error"], res["status"]), (0, "Judgment Failed", "Judged"))
+        self.assertIn("not done after 7 seconds", res["details"])
+        # a judger that could not be run at all is not a verdict: another judger gets to try
+        with self.assertRaises(Exception):
+            self.judge_with("failed")
+
+    def test_limit_that_is_no_number_of_seconds_is_not_used(self):
+        self.jc.jconf.pop("max_judging_seconds", None)
+        self.assertEqual(self.jc.max_judging_seconds(), 3600)
+        for value, limit in ((90, 90), (0.5, 0.5), (0, 3600), (-1, 3600), ("90", 3600), (None, 3600), (True, 3600)):
+            self.jc.jconf["max_judging_seconds"] = value
+            self.assertEqual(self.jc.max_judging_seconds(), limit, value)
 
 
 if __name__ == "__main__":

@@ -123,6 +123,58 @@ class RunTwiceTest(unittest.TestCase):
         self.assertIn("relay", self.admin.sync(problem_id))
 
 
+def judger_leftovers():
+    """what is left of judgements on the judgers: processes that run or have a folder of a
+    judgement as their place, processes that are dead and not waited for, and files of passes"""
+    script = """
+for p in /proc/[0-9]*; do
+    exe=$(readlink $p/exe 2>/dev/null)
+    cwd=$(readlink $p/cwd 2>/dev/null)
+    state=$(sed 's/.*) //' $p/stat 2>/dev/null | cut -d' ' -f1)
+    case "$state:$exe:$cwd" in
+        Z:*|*:/opt/uoj_judger/uoj_judger*|*:/var/uoj_data_copy*) echo "process ${p#/proc/} $state $exe $cwd";;
+    esac
+done
+ls -d /opt/uoj_judger/uoj_judger/result/pass* 2>/dev/null
+true
+"""
+    found = []
+    for judger in uoj.JUDGERS:
+        found += [judger + ": " + line for line in docker_exec(judger, script).splitlines() if line.strip()]
+    return found
+
+
+class JudgerIsLeftCleanTest(unittest.TestCase):
+    """whatever a program, a checker or a judger does, a judger is afterwards as it was before:
+    no process stays behind, nothing piles up, and the next submission is judged"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+
+    def assert_nothing_is_left(self):
+        uoj.wait_idle()
+        # a process that was killed is gone a moment later
+        try:
+            uoj.wait_until("nothing is left of the judgements", lambda: not judger_leftovers(), timeout=30)
+        except Exception:
+            self.fail(judger_leftovers())
+
+    def test_judger_that_hangs_is_killed_with_all_that_it_started(self):
+        # The judger of this problem never ends, and it has started a process that left its
+        # process group. Its time is over after five seconds: the judgement fails, and both
+        # processes are gone.
+        problem_id = self.admin.create_problem(hanging_judger_problem_files())
+        j = uoj.wait_submission(self.admin.submit(problem_id, AB))
+        self.assertEqual(j.error, "Judgment Failed", j)
+        self.assertIn("Time Limit Exceeded", j.details)
+        self.assert_nothing_is_left()
+        ordinary = self.admin.create_problem(ab_problem_files())
+        for _ in uoj.JUDGERS * 2:
+            self.assertEqual(uoj.wait_submission(self.admin.submit(ordinary, AB)).score, 100)
+        self.assert_nothing_is_left()
+
+
 class DomainContestRatingTest(unittest.TestCase):
     """what happens in a domain stays out of the ratings of the site"""
 

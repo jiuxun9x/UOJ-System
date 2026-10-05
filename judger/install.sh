@@ -39,7 +39,8 @@ initProgress(){
     "judger_name": "$JUDGER_NAME",
     "judger_password": "$JUDGER_PASSWORD",
     "socket_port": $SOCKET_PORT,
-    "socket_password": "$SOCKET_PASSWORD"
+    "socket_password": "$SOCKET_PASSWORD",
+    "max_judging_seconds": ${MAX_JUDGING_SECONDS:-3600}
 }
 UOJEOF
         chmod 600 .conf.json && chown judger:judger .conf.json
