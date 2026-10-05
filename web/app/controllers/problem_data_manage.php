@@ -983,6 +983,8 @@ $(document).ready(function() {
 	refresh();
 });
 </script>
+<h4 class="text-left mt-4 mb-1" id="published-data">已发布的数据</h4>
+<p class="text-left text-muted small mb-0">评测机现在用的是这一份：上面的文件和设置保存并同步之后，才会成为这里的内容。右边是对整道题的操作。</p>
 <div class="row">
 	<div class="col-md-10 top-buffer-sm">
 		<div class="row">

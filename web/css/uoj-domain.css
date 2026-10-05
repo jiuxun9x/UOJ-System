@@ -347,7 +347,11 @@
 /* ---- the data of a problem: its files, and problem.conf beside the form that writes it */
 .uoj-data-files {
 	max-height: 24rem;
-	overflow-y: auto;
+	overflow: auto;
+}
+/* on a narrow screen the list scrolls sideways instead of breaking the names apart */
+.uoj-data-files table {
+	min-width: 34rem;
 }
 .uoj-data-files thead th {
 	position: sticky;
