@@ -611,11 +611,15 @@ $.fn.uoj_problem_picker = function() {
 				found = answer.problems || [];
 				answered = typed;
 				active = found.length && $.trim(typed) !== '' ? 0 : -1;
-				if (entered && active >= 0) {
-					choose(found[active]);
-					return;
+				// Enter that was pressed too early waits for the answer to what is typed now,
+				// not for one that was on its way before
+				if (entered && typed === input.val()) {
+					entered = false;
+					if (active >= 0) {
+						choose(found[active]);
+						return;
+					}
 				}
-				entered = false;
 				showMenu();
 			});
 		};
