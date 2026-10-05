@@ -787,7 +787,7 @@ class ContestFormTest(unittest.TestCase):
 
         # ---- in a contest a problem is called by its letter: that is its address, and what
         # the list of what was submitted calls it, not the number it has outside
-        heading = lambda path: re.search(r"(?s)<h1[^>]*>(.*?)</h1>", pupil.get(path).text).group(1)
+        heading = lambda path: re.search(r'(?s)<h1 class="col-md-7 text-center">(.*?)</h1>', pupil.get(path).text).group(1)
         for title, problem_id in zip(("p6 乙", "p6 甲", "p6 丙"), (second, first, third)):
             db("update problems set title = '%s' where id = %d" % (title, problem_id))
         for letter, title, problem_id in zip("ABC", ("p6 乙", "p6 甲", "p6 丙"), (second, first, third)):

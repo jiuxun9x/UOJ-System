@@ -934,9 +934,13 @@ class DomainContestTest(unittest.TestCase):
             self.assertEqual(stranger.get("/submission/%d" % submission_id).status_code, 403)
         self.assertEqual(pupil.get(here + "/standings").status_code, 200)
         self.assertIn("域 p4-contests", pupil.get(here).text)
-        # the addresses of its problems say the numbers they have in the domain
-        self.assertIn('href="%s/problem/%d"' % (here, uoj.pid(own_id)), pupil.get(here).text)
-        self.assertNotIn("/problem/%d" % own_id, pupil.get(here).text)
+        # the addresses of its problems say what they are called in the contest; the number a
+        # problem has in the domain leads there as well, and its id on the site shows nowhere
+        page = pupil.get(here).text
+        for letter in "AB":
+            self.assertIn('href="%s/problem/%s"' % (here, letter), page)
+        self.assertNotIn("/problem/%d" % own_id, page)
+        self.assertEqual(pupil.get("%s/problem/%d" % (here, uoj.pid(own_id))).status_code, 200)
         uoj.wait_idle()
         uoj.move_contest(contest_id, -7200, 60)
 
