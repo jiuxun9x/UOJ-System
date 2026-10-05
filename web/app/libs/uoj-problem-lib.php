@@ -213,7 +213,11 @@ function problemSettingsOfConf($conf) {
 		}
 	}
 	if (isset($conf['n_sample_tests']) && validateUInt((string)$conf['n_sample_tests'])) {
-		$settings['n_samples'] = (int)$conf['n_sample_tests'];
+		// As many samples as there are extra tests is all of them, and stays all of them when
+		// more come: a problem that was made before it had data has none of either, and its
+		// samples are samples when they are uploaded.
+		$n_extra = isset($conf['n_ex_tests']) && validateUInt((string)$conf['n_ex_tests']) ? (int)$conf['n_ex_tests'] : 0;
+		$settings['n_samples'] = (int)$conf['n_sample_tests'] == $n_extra ? null : (int)$conf['n_sample_tests'];
 	}
 	foreach (problemProgramFields() as $field => $kind) {
 		if (isset($conf["{$kind}_source"]) && is_string($conf["{$kind}_source"])) {

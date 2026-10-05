@@ -179,7 +179,14 @@ check_same(array('128', '5', '70', 'abc', 2, '1.5', false, false, false), array(
 check_same(false, isset($conf_of(array('scoring' => 'all'), $old)['point_score_1']), 'the score of a single test means nothing where tests are not scored one by one');
 // and back: the form shows what a problem.conf says
 $shown = problemSettingsOfConf($parts + array('n_tests' => 2));
-check_same(array('traditional', '1.5', 512, 'wcmp', 'subtasks', array(array(1, 40), array(2, 60)), 2), array($shown['type'], $shown['time_limit'], $shown['memory_limit'], $shown['checker'], $shown['scoring'], $shown['subtasks'], $shown['n_samples']), 'the settings of a problem.conf');
+check_same(array('traditional', '1.5', 512, 'wcmp', 'subtasks', array(array(1, 40), array(2, 60)), null), array($shown['type'], $shown['time_limit'], $shown['memory_limit'], $shown['checker'], $shown['scoring'], $shown['subtasks'], $shown['n_samples']), 'the settings of a problem.conf');
+// as many samples as extra tests is all of them: fewer is a number, and so many of none is all again
+check_same(array(1, 0, null, null), array(problemSettingsOfConf(array('n_ex_tests' => '3', 'n_sample_tests' => '1'))['n_samples'], problemSettingsOfConf(array('n_ex_tests' => '3', 'n_sample_tests' => '0'))['n_samples'],
+	problemSettingsOfConf(array('n_ex_tests' => '3', 'n_sample_tests' => '3'))['n_samples'], problemSettingsOfConf(array('n_tests' => '0', 'n_ex_tests' => '0', 'n_sample_tests' => '0'))['n_samples']), 'how many samples a problem.conf means');
+// a problem that was made before it had data: the samples that are uploaded later are samples
+$made_first = problemConfFromSettings($settings, problemDetectTests(array()))[0];
+check_same(array(0, 0, 0), array($made_first['n_tests'], $made_first['n_ex_tests'], $made_first['n_sample_tests']), 'a problem without data');
+check_same(2, problemConfFromSettings(problemSettingsOfConf($made_first), $ten, $made_first)[0]['n_sample_tests'], 'and with the data that came later');
 check_same(array('multi_pass', 'custom', 'all', 4), array_values(array_intersect_key(problemSettingsOfConf(array('multi_pass' => '4', 'n_subtasks' => '1', 'n_tests' => '3')), array('type' => 0, 'checker' => 0, 'scoring' => 0, 'passes' => 0))), 'of a multi-pass problem');
 check_same('traditional', problemSettingsOfConf(array('multi_pass' => '1'))['type'], 'one pass is no multi-pass problem');
 check_same(array('interactive', 'submit_answer', 'grader', 'traditional'), array(problemSettingsOfConf(array('interaction_mode' => 'on'))['type'], problemSettingsOfConf(array('submit_answer' => 'on'))['type'],
