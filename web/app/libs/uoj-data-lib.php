@@ -372,6 +372,34 @@
 			}
 			return $found;
 		}
+		// The source of one of the programs of the problem: the file problem.conf names for
+		// it, given the name the judgers look for, or else the files that have that name.
+		private function copy_program_source($name) {
+			$key = "{$name}_source";
+			if (!isset($this->problem_conf[$key])) {
+				return $this->copy_source_files_to_prepare($name);
+			}
+			global $uojMainJudgerWorkPath;
+			$file_name = $this->problem_conf[$key];
+			$err = dataProgramSourceError($file_name);
+			if ($err !== '') {
+				throw new UOJProblemConfException("$key: $err");
+			}
+			if (!isset($this->allow_files[$file_name]) || !is_file("{$this->upload_dir}/$file_name")) {
+				throw new UOJFileNotFoundException($file_name);
+			}
+			$src = escapeshellarg("{$this->upload_dir}/$file_name");
+			$dest = escapeshellarg("{$this->prepare_dir}/$name" . dataProgramSourceSuffix($file_name));
+			if (isset($this->problem_extra_config['dont_use_formatter'])) {
+				exec("cp $src $dest -fT", $output, $ret);
+			} else {
+				exec("$uojMainJudgerWorkPath/run/formatter <$src >$dest", $output, $ret);
+			}
+			if ($ret) {
+				throw new UOJFileNotFoundException($file_name);
+			}
+			return true;
+		}
 		private function copy_to_prepare($file_name) {
 			global $uojMainJudgerWorkPath;
 			if (!isset($this->allow_files[$file_name])) {
@@ -495,7 +523,7 @@
 								throw new Exception("<strong>" . htmlspecialchars($this->problem_conf['use_builtin_checker']) . "</strong> is not a valid checker");
 							}
 						} else {
-							if (!$this->copy_source_files_to_prepare('chk')) {
+							if (!$this->copy_program_source('chk')) {
 								throw new UOJFileNotFoundException('chk.*');
 							}
 							$this->need_compile('chk', array('need_include_header' => true));
@@ -535,7 +563,7 @@
 						}
 
 						if ($this->problem['hackable']) {
-							if (!$this->copy_source_files_to_prepare('std')) {
+							if (!$this->copy_program_source('std')) {
 								throw new UOJFileNotFoundException('std.*');
 							}
 							if (isset($this->problem_conf['with_implementer']) && $this->problem_conf['with_implementer'] == 'on') {
@@ -548,14 +576,14 @@
 							} else {
 								$this->need_compile('std');
 							}
-							if (!$this->copy_source_files_to_prepare('val')) {
+							if (!$this->copy_program_source('val')) {
 								throw new UOJFileNotFoundException('val.*');
 							}
 							$this->need_compile('val', array('need_include_header' => true));
 						}
 
 						if ($this->check_conf_on('interaction_mode')) {
-							if (!$this->copy_source_files_to_prepare('interactor')) {
+							if (!$this->copy_program_source('interactor')) {
 								throw new UOJFileNotFoundException('interactor.*');
 							}
 							$this->need_compile('interactor', array('need_include_header' => true));

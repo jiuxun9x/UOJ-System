@@ -213,6 +213,40 @@ function uploadUnpack($zip_path, $dir, $limits) {
 	return array($written, '');
 }
 
+// ---- the programs that come with the data of a problem
+//
+// The judgers build a checker from chk.cpp, an interactor from interactor.cpp, and so on.
+// The people who set a problem need not call their files that: problem.conf says which of
+// the uploaded files is which program ("chk_source checker.cpp"), and the file is given to
+// the judgers under the name they look for.
+
+// the programs problem.conf can name a file for, and what people call them
+function dataProgramKinds() {
+	return array('chk' => '校验器', 'interactor' => '交互器', 'std' => '标准程序', 'val' => '数据校验器');
+}
+// What a source file ends with that the judgers can build, or null: the language is read off
+// the ending.
+function dataProgramSourceSuffix($file_name) {
+	if (is_string($file_name) && preg_match('/\.(cpp|c|pas|py)$/D', $file_name, $matches)) {
+		return '.' . $matches[1];
+	}
+	return null;
+}
+// '' when a file can be named in problem.conf as the source of a program, or why not
+function dataProgramSourceError($file_name) {
+	if (!is_string($file_name) || $file_name === '' || strlen($file_name) > 100) {
+		return '文件名为空或太长';
+	}
+	// problem.conf is words with blanks between them, and the file lies in the folder itself
+	if (preg_match('/[\s\/\\\\\x00-\x1f\x7f]/', $file_name) || $file_name[0] === '.') {
+		return '文件名里不能有空格和斜杠，请先给文件改个名字';
+	}
+	if (dataProgramSourceSuffix($file_name) === null) {
+		return '不是评测机能编译的源文件（.cpp、.c、.pas、.py）';
+	}
+	return '';
+}
+
 // What is wrong with the data in the directory of a problem, before anybody syncs it:
 // array('errors' => what stops a sync, 'warnings' => what is worth a look, 'facts' => what
 // there is). $files are the names in the directory, $conf the problem.conf as getUOJConf()
@@ -243,14 +277,30 @@ function uploadPreflight($files, $conf, $hackable) {
 			$missing[] = $name;
 		}
 	};
-	$need_source = function($name) use (&$used, &$missing, $has) {
+	// the source of a program: the file problem.conf names for it, or else one called after it
+	$sources = array();
+	$need_source = function($name) use (&$used, &$missing, &$sources, &$report, $has, $conf) {
+		if (isset($conf["{$name}_source"])) {
+			$file = $conf["{$name}_source"];
+			$err = dataProgramSourceError($file);
+			if ($err !== '') {
+				$report['errors'][] = "{$name}_source（" . dataProgramKinds()[$name] . "的文件）：$err";
+			} elseif (!isset($has[$file])) {
+				$missing[] = $file;
+			}
+			$used[$file] = true;
+			$sources[$name] = $file;
+			return;
+		}
 		foreach (array("$name.cpp", "$name.c", "$name.pas") as $file) {
 			if (isset($has[$file])) {
 				$used[$file] = true;
+				$sources[$name] = $file;
 				return;
 			}
 		}
 		$missing[] = "$name.cpp";
+		$sources[$name] = "$name.cpp";
 	};
 
 	if (!$on('use_builtin_judger')) {
@@ -285,7 +335,7 @@ function uploadPreflight($files, $conf, $hackable) {
 			}
 		} else {
 			$need_source('chk');
-			$report['facts'][] = '自己的校验器 chk，由评测机编译';
+			$report['facts'][] = "自己的校验器 {$sources['chk']}，由评测机编译";
 		}
 	}
 	if ($on('submit_answer')) {
@@ -315,11 +365,11 @@ function uploadPreflight($files, $conf, $hackable) {
 		if ($hackable) {
 			$need_source('std');
 			$need_source('val');
-			$report['facts'][] = '可以 Hack：需要标程 std 和数据校验器 val';
+			$report['facts'][] = "可以 Hack：标程 {$sources['std']}，数据校验器 {$sources['val']}";
 		}
 		if ($on('interaction_mode')) {
 			$need_source('interactor');
-			$report['facts'][] = '交互题';
+			$report['facts'][] = "交互题，交互器 {$sources['interactor']}";
 		}
 		$n_passes = getUOJConfVal($conf, 'multi_pass', 0);
 		if (!validateUInt((string)$n_passes) || $n_passes > 20) {
@@ -333,7 +383,7 @@ function uploadPreflight($files, $conf, $hackable) {
 				$report['errors'][] = '多轮运行的题不能开启 Hack';
 			}
 			if (isset($conf['use_builtin_checker'])) {
-				$report['errors'][] = '多轮运行需要自己的校验器 chk.cpp：下一轮的输入由它给出，内置的比较方式不会要求再运行一轮';
+				$report['errors'][] = '多轮运行需要自己的校验器：下一轮的输入由它给出，内置的比较方式不会要求再运行一轮';
 			}
 		}
 	}

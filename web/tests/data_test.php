@@ -337,3 +337,21 @@ check_same(null, problemPickRank('两数之和', 248, '修复一个错误'), 'an
 check_same(3, problemPickRank('  ', 248, '修复一个错误'), 'nothing typed asks for nothing');
 check_same(2, problemPickRank('a<b', 3, 'a&lt;b 与 b&gt;a'), 'a title is read as it is printed');
 check_same('a<b & "c"', problemPlainTitle('a&lt;b &amp; &quot;c&quot;'), 'and given as it reads');
+
+// ---- the file problem.conf names as the source of a program
+check_same('', dataProgramSourceError('checker.cpp'), 'a checker called what its author called it');
+check_same('', dataProgramSourceError('交互器-v2.cpp'), 'in any writing');
+check_same('.py', dataProgramSourceSuffix('gen.check.py'), 'the language is read off the ending');
+foreach (array('', 'checker', 'checker.exe', 'my checker.cpp', "checker\t.cpp", 'require/chk.cpp', '..\\chk.cpp', '.hidden.cpp', str_repeat('a', 100) . '.cpp', null, array('chk.cpp')) as $wrong) {
+	check_same(true, dataProgramSourceError($wrong) !== '', 'no source of a program: ' . json_encode($wrong));
+}
+// the data check goes by the file that is named, and says which it is
+$named_conf = array('chk_source' => 'checker.cpp') + $without;
+check_same('', $errors_of(array_merge($files, array('checker.cpp')), array('n_sample_tests' => '1') + $named_conf), 'a checker that problem.conf names');
+check_same(true, strpos($errors_of($files, array('n_sample_tests' => '1') + $named_conf), 'checker.cpp') !== false, 'and that is not there');
+check_same(false, strpos($errors_of($files, array('n_sample_tests' => '1') + $named_conf), 'chk.cpp'), 'is missed under its own name');
+check_same(true, strpos($errors_of(array_merge($files, array('chk.cpp')), array('n_sample_tests' => '1', 'chk_source' => 'my chk.cpp') + $without), '改个名字') !== false, 'a name problem.conf can not hold');
+check_same(true, in_array('自己的校验器 checker.cpp，由评测机编译', uploadPreflight(array_merge($files, array('checker.cpp')), array('n_sample_tests' => '1') + $named_conf, false)['facts'], true), 'the report names the file');
+check_same(0, count(uploadPreflight(array_merge($files, array('checker.cpp')), array('n_sample_tests' => '1') + $named_conf, false)['warnings']), 'and does not call it a file nothing uses');
+check_same('', $errors_of(array_merge($files, array('solution.cpp', 'validator.cpp')), array('std_source' => 'solution.cpp', 'val_source' => 'validator.cpp') + $conf, true), 'the programs of a problem that can be hacked');
+check_same('', $errors_of(array_merge($files, array('judge.cpp')), array('interaction_mode' => 'on', 'interactor_source' => 'judge.cpp', 'n_sample_tests' => '1') + $without), 'an interactor that problem.conf names');
