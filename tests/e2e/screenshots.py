@@ -181,11 +181,54 @@ def seed():
     uoj.wait_idle()
     return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
             "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
-            "sitter": sitter, "contest": contest_id, "icpc": icpc}  # fmt: skip
+            "sitter": sitter, "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
+
+
+# ---- what is done on a page before its picture is taken. Each of these also checks that the
+# page did what it is there for: this is the only place where the scripts of the pages run.
+
+
+def pick_problem(page, seeded):
+    """the field that picks problems: what is typed is looked up, and offered"""
+    field = "#input-contest-problem-number"
+    page.click(field + "-search")
+    page.fill(field + "-search", "括号")
+    page.wait_for_selector(field + "-picker .uoj-picker-menu.show .dropdown-item.active")
+    offered = page.inner_text(field + "-picker .uoj-picker-menu .dropdown-item.active")
+    assert "括号匹配" in offered and "#%d" % seeded["second_public"] in offered, offered
+
+
+def picked_problem(page, seeded):
+    """and what is chosen stands in the field as a tag, and is what the form will send"""
+    field = "#input-contest-problem-number"
+    pick_problem(page, seeded)
+    page.keyboard.press("Enter")
+    page.wait_for_selector(field + "-picker .uoj-picker-chip")
+    assert "括号匹配" in page.inner_text(field + "-picker .uoj-picker-chip")
+    sent = page.eval_on_selector(field, "e => e.value")
+    assert sent == str(seeded["second_public"]), sent
+    # a second one, by its number, comes after it; the cross takes one away again
+    page.fill(field + "-search", "#%d" % seeded["public"])
+    page.wait_for_selector(field + "-picker .uoj-picker-menu.show .dropdown-item.active")
+    page.keyboard.press("Enter")
+    page.wait_for_function("document.querySelectorAll('%s-picker .uoj-picker-chip').length == 2" % field)
+    sent = page.eval_on_selector(field, "e => e.value")
+    assert sent == "%d %d" % (seeded["second_public"], seeded["public"]), sent
+    page.click(field + "-picker .uoj-picker-chip:first-of-type .uoj-picker-remove")
+    page.wait_for_function("document.querySelectorAll('%s-picker .uoj-picker-chip').length == 1" % field)
+    sent = page.eval_on_selector(field, "e => e.value")
+    assert sent == str(seeded["public"]), sent
+    # Enter that comes before the answer chooses what the answer begins with
+    page.fill(field + "-search", "括号")
+    page.keyboard.press("Enter")
+    page.wait_for_function("document.querySelectorAll('%s-picker .uoj-picker-chip').length == 2" % field)
+    assert page.url.endswith("#tab-problems"), page.url
+    sent = page.eval_on_selector(field, "e => e.value")
+    assert sent == "%d %d" % (seeded["public"], seeded["second_public"]), sent
 
 
 def pages(seeded):
-    """name of the picture, who looks, address"""
+    """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
     past, current = d + "/homework/%d" % seeded["past"], d + "/homework/%d" % seeded["current"]
     training = d + "/training/%d" % seeded["training"]
@@ -196,6 +239,8 @@ def pages(seeded):
         ("contest-new", "admin", "/contest/new"),
         ("contest-manage", "admin", "/contest/%d/manage" % seeded["icpc"]),
         ("contest-manage-problems", "admin", "/contest/%d/manage#tab-problems" % seeded["icpc"]),
+        ("picker-menu", "admin", "/contest/%d/manage#tab-problems" % seeded["icpc"], pick_problem),
+        ("picker-chosen", "admin", "/contest/%d/manage#tab-problems" % seeded["icpc"], picked_problem),
         ("icpc-home", "student", "/contest/%d" % seeded["icpc"]),
         ("icpc-standings-frozen", "student", "/contest/%d/standings" % seeded["icpc"]),
         ("icpc-standings-staff", "admin", "/contest/%d/standings" % seeded["icpc"]),
@@ -246,7 +291,7 @@ def main(out):
     clients = seed()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        for name, who, path in pages(clients):
+        for name, who, path, *then in pages(clients):
             for label, viewport in VIEWPORTS.items():
                 context = browser.new_context(viewport=viewport, locale="zh-CN")
                 client = clients[who]
@@ -256,6 +301,8 @@ def main(out):
                     )
                 page = context.new_page()
                 page.goto(uoj.BASE_URL + path, wait_until="networkidle")
+                for act in then:
+                    act(page, clients)
                 page.screenshot(path=os.path.join(out, "%s-%s.png" % (name, label)), full_page=True)
                 context.close()
                 print("took", name, label)

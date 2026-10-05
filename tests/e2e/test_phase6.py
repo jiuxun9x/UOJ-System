@@ -1236,3 +1236,125 @@ class BlogSwitchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def picked(client, scope, **query):
+    """what the field that picks problems is told for what was typed: number => title"""
+    query["scope"] = scope
+    r = client.get("/problems/pick", params=query)
+    assert r.status_code == 200, r.status_code
+    return [(row["number"], row["title"]) for row in r.json()["problems"]]
+
+
+class ProblemPickerTest(unittest.TestCase):
+    """problems are put into a contest, a homework or a training by what one remembers of them:
+    a number, or a piece of a title"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.teacher, cls.pupil, cls.outsider = (p3.account("p6_pick_" + name) for name in ("teacher", "pupil", "outsider"))
+        assert cls.admin.change_user("p6_pick_teacher", "grant:teacher") == ""
+        cls.slug = "p6-pick"
+        cls.did = cls.teacher.new_domain(cls.slug)
+        assert p4.member_form(cls.teacher, cls.slug, "add", username="p6_pick_pupil", role="member") == ""
+        # three problems of the domain, the first of them for everybody there
+        cls.numbers = {}
+        for title in ("p6 两数之和", "p6 修复一个错误", "p6 蒙眼猜数字 <1>"):
+            cls.numbers[title] = uoj.pid(cls.teacher.new_problem(cls.slug, title=title))
+        db("update problems set is_hidden = 0 where owner_domain_id = %d and domain_pid = %d" % (cls.did, cls.numbers["p6 两数之和"]))
+        # and on the site: one for everybody, one that is the teacher's, one that is nobody's business
+        cls.public = cls.admin.new_problem(title="p6 公开的求和")
+        db("update problems set is_hidden = 0 where id = %d" % cls.public)
+        cls.own = cls.teacher.new_problem(title="p6 老师的求和")
+        cls.secret = cls.admin.new_problem(title="p6 藏着的求和")
+
+    def test_what_is_typed_finds_the_problem(self):
+        teacher, numbers = self.teacher, self.numbers
+        two, fix, guess = (numbers[title] for title in ("p6 两数之和", "p6 修复一个错误", "p6 蒙眼猜数字 <1>"))
+        # a piece of the title, and letters of it in their order
+        self.assertEqual(picked(teacher, self.slug, q="一个错误"), [(fix, "p6 修复一个错误")])
+        self.assertEqual(picked(teacher, self.slug, q="修错"), [(fix, "p6 修复一个错误")])
+        self.assertEqual(picked(teacher, self.slug, q="错修"), [])
+        # a title is given as it reads, whatever it is kept as
+        self.assertEqual(picked(teacher, self.slug, q="数字 <1"), [(guess, "p6 蒙眼猜数字 <1>")])
+        # a number: the problem with that number comes first
+        self.assertEqual(picked(teacher, self.slug, q=str(fix))[0], (fix, "p6 修复一个错误"))
+        self.assertEqual(picked(teacher, self.slug, q="#%d" % two)[0], (two, "p6 两数之和"))
+        # nothing typed: the newest first
+        self.assertEqual([number for number, title in picked(teacher, self.slug, q="")], [guess, fix, two])
+        # the problems with given numbers, in the order of the numbers; what is not there is left out
+        self.assertEqual(
+            picked(teacher, self.slug, numbers="%d, %d 99999" % (guess, two)),
+            [(guess, "p6 蒙眼猜数字 <1>"), (two, "p6 两数之和")],
+        )
+        # what is hidden is said to be
+        hidden = {row["number"]: row["hidden"] for row in teacher.get("/problems/pick?scope=%s" % self.slug).json()["problems"]}
+        self.assertEqual(hidden, {two: False, fix: True, guess: True})
+
+    def test_nobody_is_shown_what_is_not_theirs_to_see(self):
+        numbers = self.numbers
+        two = numbers["p6 两数之和"]
+        # in a domain: its pupils the problems that are open, who is not in it nothing at all
+        self.assertEqual(picked(self.pupil, self.slug, q="p6"), [(two, "p6 两数之和")])
+        self.assertEqual(picked(self.pupil, self.slug, numbers=" ".join(str(n) for n in numbers.values())), [(two, "p6 两数之和")])
+        for nobody in (self.outsider, uoj.Client()):
+            self.assertEqual(picked(nobody, self.slug, q=""), [])
+            self.assertEqual(picked(nobody, self.slug, numbers=str(two)), [])
+            self.assertEqual(picked(nobody, "no-such-domain", q=""), [])
+        # on the site: to read, what is open and what is one's own; to put into a contest, one's own
+        found = lambda client, **query: sorted(number for number, title in picked(client, "site", q="p6 求和", **query))
+        self.assertEqual(found(self.teacher), sorted([self.public, self.own]))
+        self.assertEqual(found(self.teacher, purpose="manage"), [self.own])
+        self.assertEqual(found(self.pupil), [self.public])
+        self.assertEqual(found(self.pupil, purpose="manage"), [])
+        self.assertEqual(found(self.admin, purpose="manage"), sorted([self.public, self.own, self.secret]))
+        self.assertEqual(found(uoj.Client()), [])
+        # the problems of a domain are not among the problems of the site
+        self.assertEqual(picked(self.admin, "site", q="p6 两数之和"), [])
+
+    def test_the_forms_take_what_was_picked(self):
+        teacher, slug, numbers = self.teacher, self.slug, self.numbers
+        two, fix, guess = (numbers[title] for title in ("p6 两数之和", "p6 修复一个错误", "p6 蒙眼猜数字 <1>"))
+        picker = lambda field, scope: r'class="[^"]*uoj-problem-picker[^"]*"[^>]*name="%s"[^>]*data-scope="%s"' % (field, scope)
+        # every form that takes problems has the field that picks them, looking in the right place
+        self.assertRegex(teacher.get("/d/%s/contest/new" % slug).text, picker("problems", slug))
+        self.assertRegex(self.admin.get("/contest/new").text, picker("problems", "site"))
+        self.assertRegex(teacher.get("/d/%s/problems" % slug).text, picker("problem_id", "site"))
+
+        # a homework takes several at once, each with the score that was given
+        homework_id = p4.new_homework(teacher, slug, title="p6 选题作业")
+        manage = "/d/%s/homework/%d/manage" % (slug, homework_id)
+        self.assertRegex(teacher.get(manage + "?tab=problems").text, picker("problem_id", slug))
+        self.assertEqual(teacher.form(manage, "add_problem", problem_id="%d %d" % (fix, two), score="40"), "")
+        in_homework = db(
+            "select problems.domain_pid, homework_problems.score from homework_problems, problems"
+            " where homework_id = %d and problems.id = homework_problems.problem_id order by position" % homework_id
+        )
+        self.assertEqual(in_homework, [[str(fix), "40"], [str(two), "40"]])
+        # one that is not there is named, and the ones before it stay
+        self.assertIn("题目 #99999", teacher.form(manage, "add_problem", problem_id="%d 99999" % guess, score="20"))
+        self.assertEqual(db_value("select count(*) from homework_problems where homework_id = %d" % homework_id), "3")
+        self.assertIn("本域没有这个题号", teacher.form(manage, "add_problem", problem_id="", score="20"))
+
+        # a training likewise
+        self.assertEqual(teacher.form("/d/%s/training/new" % slug, "save", title="p6 选题训练", description_md="", status="draft"), "")
+        training_id = int(db_value("select max(id) from trainings where domain_id = %d" % self.did))
+        manage = "/d/%s/training/%d/manage" % (slug, training_id)
+        self.assertRegex(teacher.get(manage).text, picker("problem_id", slug))
+        self.assertEqual(teacher.form(manage, "add_problem", problem_id="%d,%d" % (guess, fix)), "")
+        in_training = db(
+            "select problems.domain_pid from training_problems, problems"
+            " where training_id = %d and problems.id = training_problems.problem_id order by position" % training_id
+        )
+        self.assertEqual(in_training, [[str(guess)], [str(fix)]])
+
+        # and a contest, as it did before
+        contest_id = teacher.new_contest("p6 选题比赛", domain=slug, problems="%d %d" % (two, guess))
+        self.assertRegex(teacher.get("/contest/%d/manage" % contest_id).text, picker("number", slug))
+        self.assertEqual(teacher.form("/contest/%d/manage" % contest_id, "add_problem", number=str(fix), tab="problems"), "")
+        in_contest = db(
+            "select problems.domain_pid from contests_problems, problems"
+            " where contest_id = %d and problems.id = contests_problems.problem_id order by position" % contest_id
+        )
+        self.assertEqual(in_contest, [[str(two)], [str(guess)], [str(fix)]])

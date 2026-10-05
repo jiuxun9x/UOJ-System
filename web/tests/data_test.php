@@ -320,3 +320,20 @@ check_same('', $errors_of($files, array('multi_pass' => '1') + $conf), 'one pass
 $custom = uploadPreflight(array('problem.conf', 'judger.cpp', 'Makefile'), array('use_builtin_judger' => 'off'), false);
 check_same(array(0, 1), array(count($custom['errors']), count($custom['warnings'])), 'a judger of its own is said to need the system administrator');
 
+
+// ---- finding a problem by what one remembers of it
+check_same(0, problemPickRank('248', 248, '修复一个错误'), 'the problem with the number that was typed');
+check_same(0, problemPickRank('#248', 248, '修复一个错误'), 'the number written the way the lists write it');
+check_same(0, problemPickRank('0248', 248, '修复一个错误'), 'zeros in front of a number');
+check_same(1, problemPickRank('24', 248, '修复一个错误'), 'a number that begins so');
+check_same(null, problemPickRank('48', 248, '修复一个错误'), 'a number that only ends so is not it');
+check_same(2, problemPickRank('24', 7, '24 点'), 'digits that are in the title');
+check_same(2, problemPickRank('一个错误', 248, '修复一个错误'), 'a piece of the title');
+check_same(2, problemPickRank('a + b', 1, 'A + B Problem'), 'capitals do not matter');
+check_same(3, problemPickRank('修错', 248, '修复一个错误'), 'letters of the title in their order');
+check_same(3, problemPickRank('ab prob', 1, 'A + B Problem'), 'spaces between them do not count');
+check_same(null, problemPickRank('错修', 248, '修复一个错误'), 'and not in another order');
+check_same(null, problemPickRank('两数之和', 248, '修复一个错误'), 'another problem altogether');
+check_same(3, problemPickRank('  ', 248, '修复一个错误'), 'nothing typed asks for nothing');
+check_same(2, problemPickRank('a<b', 3, 'a&lt;b 与 b&gt;a'), 'a title is read as it is printed');
+check_same('a<b & "c"', problemPlainTitle('a&lt;b &amp; &quot;c&quot;'), 'and given as it reads');

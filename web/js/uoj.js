@@ -470,7 +470,238 @@ $.fn.uoj_highlight = function() {
 
 $(document).ready(function() {
 	$('body').uoj_highlight();
+	$('.uoj-problem-picker').uoj_problem_picker();
 });
+
+// A field that takes problems. What is typed, a number or a piece of a title, is looked up,
+// and the problems that are chosen stand in the field as tags. The field itself goes on
+// holding their numbers, as when they are typed, so the form is sent the way it always was;
+// what is typed and not chosen is sent with them.
+//   data-scope      'site', or the address name of the domain whose problems are meant
+//   data-purpose    'manage' to be shown the problems one may put into a contest
+//   data-multiple   several problems, in the order they were chosen
+//   data-prefix     what a number is sent with in front of it
+$.fn.uoj_problem_picker = function() {
+	return this.each(function() {
+		var field = $(this);
+		if (field.data('uoj-picker')) {
+			return;
+		}
+		field.data('uoj-picker', true);
+		var multiple = field.attr('data-multiple') !== undefined;
+		var chosen = [];
+		var found = [];
+		var active = -1;
+		var asked = 0;
+		var timer = null;
+		// what the problems that are offered were looked up for, and whether Enter was
+		// pressed before the answer to what is typed now was there
+		var answered = null;
+		var entered = false;
+
+		var box = $('<div class="form-control uoj-picker"></div>');
+		var input = $('<input type="text" class="uoj-picker-input" autocomplete="off" />').attr('placeholder', field.attr('placeholder') || '');
+		var menu = $('<div class="dropdown-menu uoj-picker-menu"></div>');
+		if (field[0].style.width) {
+			box.css('min-width', field[0].style.width);
+		}
+		if (field.attr('id')) {
+			input.attr('id', field.attr('id') + '-search');
+			box.attr('id', field.attr('id') + '-picker');
+		}
+		box.append(input).append(menu);
+		// a field nobody sees can not be asked for by the browser
+		field.removeAttr('required').removeAttr('pattern').hide().after(box);
+
+		var scope = function() {
+			return field.attr('data-scope') || 'site';
+		};
+		var isChosen = function(number) {
+			for (var i = 0; i < chosen.length; i++) {
+				if (chosen[i].number == number) {
+					return i;
+				}
+			}
+			return -1;
+		};
+		var sync = function() {
+			var prefix = field.attr('data-prefix') || '';
+			var typed = $.trim(input.val());
+			var parts = [];
+			if (multiple || typed === '') {
+				for (var i = 0; i < chosen.length; i++) {
+					parts.push(prefix + chosen[i].number);
+				}
+			}
+			if (typed !== '') {
+				parts.push(typed);
+			}
+			field.val(parts.join(' ')).trigger('change');
+		};
+		var showChosen = function() {
+			box.children('.uoj-picker-chip').remove();
+			$.each(chosen, function(i, problem) {
+				var chip = $('<span class="uoj-picker-chip"></span>').attr('data-number', problem.number);
+				chip.append($('<span class="uoj-picker-number"></span>').text(problem.number));
+				chip.append($('<span class="uoj-picker-title"></span>').text(problem.title));
+				chip.append($('<a href="#" class="uoj-picker-remove" title="去掉">&times;</a>').click(function(e) {
+					e.preventDefault();
+					chosen.splice(isChosen(problem.number), 1);
+					showChosen();
+					input.focus();
+				}));
+				chip.insertBefore(input);
+			});
+			sync();
+		};
+		var closeMenu = function() {
+			menu.removeClass('show');
+			active = -1;
+		};
+		var choose = function(problem) {
+			var at = isChosen(problem.number);
+			if (at >= 0) {
+				chosen.splice(at, 1);
+			} else if (multiple) {
+				chosen.push(problem);
+			} else {
+				chosen = [problem];
+			}
+			input.val('');
+			entered = false;
+			closeMenu();
+			showChosen();
+		};
+		var showMenu = function() {
+			menu.empty();
+			if (!found.length) {
+				menu.append($('<span class="dropdown-item-text text-muted small"></span>').text($.trim(input.val()) === '' ? '这里还没有可以选的题目' : '没有找到这样的题目'));
+			}
+			$.each(found, function(i, problem) {
+				var item = $('<a href="#" class="dropdown-item"></a>').attr('data-number', problem.number);
+				item.append($('<span class="uoj-picker-number"></span>').text('#' + problem.number));
+				item.append($('<span></span>').text(problem.title));
+				if (problem.hidden) {
+					item.append(' <span class="badge badge-secondary">隐藏</span>');
+				}
+				if (isChosen(problem.number) >= 0) {
+					item.append(' <span class="glyphicon glyphicon-ok text-success"></span>');
+				}
+				if (i === active) {
+					item.addClass('active');
+				}
+				// before the field loses the cursor to the click
+				item.on('mousedown', function(e) {
+					e.preventDefault();
+				}).on('click', function(e) {
+					e.preventDefault();
+					choose(problem);
+				});
+				menu.append(item);
+			});
+			menu.addClass('show');
+		};
+		var lookUp = function() {
+			var mine = ++asked;
+			var typed = input.val();
+			$.getJSON(uojHome + '/problems/pick', {scope: scope(), purpose: field.attr('data-purpose') || '', q: typed}, function(answer) {
+				if (mine !== asked || !input.is(':focus')) {
+					return;
+				}
+				found = answer.problems || [];
+				answered = typed;
+				active = found.length && $.trim(typed) !== '' ? 0 : -1;
+				if (entered && active >= 0) {
+					choose(found[active]);
+					return;
+				}
+				entered = false;
+				showMenu();
+			});
+		};
+
+		box.on('click', function(e) {
+			if (e.target === box[0]) {
+				input.focus();
+			}
+		});
+		input.on('focus', function() {
+			box.addClass('focus');
+			lookUp();
+		}).on('blur', function() {
+			box.removeClass('focus');
+			asked++;
+			entered = false;
+			closeMenu();
+			sync();
+		}).on('input', function() {
+			clearTimeout(timer);
+			timer = setTimeout(lookUp, 150);
+			entered = false;
+			sync();
+		}).on('keydown', function(e) {
+			if (e.which === 40 || e.which === 38) {
+				if (menu.hasClass('show') && found.length) {
+					active = (active + (e.which === 40 ? 1 : found.length - 1) + (active < 0 && e.which === 38 ? 1 : 0)) % found.length;
+					showMenu();
+					var item = menu.children('.active')[0];
+					if (item && item.scrollIntoView) {
+						item.scrollIntoView({block: 'nearest'});
+					}
+				}
+				e.preventDefault();
+			} else if (e.which === 13) {
+				if ($.trim(input.val()) !== '' && answered !== input.val()) {
+					// typed faster than it was looked up: it is chosen when the answer is there
+					e.preventDefault();
+					entered = true;
+				} else if (menu.hasClass('show') && active >= 0 && found[active]) {
+					e.preventDefault();
+					choose(found[active]);
+				}
+			} else if (e.which === 27) {
+				closeMenu();
+			} else if (e.which === 8 && input.val() === '' && chosen.length) {
+				chosen.pop();
+				showChosen();
+			}
+		});
+		field.closest('form').on('submit', sync);
+		// another place to look in: what was chosen was chosen from the other place
+		field.on('uoj-picker-scope', function(e, newScope, prefix) {
+			field.attr('data-scope', newScope).attr('data-prefix', prefix || '');
+			chosen = [];
+			input.val('');
+			showChosen();
+		});
+
+		// the numbers the field came with are the problems that are chosen
+		var numbers = $.trim(field.val());
+		if (numbers !== '' && /^[0-9#\s,，;；、]+$/.test(numbers)) {
+			$.getJSON(uojHome + '/problems/pick', {scope: scope(), purpose: field.attr('data-purpose') || '', numbers: numbers}, function(answer) {
+				var known = {};
+				$.each(answer.problems || [], function(i, problem) {
+					known[problem.number] = problem;
+				});
+				var left = [];
+				$.each(numbers.split(/[^0-9]+/), function(i, number) {
+					if (number === '') {
+						return;
+					}
+					if (known[parseInt(number, 10)] && isChosen(parseInt(number, 10)) < 0 && (multiple || !chosen.length)) {
+						chosen.push(known[parseInt(number, 10)]);
+					} else {
+						left.push(number);
+					}
+				});
+				input.val(left.join(' '));
+				showChosen();
+			});
+		} else {
+			input.val(numbers);
+		}
+	});
+};
 
 // contest notice
 function checkContestNotice(id, lastTime) {

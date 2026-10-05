@@ -51,11 +51,19 @@
 	);
 	if ($homework) {
 		$forms += array(
-			'add_problem' => function() use ($domain, $homework, $posted_problem_id) {
+			'add_problem' => function() use ($domain, $homework) {
 				global $myUser;
 				$score = isset($_POST['score']) && validateUInt($_POST['score']) ? (int)$_POST['score'] : 0;
-				// the number that is typed is the number the problem has in the domain
-				return homeworkAddProblem($homework, queryDomainProblem($domain['id'], $posted_problem_id()), $score, !isset($_POST['optional']), $myUser);
+				// the numbers that are typed or picked are the numbers the problems have in the
+				// domain; several are added one after the other, each with this score
+				$numbers = domainPostedProblemNumbers();
+				foreach ($numbers ? $numbers : array(0) as $number) {
+					$err = homeworkAddProblem($homework, queryDomainProblem($domain['id'], $number), $score, !isset($_POST['optional']), $myUser);
+					if ($err !== '') {
+						return count($numbers) > 1 ? "题目 #{$number}：$err" : $err;
+					}
+				}
+				return '';
 			},
 			'update_problem' => function() use ($homework, $posted_problem_id) {
 				global $myUser;
@@ -467,7 +475,7 @@ $(document).ready(function() {
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="add_problem" />
 			<label class="mr-2 mb-2" for="input-homework-problem-id">添加题目</label>
-			<input type="text" class="form-control mr-2 mb-2" id="input-homework-problem-id" name="problem_id" pattern="[0-9]+" required="required" placeholder="本域题号" style="width:7em" />
+			<input type="text" class="form-control mr-2 mb-2 uoj-problem-picker" id="input-homework-problem-id" name="problem_id" required="required" placeholder="题号或标题的一部分" data-scope="<?= $domain['slug'] ?>" data-multiple="" style="width:16em" />
 			<input type="number" class="form-control mr-2 mb-2" name="score" min="1" max="10000" value="100" title="分值" style="width:6em" />
 			<div class="custom-control custom-checkbox mr-3 mb-2">
 				<input type="checkbox" class="custom-control-input" id="input-new-optional" name="optional" />
@@ -475,7 +483,7 @@ $(document).ready(function() {
 			</div>
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
-		<small class="text-muted">填本域“题目”页里的题号。要用主站的题目，先到 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页把它复制到本域：副本是本域自己的题，之后别人修改原题不会影响这次作业。</small>
+		<small class="text-muted">输入题号或标题的一部分，从列出的本域题目里选，可以一次选几道，它们的分值相同，添加之后可以分别改。要用主站的题目，先到 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页把它复制到本域：副本是本域自己的题，之后别人修改原题不会影响这次作业。</small>
 	</div>
 </div>
 <form method="post" class="d-inline" onsubmit="return confirm('发布后学生就能看到这个作业并认领，题目列表不能再改。确定发布吗？');">

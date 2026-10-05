@@ -269,3 +269,77 @@
 	color: #1b3a5c;
 	font-weight: bold;
 }
+
+/* ---- a field that takes problems: what is chosen stands in it as tags */
+.form-control.uoj-picker {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	position: relative;
+	height: auto;
+	min-height: calc(1.5em + 0.75rem + 2px);
+	padding: 0.15rem 0.4rem;
+	cursor: text;
+}
+.form-inline .form-control.uoj-picker {
+	flex: 1 1 22em;
+	max-width: 100%;
+}
+.uoj-picker.focus {
+	border-color: #80bdff;
+	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+.uoj-picker-chip {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	margin: 0.15rem 0.35rem 0.15rem 0;
+	padding: 0.1rem 0.45rem;
+	background: #f1f3f5;
+	border: 1px solid #ced4da;
+	border-radius: 0.2rem;
+	white-space: nowrap;
+}
+.uoj-picker-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.uoj-picker-number {
+	margin-right: 0.4rem;
+	color: #6c757d;
+	font-variant-numeric: tabular-nums;
+}
+.uoj-picker-remove, .uoj-picker-remove:hover {
+	margin-left: 0.45rem;
+	color: #6c757d;
+	font-weight: bold;
+	line-height: 1;
+	text-decoration: none;
+}
+.uoj-picker-remove:hover {
+	color: #dc3545;
+}
+.uoj-picker-input {
+	flex: 1 1 9em;
+	min-width: 9em;
+	padding: 0.2rem 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+}
+.uoj-picker-menu {
+	top: 100%;
+	left: 0;
+	min-width: 20rem;
+	max-width: 100%;
+	max-height: 21rem;
+	overflow-y: auto;
+}
+.uoj-picker-menu .dropdown-item {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.uoj-picker-menu .dropdown-item.active .uoj-picker-number,
+.uoj-picker-menu .dropdown-item.active .text-success {
+	color: #fff !important;
+}

@@ -18,6 +18,7 @@ Route::group([
 		Route::any('/', '/index.php');
 		Route::any('/problems', '/problem_set.php');
 		Route::any('/problems/template', '/problem_set.php?tab=template');
+		Route::any('/problems/pick', '/problem_pick.php');
 		Route::any('/problem/new', '/problem_new.php');
 		Route::any('/problem/{id}', '/problem.php');
 		Route::any('/problem/{id}/statistics', '/problem_statistics.php');

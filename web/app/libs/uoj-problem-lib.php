@@ -631,3 +631,143 @@ function problemSync($problem, $actor) {
 	$waiting = dataWaitingVersion($problem['id']);
 	return array(true, $waiting ? '数据已提交，评测机编译好题目带的程序后自动发布' : '数据已发布，可以评测了');
 }
+
+// ---- finding a problem by what one remembers of it: its number, or a piece of its title
+
+// what the title of a problem reads as: titles are kept the way the pages print them
+function problemPlainTitle($title) {
+	return html_entity_decode(strip_tags((string)$title), ENT_QUOTES, 'UTF-8');
+}
+// How well a problem answers what somebody typed. 0 is the problem with that number, 1 a
+// number that begins so, 2 a title with these words in it, 3 a title with these letters in
+// this order; null is a problem that does not answer it at all. Nothing typed asks for nothing.
+function problemPickRank($query, $number, $title) {
+	$query = trim((string)$query);
+	if ($query === '') {
+		return 3;
+	}
+	$digits = ltrim($query, '#');
+	if (preg_match('/^[0-9]{1,10}$/D', $digits)) {
+		$digits = ltrim($digits, '0');
+		if ($digits !== '' && (string)$number === $digits) {
+			return 0;
+		}
+		if ($digits !== '' && strpos((string)$number, $digits) === 0) {
+			return 1;
+		}
+	}
+	$title = mb_strtolower(problemPlainTitle($title), 'UTF-8');
+	$query = mb_strtolower($query, 'UTF-8');
+	if (mb_strpos($title, $query, 0, 'UTF-8') !== false) {
+		return 2;
+	}
+	$from = 0;
+	foreach (preg_split('//u', preg_replace('/\s+/u', '', $query), -1, PREG_SPLIT_NO_EMPTY) as $letter) {
+		$at = mb_strpos($title, $letter, $from, 'UTF-8');
+		if ($at === false) {
+			return null;
+		}
+		$from = $at + 1;
+	}
+	return 3;
+}
+// Where somebody may look for problems: array(the condition in SQL, the column that holds
+// the numbers people call the problems by), or null when they may not look there at all.
+//   $scope     'site', or the address name of a domain
+//   $purpose   'manage' for the problems one may put into a contest, anything else for the
+//              problems one may read
+function problemPickScope($actor, $scope, $purpose) {
+	if ($actor == null) {
+		return null;
+	}
+	$mine = "problems.id in (select problem_id from problems_permissions where username = '".DB::escape($actor['username'])."')";
+	if ($scope === 'site') {
+		if (isSiteAdmin($actor)) {
+			return array('problems.owner_domain_id is null', 'id');
+		}
+		return array('problems.owner_domain_id is null and ' . ($purpose === 'manage' ? $mine : "(problems.is_hidden = 0 or $mine)"), 'id');
+	}
+	$domain = is_string($scope) && validateDomainSlug($scope) ? queryDomainBySlug($scope) : null;
+	if (!$domain || !can($actor, 'domain.view', $domain)) {
+		return null;
+	}
+	// what is hidden in a domain is for the people who teach there
+	$cond = "problems.owner_domain_id = {$domain['id']} and problems.domain_pid is not null";
+	if (!can($actor, 'domain.teach', $domain)) {
+		$cond .= ' and problems.is_hidden = 0';
+	}
+	return array($cond, 'domain_pid');
+}
+// The problems that answer what somebody typed, the best answers first: rows of number,
+// title and hidden. Null when the user may not look there.
+function problemPick($actor, $scope, $purpose, $query, $limit = 20) {
+	$where = problemPickScope($actor, $scope, $purpose);
+	if ($where === null) {
+		return null;
+	}
+	list($cond, $column) = $where;
+	$query = mb_substr(trim((string)$query), 0, 50, 'UTF-8');
+	if ($query !== '') {
+		// the letters in their order, as the titles are kept
+		$like = '%';
+		foreach (preg_split('//u', preg_replace('/\s+/u', '', $query), -1, PREG_SPLIT_NO_EMPTY) as $letter) {
+			$like .= DB::escape(addcslashes(HTML::escape($letter), '\\%_')) . '%';
+		}
+		$match = "problems.title like '$like'";
+		$digits = ltrim(ltrim($query, '#'), '0');
+		if ($digits !== '' && preg_match('/^[0-9]{1,10}$/D', $digits)) {
+			$match = "($match or problems.$column like '$digits%')";
+		}
+		$cond .= " and $match";
+	}
+	$found = array();
+	foreach (DB::selectAll("select problems.id, problems.$column as number, problems.title, problems.is_hidden from problems where $cond order by problems.$column desc limit 500") as $row) {
+		$rank = problemPickRank($query, $row['number'], $row['title']);
+		if ($rank !== null) {
+			$found[] = array('rank' => $rank, 'number' => (int)$row['number'], 'title' => problemPlainTitle($row['title']), 'hidden' => (bool)$row['is_hidden']);
+		}
+	}
+	// the newest first among answers that are as good as each other, as in the list that
+	// nothing was typed for; among numbers that begin the same, the smallest
+	usort($found, function($a, $b) {
+		if ($a['rank'] != $b['rank']) {
+			return $a['rank'] < $b['rank'] ? -1 : 1;
+		}
+		return $a['rank'] == 1 ? $a['number'] - $b['number'] : $b['number'] - $a['number'];
+	});
+	$rows = array();
+	foreach (array_slice($found, 0, $limit) as $row) {
+		unset($row['rank']);
+		$rows[] = $row;
+	}
+	return $rows;
+}
+// the problems with these numbers, in the order of the numbers; one that is not there, or
+// not to be seen, is left out
+function problemPickByNumbers($actor, $scope, $purpose, $numbers) {
+	$where = problemPickScope($actor, $scope, $purpose);
+	if ($where === null) {
+		return null;
+	}
+	list($cond, $column) = $where;
+	$wanted = array();
+	foreach ($numbers as $number) {
+		if (validateUInt((string)$number) && $number > 0 && count($wanted) < 100) {
+			$wanted[(int)$number] = true;
+		}
+	}
+	if (!$wanted) {
+		return array();
+	}
+	$known = array();
+	foreach (DB::selectAll("select problems.$column as number, problems.title, problems.is_hidden from problems where $cond and problems.$column in (".join(',', array_keys($wanted)).")") as $row) {
+		$known[(int)$row['number']] = array('number' => (int)$row['number'], 'title' => problemPlainTitle($row['title']), 'hidden' => (bool)$row['is_hidden']);
+	}
+	$rows = array();
+	foreach (array_keys($wanted) as $number) {
+		if (isset($known[$number])) {
+			$rows[] = $known[$number];
+		}
+	}
+	return $rows;
+}

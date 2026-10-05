@@ -223,6 +223,20 @@ function domainUrl($domain, $path = '') {
 	return "/d/{$domain['slug']}$path";
 }
 
+// The numbers of problems a form sent in one field, typed or picked: several, in their
+// order, each once.
+function domainPostedProblemNumbers($field = 'problem_id') {
+	$numbers = array();
+	if (isset($_POST[$field]) && is_string($_POST[$field])) {
+		foreach (preg_split('/[^0-9]+/', $_POST[$field], -1, PREG_SPLIT_NO_EMPTY) as $number) {
+			if (strlen($number) <= 9 && !in_array((int)$number, $numbers, true) && count($numbers) < 100) {
+				$numbers[] = (int)$number;
+			}
+		}
+	}
+	return $numbers;
+}
+
 // What every page inside a domain starts with: the domain of the address, for somebody who may
 // be inside. Everybody else is sent away without learning whether the domain exists.
 function domainOfPage() {

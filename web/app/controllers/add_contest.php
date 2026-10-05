@@ -54,9 +54,9 @@
 	<?php uojIncludeView('contest-settings-form', array('settings' => $settings, 'may_rate' => $may_rate, 'in_domain' => $domain !== null, 'has_password' => false)) ?>
 	<div class="form-group">
 		<label for="input-contest-problems">试题</label>
-		<input type="text" class="form-control" id="input-contest-problems" name="problems" placeholder="例如 12 15 23" value="<?= HTML::escape($problem_numbers) ?>" />
+		<input type="text" class="form-control uoj-problem-picker" id="input-contest-problems" name="problems" placeholder="题号或标题的一部分" data-scope="<?= $domain ? $domain['slug'] : 'site' ?>" data-purpose="manage" data-multiple="" value="<?= HTML::escape($problem_numbers) ?>" />
 		<small class="form-text text-muted">
-			<?= $domain ? '填本域的题号' : '填题号' ?>，用空格或逗号分开，按这里的顺序编为 A、B、C……只能加入你管理的题目。可以先留空，创建之后在“试题”页里添加、调整顺序。
+			输入题号或标题的一部分，从列出的题目里选；列出的是你管理的<?= $domain ? '本域' : '' ?>题目。按选的顺序编为 A、B、C……可以先留空，创建之后在“试题”页里添加、调整顺序。
 			<?php if ($domain): ?>要用主站的题目，先在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页把它复制到本域。<?php endif ?>
 		</small>
 	</div>

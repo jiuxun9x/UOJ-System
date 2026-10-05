@@ -37,10 +37,17 @@
 	);
 	if ($training) {
 		$forms += array(
-			'add_problem' => function() use ($domain, $training, $posted_problem_id) {
+			'add_problem' => function() use ($domain, $training) {
 				global $myUser;
-				// the number that is typed is the number the problem has in the domain
-				return trainingAddProblem($training, queryDomainProblem($domain['id'], $posted_problem_id()), !isset($_POST['optional']), $myUser);
+				// the numbers that are typed or picked are the numbers the problems have in the domain
+				$numbers = domainPostedProblemNumbers();
+				foreach ($numbers ? $numbers : array(0) as $number) {
+					$err = trainingAddProblem($training, queryDomainProblem($domain['id'], $number), !isset($_POST['optional']), $myUser);
+					if ($err !== '') {
+						return count($numbers) > 1 ? "题目 #{$number}：$err" : $err;
+					}
+				}
+				return '';
 			},
 			'update_problem' => function() use ($training, $posted_problem_id) {
 				global $myUser;
@@ -165,14 +172,14 @@
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="add_problem" />
 			<label class="mr-2 mb-2" for="input-problem_id">添加题目</label>
-			<input type="text" class="form-control mr-2 mb-2" id="input-problem_id" name="problem_id" placeholder="本域题号" required="required" style="width:7em" />
+			<input type="text" class="form-control mr-2 mb-2 uoj-problem-picker" id="input-problem_id" name="problem_id" placeholder="题号或标题的一部分" required="required" data-scope="<?= $domain['slug'] ?>" data-multiple="" style="width:16em" />
 			<div class="custom-control custom-checkbox mr-2 mb-2">
 				<input type="checkbox" class="custom-control-input" id="input-optional" name="optional" />
 				<label class="custom-control-label" for="input-optional">选做</label>
 			</div>
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
-		<p class="text-muted small">填本域“题目”页里的题号。本域的题目在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页里新建；要用主站的题目，先在那里把它复制到本域。</p>
+		<p class="text-muted small">输入题号或标题的一部分，从列出的本域题目里选，可以一次选几道。本域的题目在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页里新建；要用主站的题目，先在那里把它复制到本域。</p>
 	</div>
 	<?php endif ?>
 </div>

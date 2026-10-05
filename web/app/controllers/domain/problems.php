@@ -32,6 +32,16 @@
 		}
 	));
 	
+	// where a problem can be copied from: the site, and the other domains one teaches in
+	$copy_sources = array();
+	if ($can_teach) {
+		foreach (domainsOfUser($myUser['username']) as $other) {
+			if ($other['id'] != $domain['id'] && in_array($other['my_role'], array('owner', 'admin', 'teacher'), true)) {
+				$copy_sources[] = $other;
+			}
+		}
+	}
+
 	$esc_username = Auth::check() ? DB::escape(Auth::id()) : '';
 	$problems = DB::selectAll("select problems.*, best_ac_submissions.submission_id as accepted_submission_id from problems left join best_ac_submissions on best_ac_submissions.problem_id = problems.id and best_ac_submissions.submitter = '$esc_username' where problems.owner_domain_id = {$domain['id']}".($can_teach ? '' : ' and problems.is_hidden = 0')." order by problems.domain_pid, problems.id");
 ?>
@@ -45,13 +55,32 @@
 		<form method="post" class="form-inline mb-2" id="form-copy-problem">
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="copy" />
+			<?php if ($copy_sources): ?>
+			<label class="mr-2" for="select-copy-source">复制</label>
+			<select class="form-control mr-2" id="select-copy-source" title="从哪里复制">
+				<option value="site">主站的题目</option>
+				<?php foreach ($copy_sources as $other): ?>
+				<option value="<?= $other['slug'] ?>"><?= HTML::escape($other['name']) ?> 的题目</option>
+				<?php endforeach ?>
+			</select>
+			<?php else: ?>
 			<label class="mr-2" for="input-copy-problem-id">从主站复制</label>
-			<input type="text" class="form-control mr-2" id="input-copy-problem-id" name="problem_id" pattern="[0-9]+|[a-z0-9][a-z0-9-]+[#/][0-9]+" required="required" placeholder="主站题号" style="width:8em" />
-			<button type="submit" class="btn btn-outline-primary">复制到本域</button>
+			<?php endif ?>
+			<input type="text" class="form-control mr-2 uoj-problem-picker" id="input-copy-problem-id" name="problem_id" required="required" placeholder="题号或标题的一部分" data-scope="site" style="width:18em" />
+			<button type="submit" class="btn btn-outline-primary ml-2">复制到本域</button>
 		</form>
+		<?php if ($copy_sources): ?>
+		<script type="text/javascript">
+		// a problem of another domain is sent as "the address name of the domain # its number"
+		$('#select-copy-source').on('change', function() {
+			var from = $(this).val();
+			$('#input-copy-problem-id').trigger('uoj-picker-scope', [from, from === 'site' ? '' : from + '#']);
+		});
+		</script>
+		<?php endif ?>
 	</div>
 	<div class="card-footer text-muted small">
-		本域的题目有自己的编号，从 1 开始，和主站的题号互不相干。作业、训练和比赛只能用本域的题目：要用主站的题，先在这里复制。复制得到的是一道独立的题目，题面、数据和配置都可以单独修改，和原题互不影响。你任教的另一个域里的题也可以复制，写成“域的地址名#题号”，例如 <code>cs101#3</code>。
+		本域的题目有自己的编号，从 1 开始，和主站的题号互不相干。作业、训练和比赛只能用本域的题目：要用主站的题，先在这里复制。复制得到的是一道独立的题目，题面、数据和配置都可以单独修改，和原题互不影响。输入题号或标题的一部分，从列出的题目里选。你任教的另一个域里的题也可以复制<?= $copy_sources ? '：先在左边选那个域' : '' ?>，或者直接写成“域的地址名#题号”，例如 <code>cs101#3</code>。
 	</div>
 </div>
 <?php endif ?>

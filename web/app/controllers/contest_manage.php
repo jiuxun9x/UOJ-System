@@ -257,11 +257,12 @@
 			<input type="hidden" name="form" value="add_problem" />
 			<input type="hidden" name="tab" value="problems" />
 			<label class="mr-2 mb-2" for="input-contest-problem-number">添加试题</label>
-			<input type="text" class="form-control mr-2 mb-2" id="input-contest-problem-number" name="number" required="required" placeholder="<?= $contest['domain_id'] ? '本域题号' : '题号' ?>，可以一次填几个" style="width:16em" />
+			<?php $contest_domain = $contest['domain_id'] ? queryDomain($contest['domain_id']) : null; ?>
+			<input type="text" class="form-control mr-2 mb-2 uoj-problem-picker" id="input-contest-problem-number" name="number" required="required" placeholder="题号或标题的一部分" data-scope="<?= $contest_domain ? $contest_domain['slug'] : 'site' ?>" data-purpose="manage" data-multiple="" style="width:16em" />
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
 		<small class="form-text text-muted">
-			只能添加你管理的题目，几个题号之间用空格或逗号分开。题目按表里的顺序编为 A、B、C……
+			输入题号或标题的一部分，从列出的题目里选，可以一次选几道；列出的是你管理的<?= $contest['domain_id'] ? '本域' : '' ?>题目。题目按表里的顺序编为 A、B、C……
 			<?php if ($contest['domain_id']): ?>这是域内的比赛，用的是本域的题目：主站的题目要先在域的“题目”页复制到本域。<?php endif ?>
 			<?php if ($rule === 'OI'): ?>OI 赛制下比赛中只用样例评测，结束后再用全部数据重测；个别题目可以在这里改成比赛中就用全部数据评测。<?php endif ?>
 			比赛用的题目通常是隐藏的：比赛开始后选手能在比赛里看到它们；公布成绩之后要让所有人都能做，到题目的管理页把它设为公开。
