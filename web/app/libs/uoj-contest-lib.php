@@ -306,9 +306,28 @@ function contestCells($rule, $standings_version, $rows, $freeze_offset = null) {
 	return $cells;
 }
 
+// a time of a contest as hours and minutes: 0:06, 17:02
+function contestClock($seconds) {
+	return sprintf('%d:%02d', floor($seconds / 3600), floor($seconds / 60) % 60);
+}
+// What a contest tells its contestants about its rule, in a few short lines.
+function contestRuleFacts($contest) {
+	$rule = contestRule($contest);
+	if ($rule === 'OI') {
+		$facts = array('比赛中只用样例评测', '比赛结束后用全部数据重测', '每题以最后一次提交为准');
+	} elseif ($rule === 'IOI') {
+		$facts = array('比赛中用全部数据评测', '提交后立刻看到得分', '每题以最后一次提交为准');
+	} else {
+		$facts = array('比赛中用全部数据评测', '提交后立刻看到是否通过', '罚时：每次未通过的提交 ' . (CONTEST_ICPC_PENALTY / 60) . ' 分钟');
+		$freeze = contestFreezeOffset($contest);
+		$facts[] = $freeze === null ? '不封榜' : '封榜：最后 ' . contestFreezeMinutes($contest) . ' 分钟（开始后 ' . virtualClock($freeze) . ' 起），公布成绩时揭晓';
+	}
+	$facts[] = '比赛中不显示每个测试点的结果';
+	return $facts;
+}
 // How a cell of an ICPC board reads: array(what it says, what stands under it, its class).
-// A solved problem says + and how often it was tried in vain, over the minute it was solved
-// in; a problem that was tried says - and how often; while the board is frozen a problem
+// A solved problem says + and how often it was tried in vain, over the time it was solved
+// at; a problem that was tried says - and how often; while the board is frozen a problem
 // says ?, over the attempts that count and the ones nobody was told about.
 function contestIcpcCell($cell) {
 	if (!$cell) {
@@ -317,7 +336,7 @@ function contestIcpcCell($cell) {
 	$failed = isset($cell[3]) ? (int)$cell[3] : 0;
 	$pending = isset($cell[4]) ? (int)$cell[4] : 0;
 	if ($cell[0] == 100) {
-		return array('+' . ($failed > 0 ? $failed : ''), (string)floor(($cell[1] - CONTEST_ICPC_PENALTY * $failed) / 60), 'uoj-icpc-solved');
+		return array('+' . ($failed > 0 ? $failed : ''), contestClock($cell[1] - CONTEST_ICPC_PENALTY * $failed), 'uoj-icpc-solved');
 	}
 	if ($pending > 0) {
 		return array('?', $failed . ' + ' . $pending, 'uoj-icpc-pending');

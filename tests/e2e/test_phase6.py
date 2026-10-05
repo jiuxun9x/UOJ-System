@@ -308,7 +308,7 @@ class ContestFeedbackTest(unittest.TestCase):
             self.assertIn("undeclared", page)
             # the staff sees everything
             self.assertIn("details_details_accordion", self.admin.get("/submission/%d" % wrong).text)
-            self.assertIn("此次比赛为 %s 赛制" % rule, uoj.text_of(pupil.get(here).text))
+            self.assertIn("赛制：%s" % rule, uoj.text_of(pupil.get(here).text))
 
             # when the contest is over, so does the owner
             uoj.move_contest(contest_id, -7200, 60)
@@ -365,7 +365,10 @@ class IcpcTest(unittest.TestCase):
         here = "/contest/%d" % contest_id
         # two hundred and fifty minutes into its three hundred: the last sixty are frozen
         uoj.move_contest(contest_id, -250 * 60, 300)
-        self.assertIn("最后 60 分钟封榜", uoj.text_of(ann.get(here).text))
+        # the page of the contest says what its rule means, in a few lines
+        told = uoj.text_of(ann.get(here).text)
+        for fact in ("赛制：ICPC", "比赛中用全部数据评测", "罚时：每次未通过的提交 20 分钟", "封榜：最后 60 分钟（开始后 4:00:00 起）"):
+            self.assertIn(fact, told)
 
         def at(minutes, submission_id):
             db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
@@ -406,6 +409,10 @@ class IcpcTest(unittest.TestCase):
             self.assertEqual(rows["p6_icpc_cat"], (3, 0, 0, {"A": "pending"}))
             self.assertIn("1 + 1", page)
             self.assertNotIn("/submission/%d" % bob_second, page)
+            # under the letter of a problem: how many solved it, of how many who tried
+            self.assertEqual(re.findall(r'data-solved-by="\d+">(\d+/\d+)<', page), ["2/3", "0/1"])
+            # a solved problem says when it was solved, as hours and minutes
+            self.assertRegex(page, r'(?s)data-username="p6_icpc_ann".*?>\+1</a>\s*<div class="uoj-icpc-under">0:20</div>')
         rows, page = board(admin, contest_id)
         self.assertNotIn('data-frozen="1"', page)
         self.assertEqual(rows["p6_icpc_bob"][:2], (1, 2))
@@ -467,6 +474,9 @@ class IcpcTest(unittest.TestCase):
             self.assertEqual(rows["p6_icpc_bob"], (1, 2, 30 * 60 + 251 * 60 + 1200, {"A": "solved", "B": "first"}))
             self.assertEqual(rows["p6_icpc_ann"], (2, 1, 20 * 60 + 1200, {"A": "first"}))
             self.assertEqual(rows["p6_icpc_cat"], (3, 1, 252 * 60, {"A": "solved"}))
+            self.assertEqual(re.findall(r'data-solved-by="\d+">(\d+/\d+)<', page), ["3/3", "1/1"])
+            # bob: two problems, five hours and one minute of penalty
+            self.assertRegex(page, r'(?s)data-username="p6_icpc_bob".*?uoj-icpc-total">2</span><div class="uoj-icpc-under">5:01</div>')
         self.assertEqual(ann.get("/submission/%d" % cat_first).status_code, 200)
         self.assertNotIn("比赛尚未结束", ann.get("%s/problem/%d/statistics" % (here, first)).text)
         export = admin.get(here + "/export_standings").text

@@ -578,12 +578,13 @@ EOD;
 	<div class="col-sm-3">
 	<?php endif ?>
 	<?php $contest_rule = contestRule($contest); ?>
-	<div id="contest-rule" data-rule="<?= $contest_rule ?>">
-		<p>此次比赛为 <?= $contest_rule ?> 赛制。</p>
-		<p><small><?= contestRules()[$contest_rule]['description'] ?>比赛进行中不能查看每个测试点的结果。</small></p>
-		<?php if (contestFreezeMinutes($contest) > 0): ?>
-		<p><small><strong>最后 <?= contestFreezeMinutes($contest) ?> 分钟封榜</strong>，公布成绩时揭晓。</small></p>
-		<?php endif ?>
+	<div id="contest-rule" data-rule="<?= $contest_rule ?>" class="text-left mb-2">
+		<h4 class="mt-2 mb-2">赛制：<?= $contest_rule ?></h4>
+		<ul class="list-group">
+			<?php foreach (contestRuleFacts($contest) as $fact): ?>
+			<li class="list-group-item py-2"><?= HTML::escape($fact) ?></li>
+			<?php endforeach ?>
+		</ul>
 	</div>
 	
 		<a href="/contest/<?=$contest['id']?>/registrants" class="btn btn-info btn-block"><?= UOJLocale::get('contests::contest registrants') ?></a>

@@ -289,7 +289,8 @@ check_same(array(100, 3000, 3, 2, 0), $frozen['ann'][0], 'what was solved before
 check_same(array(0, 0, 5, 0, 2), $frozen['ann'][1], 'attempts after the board froze are counted and not told');
 check_same(array(0, 0, 6, 0, 1), $frozen['bob'][0], 'also the ones that solved the problem');
 check_same(array(0, 0, 1, 1, 3), contestCells('ICPC', 2, $icpc, 100)['ann'][0], 'attempts before and after the board froze');
-check_same(array(array('+2', '10', 'uoj-icpc-solved'), array('+', '15', 'uoj-icpc-solved'), array('-2', '', 'uoj-icpc-failed'), array('?', '0 + 2', 'uoj-icpc-pending'), array('', '', '')),
+check_same(array('0:00', '0:06', '2:31', '17:02'), array(contestClock(59), contestClock(6 * 60), contestClock(151 * 60 + 59), contestClock(1022 * 60)), 'the time of a contest as hours and minutes');
+check_same(array(array('+2', '0:10', 'uoj-icpc-solved'), array('+', '0:15', 'uoj-icpc-solved'), array('-2', '', 'uoj-icpc-failed'), array('?', '0 + 2', 'uoj-icpc-pending'), array('', '', '')),
 	array(contestIcpcCell($cells['ann'][0]), contestIcpcCell($cells['bob'][0]), contestIcpcCell($cells['ann'][1]), contestIcpcCell($frozen['ann'][1]), contestIcpcCell(null)), 'how the cells of an ICPC board read');
 
 // ---- hacks

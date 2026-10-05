@@ -195,26 +195,47 @@
 	font-size: 0.875rem;
 }
 
-/* ---- the board of an ICPC contest */
-.uoj-scoreboard .uoj-icpc-solved {
-	background-color: #d4edda;
-	color: #155724;
-	font-weight: bold;
+/* ---- the board of an ICPC contest: the look of the boards people know from QOJ */
+.uoj-icpc-board th, .uoj-icpc-board td {
+	padding: 0.45rem 0.3rem;
+	line-height: 1.35;
 }
-.uoj-scoreboard .uoj-icpc-first {
-	background-color: #7bd389;
-	color: #0b2e13;
-	font-weight: bold;
-}
-.uoj-scoreboard .uoj-icpc-failed {
-	background-color: #f8d7da;
-	color: #721c24;
-}
-.uoj-scoreboard .uoj-icpc-pending {
-	background-color: #d6e4f5;
-	color: #1b3a5c;
-}
-.uoj-scoreboard .uoj-icpc-solved small, .uoj-scoreboard .uoj-icpc-first small, .uoj-scoreboard .uoj-icpc-pending small {
-	display: block;
+.uoj-scoreboard .uoj-icpc-under {
+	color: #212529;
 	font-weight: normal;
+}
+.uoj-scoreboard th .uoj-icpc-under {
+	font-size: 85%;
+	font-weight: bold;
+}
+/* a problem somebody solved */
+.uoj-scoreboard th.uoj-icpc-solved-by {
+	background-color: #c3e6cb;
+}
+.uoj-scoreboard .uoj-icpc-total {
+	color: #00a000;
+	font-weight: bold;
+}
+.uoj-scoreboard .uoj-icpc-total-none {
+	color: #d00000;
+	font-weight: bold;
+}
+.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a,
+.uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a {
+	color: #00a000;
+	font-weight: bold;
+}
+/* the first to solve a problem */
+.uoj-scoreboard .uoj-icpc-first {
+	background-color: #c3e6cb !important;
+}
+.uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a {
+	color: #d00000;
+	font-weight: bold;
+}
+/* submitted after the board froze */
+.uoj-scoreboard .uoj-icpc-pending {
+	background-color: #d6e4f5 !important;
+	color: #1b3a5c;
+	font-weight: bold;
 }

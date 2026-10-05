@@ -7,11 +7,13 @@
 	foreach ($contest_data['problems'] as $problem_id) {
 		$problems[] = queryProblemBrief($problem_id);
 	}
-	// who solved each problem first, and how many did
+	// for every problem: who solved it first, how many solved it and how many tried
 	$first = array();
 	$solved_by = array();
+	$tried_by = array();
 	foreach ($score as $username => $cells) {
 		foreach ($cells as $pos => $cell) {
+			$tried_by[$pos] = isset($tried_by[$pos]) ? $tried_by[$pos] + 1 : 1;
 			if ($cell[0] != 100) {
 				continue;
 			}
@@ -24,17 +26,16 @@
 	}
 ?>
 <div class="table-responsive">
-	<table class="table table-bordered table-sm uoj-scoreboard" id="table-icpc-standings"<?= $frozen ? ' data-frozen="1"' : '' ?>>
+	<table class="table table-bordered table-striped uoj-scoreboard uoj-icpc-board" id="table-icpc-standings"<?= $frozen ? ' data-frozen="1"' : '' ?>>
 		<thead>
 			<tr>
-				<th style="width:3em">#</th>
+				<th style="width:4em">#</th>
 				<th class="uoj-scoreboard-name"><?= UOJLocale::get('username') ?></th>
-				<th style="width:4em">通过</th>
-				<th style="width:5em">罚时</th>
+				<th style="width:6em">通过<div class="uoj-icpc-under">罚时</div></th>
 				<?php foreach ($problems as $pos => $problem): ?>
-				<th style="width:5em" title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?>">
+				<th style="width:5.5em"<?= isset($solved_by[$pos]) ? ' class="uoj-icpc-solved-by"' : '' ?> title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?>">
 					<a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem ? problemNumber($problem) : $contest_data['problems'][$pos] ?>"><?= chr(ord('A') + $pos % 26) ?></a>
-					<br /><small class="text-muted"><?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?></small>
+					<div class="uoj-icpc-under" data-solved-by="<?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>"><?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>/<?= isset($tried_by[$pos]) ? $tried_by[$pos] : 0 ?></div>
 				</th>
 				<?php endforeach ?>
 			</tr>
@@ -45,8 +46,7 @@
 			<tr data-username="<?= $username ?>" data-rank="<?= $row[3] ?>" data-solved="<?= $row[0] / 100 ?>" data-penalty="<?= $row[1] ?>">
 				<td><?= $row[3] ?></td>
 				<td class="uoj-scoreboard-name"><span class="uoj-username" data-rating="<?= (int)$row[2][1] ?>"<?= isset($row[2][2]) && $row[2][2] !== '' ? ' data-alias="' . HTML::escape($row[2][2]) . '"' : '' ?>><?= $username ?></span></td>
-				<td><strong><?= $row[0] / 100 ?></strong></td>
-				<td><?= floor($row[1] / 60) ?></td>
+				<td><span class="<?= $row[0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $row[0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($row[1]) ?></div></td>
 				<?php foreach ($problems as $pos => $problem): ?>
 				<?php
 					$cell = isset($score[$username][$pos]) ? $score[$username][$pos] : null;
@@ -60,9 +60,9 @@
 					<?php if ($class === 'uoj-icpc-pending'): ?>
 					<?= $says ?>
 					<?php else: ?>
-					<a href="/submission/<?= $cell[2] ?>" style="color:inherit"><?= $says ?></a>
+					<a href="/submission/<?= $cell[2] ?>"><?= $says ?></a>
 					<?php endif ?>
-					<?php if ($under !== ''): ?><small><?= $under ?></small><?php endif ?>
+					<?php if ($under !== ''): ?><div class="uoj-icpc-under"><?= $under ?></div><?php endif ?>
 					<?php endif ?>
 				</td>
 				<?php endforeach ?>
@@ -72,9 +72,10 @@
 	</table>
 </div>
 <div class="text-right text-muted">
-	<span class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 最先通过</span>
-	<span class="mr-3">+2：通过，此前有 2 次未通过；下面的数字是通过时的分钟数</span>
-	<span class="mr-3">-3：3 次提交都未通过</span>
-	<?php if ($frozen): ?><span class="mr-3">?：封榜后有提交，“1 + 2”表示封榜前 1 次未通过、封榜后 2 次提交</span><?php endif ?>
+	<small class="mr-3">表头：通过人数/尝试人数</small>
+	<small class="mr-3"><strong class="text-success">+2</strong> 通过，此前 2 次未通过；下面是通过的时间</small>
+	<small class="mr-3"><strong class="text-danger">-3</strong> 交了 3 次都没通过</small>
+	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 最先通过</small>
+	<?php if ($frozen): ?><small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-pending px-2">?</span></span> 封榜后有提交：“1 + 2”是封榜前 1 次未通过、封榜后交了 2 次</small><?php endif ?>
 	<?= UOJLocale::get('contests::n participants', count($standings)) ?>
 </div>

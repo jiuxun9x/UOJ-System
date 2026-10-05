@@ -248,7 +248,7 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 					<?php if ($row['virtual']): ?><span class="badge badge-info">虚拟</span><?php endif ?>
 				</td>
 				<?php if ($is_icpc): ?>
-				<td><strong><?= $row['score'] / 100 ?></strong><br /><small class="text-muted"><?= floor($row['penalty'] / 60) ?></small></td>
+				<td><span class="<?= $row['score'] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $row['score'] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($row['penalty']) ?></div></td>
 				<?php else: ?>
 				<td><strong><?= $row['score'] ?></strong><br /><small class="text-muted"><?= virtualClock($row['penalty']) ?></small></td>
 				<?php endif ?>
@@ -258,7 +258,7 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 				<?php list($says, $under, $cell_class) = contestIcpcCell($cell); ?>
 				<td class="<?= $cell_class ?>">
 					<?php if ($says !== ''): ?>
-					<a href="/submission/<?= $cell[2] ?>" style="color:inherit"><?= $says ?></a><?php if ($under !== ''): ?><small><?= $under ?></small><?php endif ?>
+					<a href="/submission/<?= $cell[2] ?>"><?= $says ?></a><?php if ($under !== ''): ?><div class="uoj-icpc-under"><?= $under ?></div><?php endif ?>
 					<?php endif ?>
 				</td>
 				<?php else: ?>
