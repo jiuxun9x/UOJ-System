@@ -5,9 +5,11 @@ problem or a contest in one go.
 See test_phase1.py for how to start the containers.
 """
 
+import io
 import json
 import re
 import unittest
+import zipfile
 
 import test_phase3 as p3
 import test_phase4 as p4
@@ -1436,3 +1438,219 @@ class ProblemPickerTest(unittest.TestCase):
             " where contest_id = %d and problems.id = contests_problems.problem_id order by position" % contest_id
         )
         self.assertEqual(in_contest, [[str(two)], [str(guess)], [str(fix)]])
+
+
+def upload_files(client, problem_id, files):
+    """send files as the data of a problem the way its page does, several at once"""
+    return client.post(
+        "/problem/%d/manage/data" % problem_id,
+        {"form": "upload_files"},
+        [("data_files[]", (name, content if isinstance(content, bytes) else content.encode(), "application/octet-stream"))
+         for name, content in files.items()],
+    )  # fmt: skip
+
+
+def file_roles(page):
+    """the files the page of the data of a problem lists, each with what it is to the problem"""
+    return dict(re.findall(r'(?s)<tr data-name="([^"]+)">.*?</td>\s*<td>[^<]*</td>\s*<td><(?:span|small)[^>]*>([^<]*)<', page))
+
+
+class ProblemDataPageTest(unittest.TestCase):
+    """the data of a problem is put together on its page: files one by one, the programs of the
+    problem chosen among them, and problem.conf written by choosing, or by hand"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+
+    def settings(self, problem_id, **changes):
+        fields = dict(form="judge_settings", type="traditional", time_limit="1", memory_limit="256", checker="wcmp", scoring="per_test")
+        fields.update(changes)
+        return self.admin.post("/problem/%d/manage/data" % problem_id, fields)
+
+    def act(self, problem_id, form, **fields):
+        """what the page says after something was done with one of the files: how it went, and the words"""
+        manage = "/problem/%d/manage/data" % problem_id
+        r = self.admin.post(manage, dict(fields, form=form))
+        self.assertEqual(r.status_code, 302, r.text[-300:])
+        kind, said = re.search(r'(?s)class="alert alert-(\w+) text-left" role="alert" id="data-flash">(.*?)</div>', self.admin.get(manage).text).groups()
+        return kind, said
+
+    def test_checker_is_a_file_that_was_chosen(self):
+        admin = self.admin
+        problem_id = admin.new_problem(title="p6 选校验器", public="on")
+        manage = "/problem/%d/manage/data" % problem_id
+        upload_dir = "/var/uoj_data/upload/%d" % problem_id
+        self.assertIn('id="data-files-empty"', admin.get(manage).text)
+
+        # ---- files are uploaded as they are, several at once
+        files = {"1.in": "1 2\n", "1.out": "3\n", "2.in": "5 5\n", "2.out": "10\n", "sample1.in": "2 2\n", "sample1.out": "4\n",
+                 "lenient.cpp": AB_LENIENT_CHECKER, "笔记.md": "notes\n", ".DS_Store": "junk"}  # fmt: skip
+        self.assertEqual(upload_files(admin, problem_id, files).status_code, 302)
+        page = admin.get(manage).text
+        told = uoj.text_of(page)
+        for fact in ("写入了 8 个文件", ".DS_Store", "识别到 2 个测试点、1 个额外测试点"):
+            self.assertIn(fact, told)
+        # the tests were found and called what the judgers call them; every file is listed
+        # with what it is to the problem
+        roles = file_roles(page)
+        self.assertEqual(set(roles), {"data1.in", "data1.out", "data2.in", "data2.out", "ex_data1.in", "ex_data1.out", "lenient.cpp",
+                                      "笔记.md", "problem.conf"})  # fmt: skip
+        self.assertEqual((roles["data2.in"], roles["ex_data1.out"], roles["lenient.cpp"], roles["笔记.md"], roles["problem.conf"]),
+                         ("测试点 2 输入", "样例 1 答案", "没有用到", "没有用到", "评测设置"))  # fmt: skip
+        # the programs to choose among are the files that can be built
+        self.assertRegex(page, r'(?s)<select[^>]*name="checker_file".*?<option value="lenient.cpp">')
+        self.assertNotIn('<option value="笔记.md"', page)
+
+        # ---- what saving would write is shown before anything is saved
+        form = dict(type="traditional", time_limit="1", memory_limit="256", checker="custom", checker_file="lenient.cpp", scoring="per_test")
+        before = uoj.tree_sha256(uoj.WEB, upload_dir)
+        answer = admin.post(manage + "?preview_conf=1", form).json()
+        self.assertTrue(answer["ok"], answer)
+        for line in ("chk_source lenient.cpp\n", "n_tests 2\n", "n_ex_tests 1\n", "time_limit 1\n"):
+            self.assertIn(line, answer["conf"])
+        self.assertNotIn("use_builtin_checker", answer["conf"])
+        self.assertIn("校验器是 lenient.cpp", answer["notes"])
+        for wrong, said in ((dict(time_limit="0"), "时间限制"), (dict(checker_file="gone.cpp"), "gone.cpp"), (dict(checker_file="笔记.md"), "校验器文件")):
+            answer = admin.post(manage + "?preview_conf=1", dict(form, **wrong)).json()
+            self.assertEqual((answer["ok"], said in answer["error"]), (False, True), answer)
+        self.assertEqual(uoj.tree_sha256(uoj.WEB, upload_dir), before)
+
+        # ---- saved: the file that was chosen is the checker, whatever it is called
+        self.assertEqual(self.settings(problem_id, **form).status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        conf = published_conf(problem_id)
+        self.assertEqual((conf["chk_source"], "use_builtin_checker" in conf), ("lenient.cpp", False))
+        # the judgers are given it under the name they look for
+        published = docker_exec(uoj.WEB, "ls /var/uoj_data/%d" % problem_id).split()
+        self.assertIn("chk.cpp", published)
+        self.assertNotIn("lenient.cpp", published)
+        # it lets through what it lets through: an answer that is one too large
+        j = uoj.wait_submission(admin.submit(problem_id, AB_WRONG))
+        self.assertEqual((j.score, j.infos), (100, ["Accepted", "Accepted", "Extra Test Passed"]), j)
+        page = admin.get(manage).text
+        self.assertIn('<option value="lenient.cpp" selected="selected">', page)
+        self.assertEqual(file_roles(page)["lenient.cpp"], "校验器")
+
+        # ---- a file is renamed: a checker stays the checker under its new name
+        for nowhere in ("../lenient.cpp", "/tmp/lenient.cpp", "a/../../x.cpp", "data1.in", ""):
+            kind, said = self.act(problem_id, "rename_file", name="lenient.cpp", new_name=nowhere)
+            self.assertEqual(kind, "danger", (nowhere, said))
+        self.assertEqual(self.act(problem_id, "rename_file", name="no-such-file", new_name="x.cpp")[0], "danger")
+        self.assertEqual(self.act(problem_id, "rename_file", name="lenient.cpp", new_name="judge-v2.cpp")[0], "success")
+        self.assertEqual(uploaded_conf(problem_id)["chk_source"], "judge-v2.cpp")
+        # and moved into the folder of the files the contestants are given
+        self.assertEqual(self.act(problem_id, "rename_file", name="笔记.md", new_name="download/说明.md")[0], "success")
+        roles = file_roles(admin.get(manage).text)
+        self.assertEqual((roles["judge-v2.cpp"], roles["download/说明.md"], "lenient.cpp" in roles, "笔记.md" in roles), ("校验器", "给选手下载", False, False))
+
+        # ---- a file is fetched, and all of them
+        r = admin.get(manage + "?download_file=data2.in")
+        self.assertEqual((r.status_code, r.content), (200, b"5 5\n"))
+        self.assertIn("attachment", r.headers["Content-Disposition"])
+        self.assertEqual(admin.get(manage, params={"download_file": "download/说明.md"}).content, b"notes\n")
+        for nowhere in ("../../../../etc/passwd", "/etc/passwd", "no-such-file", "download", "../%d/problem.conf" % problem_id):
+            self.assertEqual(admin.get(manage, params={"download_file": nowhere}).status_code, 404, nowhere)
+        with zipfile.ZipFile(io.BytesIO(admin.get(manage + "?download_all=1").content)) as everything:
+            names = everything.namelist()
+            self.assertEqual(len(names), 9, names)
+            for name in ("data1.in", "data1.out", "data2.in", "data2.out", "ex_data1.in", "ex_data1.out", "judge-v2.cpp", "problem.conf"):
+                self.assertIn(name, names)
+            self.assertEqual(everything.read("data1.out"), b"3\n")
+
+        # ---- a file is deleted, and a folder with its last file
+        for nowhere in ("../problem.conf", "no-such-file", "download", ""):
+            self.assertEqual(self.act(problem_id, "delete_file", name=nowhere)[0], "danger", nowhere)
+        self.assertEqual(self.act(problem_id, "delete_file", name="download/说明.md")[0], "success")
+        self.assertEqual(uploaded_files(problem_id), sorted(["data1.in", "data1.out", "data2.in", "data2.out", "ex_data1.in", "ex_data1.out",
+                                                             "judge-v2.cpp", "problem.conf"]))  # fmt: skip
+        # what the problem misses afterwards is said, before anybody syncs it
+        self.assertEqual(self.act(problem_id, "delete_file", name="data2.out")[0], "success")
+        page = admin.get(manage).text
+        self.assertIn("有问题，同步会失败", page)
+        self.assertIn("缺少文件：data2.out", uoj.text_of(page))
+        # a file that is uploaded again takes the place of the one of that name
+        self.assertEqual(upload_files(admin, problem_id, {"data2.out": "11\n", "data1.out": "4\n"}).status_code, 302)
+        self.assertIn("评测设置没有变", uoj.text_of(admin.get(manage).text))
+        self.assertEqual(docker_exec(uoj.WEB, "cat %s/data1.out" % upload_dir), "4\n")
+        self.assertIn("文件齐全", admin.get(manage).text)
+        # an archive among the files is unpacked
+        self.assertEqual(upload_files(admin, problem_id, {"more.zip": uoj.make_zip({"data3.in": "7 8\n", "data3.out": "15\n"})}).status_code, 302)
+        self.assertIn("data3.out", uploaded_files(problem_id))
+        self.assertNotIn("more.zip", uploaded_files(problem_id))
+
+        # ---- nobody else does any of this
+        stranger = p3.account("p6_files_stranger")
+        before = uoj.tree_sha256(uoj.WEB, upload_dir)
+        self.assertEqual(upload_files(stranger, problem_id, {"x.in": "1\n"}).status_code, 403)
+        for attempt in (dict(form="delete_file", name="data1.in"), dict(form="rename_file", name="data1.in", new_name="x.in"),
+                        dict(form="conf_text", conf_text="n_tests 1\n")):  # fmt: skip
+            self.assertEqual(stranger.post(manage, attempt).status_code, 403, attempt)
+        for path in ("?download_file=data1.in", "?download_all=1", "?preview_conf=1"):
+            self.assertEqual(stranger.get(manage + path).status_code, 403, path)
+        self.assertEqual(uoj.tree_sha256(uoj.WEB, upload_dir), before)
+
+    def test_problem_conf_is_written_by_choosing_and_by_hand(self):
+        admin = self.admin
+        # an interactive problem whose interactor is not called what the judgers call one
+        problem_id = admin.new_problem(title="p6 选交互器", type="interactive", public="on",
+                                       files=[data_zip({"judge.cpp": DOUBLE_INTERACTOR, "1.in": "21\n", "2.in": "1000\n"})])  # fmt: skip
+        manage = "/problem/%d/manage/data" % problem_id
+        upload_dir = "/var/uoj_data/upload/%d" % problem_id
+        conf = uploaded_conf(problem_id)
+        self.assertEqual((conf["interaction_mode"], conf["n_tests"], "interactor_source" in conf), ("on", "2", False))
+        # nothing was guessed, and the page says what is missing
+        page = admin.get(manage).text
+        self.assertIn("还没有交互器", uoj.text_of(page))
+        self.assertRegex(page, r'(?s)<select[^>]*name="interactor_file"[^>]*><option value="">请选择文件</option><option value="judge.cpp">')
+        self.assertIn("有问题，同步会失败", page)
+
+        # ---- chosen in the form
+        self.assertEqual(self.settings(problem_id, type="interactive", interactor_file="judge.cpp").status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertEqual(published_conf(problem_id)["interactor_source"], "judge.cpp")
+        self.assertIn("interactor.cpp", docker_exec(uoj.WEB, "ls /var/uoj_data/%d" % problem_id).split())
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, DOUBLE)).score, 100)
+        self.assertEqual(uoj.wait_submission(admin.submit(problem_id, DOUBLE_WRONG)).score, 0)
+
+        # ---- problem.conf beside the form: as it is, and not to be typed into until one says so
+        page = admin.get(manage).text
+        shown = re.search(r'(?s)<textarea[^>]*id="conf-text"[^>]*readonly="readonly"[^>]*>(.*?)</textarea>', page).group(1)
+        written = docker_exec(uoj.WEB, "cat %s/problem.conf" % upload_dir)
+        self.assertEqual(shown.strip(), written.strip())
+        self.assertIn("interactor_source judge.cpp", shown)
+        self.assertIn('id="switch-edit-conf"', page)
+
+        # ---- written by hand: what the form has no field for
+        r = admin.post(manage, {"form": "conf_text", "conf_text": written + "time_limit_2 3\n\n"})
+        self.assertEqual(r.status_code, 302, r.text[-300:])
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertEqual(published_conf(problem_id)["time_limit_2"], "3")
+        self.assertIn("problem.conf 已保存", uoj.text_of(admin.get(manage).text))
+        self.assertEqual(db_value(
+            "select count(*) from audit_logs where action = 'problem.edit_conf' and resource_id = '%d' and after_json like '%%written_as_text%%'" % problem_id
+        ), "1")  # fmt: skip
+        # and the form keeps it when it is saved after that
+        self.assertEqual(self.settings(problem_id, type="interactive", interactor_file="judge.cpp", time_limit="2").status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        conf = published_conf(problem_id)
+        self.assertEqual((conf["time_limit_2"], conf["time_limit"], conf["interactor_source"]), ("3", "2", "judge.cpp"))
+
+        # ---- what is no problem.conf is said, written nowhere, and still there to be put right
+        before = uoj.tree_sha256(uoj.WEB, upload_dir)
+        for wrong, said in (("n_tests 2\ntime limit 3\n", "第 2 行"), ("n_tests 2\nn_tests 3\n", "写了两次"), ("  \n", "空的")):
+            r = admin.post(manage, {"form": "conf_text", "conf_text": wrong})
+            self.assertEqual(r.status_code, 200)
+            self.assertIn('id="conf-text-error"', r.text)
+            self.assertIn(said, uoj.text_of(r.text), wrong)
+        self.assertRegex(r.text, r'(?s)<textarea[^>]*id="conf-text"[^>]*>\s*</textarea>')
+        r = admin.post(manage, {"form": "conf_text", "conf_text": "n_tests 2\ntime limit 3\n"})
+        self.assertIn("time limit 3", re.search(r'(?s)<textarea[^>]*id="conf-text"[^>]*>(.*?)</textarea>', r.text).group(1))
+        self.assertNotIn('readonly="readonly"', re.search(r'<textarea[^>]*id="conf-text"[^>]*>', r.text).group(0))
+        self.assertEqual(uoj.tree_sha256(uoj.WEB, upload_dir), before)
+        # a problem.conf that can be read and not judged with is kept, and the sync says why not
+        r = admin.post(manage, {"form": "conf_text", "conf_text": "use_builtin_judger on\nn_tests 5\n"})
+        self.assertEqual(r.status_code, 302)
+        page = admin.get(manage).text
+        self.assertIn("数据没有通过检查", uoj.text_of(page))
+        self.assertEqual(uploaded_conf(problem_id), {"use_builtin_judger": "on", "n_tests": "5"})

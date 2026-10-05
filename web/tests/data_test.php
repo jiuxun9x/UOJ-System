@@ -355,3 +355,75 @@ check_same(true, in_array('自己的校验器 checker.cpp，由评测机编译',
 check_same(0, count(uploadPreflight(array_merge($files, array('checker.cpp')), array('n_sample_tests' => '1') + $named_conf, false)['warnings']), 'and does not call it a file nothing uses');
 check_same('', $errors_of(array_merge($files, array('solution.cpp', 'validator.cpp')), array('std_source' => 'solution.cpp', 'val_source' => 'validator.cpp') + $conf, true), 'the programs of a problem that can be hacked');
 check_same('', $errors_of(array_merge($files, array('judge.cpp')), array('interaction_mode' => 'on', 'interactor_source' => 'judge.cpp', 'n_sample_tests' => '1') + $without), 'an interactor that problem.conf names');
+
+// ---- which of the uploaded files is which program of the problem
+$uploaded = array('1.in', '1.out', '2.in', '2.out', 'sample1.in', 'sample1.out', 'sample2.in', 'sample2.out', 'my_checker.cpp', 'judge.cpp', 'solution.cpp', 'testlib.h', 'notes.md', 'two words.cpp');
+check_same(array('judge.cpp', 'my_checker.cpp', 'solution.cpp'), problemSourceFiles($uploaded), 'the files a program can be built from');
+check_same('my_checker.cpp', problemGuessProgram($uploaded, 'chk'), 'a file that looks like a checker by its name');
+check_same('chk.cpp', problemGuessProgram(array('checker.cpp', 'chk.cpp', 'spj.cpp'), 'chk'), 'the name the judgers know comes first');
+check_same('checker.cpp', problemGuessProgram(array('spj.cpp', 'recheck.py', 'checker.cpp'), 'chk'), 'then what a checker is mostly called');
+check_same('SPJ.c', problemGuessProgram(array('a.cpp', 'SPJ.c'), 'chk'), 'in capitals as well');
+check_same('', problemGuessProgram($uploaded, 'interactor'), 'no file looks like an interactor');
+check_same('interactor.cpp', problemGuessProgram(array('interact_lib.cpp', 'interactor.cpp'), 'interactor'), 'an interactor');
+check_same(array('solution.cpp', ''), array(problemGuessProgram($uploaded, 'std'), problemGuessProgram($uploaded, 'val')), 'a solution, and no validator');
+check_same('', problemGuessProgram(array('chk.h', 'checker.txt', 'chk'), 'chk'), 'what can not be built is no program');
+
+$conf_with = function($changes, $names) use ($settings, $ten) {
+	return problemConfFromSettings($changes + $settings, $ten, array(), $names);
+};
+// a checker of the problem's own: the file that was chosen, or else the one that looks like it
+check_same('judge.cpp', $conf_with(array('checker' => 'custom', 'checker_file' => 'judge.cpp'), $uploaded)[0]['chk_source'], 'the checker that was chosen');
+check_same('my_checker.cpp', $conf_with(array('checker' => 'custom'), $uploaded)[0]['chk_source'], 'the checker that was not chosen is looked for');
+check_same(false, isset($conf_with(array('checker' => 'custom'), array('1.in', '1.out'))[0]['chk_source']), 'and not named when there is none');
+check_same(true, strpos($conf_with(array('checker' => 'custom', 'checker_file' => 'gone.cpp'), $uploaded)[1], 'gone.cpp') !== false, 'a file that is not there is refused');
+check_same(false, isset($conf_with(array('checker' => 'ncmp', 'checker_file' => 'judge.cpp'), $uploaded)[0]['chk_source']), 'a builtin checker needs no file');
+check_same('my_checker.cpp', $conf_with(array('type' => 'multi_pass'), $uploaded)[0]['chk_source'], 'a multi-pass problem has a checker of its own');
+$interactive = $conf_with(array('type' => 'interactive', 'interactor_file' => 'judge.cpp', 'checker_file' => 'my_checker.cpp'), $uploaded)[0];
+check_same(array('judge.cpp', false), array($interactive['interactor_source'], isset($interactive['chk_source'])), 'an interactive problem has an interactor and no checker');
+check_same(false, isset($conf_with(array('type' => 'interactive'), $uploaded)[0]['interactor_source']), 'an interactor nobody chose, where no file looks like one');
+// the solution and the validator of a problem that can be hacked are named when they were chosen
+$hack = $conf_with(array('std_file' => 'solution.cpp', 'val_file' => 'judge.cpp'), $uploaded)[0];
+check_same(array('solution.cpp', 'judge.cpp'), array($hack['std_source'], $hack['val_source']), 'the programs for hacks that were chosen');
+check_same(array(false, false), array(isset($conf_with(array(), $uploaded)[0]['std_source']), isset($conf_with(array(), $uploaded)[0]['val_source'])), 'and none that were not');
+check_same(false, isset($conf_with(array('type' => 'submit_answer', 'std_file' => 'solution.cpp'), $uploaded)[0]['std_source']), 'a problem that asks for answers has no programs');
+// what was chosen before is not kept when it is no longer chosen
+check_same(false, isset(problemConfFromSettings(array('checker' => 'wcmp') + $settings, $ten, array('chk_source' => 'old.cpp', 'std_source' => 'old_std.cpp'), $uploaded)[0]['chk_source']), 'a checker that is no longer the checker');
+check_same(false, isset(problemConfFromSettings($settings, $ten, array('std_source' => 'old_std.cpp'), $uploaded)[0]['std_source']), 'a solution that is no longer chosen');
+// without knowing what was uploaded nothing is looked for, and nothing is refused
+check_same(array('anything.cpp', ''), array(problemConfFromSettings(array('checker' => 'custom', 'checker_file' => 'anything.cpp') + $settings, $ten)[0]['chk_source'], problemConfFromSettings(array('checker' => 'custom', 'checker_file' => 'anything.cpp') + $settings, $ten)[1]), 'what was uploaded is not known');
+// the form and problem.conf say the same
+$chosen = problemSettingsFromForm(array('checker' => 'custom', 'checker_file' => 'my_checker.cpp', 'std_file' => ' solution.cpp ', 'val_file' => '') + $form);
+check_same(array('', 'my_checker.cpp', 'solution.cpp', '', ''), array($chosen[1], $chosen[0]['checker_file'], $chosen[0]['std_file'], $chosen[0]['val_file'], $chosen[0]['interactor_file']), 'the files the form names');
+foreach (array('two words.cpp', 'require/chk.cpp', 'notes.md', '../chk.cpp') as $wrong) {
+	check_same(true, strpos(problemSettingsFromForm(array('checker_file' => $wrong) + $form)[1], '校验器文件') !== false, "refused as the file of a checker: $wrong");
+}
+$shown = problemSettingsOfConf(array('chk_source' => 'my_checker.cpp', 'interactor_source' => 'judge.cpp', 'std_source' => 'solution.cpp', 'n_tests' => '2'));
+check_same(array('custom', 'my_checker.cpp', 'judge.cpp', 'solution.cpp', ''), array($shown['checker'], $shown['checker_file'], $shown['interactor_file'], $shown['std_file'], $shown['val_file']), 'the files problem.conf names are the ones the form shows');
+
+// ---- problem.conf as a text
+$as_text = "use_builtin_judger on\nn_tests 2\ntime_limit_2 3\n";
+check_same(array(array('use_builtin_judger' => 'on', 'n_tests' => '2', 'time_limit_2' => '3'), ''), problemConfFromText($as_text), 'a problem.conf that was written by hand');
+check_same($as_text, problemConfText(problemConfFromText($as_text)[0]), 'is written the way it was read');
+check_same(array('a' => '1', 'b' => 'x.cpp'), problemConfFromText("\r\n  a   1  \r\n\r\nb x.cpp")[0], 'empty lines and blanks at the ends say nothing');
+foreach (array('' => '空的', "\n \n" => '空的', "n_tests\n" => '第 1 行', "a 1\nn_tests 1 2\n" => '第 2 行', "a 1\na 2\n" => '写了两次', "键 1\n" => '字母', "a\t1\n" => '第 1 行', "a " . str_repeat('x', 201) => '太长') as $wrong => $said) {
+	list($conf, $err) = problemConfFromText($wrong);
+	check_same(array(null, true), array($conf, strpos($err, $said) !== false), 'no problem.conf: ' . json_encode(substr($wrong, 0, 30)));
+}
+check_same(null, problemConfFromText(array('a 1'))[0], 'what is no text is no problem.conf');
+
+// ---- what each file is to the problem
+$roles = problemFileRoles(array('data1.in', 'data1.out', 'ex_data1.in', 'ex_data2.out', 'my_checker.cpp', 'std.cpp', 'val.cpp', 'require/lib.h', 'download/tool.py', 'notes.md', 'chk.cpp'),
+	array('use_builtin_judger' => 'on', 'n_tests' => '1', 'n_ex_tests' => '2', 'n_sample_tests' => '1', 'input_pre' => 'data', 'input_suf' => 'in', 'output_pre' => 'data', 'output_suf' => 'out', 'chk_source' => 'my_checker.cpp'));
+check_same(array('测试点 1 输入', '测试点 1 答案', '样例 1 输入', '额外测试点 2 答案', '校验器', '标准程序', '数据校验器', '和选手的程序一起编译', '给选手下载', false, false),
+	array($roles['data1.in'], $roles['data1.out'], $roles['ex_data1.in'], $roles['ex_data2.out'], $roles['my_checker.cpp'], $roles['std.cpp'], $roles['val.cpp'], $roles['require/lib.h'], $roles['download/tool.py'], isset($roles['notes.md']), isset($roles['chk.cpp'])),
+	'what the files of a problem are used as');
+$roles = problemFileRoles(array('chk.cpp', 'interactor.cpp'), array('use_builtin_judger' => 'on', 'n_tests' => '1', 'interaction_mode' => 'on'));
+check_same(array(false, '交互器'), array(isset($roles['chk.cpp']), $roles['interactor.cpp']), 'a program that is not named is the file the judgers find by its name');
+check_same(array('problem.conf' => '评测设置'), problemFileRoles(array('judger.cpp'), array('use_builtin_judger' => 'off')), 'a judger of its own uses its files as it likes');
+check_same(array('problem.conf' => '评测设置'), problemFileRoles(array('1.in'), null), 'no problem.conf, no uses');
+foreach (array('1.in', '中文 名字.txt', 'require/lib.h', 'download/a/b.txt') as $good) {
+	check_same('', problemFileNameError($good), "a name a file of a problem can have: $good");
+}
+foreach (array('', '../1.in', '/etc/passwd', 'a/../b', "a\nb", 'a\\b', '.DS_Store', '__MACOSX/x', 'folder/', 'a/b/c/d/e/f/g') as $bad) {
+	check_same(true, problemFileNameError($bad) !== '', 'no name for a file of a problem: ' . json_encode($bad));
+}

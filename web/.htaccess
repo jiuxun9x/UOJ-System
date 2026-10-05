@@ -6,6 +6,8 @@ php_value session.cookie_lifetime 31536000
 
 php_value post_max_size 1000M
 php_value upload_max_filesize 1000M
+# the files of a problem are uploaded many at a time
+php_value max_file_uploads 2000
 
 php_value session.gc_probability 1
 php_value session.gc_divisor 1000

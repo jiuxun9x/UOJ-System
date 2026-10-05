@@ -8,6 +8,7 @@ It fills a domain of its own with what a class looks like, and takes every page 
 of a desktop and of a phone.
 """
 
+import json
 import os
 import sys
 
@@ -227,6 +228,78 @@ def picked_problem(page, seeded):
     assert sent == "%d %d" % (seeded["public"], seeded["second_public"]), sent
 
 
+CONF_STATE = "document.querySelector('#conf-preview-state').textContent"
+CONF_TEXT = "document.querySelector('#conf-text').value"
+
+
+def conf_follows_the_form(page, seeded):
+    """the page of the data of a problem: problem.conf beside the form shows what saving the
+    form would write, while the form is filled in"""
+    page.wait_for_function(CONF_STATE + ".length > 0")
+    assert "n_tests 3" in page.input_value("#conf-text"), page.input_value("#conf-text")
+    # another kind of problem: the fields that belong to it come, and problem.conf says so
+    page.click("label[for=input-problem-type-multi_pass]")
+    page.wait_for_function(CONF_TEXT + ".indexOf('multi_pass 2') >= 0")
+    assert page.is_visible("#group-problem-passes") and page.is_visible("#group-problem-checker_file")
+    assert not page.is_visible("#group-problem-checker")
+    assert "还没有校验器" in page.inner_text("#conf-preview-state"), page.inner_text("#conf-preview-state")
+    page.click("label[for=input-problem-type-traditional]")
+    page.wait_for_function(CONF_TEXT + ".indexOf('multi_pass') < 0")
+    assert not page.is_visible("#group-problem-passes") and page.is_visible("#group-problem-checker")
+    # a checker of the problem's own is a file that is chosen
+    page.select_option("#input-problem-checker", "custom")
+    page.wait_for_selector("#group-problem-checker_file", state="visible")
+    page.select_option("#input-problem-checker_file", "val.cpp")
+    page.wait_for_function(CONF_TEXT + ".indexOf('chk_source val.cpp') >= 0")
+    # the subtasks are written into a table, a row for each
+    page.click("label[for=input-problem-scoring-subtasks]")
+    page.wait_for_selector("#table-problem-subtasks", state="visible")
+    ends, scores = page.locator("#table-problem-subtasks .subtask-end"), page.locator("#table-problem-subtasks .subtask-score")
+    for row, (end, score) in enumerate((("1", "40"), ("3", "60"))):
+        ends.nth(row).fill(end)
+        scores.nth(row).fill(score)
+    page.wait_for_function(CONF_TEXT + ".indexOf('subtask_score_2 60') >= 0")
+    assert "subtask_end_1 1\n" in page.input_value("#conf-text")
+    assert "分值合计 100" in page.inner_text("#subtasks-total"), page.inner_text("#subtasks-total")
+    sent = page.eval_on_selector("textarea[name=subtasks]", "e => e.value")
+    assert sent == "1 40\n3 60", sent
+    # what is wrong is said where problem.conf would be
+    scores.nth(1).fill("50")
+    page.wait_for_function(CONF_STATE + ".indexOf('100') >= 0")
+    scores.nth(1).fill("60")
+    page.wait_for_function(CONF_STATE + ".indexOf('还没有保存') >= 0")
+
+
+def conf_is_edited_by_hand(page, seeded):
+    """problem.conf is typed into when one says so, and the form stands still meanwhile"""
+    page.wait_for_function(CONF_STATE + ".length > 0")
+    as_the_form_writes_it = page.input_value("#conf-text")
+    assert page.get_attribute("#conf-text", "readonly") is not None
+    assert not page.is_visible("#button-save-conf-text")
+    page.click("label[for=switch-edit-conf]")
+    page.wait_for_selector("#button-save-conf-text", state="visible")
+    assert page.get_attribute("#conf-text", "readonly") is None
+    assert page.is_disabled("#input-problem-time_limit") and page.is_disabled("#button-save-judge-settings")
+    saved = page.input_value("#conf-text")
+    page.fill("#conf-text", saved + "time_limit_2 3\n")
+    # given up: what the form would write is back, and so is the form
+    page.click("label[for=switch-edit-conf]")
+    page.wait_for_function(CONF_TEXT + ".indexOf('time_limit_2') < 0")
+    page.wait_for_function("!document.querySelector('#input-problem-time_limit').disabled")
+    page.wait_for_function(CONF_TEXT + " === " + json.dumps(as_the_form_writes_it))
+    page.click("label[for=switch-edit-conf]")
+    page.wait_for_selector("#button-save-conf-text", state="visible")
+    assert page.input_value("#conf-text") == saved
+    page.fill("#conf-text", saved + "time_limit_2 3\n")
+
+
+def upload_dialog(page, seeded):
+    """the dialog that takes files"""
+    page.click("#button-upload-files")
+    page.wait_for_selector("#UploadDataModal.show #input-data-files", state="visible")
+    assert page.get_attribute("#input-data-files", "multiple") is not None
+
+
 def pages(seeded):
     """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
@@ -234,7 +307,9 @@ def pages(seeded):
     training = d + "/training/%d" % seeded["training"]
     return [
         ("problem-new", "teacher", d + "/problem/new"),
-        ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"])),
+        ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_follows_the_form),
+        ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
+        ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),
         ("problem-attachments", "teacher", d + "/problem/%d/manage/attachments" % uoj.pid(seeded["problem"])),
         ("contest-new", "admin", "/contest/new"),
         ("contest-manage", "admin", "/contest/%d/manage" % seeded["icpc"]),

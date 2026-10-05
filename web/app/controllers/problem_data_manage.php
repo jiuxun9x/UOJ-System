@@ -76,7 +76,102 @@
 		}
 	}
 
+	// ---- the files of the problem, one by one
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	if (isset($_GET['download_file']) && is_string($_GET['download_file'])) {
+		$path = problemFilePath($problem, $_GET['download_file']);
+		if ($path === null) {
+			become404Page();
+		}
+		$name = uojFileBaseName($_GET['download_file']);
+		header("X-Sendfile: $path");
+		header('Content-Type: application/octet-stream');
+		header('Content-Disposition: attachment; filename="' . preg_replace('/[^A-Za-z0-9._-]/', '_', $name) . "\"; filename*=UTF-8''" . rawurlencode($name));
+		header('X-Content-Type-Options: nosniff');
+		die();
+	}
+	if (isset($_GET['download_all'])) {
+		// everything that was uploaded, as it lies there: what a version of the data is made of
+		$rows = problemDataFiles($problem);
+		if (!$rows) {
+			become404Page();
+		}
+		set_time_limit(600);
+		$zip_name = tempnam(sys_get_temp_dir(), 'uoj_files_');
+		$zip = new ZipArchive();
+		if ($zip->open($zip_name, ZipArchive::OVERWRITE) !== true) {
+			becomeMsgPage('无法打包这道题的文件');
+		}
+		foreach ($rows as $row) {
+			$zip->addFile("$upload_dir/{$row['name']}", $row['name']);
+		}
+		$zip->close();
+		while (ob_get_level() > 0) {
+			ob_end_clean();
+		}
+		header('Content-Type: application/zip');
+		header('Content-Disposition: attachment; filename="problem_' . problemNumber($problem) . '_files.zip"');
+		header('Content-Length: ' . filesize($zip_name));
+		readfile($zip_name);
+		unlink($zip_name);
+		die();
+	}
+	if (isset($_POST['form']) && in_array($_POST['form'], array('upload_files', 'delete_file', 'rename_file'), true)) {
+		crsf_defend();
+		$posted = function($name) {
+			return isset($_POST[$name]) && is_string($_POST[$name]) ? $_POST[$name] : '';
+		};
+		if ($_POST['form'] === 'upload_files') {
+			set_time_limit(600);
+			list($written, $refused) = problemTakeUploadedFiles($problem, 'data_files', $myUser);
+			$message = $written > 0 ? "写入了 $written 个文件。" : '没有写入文件。';
+			if ($refused) {
+				$message .= '没有接受：' . join('；', $refused) . '。';
+			}
+			// as when an archive is uploaded: data that does not say yet how it is to be judged
+			// is set up from the names of its files
+			if ($written > 0 && problemAwaitsSetup($problem)) {
+				list($found, $err) = problemApplySettings($problem, problemSettingsOfConf(problemUploadedConf($problem)), $myUser);
+				$message .= $err === '' ? join('。', $found) . '。' : '没有能自动识别测试点：' . $err;
+			} elseif ($written > 0) {
+				$message .= '评测设置没有变：检查下面的设置后点“保存并同步数据”，新的文件才会用于评测。';
+			}
+			domainFlash($message, $refused || $written == 0 ? 'warning' : 'success');
+		} elseif ($_POST['form'] === 'delete_file') {
+			$err = problemDeleteFile($problem, $posted('name'), $myUser);
+			domainFlash($err === '' ? '已删除 ' . $posted('name') . '。点“保存并同步数据”后评测才不再用它。' : $err, $err === '' ? 'success' : 'danger');
+		} else {
+			$err = problemRenameFile($problem, $posted('name'), $posted('new_name'), $myUser);
+			domainFlash($err === '' ? '已把 ' . $posted('name') . ' 改名为 ' . trim($posted('new_name')) . '。' : $err, $err === '' ? 'success' : 'danger');
+		}
+		redirectTo($data_page . '#card-data-files');
+	}
+
 	// ---- how the problem is judged
+	// what saving the form would write, for the form to show while it is filled in
+	if (isset($_GET['preview_conf'])) {
+		header('Content-Type: application/json; charset=utf-8');
+		list($checked, $err) = problemSettingsFromForm($_POST);
+		if ($err === '') {
+			list($plan, $err) = problemPlanSettings($problem, $checked);
+		}
+		die(json_encode($err === '' ? array('ok' => true, 'conf' => problemConfText($plan['conf']), 'notes' => $plan['notes']) : array('ok' => false, 'error' => $err), JSON_UNESCAPED_UNICODE));
+	}
+	// problem.conf as somebody wrote it
+	$conf_text_error = '';
+	if (isset($_POST['form']) && $_POST['form'] === 'conf_text') {
+		crsf_defend();
+		$conf_text_error = problemSaveConfText($problem, isset($_POST['conf_text']) ? $_POST['conf_text'] : null, $myUser);
+		if ($conf_text_error === '') {
+			$went_well = true;
+			$note = '';
+			if (problemUploadedTestCount($problem) > 0) {
+				list($went_well, $note) = problemSync($problem, $myUser);
+			}
+			domainFlash('problem.conf 已保存。' . ($note !== '' ? $note . '。' : ''), $went_well ? 'success' : 'warning');
+			redirectTo($data_page);
+		}
+	}
 	$settings_error = '';
 	if (isset($_POST['form']) && $_POST['form'] === 'judge_settings') {
 		crsf_defend();
@@ -671,7 +766,7 @@ EOD
 			<?php endforeach ?>
 		</ul>
 		<?php endif ?>
-		<small class="text-muted d-block mt-1">上传数据 → 保存评测设置 → 这里没有红字，数据就会发布。这里只检查文件是否齐全；校验器等程序能否编译，由评测机在同步时告诉你，结果在页面最上方和下面的“数据版本”里。</small>
+		<small class="text-muted d-block mt-1">上传文件 → 在评测设置里选好 → 保存并同步数据：这里没有红字，数据就会发布。这里只检查文件是否齐全；校验器等程序能否编译，由评测机在同步时告诉你，结果在页面最上方和下面的“数据版本”里。</small>
 	</div>
 </div>
 <?php
@@ -681,7 +776,7 @@ EOD
 	$has_own_judger = is_array($current_conf) && isset($current_conf['use_builtin_judger']) && $current_conf['use_builtin_judger'] !== 'on';
 	$judge_settings = problemSettingsOfConf($current_conf);
 	if ($settings_error !== '') {
-		foreach (array('type', 'time_limit', 'memory_limit', 'checker', 'scoring') as $field) {
+		foreach (array_merge(array('type', 'time_limit', 'memory_limit', 'checker', 'scoring'), array_keys(problemProgramFields())) as $field) {
 			if (isset($_POST[$field]) && is_string($_POST[$field])) {
 				$judge_settings[$field] = $_POST[$field];
 			}
@@ -693,35 +788,201 @@ EOD
 			$judge_settings['passes'] = (int)$_POST['passes'];
 		}
 	}
+	// the files that were uploaded, and what each of them is to the problem
+	$data_files = problemDataFiles($problem);
+	$data_file_names = array_column($data_files, 'name');
+	$data_file_roles = problemFileRoles($data_file_names, $current_conf);
+	$data_files_bytes = array_sum(array_column($data_files, 'size'));
+	$readable_size = function($bytes) {
+		return $bytes < 1024 ? $bytes . ' B' : ($bytes < 1048576 ? round($bytes / 1024, 1) . ' KB' : round($bytes / 1048576, 1) . ' MB');
+	};
+	$upload_limits = uploadLimits();
+	$max_file_uploads = max(1, (int)ini_get('max_file_uploads'));
+	// problem.conf as it is, and as it was typed when it was refused
+	$conf_text = $conf_text_error !== '' && isset($_POST['conf_text']) && is_string($_POST['conf_text']) ? $_POST['conf_text'] : problemConfText(is_array($current_conf) ? $current_conf : array());
 ?>
-<div class="card mb-3 text-left" id="card-judge-settings">
-	<div class="card-header d-flex justify-content-between align-items-center">
-		<span>评测设置</span>
-		<button type="button" class="btn btn-sm btn-primary" data-toggle="modal" data-target="#UploadDataModal"><span class="glyphicon glyphicon-upload"></span> 上传数据</button>
-	</div>
-	<div class="card-body">
-		<?php if ($has_own_judger): ?>
-		<p class="mb-0 text-muted">这道题使用自己的评测程序（problem.conf 里 <code>use_builtin_judger</code> 不是 <code>on</code>），怎么评测由它的 problem.conf 和 Makefile 决定，这里没有可填的设置。要改，上传新的 problem.conf。</p>
-		<?php else: ?>
-		<?php if ($settings_error !== ''): ?>
-		<div class="alert alert-danger" role="alert" id="judge-settings-error"><?= HTML::escape($settings_error) ?></div>
-		<?php endif ?>
-		<form method="post" id="form-judge-settings">
-			<?= HTML::hiddenToken() ?>
-			<input type="hidden" name="form" value="judge_settings" />
-			<?php uojIncludeView('problem-settings-form', array('settings' => $judge_settings)) ?>
-			<?php if ($settings_error !== '' && isset($_POST['subtasks']) && is_string($_POST['subtasks'])): ?>
-			<script type="text/javascript">$('textarea[name=subtasks]').val(<?= json_encode($_POST['subtasks']) ?>);</script>
+<div class="card mb-3 text-left" id="card-data-files">
+	<div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+		<span>数据文件 <small class="text-muted"><?= count($data_files) ?> 个，<?= $readable_size($data_files_bytes) ?></small></span>
+		<span>
+			<button type="button" class="btn btn-sm btn-primary" data-toggle="modal" data-target="#UploadDataModal" id="button-upload-files"><span class="glyphicon glyphicon-upload"></span> 上传文件</button>
+			<?php if ($data_files): ?>
+			<a class="btn btn-sm btn-outline-secondary" href="<?= $data_page ?>?download_all=1" id="link-download-all-files"><span class="glyphicon glyphicon-download-alt"></span> 下载全部</a>
 			<?php endif ?>
-			<button type="submit" class="btn btn-primary" id="button-save-judge-settings">保存并同步数据</button>
-			<small class="form-text text-muted">
-				保存时会按文件名重新识别测试点（成对的 <code>1.in</code>/<code>1.out</code>、<code>input1.txt</code>/<code>output1.txt</code> 等；<code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点），写出 problem.conf，然后把数据交给评测机校验、发布。
-				这里没有的设置（如个别测试点的时限 <code>time_limit_3</code>、子任务依赖）可以写在 problem.conf 里上传，保存时会原样保留。
-			</small>
-		</form>
-		<?php endif ?>
+		</span>
+	</div>
+	<?php if (!$data_files): ?>
+	<div class="card-body text-muted" id="data-files-empty">还没有文件。把测试数据、校验器等文件传上来：可以一次选很多个文件，也可以传一个 zip 压缩包。</div>
+	<?php else: ?>
+	<div class="uoj-data-files">
+		<table class="table table-sm table-hover mb-0" id="table-data-files">
+			<thead><tr><th>文件名</th><th style="width:7em">大小</th><th style="width:13em">用途</th><th style="width:7em"></th></tr></thead>
+			<tbody>
+				<?php foreach ($data_files as $file): ?>
+				<tr data-name="<?= HTML::escape($file['name']) ?>">
+					<td class="uoj-data-file-name"><a href="<?= $data_page ?>?download_file=<?= rawurlencode($file['name']) ?>" title="下载"><?= HTML::escape($file['name']) ?></a></td>
+					<td><?= $readable_size($file['size']) ?></td>
+					<td><?php if (isset($data_file_roles[$file['name']])): ?><span class="badge badge-light border"><?= HTML::escape($data_file_roles[$file['name']]) ?></span><?php else: ?><small class="text-muted">没有用到</small><?php endif ?></td>
+					<td class="text-right text-nowrap">
+						<button type="button" class="btn btn-link btn-sm p-0 mr-2 uoj-file-rename" title="改名，或者移进 require、download 文件夹"><span class="glyphicon glyphicon-pencil"></span></button>
+						<button type="button" class="btn btn-link btn-sm p-0 text-danger uoj-file-delete" title="删除"><span class="glyphicon glyphicon-trash"></span></button>
+					</td>
+				</tr>
+				<?php endforeach ?>
+			</tbody>
+		</table>
+	</div>
+	<?php endif ?>
+	<div class="card-footer text-muted small">
+		测试点成对即可（<code>1.in</code> 和 <code>1.out</code>、<code>input1.txt</code> 和 <code>output1.txt</code>……），文件名以 <code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点；校验器、交互器叫什么都行，在下面的评测设置里选。上传的文件加进已有的文件里，同名的被替换。改了文件之后，点下面的“保存并同步数据”才用于评测。
 	</div>
 </div>
+<form method="post" id="form-file-action" style="display:none">
+	<?= HTML::hiddenToken() ?>
+	<input type="hidden" name="form" value="" />
+	<input type="hidden" name="name" value="" />
+	<input type="hidden" name="new_name" value="" />
+</form>
+<script type="text/javascript">
+// one form for every row of the files: which file is meant is said when it is sent
+$(document).ready(function() {
+	var act = function(form, name, new_name) {
+		var f = $('#form-file-action');
+		f.find('input[name=form]').val(form);
+		f.find('input[name=name]').val(name);
+		f.find('input[name=new_name]').val(new_name || '');
+		f.submit();
+	};
+	$('#table-data-files .uoj-file-delete').on('click', function() {
+		var name = $(this).closest('tr').attr('data-name');
+		if (confirm('删除 ' + name + ' 吗？')) {
+			act('delete_file', name);
+		}
+	});
+	$('#table-data-files .uoj-file-rename').on('click', function() {
+		var name = $(this).closest('tr').attr('data-name');
+		var new_name = prompt('新的文件名。写成 require/名字 或 download/名字 就是把它移进那个文件夹。', name);
+		if (new_name !== null && $.trim(new_name) !== '' && $.trim(new_name) !== name) {
+			act('rename_file', name, new_name);
+		}
+	});
+});
+</script>
+
+<div class="card mb-3 text-left" id="card-judge-settings">
+	<div class="card-header">评测设置</div>
+	<div class="card-body">
+		<div class="row">
+			<div class="col-lg-5 mb-3" id="pane-problem-conf">
+				<form method="post" id="form-conf-text">
+					<?= HTML::hiddenToken() ?>
+					<input type="hidden" name="form" value="conf_text" />
+					<div class="d-flex justify-content-between align-items-center mb-1">
+						<strong>problem.conf</strong>
+						<div class="custom-control custom-switch">
+							<input type="checkbox" class="custom-control-input" id="switch-edit-conf"<?= $has_own_judger || $conf_text_error !== '' ? ' checked="checked"' : '' ?><?= $has_own_judger ? ' disabled="disabled"' : '' ?> />
+							<label class="custom-control-label" for="switch-edit-conf">直接编辑</label>
+						</div>
+					</div>
+					<?php if ($conf_text_error !== ''): ?>
+					<div class="alert alert-danger py-2" role="alert" id="conf-text-error"><?= HTML::escape($conf_text_error) ?></div>
+					<?php endif ?>
+					<textarea class="form-control uoj-conf-text" id="conf-text" name="conf_text" rows="18" spellcheck="false"<?= $has_own_judger || $conf_text_error !== '' ? '' : ' readonly="readonly"' ?>><?= HTML::escape($conf_text) ?></textarea>
+					<small class="form-text" id="conf-preview-state"></small>
+					<button type="submit" class="btn btn-primary btn-sm mt-2" id="button-save-conf-text">保存 problem.conf 并同步数据</button>
+					<small class="form-text text-muted" id="conf-text-hint">
+						这是评测机读的配置，每行一个“键 值”。平时不用管它：右边的选项改了，这里跟着变，保存之后才写进题目。
+						选项里没有的设置（个别测试点的时限 <code>time_limit_3 5</code>、子任务依赖 <code>subtask_dependence_2 1</code> 等）打开“直接编辑”写在这里；之后再用右边的选项保存，这些行也会保留。
+					</small>
+				</form>
+			</div>
+			<div class="col-lg-7">
+				<?php if ($has_own_judger): ?>
+				<p class="mb-0 text-muted" id="judge-settings-own-judger">这道题使用自己的评测程序（problem.conf 里 <code>use_builtin_judger</code> 不是 <code>on</code>），怎么评测由它的 problem.conf 和 Makefile 决定，这里没有可选的设置。要改，直接编辑左边的 problem.conf。</p>
+				<?php else: ?>
+				<?php if ($settings_error !== ''): ?>
+				<div class="alert alert-danger" role="alert" id="judge-settings-error"><?= HTML::escape($settings_error) ?></div>
+				<?php endif ?>
+				<form method="post" id="form-judge-settings">
+					<?= HTML::hiddenToken() ?>
+					<input type="hidden" name="form" value="judge_settings" />
+					<fieldset id="fieldset-judge-settings">
+						<?php uojIncludeView('problem-settings-form', array('settings' => $judge_settings, 'files' => problemSourceFiles(problemUploadedNames($upload_dir)), 'hackable' => (bool)$problem['hackable'])) ?>
+						<?php if ($settings_error !== '' && isset($_POST['subtasks']) && is_string($_POST['subtasks'])): ?>
+						<script type="text/javascript">$('textarea[name=subtasks]').val(<?= json_encode($_POST['subtasks']) ?>);</script>
+						<?php endif ?>
+						<button type="submit" class="btn btn-primary" id="button-save-judge-settings">保存并同步数据</button>
+						<small class="form-text text-muted">
+							保存时按文件名重新识别测试点，写出左边的 problem.conf，然后把数据交给评测机校验、发布。
+						</small>
+					</fieldset>
+				</form>
+				<?php endif ?>
+			</div>
+		</div>
+	</div>
+</div>
+<script type="text/javascript">
+// problem.conf beside the form: while the form is filled in it shows what saving would write;
+// switched to be edited, it is what is saved, and the form stands still.
+$(document).ready(function() {
+	var text = $('#conf-text');
+	var state = $('#conf-preview-state');
+	var form = $('#form-judge-settings');
+	var written = text.val();
+	var asked = 0;
+	var timer = null;
+	// until something in the form is changed, problem.conf is shown as it is saved
+	var touched = false;
+	var editing = function() {
+		return $('#switch-edit-conf').prop('checked');
+	};
+	var preview = function() {
+		if (editing() || !form.length) {
+			return;
+		}
+		var mine = ++asked;
+		$.post('<?= $data_page ?>?preview_conf=1', form.serialize(), function(answer) {
+			if (mine !== asked || editing()) {
+				return;
+			}
+			if (answer.ok) {
+				text.val(answer.conf);
+				state.removeClass('text-danger').addClass(answer.conf === written ? 'text-muted' : 'text-info')
+					.text((answer.conf === written ? '和已保存的一样。' : '还没有保存。') + answer.notes.join('；') + '。');
+			} else {
+				state.removeClass('text-muted text-info').addClass('text-danger').text(answer.error);
+			}
+		}, 'json');
+	};
+	var refresh = function() {
+		var on = editing();
+		text.prop('readonly', !on);
+		$('#button-save-conf-text').toggle(on);
+		$('#fieldset-judge-settings').prop('disabled', on);
+		if (on) {
+			state.removeClass('text-danger text-info').addClass('text-muted').text('正在直接编辑：右边的选项暂时不能用，保存的是这里写的内容。');
+		} else if (touched) {
+			preview();
+		} else {
+			state.removeClass('text-danger text-info').addClass('text-muted').text(form.length ? '这是已保存的 problem.conf。改右边的选项，这里显示保存之后的样子。' : '这是已保存的 problem.conf。');
+		}
+	};
+	$('#switch-edit-conf').on('change', function() {
+		// what the form would write comes back when the editing is given up
+		if (!editing()) {
+			text.val(written);
+		}
+		refresh();
+	});
+	form.on('change input', function() {
+		touched = true;
+		clearTimeout(timer);
+		timer = setTimeout(preview, 250);
+	});
+	refresh();
+});
+</script>
 <div class="row">
 	<div class="col-md-10 top-buffer-sm">
 		<div class="row">
@@ -792,7 +1053,7 @@ EOD
 		</div>
 
 		<div class="top-buffer-md">
-			<button type="button" class="btn btn-block btn-primary" data-toggle="modal" data-target="#UploadDataModal">上传数据</button>
+			<button type="button" class="btn btn-block btn-primary" data-toggle="modal" data-target="#UploadDataModal">上传文件</button>
 		</div>
 	</div>
 
@@ -832,30 +1093,41 @@ EOD
 		</table>
 	</div>
 	<div class="modal fade" id="UploadDataModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
-  		<div class="modal-dialog">
-    			<div class="modal-content">
-      				<div class="modal-header">
-						<h4 class="modal-title" id="myModalLabel">上传数据</h4>
-        				<button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
-      				</div>
-      				<div class="modal-body">
-        				<form action="" method="post" enctype="multipart/form-data" role="form">
-							<?= HTML::hiddenToken() ?>
-							<div class="form-group">
-									<label for="problem_data_file">上传 zip 文件</label>
-									<input type="file" name="problem_data_file" id="problem_data_file" accept=".zip,application/zip">
-									<p class="help-block text-muted small mt-2">所有文件直接放在压缩包里，都放在一个文件夹里也可以。上传的文件加进这道题已有的文件里，同名的被替换；要从头再来，先点“清空题目数据”。<br />测试点成对即可（<code>1.in</code> 和 <code>1.out</code>、<code>input1.txt</code> 和 <code>output1.txt</code>……），<code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点；校验器 <code>chk.cpp</code>、交互器 <code>interactor.cpp</code> 放在同一个包里。包里带 <code>problem.conf</code> 时完全按它来。</p>
-							</div>
-							<input type="hidden" name="problem_data_file_submit" value="submit">
-      				</div>
-      				<div class="modal-footer">
-						<button type="submit" class="btn btn-success">上传</button>
-						</form>
-        				<button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
-      				</div>
-    			</div>
-  		</div>
+		<div class="modal-dialog">
+			<div class="modal-content">
+				<form action="<?= $data_page ?>" method="post" enctype="multipart/form-data" role="form" id="form-upload-files">
+					<div class="modal-header">
+						<h4 class="modal-title" id="myModalLabel">上传文件</h4>
+						<button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+					</div>
+					<div class="modal-body text-left">
+						<?= HTML::hiddenToken() ?>
+						<input type="hidden" name="form" value="upload_files" />
+						<div class="form-group mb-2">
+							<input type="file" class="form-control-file" name="data_files[]" id="input-data-files" multiple="multiple" required="required" />
+						</div>
+						<p class="text-danger small mb-2" id="upload-too-many" style="display:none">一次最多上传 <?= $max_file_uploads ?> 个文件：文件再多，请打成一个 zip 压缩包上传。</p>
+						<p class="text-muted small mb-0">
+							可以一次选很多个文件（最多 <?= $max_file_uploads ?> 个），它们以自己的名字保存；选一个 zip 压缩包，则把里面的文件解压出来，文件都放在一个文件夹里也可以。同名的文件被替换；要从头再来，先点“清空题目数据”。
+							解压后这道题的数据不超过 <?= round($upload_limits['bytes'] / 1048576) ?> MB、<?= $upload_limits['files'] ?> 个文件。
+						</p>
+					</div>
+					<div class="modal-footer">
+						<button type="submit" class="btn btn-success" id="button-submit-upload">上传</button>
+						<button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+					</div>
+				</form>
+			</div>
+		</div>
 	</div>
+	<script type="text/javascript">
+	// more files than the server takes in one go would be dropped without a word
+	$('#input-data-files').on('change', function() {
+		var many = this.files && this.files.length > <?= $max_file_uploads ?>;
+		$('#upload-too-many').toggle(!!many);
+		$('#button-submit-upload').prop('disabled', !!many);
+	});
+	</script>
 
 </div>
 <?php echoUOJPageFooter() ?>

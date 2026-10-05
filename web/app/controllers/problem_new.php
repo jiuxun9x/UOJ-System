@@ -147,7 +147,7 @@
 				<ul class="mb-1 mt-1 pl-3">
 					<li><strong>测试点会自动识别</strong>：输入、输出文件成对即可，比如 <code>1.in</code> 和 <code>1.out</code>（或 <code>1.ans</code>）、<code>input1.txt</code> 和 <code>output1.txt</code>，按文件名的自然顺序编号。</li>
 					<li>文件名以 <code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点，例如 <code>sample1.in</code>、<code>sample1.out</code>。</li>
-					<li>需要的程序放在同一个包里：自己的校验器 <code>chk.cpp</code>（通信题必须有）、交互器 <code>interactor.cpp</code>，由评测机编译。</li>
+					<li>校验器、交互器的源文件放在同一个包里，由评测机编译。叫 <code>checker.cpp</code>、<code>chk.cpp</code>、<code>interactor.cpp</code> 之类的会自动认出来；叫别的名字也行，创建之后在“数据与评测”页里选它是哪个文件。</li>
 					<li>包里如果自带 <code>problem.conf</code>，就完全按它来，上面第 ② 步的选择不起作用。</li>
 				</ul>
 				解压后不超过 <?= round($limits['bytes'] / 1048576) ?> MB、<?= $limits['files'] ?> 个文件。

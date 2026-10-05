@@ -343,3 +343,29 @@
 .uoj-picker-menu .dropdown-item.active .text-success {
 	color: #fff !important;
 }
+
+/* ---- the data of a problem: its files, and problem.conf beside the form that writes it */
+.uoj-data-files {
+	max-height: 24rem;
+	overflow-y: auto;
+}
+.uoj-data-files thead th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: #fff;
+	border-top: 0;
+}
+.uoj-data-file-name {
+	word-break: break-all;
+}
+.uoj-conf-text {
+	font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 0.875rem;
+	line-height: 1.45;
+	white-space: pre;
+	overflow-x: auto;
+}
+.uoj-conf-text[readonly] {
+	background: #f8f9fa;
+}

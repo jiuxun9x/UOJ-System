@@ -18,12 +18,12 @@ function problemTypes() {
 		'interactive' => array(
 			'name' => '交互题',
 			'description' => '程序通过标准输入输出和交互器对话。',
-			'needs' => '数据包里要有交互器 interactor.cpp（用 testlib.h 写）。测试点可以只有输入文件。'
+			'needs' => '需要一个交互器（用 testlib.h 写）：上传后在下面选它是哪个文件。测试点可以只有输入文件。'
 		),
 		'multi_pass' => array(
-			'name' => '通信题（多轮运行）',
+			'name' => '通信题',
 			'description' => '同一个程序运行两轮或更多轮：每一轮结束后校验器检查它的输出，并给出下一轮的输入，最后由校验器判定结果。',
-			'needs' => '数据包里要有自己的校验器 chk.cpp（用 testlib.h 写）：要再运行一轮，就把下一轮的输入写到 nextpass.in 并以 ok 结束，要记住的东西写到 state.txt。写法和 Hydro 的 Multi Pass 相同。测试点可以只有输入文件。'
+			'needs' => '需要自己的校验器（用 testlib.h 写）：上传后在下面选它是哪个文件。要再运行一轮，校验器就把下一轮的输入写到 nextpass.in 并以 ok 结束，要记住的东西写到 state.txt，写法和 Hydro 的 Multi Pass 相同。测试点可以只有输入文件。'
 		),
 		'submit_answer' => array(
 			'name' => '提交答案题',
@@ -33,7 +33,7 @@ function problemTypes() {
 		'grader' => array(
 			'name' => '函数交互题',
 			'description' => '选手实现指定的函数，和出题人的交互库一起编译运行。',
-			'needs' => '数据包的 require 文件夹里要有交互库 implementer.cpp。'
+			'needs' => '交互库要放在 require 文件夹里，叫 implementer.cpp（上传后可以在文件列表里改名、移进去）。'
 		)
 	);
 }
@@ -48,7 +48,7 @@ function problemCheckers() {
 		'rcmp6' => '实数，绝对或相对误差不超过 1e-6',
 		'rcmp9' => '实数，绝对或相对误差不超过 1e-9',
 		'yesno' => '只有 YES 或 NO（不分大小写）',
-		'custom' => '自己的校验器：数据包里的 chk.cpp（用 testlib.h 写）'
+		'custom' => '自己的校验器（用 testlib.h 写的程序，在下面选它的文件）'
 	);
 }
 function problemScorings() {
@@ -70,8 +70,19 @@ function problemDefaultSettings() {
 		// how many of the extra tests are samples; null for all of them
 		'n_samples' => null,
 		// how many times at most the program of a multi-pass problem is run on a test
-		'passes' => 2
+		'passes' => 2,
+		// which of the uploaded files are the programs of the problem; '' for one that was
+		// not chosen, which is then looked for by its name
+		'checker_file' => '',
+		'interactor_file' => '',
+		'std_file' => '',
+		'val_file' => ''
 	);
+}
+// the programs of a problem that the form chooses a file for: field of the form => the
+// program as problem.conf and the judgers call it
+function problemProgramFields() {
+	return array('checker_file' => 'chk', 'interactor_file' => 'interactor', 'std_file' => 'std', 'val_file' => 'val');
 }
 function problemSubtasksText($subtasks) {
 	$lines = array();
@@ -151,6 +162,15 @@ function problemSettingsFromForm($input) {
 		}
 		$settings['n_samples'] = (int)$get('n_samples');
 	}
+	foreach (problemProgramFields() as $field => $kind) {
+		if ($get($field) !== '') {
+			$err = dataProgramSourceError($get($field));
+			if ($err !== '') {
+				return array(null, dataProgramKinds()[$kind] . '文件“' . $get($field) . '”：' . $err);
+			}
+			$settings[$field] = $get($field);
+		}
+	}
 	return array($settings, '');
 }
 
@@ -195,7 +215,45 @@ function problemSettingsOfConf($conf) {
 	if (isset($conf['n_sample_tests']) && validateUInt((string)$conf['n_sample_tests'])) {
 		$settings['n_samples'] = (int)$conf['n_sample_tests'];
 	}
+	foreach (problemProgramFields() as $field => $kind) {
+		if (isset($conf["{$kind}_source"]) && is_string($conf["{$kind}_source"])) {
+			$settings[$field] = $conf["{$kind}_source"];
+		}
+	}
 	return $settings;
+}
+
+// ---- which files are the programs
+
+// the files that can be the source of a program, among the files of a problem
+function problemSourceFiles($names) {
+	$sources = array();
+	foreach ($names as $name) {
+		if (dataProgramSourceError($name) === '') {
+			$sources[] = $name;
+		}
+	}
+	usort($sources, 'strnatcasecmp');
+	return $sources;
+}
+// The file that is most likely the source of a program when nobody said which it is, by
+// what people call such files; '' when no file looks like it.
+function problemGuessProgram($names, $kind) {
+	static $patterns = array(
+		'chk' => array('/^chk[0-9]*\\./i', '/^checker[^.]*\\./i', '/^(spj|check|chk)/i', '/check|chk|spj/i'),
+		'interactor' => array('/^interactor[0-9]*\\./i', '/^interact/i', '/interact/i'),
+		'std' => array('/^std[0-9]*\\./i', '/^(std|sol|solution)/i'),
+		'val' => array('/^val[0-9]*\\./i', '/^(val|validator)/i', '/valid/i')
+	);
+	$sources = problemSourceFiles($names);
+	foreach ($patterns[$kind] as $pattern) {
+		foreach ($sources as $name) {
+			if (preg_match($pattern, $name)) {
+				return $name;
+			}
+		}
+	}
+	return '';
 }
 
 // ---- which files are the tests
@@ -359,7 +417,7 @@ function problemConfIsManagedKey($key) {
 	static $managed = array(
 		'use_builtin_judger', 'use_builtin_checker', 'n_tests', 'n_ex_tests', 'n_sample_tests', 'input_pre', 'input_suf',
 		'output_pre', 'output_suf', 'time_limit', 'memory_limit', 'interaction_mode', 'multi_pass', 'submit_answer',
-		'with_implementer', 'n_subtasks'
+		'with_implementer', 'n_subtasks', 'chk_source', 'interactor_source', 'std_source', 'val_source'
 	);
 	return in_array($key, $managed, true) || preg_match('/^subtask_(end|score)_[0-9]+$/D', $key) === 1;
 }
@@ -367,7 +425,9 @@ function problemConfIsManagedKey($key) {
 //   $settings   what the form said
 //   $found      what problemDetectTests() found
 //   $old_conf   the problem.conf there is, for what the form does not decide
-function problemConfFromSettings($settings, $found, $old_conf = array()) {
+//   $names      the files that were uploaded, among which the programs of the problem are;
+//               null when it is not known what was uploaded
+function problemConfFromSettings($settings, $found, $old_conf = array(), $names = null) {
 	$conf = array('use_builtin_judger' => 'on');
 	$type = $settings['type'];
 	// an interactive problem is judged by its interactor, a multi-pass problem by a checker of its own
@@ -392,6 +452,32 @@ function problemConfFromSettings($settings, $found, $old_conf = array()) {
 	}
 	if ($type === 'multi_pass') {
 		$conf['multi_pass'] = $settings['passes'];
+	}
+	// Which file is which program. One that was chosen is named; one that was not is looked
+	// for among the files by what such files are called. The solution and the validator of a
+	// problem that can be hacked are named only when they were chosen.
+	$programs = array();
+	if ($type === 'interactive') {
+		$programs['interactor_file'] = true;
+	} elseif ($type === 'multi_pass' || $settings['checker'] === 'custom') {
+		$programs['checker_file'] = true;
+	}
+	if ($type !== 'submit_answer') {
+		$programs += array('std_file' => false, 'val_file' => false);
+	}
+	foreach ($programs as $field => $guessed) {
+		$kind = problemProgramFields()[$field];
+		$file = isset($settings[$field]) ? (string)$settings[$field] : '';
+		if ($file === '' && $guessed && $names !== null) {
+			$file = problemGuessProgram($names, $kind);
+		}
+		if ($file === '') {
+			continue;
+		}
+		if ($names !== null && !in_array($file, $names, true)) {
+			return array(null, dataProgramKinds()[$kind] . "文件 $file 不在已上传的文件里");
+		}
+		$conf["{$kind}_source"] = $file;
 	}
 	if ($settings['scoring'] === 'all') {
 		$conf['n_subtasks'] = 1;
@@ -455,37 +541,30 @@ function problemArrangeFiles($upload_dir, $found) {
 	}
 	return '';
 }
-// Sets a problem up from its settings and the files that were uploaded for it: finds the
-// tests, calls them what the judgers call them, and writes problem.conf.
-// Returns array(what was found and done, as lines for people, '') or array(null, why not).
-function problemApplySettings($problem, $settings, $actor) {
+// What setting a problem up from its settings would come to, without doing any of it: the
+// tests that are found among the uploaded files, and the problem.conf that would be written.
+// Returns array(array('conf', 'found', 'old_conf', 'notes'), '') or array(null, why not).
+function problemPlanSettings($problem, $settings) {
 	requirePHPLib('judger');
 	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
 	$conf_path = "$upload_dir/problem.conf";
 	$old_conf = is_file($conf_path) ? getUOJConf($conf_path) : array();
 	$old_conf = is_array($old_conf) ? $old_conf : array();
 	$inputs_suffice = $settings['type'] === 'interactive' || $settings['type'] === 'multi_pass';
-	$found = problemDetectTests(problemUploadedNames($upload_dir), $inputs_suffice);
-	list($conf, $err) = problemConfFromSettings($settings, $found, $old_conf);
+	$names = problemUploadedNames($upload_dir);
+	$found = problemDetectTests($names, $inputs_suffice);
+	// the programs are chosen among the files as they will be called
+	$renamed = array();
+	foreach ($names as $name) {
+		$renamed[] = isset($found['renames'][$name]) ? $found['renames'][$name] : $name;
+	}
+	list($conf, $err) = problemConfFromSettings($settings, $found, $old_conf, $renamed);
 	if ($err !== '') {
 		return array(null, $err);
 	}
-	$err = problemArrangeFiles($upload_dir, $found);
-	if ($err !== '') {
-		return array(null, $err);
-	}
-	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
-		return array(null, '无法创建保存数据的目录');
-	}
-	if (is_file($conf_path)) {
-		unlink($conf_path);
-	}
-	putUOJConf($conf_path, $conf);
-	auditLog('problem.edit_conf', 'problem', $problem['id'], $old_conf ? $old_conf : null, $conf, $actor);
-
 	$notes = array();
 	if ($conf['n_tests'] == 0) {
-		$notes[] = '还没有找到测试数据：上传数据包后再保存一次评测设置，测试点会自动识别';
+		$notes[] = '还没有找到测试数据：上传测试数据后再保存一次，测试点会自动识别';
 	} else {
 		$notes[] = "识别到 {$conf['n_tests']} 个测试点" . ($conf['n_ex_tests'] > 0 ? "、{$conf['n_ex_tests']} 个额外测试点（其中 {$conf['n_sample_tests']} 个是样例）" : '');
 	}
@@ -498,7 +577,352 @@ function problemApplySettings($problem, $settings, $actor) {
 	if ($found['unpaired']) {
 		$notes[] = '有 ' . count($found['unpaired']) . ' 个文件像是测试数据，却配不成对：' . join('、', array_slice($found['unpaired'], 0, 6)) . (count($found['unpaired']) > 6 ? ' 等' : '');
 	}
-	return array($notes, '');
+	foreach (array('chk' => array('interactive' => false, 'needed' => $settings['type'] === 'multi_pass' || $settings['checker'] === 'custom'),
+			'interactor' => array('interactive' => true, 'needed' => true)) as $kind => $when) {
+		if (($settings['type'] === 'interactive') === $when['interactive'] && $when['needed']) {
+			$notes[] = isset($conf["{$kind}_source"])
+				? dataProgramKinds()[$kind] . '是 ' . $conf["{$kind}_source"]
+				: '还没有' . dataProgramKinds()[$kind] . '：上传它的源文件后在评测设置里选上';
+		}
+	}
+	return array(array('conf' => $conf, 'found' => $found, 'old_conf' => $old_conf, 'notes' => $notes), '');
+}
+// Sets a problem up from its settings and the files that were uploaded for it: finds the
+// tests, calls them what the judgers call them, and writes problem.conf.
+// Returns array(what was found and done, as lines for people, '') or array(null, why not).
+function problemApplySettings($problem, $settings, $actor) {
+	list($plan, $err) = problemPlanSettings($problem, $settings);
+	if ($err !== '') {
+		return array(null, $err);
+	}
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	$conf_path = "$upload_dir/problem.conf";
+	$err = problemArrangeFiles($upload_dir, $plan['found']);
+	if ($err !== '') {
+		return array(null, $err);
+	}
+	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
+		return array(null, '无法创建保存数据的目录');
+	}
+	if (is_file($conf_path)) {
+		unlink($conf_path);
+	}
+	putUOJConf($conf_path, $plan['conf']);
+	auditLog('problem.edit_conf', 'problem', $problem['id'], $plan['old_conf'] ? $plan['old_conf'] : null, $plan['conf'], $actor);
+	return array($plan['notes'], '');
+}
+
+// ---- problem.conf as its text: for the people who would rather write it
+
+function problemConfText($conf) {
+	$text = '';
+	if (is_array($conf)) {
+		foreach ($conf as $key => $value) {
+			$text .= "$key $value\n";
+		}
+	}
+	return $text;
+}
+// What a text says as a problem.conf: array(the conf, '') or array(null, what is wrong with
+// it). Every line is a key and a value with blanks between them; empty lines say nothing.
+function problemConfFromText($text) {
+	if (!is_string($text) || strlen($text) > 200000 || !mb_check_encoding($text, 'UTF-8')) {
+		return array(null, 'problem.conf 太长，或者不是 UTF-8 的文本');
+	}
+	$conf = array();
+	foreach (preg_split('/\r\n|\r|\n/', $text) as $index => $line) {
+		if (trim($line) === '') {
+			continue;
+		}
+		$number = $index + 1;
+		// the judgers read words with blanks between them, and nothing else
+		if (!preg_match('/^ *([^ \t]+) +([^ \t]+) *$/D', $line, $matches)) {
+			return array(null, "第 $number 行应是“键 值”：一个键、一个值，中间用空格分开，值里不能有空格");
+		}
+		if (!preg_match('/^[A-Za-z0-9_]{1,60}$/D', $matches[1])) {
+			return array(null, "第 $number 行的键 {$matches[1]} 应由字母、数字和下划线组成");
+		}
+		if (strlen($matches[2]) > 200 || preg_match('/[\x00-\x1f\x7f]/', $matches[2])) {
+			return array(null, "第 $number 行的值太长，或者有不能显示的字符");
+		}
+		if (isset($conf[$matches[1]])) {
+			return array(null, "第 $number 行：{$matches[1]} 写了两次");
+		}
+		$conf[$matches[1]] = $matches[2];
+	}
+	if (!$conf) {
+		return array(null, 'problem.conf 是空的');
+	}
+	if (count($conf) > 5000) {
+		return array(null, 'problem.conf 的行数太多');
+	}
+	return array($conf, '');
+}
+// Writes a problem.conf somebody wrote as it is: no file is renamed for it, and nothing in
+// it is second-guessed. Whether it can be judged with is said by the sync that follows.
+// Returns '' or what is wrong with the text.
+function problemSaveConfText($problem, $text, $actor) {
+	requirePHPLib('judger');
+	list($conf, $err) = problemConfFromText($text);
+	if ($err !== '') {
+		return $err;
+	}
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
+		return '无法创建保存数据的目录';
+	}
+	$old_conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
+	putUOJConf("$upload_dir/problem.conf", $conf);
+	auditLog('problem.edit_conf', 'problem', $problem['id'], is_array($old_conf) ? $old_conf : null, $conf + array('written_as_text' => 1), $actor);
+	return '';
+}
+
+// ---- the files of a problem, one by one
+
+// The files that were uploaded for a problem, the ones in its folders as well: rows of name
+// (with the folder it is in) and size, in the order people read names in.
+function problemDataFiles($problem) {
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	$rows = array();
+	$dirs = array('');
+	while ($dirs && count($rows) < 20000) {
+		$dir = array_shift($dirs);
+		$names = @scandir("$upload_dir/$dir");
+		foreach ($names ? $names : array() as $name) {
+			if ($name === '.' || $name === '..' || is_link("$upload_dir/$dir$name")) {
+				continue;
+			}
+			if (is_dir("$upload_dir/$dir$name")) {
+				if (substr_count($dir, '/') < 5) {
+					$dirs[] = "$dir$name/";
+				}
+			} elseif (is_file("$upload_dir/$dir$name")) {
+				$rows[] = array('name' => "$dir$name", 'size' => filesize("$upload_dir/$dir$name"));
+			}
+		}
+	}
+	usort($rows, function($a, $b) {
+		// what lies in the folder of the problem itself before what lies in its folders
+		$deep = array(strpos($a['name'], '/') !== false, strpos($b['name'], '/') !== false);
+		return $deep[0] !== $deep[1] ? ($deep[0] ? 1 : -1) : strnatcasecmp($a['name'], $b['name']);
+	});
+	return $rows;
+}
+// What each of the files of a problem is to its problem.conf: name => a few words. A file
+// problem.conf does not use is not in it.
+function problemFileRoles($names, $conf) {
+	$roles = array('problem.conf' => '评测设置');
+	if (!is_array($conf)) {
+		return $roles;
+	}
+	$on = function($key) use ($conf) {
+		return isset($conf[$key]) && $conf[$key] === 'on';
+	};
+	if (isset($conf['use_builtin_judger']) && $conf['use_builtin_judger'] !== 'on') {
+		return $roles;
+	}
+	$count = function($key, $default) use ($conf) {
+		$n = isset($conf[$key]) ? (string)$conf[$key] : (string)$default;
+		return validateUInt($n) ? min((int)$n, 5000) : 0;
+	};
+	for ($num = 1; $num <= $count('n_tests', 10); $num++) {
+		$roles[getUOJProblemInputFileName($conf, $num)] = "测试点 $num 输入";
+		$roles[getUOJProblemOutputFileName($conf, $num)] = "测试点 $num 答案";
+	}
+	if (!$on('submit_answer')) {
+		$n_samples = $count('n_sample_tests', $count('n_tests', 10));
+		for ($num = 1; $num <= $count('n_ex_tests', 0); $num++) {
+			$what = $num <= $n_samples ? "样例 $num" : "额外测试点 $num";
+			$roles[getUOJProblemExtraInputFileName($conf, $num)] = "$what 输入";
+			$roles[getUOJProblemExtraOutputFileName($conf, $num)] = "$what 答案";
+		}
+	}
+	$has = array_flip($names);
+	foreach (dataProgramKinds() as $kind => $label) {
+		if (isset($conf["{$kind}_source"])) {
+			$roles[$conf["{$kind}_source"]] = $label;
+			continue;
+		}
+		// one that is not named is the file the judgers find by its name
+		$wanted = $kind === 'interactor' ? $on('interaction_mode') : ($kind === 'chk' ? !$on('interaction_mode') && !isset($conf['use_builtin_checker']) : true);
+		foreach (array("$kind.cpp", "$kind.c", "$kind.pas") as $file) {
+			if ($wanted && isset($has[$file])) {
+				$roles[$file] = $label;
+				break;
+			}
+		}
+	}
+	foreach ($names as $name) {
+		if (strncmp($name, 'require/', 8) === 0) {
+			$roles[$name] = '和选手的程序一起编译';
+		} elseif (strncmp($name, 'download/', 9) === 0) {
+			$roles[$name] = '给选手下载';
+		}
+	}
+	return $roles;
+}
+// '' when a name is one a file of a problem can have, or what is wrong with it
+function problemFileNameError($name) {
+	$err = uploadNameError($name);
+	if ($err !== '') {
+		return $err;
+	}
+	if (uploadIsJunk($name) || substr($name, -1) === '/') {
+		return '这不是数据文件的名字';
+	}
+	return '';
+}
+// the path of a file of a problem that is there, or null: never a link, never outside
+function problemFilePath($problem, $name) {
+	if (problemFileNameError($name) !== '') {
+		return null;
+	}
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	$path = "$upload_dir/$name";
+	$dir = $upload_dir;
+	foreach (explode('/', $name) as $part) {
+		$dir .= "/$part";
+		if (is_link($dir)) {
+			return null;
+		}
+	}
+	return is_file($path) ? $path : null;
+}
+// each of these returns '' or why it was refused
+function problemDeleteFile($problem, $name, $actor) {
+	$path = problemFilePath($problem, $name);
+	if ($path === null) {
+		return '没有这个文件';
+	}
+	$size = filesize($path);
+	if (!@unlink($path)) {
+		return '无法删除这个文件';
+	}
+	// a folder that holds nothing any more goes with its last file
+	$dir = dirname($path);
+	while ($dir !== "/var/uoj_data/upload/{$problem['id']}" && @rmdir($dir)) {
+		$dir = dirname($dir);
+	}
+	auditLog('problem.delete_file', 'problem', $problem['id'], array('name' => $name, 'size' => $size), null, $actor);
+	return '';
+}
+function problemRenameFile($problem, $name, $new_name, $actor) {
+	requirePHPLib('judger');
+	$path = problemFilePath($problem, $name);
+	if ($path === null) {
+		return '没有这个文件';
+	}
+	$new_name = is_string($new_name) ? trim($new_name) : '';
+	$err = problemFileNameError($new_name);
+	if ($err !== '') {
+		return "新的名字不能用：$err";
+	}
+	if ($new_name === $name) {
+		return '';
+	}
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	$target = "$upload_dir/$new_name";
+	if (file_exists($target) || is_link($target)) {
+		return "已经有一个叫 $new_name 的文件了";
+	}
+	$dir = $upload_dir;
+	foreach (array_slice(explode('/', $new_name), 0, -1) as $part) {
+		$dir .= "/$part";
+		if (is_link($dir) || (file_exists($dir) && !is_dir($dir)) || (!is_dir($dir) && !@mkdir($dir, 0755))) {
+			return "无法把文件放进 $part";
+		}
+	}
+	if (!@rename($path, $target)) {
+		return '无法给这个文件改名';
+	}
+	// a program that problem.conf names is still that program under its new name
+	$conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
+	if (is_array($conf)) {
+		$changed = false;
+		foreach (dataProgramKinds() as $kind => $label) {
+			if (isset($conf["{$kind}_source"]) && $conf["{$kind}_source"] === $name && dataProgramSourceError($new_name) === '') {
+				$conf["{$kind}_source"] = $new_name;
+				$changed = true;
+			}
+		}
+		if ($changed) {
+			putUOJConf("$upload_dir/problem.conf", $conf);
+		}
+	}
+	auditLog('problem.rename_file', 'problem', $problem['id'], array('name' => $name), array('name' => $new_name), $actor);
+	return '';
+}
+// Takes the files a form sent as data of a problem, several at once. An archive is unpacked
+// into the folder of the problem; any other file is put there under its own name, in the
+// place of a file of that name. Returns array(how many files were written, what was refused
+// and why, as lines for people).
+function problemTakeUploadedFiles($problem, $field, $actor) {
+	if (!isset($_FILES[$field]) || !is_array($_FILES[$field]['name'])) {
+		return array(0, array());
+	}
+	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
+		return array(0, array('无法创建保存数据的目录'));
+	}
+	$limits = uploadLimits();
+	$written = 0;
+	$refused = array();
+	$taken = array();
+	// how much the folder of the problem holds: counted once, and kept up with what is written
+	list($existing_count, $existing_bytes) = backupTreeSize($upload_dir);
+	foreach ($_FILES[$field]['name'] as $index => $sent_name) {
+		if ($_FILES[$field]['error'][$index] == UPLOAD_ERR_NO_FILE) {
+			continue;
+		}
+		$name = uojFileBaseName(str_replace('\\', '/', (string)$sent_name));
+		if ($_FILES[$field]['error'][$index] > 0) {
+			$refused[] = "$name 没有传完（错误 " . (int)$_FILES[$field]['error'][$index] . "），可能是文件太大";
+			continue;
+		}
+		$tmp_name = $_FILES[$field]['tmp_name'][$index];
+		if (strtolower(substr($name, -4)) === '.zip') {
+			list($unpacked, $err) = uploadUnpack($tmp_name, $upload_dir, $limits);
+			$facts = array('archive' => $name, 'size' => filesize($tmp_name), 'sha256' => hash_file('sha256', $tmp_name));
+			if ($err !== '') {
+				$refused[] = "{$name}：$err";
+				auditLog('problem.upload_refused', 'problem', $problem['id'], null, $facts + array('error' => $err), $actor);
+			} else {
+				$written += $unpacked;
+				auditLog('problem.upload_data', 'problem', $problem['id'], null, $facts + array('files' => $unpacked), $actor);
+			}
+			list($existing_count, $existing_bytes) = backupTreeSize($upload_dir);
+			continue;
+		}
+		$err = problemFileNameError($name);
+		if ($err !== '') {
+			$refused[] = "{$name}：$err";
+			continue;
+		}
+		$size = filesize($tmp_name);
+		$is_new = !is_file("$upload_dir/$name");
+		$replaced = $is_new ? 0 : filesize("$upload_dir/$name");
+		if ($size > $limits['file_bytes']) {
+			$refused[] = "$name 有 " . uploadMegabytes($size) . " MB，超过了单个文件的上限 " . uploadMegabytes($limits['file_bytes']) . " MB";
+			continue;
+		}
+		if ($existing_bytes - $replaced + $size > $limits['bytes'] || ($is_new && $existing_count >= $limits['files'])) {
+			$refused[] = "{$name}：这道题的数据已经到了上限（" . uploadMegabytes($limits['bytes']) . " MB、{$limits['files']} 个文件）";
+			continue;
+		}
+		if (is_dir("$upload_dir/$name") || is_link("$upload_dir/$name") || !move_uploaded_file($tmp_name, "$upload_dir/$name")) {
+			$refused[] = "{$name}：无法保存";
+			continue;
+		}
+		chmod("$upload_dir/$name", 0644);
+		$existing_bytes += $size - $replaced;
+		$existing_count += $is_new ? 1 : 0;
+		$written++;
+		$taken[$name] = $size;
+	}
+	if ($taken) {
+		auditLog('problem.upload_data', 'problem', $problem['id'], null, array('files' => count($taken), 'names' => array_slice(array_keys($taken), 0, 50), 'size' => array_sum($taken)), $actor);
+	}
+	return array($written, $refused);
 }
 
 // ---- making a problem
