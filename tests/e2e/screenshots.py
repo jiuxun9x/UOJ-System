@@ -10,13 +10,14 @@ of a desktop and of a phone.
 
 import json
 import os
+import struct
 import sys
+import zlib
 
 from playwright.sync_api import sync_playwright
 
 import test_phase3 as p3
 import test_phase4 as p4
-import test_phase7 as p7
 import uoj
 from fixtures import AB, AB_WRONG, ab_problem_files
 from uoj import db, db_value
@@ -26,6 +27,16 @@ VIEWPORTS = {"desktop": {"width": 1280, "height": 900}, "mobile": {"width": 390,
 # student numbers as the school writes them: two capital letters and eight digits
 STUDENTS = [("CS26010001", "陈一鸣"), ("CS26010002", "林晓雨"), ("CS26010003", "王子涵"), ("CS26010004", "赵思远"),
             ("CS26010005", "刘欣怡"), ("CS26010006", "黄浩然")]  # fmt: skip
+
+
+def picture(width=360, height=140):
+    """a picture large enough to be seen: bands of colour"""
+    rows = b""
+    for y in range(height):
+        rows += b"\x00" + b"".join(bytes((60 + 150 * x // width, 110 + 90 * y // height, 200 - 120 * x // width)) for x in range(width))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
 
 
 def seed():
@@ -184,7 +195,7 @@ def seed():
     # an announcement of the site with a picture in it, and a judging account nobody uses yet
     admin.post("/announcement/new", {"form": "save", "title": "2026 秋季学期上机安排", "level": "1",
                                      "content_md": "第 3 周起，每周三晚 **19:00** 在实验楼 305 上机。\n\n- 带校园卡\n- 提前 10 分钟到"},
-               [("media[]", ("机房.png", p7.PNG, "image/png")), ("media[]", ("座位表.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))])  # fmt: skip
+               [("media[]", ("机房.png", picture(), "image/png")), ("media[]", ("座位表.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))])  # fmt: skip
     announcement = int(db_value("select max(blog_id) from important_blogs"))
     admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "lab305", "judger_adder_note": "实验楼 305 的机器"})
     return {"announcement": announcement, "teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,

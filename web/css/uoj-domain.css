@@ -382,3 +382,10 @@
 .uoj-announcement-text audio {
 	max-width: 100%;
 }
+
+/* ---- the accounts of the judgers: what belongs to a cell stands under it, smaller */
+.uoj-judger-accounts small {
+	display: block;
+	color: #6c757d;
+	white-space: normal;
+}

@@ -648,18 +648,15 @@ EOD;
 			</p>
 			<?php $judger_accounts = judgerAccounts(); ?>
 			<div class="table-responsive">
-				<table class="table table-bordered table-hover uoj-roster" id="table-judger-accounts">
+				<table class="table table-bordered table-hover uoj-roster uoj-judger-accounts" id="table-judger-accounts">
 					<thead>
 						<tr>
 							<th style="width:4em">编号</th>
 							<th>评测账户</th>
-							<th>备注</th>
 							<th>状态</th>
-							<th>最近响应</th>
 							<th>题目数据</th>
 							<th>正在评测</th>
-							<th>版本</th>
-							<th style="width:15em">操作</th>
+							<th>操作</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -675,21 +672,29 @@ EOD;
 						?>
 						<tr data-judger="<?= HTML::escape($account['judger_name']) ?>" data-state="<?= $state[0] ?>" data-enabled="<?= (int)$account['enabled'] ?>">
 							<td data-id="<?= (int)$account['id'] ?>">#<?= (int)$account['id'] ?></td>
-							<td><strong><?= HTML::escape($account['judger_name']) ?></strong></td>
-							<td><?= HTML::escape($account['note']) ?><?php if ($account['created_by'] !== ''): ?> <small class="text-muted">（<?= HTML::escape($account['created_by']) ?> 添加）</small><?php endif ?></td>
-							<td><?= $state[1] ?><?php if (!$account['enabled']): ?> <span class="badge badge-secondary">已停用</span><?php endif ?></td>
-							<td><small><?= $account['last_heartbeat_at'] !== null ? $account['last_heartbeat_at'] : '—' ?></small></td>
+							<td>
+								<strong><?= HTML::escape($account['judger_name']) ?></strong>
+								<?php if ($account['note'] !== '' || $account['created_by'] !== ''): ?>
+								<small><?= HTML::escape($account['note']) ?><?php if ($account['created_by'] !== ''): ?><?= $account['note'] !== '' ? ' · ' : '' ?><?= HTML::escape($account['created_by']) ?> 添加<?php endif ?></small>
+								<?php endif ?>
+							</td>
+							<td>
+								<?= $state[1] ?><?php if (!$account['enabled']): ?> <span class="badge badge-secondary">已停用</span><?php endif ?>
+								<small><?= $account['last_heartbeat_at'] !== null ? '最近响应 ' . $account['last_heartbeat_at'] : '还没有评测机用它连上来' ?></small>
+								<?php if ($account['last_heartbeat_at'] !== null): ?>
+								<small><?= $account['version'] !== '' ? '版本 ' . HTML::escape($account['version']) : '<span class="text-danger">没有上报版本，需要升级</span>' ?></small>
+								<?php endif ?>
+							</td>
 							<td data-have="<?= $account['data_have'] === null ? '' : (int)$account['data_have'] ?>" data-total="<?= $account['data_total'] === null ? '' : (int)$account['data_total'] ?>">
 								<?php if ($account['data_checked_at'] === null || $account['data_total'] === null): ?>
 								<span class="text-muted" title="这台评测机还没有报告过">—</span>
 								<?php elseif ($account['data_have'] >= $account['data_total']): ?>
-								<span class="text-success">已同步</span> <small class="text-muted"><?= (int)$account['data_total'] ?> 题</small>
+								<span class="text-success">已同步</span> <small><?= (int)$account['data_total'] ?> 题</small>
 								<?php else: ?>
 								<?= (int)$account['data_have'] ?> / <?= (int)$account['data_total'] ?> 题
 								<?php endif ?>
 							</td>
-							<td><small><?= HTML::escape(join(', ', $account['judging'])) ?></small></td>
-							<td><small><?= $account['version'] !== '' ? HTML::escape($account['version']) : ($account['last_heartbeat_at'] === null ? '—' : '<span class="text-danger">未上报，需要升级</span>') ?></small></td>
+							<td><small><?= $account['judging'] ? HTML::escape(join(', ', $account['judging'])) : '—' ?></small></td>
 							<td>
 								<form method="post" class="d-inline">
 									<?= HTML::hiddenToken() ?>
@@ -702,7 +707,7 @@ EOD;
 						</tr>
 						<?php endforeach ?>
 						<?php if (!$judger_accounts): ?>
-						<tr><td colspan="9" class="text-muted">还没有评测账户。</td></tr>
+						<tr><td colspan="6" class="text-muted">还没有评测账户。</td></tr>
 						<?php endif ?>
 					</tbody>
 				</table>
@@ -710,7 +715,12 @@ EOD;
 			<p class="text-muted small">“题目数据”是这台评测机上次报告时手里有多少道题的最新数据：评测机空闲时每半分钟检查一次，新发布的数据先同步，不用等到第一次评测。每台评测机默认最多保留 300 道题的数据（启动时用 <code>DATA_CACHE_PROBLEMS</code> 调整）：没装满时把已有的题目都同步过去；装满之后只同步新发布的数据（最久没用到的被换出），其余的评测到时才下载。</p>
 			<h4 class="mt-4">添加评测账户</h4>
 			<p class="text-muted small">起一个名字，提交后会显示这个账户的密码和启动评测机的命令。一个账户给一台评测机用。</p>
-			<div style="max-width:36em"><?php $judger_adder->printHTML(); ?></div>
+			<form method="post" class="form-inline" id="form-add-judger">
+				<?= HTML::hiddenToken() ?>
+				<input type="text" class="form-control mr-2 mb-2" name="judger_adder_name" required="required" maxlength="20" pattern="[A-Za-z0-9_]{1,20}" placeholder="账户名称：字母、数字、下划线" style="width:17em" />
+				<input type="text" class="form-control mr-2 mb-2" name="judger_adder_note" maxlength="100" placeholder="备注（可选），比如这台机器在哪里" style="width:20em" />
+				<button type="submit" name="submit-judger_adder" value="judger_adder" class="btn btn-primary mb-2" id="button-add-judger">添加评测账户</button>
+			</form>
 			</div>
 		<?php elseif ($cur_tab === 'monitor'): ?>
 			<?php
