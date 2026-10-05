@@ -6,7 +6,9 @@
 		mkdir("/var/uoj_data/upload/$id");
 		mkdir("/var/uoj_data/$id");
 
-		exec("cd /var/uoj_data; rm $id.zip; zip $id.zip $id -r -q");
+		// the archive of a problem that has no data yet. One that was there is replaced; for a
+		// problem that was just made there is none, and that is nothing to complain about
+		exec("cd /var/uoj_data; rm -f $id.zip; zip $id.zip $id -r -q");
 	}
 
 	// ---- versions of the data of a problem
