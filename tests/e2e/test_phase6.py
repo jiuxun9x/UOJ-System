@@ -1011,8 +1011,14 @@ class BlogSwitchTest(unittest.TestCase):
             db("insert into important_blogs (blog_id, level) values (%d, 0)" % blog_id)
         return blog_id
 
+    @staticmethod
+    def blog(username, path=""):
+        """the address of the blog of a user: the name is written with hyphens there, and an
+        address with the name as it is leads to that one"""
+        return "/blog/%s%s" % (username.replace("_", "-").lower(), path)
+
     def comment(self, client, blog_id, poster):
-        return client.submit_form("/blog/%s/post/%d" % (poster, blog_id), "comment", {"comment": "p6 comment by " + client.username})
+        return client.submit_form(self.blog(poster, "/post/%d" % blog_id), "comment", {"comment": "p6 comment by " + client.username})
 
     def test_blogs_are_closed_until_the_system_administrator_opens_them(self):
         import test_phase5 as p5
@@ -1034,13 +1040,15 @@ class BlogSwitchTest(unittest.TestCase):
         for client in (writer, reader, visitor):
             # the address of a blog has no slash at its end: the web server takes one away
             for path in ("", "/archive", "/post/%d" % diary, "/post/new/write"):
+                self.assertEqual(client.get(self.blog("p6_blog_writer", path)).status_code, 404, path)
                 self.assertEqual(client.get("/blog/p6_blog_writer" + path).status_code, 404, path)
-        self.assertEqual(reader.get("/blogs/%d" % diary).headers.get("Location"), "/blog/p6_blog_writer/post/%d" % diary)
-        self.assertNotIn("/blog/p6_blog_writer", reader.get("/user/profile/p6_blog_writer").text)
+        # the short address of a post leads to the blog it is in, which is not there
+        self.assertTrue(reader.get("/blogs/%d" % diary).headers.get("Location").endswith(self.blog("p6_blog_writer", "/post/%d" % diary)))
+        self.assertNotIn(self.blog("p6_blog_writer"), reader.get("/user/profile/p6_blog_writer").text)
         # the announcements are there for everybody, and are not discussed
         for client in (reader, visitor):
             self.assertIn("p6 期末安排", client.get("/").text)
-            page = client.get("/blog/%s/post/%d" % (uoj.ADMIN[0], news))
+            page = client.get(self.blog(uoj.ADMIN[0], "/post/%d" % news))
             self.assertEqual(page.status_code, 200)
             self.assertIn("text of p6 期末安排", page.text)
             self.assertIn('id="comments-closed"', page.text)
@@ -1048,8 +1056,8 @@ class BlogSwitchTest(unittest.TestCase):
         self.comment(reader, news, uoj.ADMIN[0])
         self.assertEqual(comments(), 0)
         # the administrators go on writing them
-        self.assertEqual(admin.get("/blog/%s/post/new/write" % uoj.ADMIN[0]).status_code, 200)
-        self.assertEqual(oj_admin.get("/blog/p6_blog_ojadmin/post/new/write").status_code, 200)
+        self.assertEqual(admin.get(self.blog(uoj.ADMIN[0], "/post/new/write")).status_code, 200)
+        self.assertEqual(oj_admin.get(self.blog("p6_blog_ojadmin", "/post/new/write")).status_code, 200)
 
         # ---- the switch is the system administrator's
         settings = "/super-manage/settings"
@@ -1063,10 +1071,10 @@ class BlogSwitchTest(unittest.TestCase):
             self.assertIn('href="/blogs"', reader.get("/").text)
             self.assertEqual(reader.get("/blogs").status_code, 200)
             self.assertIn("p6 日记", reader.get("/blogs").text)
-            self.assertEqual(reader.get("/blog/p6_blog_writer/post/%d" % diary).status_code, 200)
-            self.assertEqual(writer.get("/blog/p6_blog_writer/post/new/write").status_code, 200)
-            self.assertIn("/blog/p6_blog_writer", reader.get("/user/profile/p6_blog_writer").text)
-            page = reader.get("/blog/%s/post/%d" % (uoj.ADMIN[0], news)).text
+            self.assertEqual(reader.get(self.blog("p6_blog_writer", "/post/%d" % diary)).status_code, 200)
+            self.assertEqual(writer.get(self.blog("p6_blog_writer", "/post/new/write")).status_code, 200)
+            self.assertIn(self.blog("p6_blog_writer"), reader.get("/user/profile/p6_blog_writer").text)
+            page = reader.get(self.blog(uoj.ADMIN[0], "/post/%d" % news)).text
             self.assertIn('id="form-comment"', page)
             self.assertNotIn('id="comments-closed"', page)
             self.assertEqual(self.comment(reader, diary, "p6_blog_writer"), "")
@@ -1074,7 +1082,7 @@ class BlogSwitchTest(unittest.TestCase):
         finally:
             self.assertEqual(p5.site_settings(admin, blog_enabled=False), "")
         # ---- closed again: what was written is kept, and is out of sight
-        self.assertEqual(reader.get("/blog/p6_blog_writer/post/%d" % diary).status_code, 404)
+        self.assertEqual(reader.get(self.blog("p6_blog_writer", "/post/%d" % diary)).status_code, 404)
         self.assertEqual(db_value("select count(*) from blogs where id = %d" % diary), "1")
         self.assertEqual(comments(), 1)
         self.assertEqual(

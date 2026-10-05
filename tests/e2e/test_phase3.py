@@ -570,14 +570,15 @@ class AuditLogTest(unittest.TestCase):
         self.assertEqual(actor_id, db_value("select id from user_info where username = '%s'" % uoj.ADMIN[0]))
         self.assertNotEqual(ip, "")
 
-        # a problem: created, its data uploaded and synced
+        # a problem: created with the form, which says how it is judged, its data uploaded and synced
         problem_id = teacher.create_problem(ab_problem_files())
         log = self.log_of("problem", problem_id)
-        self.assertEqual([row[0] for row in log], ["problem.create", "problem.upload_data", "problem.sync_data"])
+        self.assertEqual([row[0] for row in log], ["problem.create", "problem.edit_conf", "problem.upload_data", "problem.sync_data"])
         self.assertEqual({row[1] for row in log}, {"p3_audit_teacher"})
-        self.assertEqual(json.loads(log[2][4])["version"], 1)
+        self.assertEqual(json.loads(log[1][4])["time_limit"], "1")
+        self.assertEqual(json.loads(log[3][4])["version"], 1)
         self.assertEqual(
-            json.loads(log[2][4])["sha256"],
+            json.loads(log[3][4])["sha256"],
             db_value("select sha256 from problem_data_versions where problem_id = %d and version = 1" % problem_id),
         )
 
