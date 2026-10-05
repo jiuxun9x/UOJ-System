@@ -418,59 +418,66 @@ def interactive_problem_files():
     return files
 
 
-# ---------------------------------------------------------------------- a run-twice problem
+# ---------------------------------------------------------------------- multi-pass problems
 #
-# The first run is given numbers and writes a message of at most 40 zeros and ones for each of
-# them. The relay hands the messages to the second run in reverse order, and the second run
-# has to tell the numbers. Only the relay knows the order, and tells the checker in its notes.
-
-MESSAGES_RELAY = r"""
-#include "testlib.h"
-#include <cstdio>
-#include <string>
-#include <vector>
-int main(int argc, char **argv) {
-    registerInteraction(argc, argv);
-    inf.readToken();
-    int t = inf.readInt();
-    std::vector<std::string> messages(t);
-    for (int i = 0; i < t; i++) {
-        messages[i] = ouf.readToken();
-        if (messages[i].size() > 40) {
-            quitf(_wa, "message %d is longer than 40 characters", i + 1);
-        }
-        for (char c : messages[i]) {
-            if (c != '0' && c != '1') {
-                quitf(_wa, "message %d is not made of zeros and ones", i + 1);
-            }
-        }
-    }
-    tout << "second\n" << t << "\n";
-    for (int i = t - 1; i >= 0; i--) {
-        tout << messages[i] << "\n";
-        // for the checker: the number that the message at this place stands for
-        printf("%d\n", i + 1);
-    }
-    quitf(_ok, "%d messages passed on", t);
-}
-"""
+# The program of a multi-pass problem is run on a test more than once. After every pass the
+# checker looks at what the program wrote; when it wants another pass, it writes the input of
+# that pass to nextpass.in in its work folder and says ok, and keeps what it has to remember
+# in state.txt. This is the convention of Hydro.
+#
+# The first problem has two passes. The first pass is given numbers and writes a message of at
+# most 40 zeros and ones for each of them. The checker hands the messages to the second pass
+# in reverse order, and the second pass has to tell the numbers.
 
 MESSAGES_CHECKER = r"""
 #include "testlib.h"
+#include <fstream>
+#include <string>
 #include <vector>
 int main(int argc, char **argv) {
     registerTestlibCmd(argc, argv);
-    inf.readToken();
+    std::string pass = inf.readToken();
     int t = inf.readInt();
-    std::vector<int> numbers(t);
-    for (int i = 0; i < t; i++) {
-        numbers[i] = inf.readInt();
+    if (pass == "first") {
+        // after the first pass: the input has the numbers, the program wrote the messages
+        std::vector<long long> numbers(t);
+        for (int i = 0; i < t; i++) {
+            numbers[i] = inf.readLong();
+        }
+        std::vector<std::string> messages(t);
+        for (int i = 0; i < t; i++) {
+            messages[i] = ouf.readToken();
+            if (messages[i].size() > 40) {
+                quitf(_wa, "message %d is longer than 40 characters", i + 1);
+            }
+            for (char c : messages[i]) {
+                if (c != '0' && c != '1') {
+                    quitf(_wa, "message %d is not made of zeros and ones", i + 1);
+                }
+            }
+        }
+        std::ofstream next("nextpass.in");
+        std::ofstream state("state.txt");
+        next << "second\n" << t << "\n";
+        for (int i = t - 1; i >= 0; i--) {
+            next << messages[i] << "\n";
+            // for itself: the number that the message at this place stands for
+            state << numbers[i] << "\n";
+        }
+        next.close();
+        state.close();
+        quitf(_ok, "%d messages passed on", t);
     }
+    // after the second pass: the input is what this checker wrote, the numbers are in its state
+    std::ifstream state("state.txt");
     for (int i = 0; i < t; i++) {
-        int from = ans.readInt(1, t, "note");
-        int found = ouf.readInt();
-        if (found != numbers[from - 1]) {
-            quitf(_wa, "number %d: expected %d, found %d", i + 1, numbers[from - 1], found);
+        long long expected;
+        if (!(state >> expected)) {
+            quitf(_fail, "the state of the first pass is gone");
+        }
+        long long found = ouf.readLong();
+        if (found != expected) {
+            quitf(_wa, "number %d: expected %lld, found %lld", i + 1, expected, found);
         }
     }
     quitf(_ok, "%d numbers", t);
@@ -511,17 +518,17 @@ def messages_solution(width=30, burn="", second=""):
     return MESSAGES.replace("WIDTH", str(width)).replace("BURN", burn).replace("SECOND", second)
 
 
-# what a program could try in order to tell its second run something behind the back of the
-# relay. The first run of each says nothing in its messages; the size of what it writes is the
-# number, in a way that is told apart from the size of anything else: 2 + 7919 * (x + 1).
-MESSAGES_FIRST_RUN_OF_A_CHEAT = r"""
+# What a program could try in order to tell its second pass something behind the back of the
+# checker. The first pass of each says nothing in its messages; the size of what it writes is
+# the number, in a way that is told apart from the size of anything else: 2 + 7919 * (x + 1).
+MESSAGES_FIRST_PASS_OF_A_CHEAT = r"""
         int x;
         scanf("%d", &x);
         puts("0");
         for (int i = 0; i < 7919 * (x + 1); i++) putchar(' ');
 """
 
-# leaves a file for its second run
+# leaves a file for its second pass
 MESSAGES_STASH = r"""
 #include <cstdio>
 #include <cstring>
@@ -549,8 +556,9 @@ int main() {
 }
 """
 
-# looks at the size of the file where the judger keeps what the first run wrote
-MESSAGES_STAT_RESULT_FOLDER = r"""
+# Looks where the judger keeps what the checker remembers and what the first pass wrote: the
+# state of the checker has the very number, and the size of the output of the first pass says it.
+MESSAGES_READ_THE_CHECKER = r"""
 #include <cstdio>
 #include <cstring>
 #include <sys/stat.h>
@@ -559,24 +567,39 @@ int main() {
     int t;
     scanf("%15s%d", run, &t);
     if (strcmp(run, "first") == 0) {
-""" + MESSAGES_FIRST_RUN_OF_A_CHEAT + r"""
+""" + MESSAGES_FIRST_PASS_OF_A_CHEAT + r"""
     } else {
         const char *names[] = {
-            "/opt/uoj_judger/uoj_judger/result/first_run_output.txt",
-            "../result/first_run_output.txt",
-            "/opt/uoj_judger/uoj_judger/result/second_run_input.txt",
+            "PLACE/state.txt", "PLACE/nextpass.in", "PLACE/../pass_output.txt", "PLACE/../pass_input.txt",
         };
         long long x = -1;
         for (const char *name : names) {
             struct stat st;
-            if (stat(name, &st) == 0 && st.st_size > 2 && (st.st_size - 2) % 7919 == 0) {
-                x = (st.st_size - 2) / 7919 - 1;
+            if (HOW == 0) {
+                // how large it is
+                if (stat(name, &st) == 0 && st.st_size > 2 && (st.st_size - 2) % 7919 == 0) {
+                    x = (st.st_size - 2) / 7919 - 1;
+                }
+            } else {
+                // what is in it
+                FILE *f = fopen(name, "r");
+                long long seen;
+                if (f != NULL && fscanf(f, "%lld", &seen) == 1) {
+                    x = seen;
+                }
             }
         }
         printf("%lld\n", x);
     }
 }
 """
+
+
+def messages_cheat_reading_the_checker(place, read):
+    """a cheat that looks for the files of the checker in a folder, by reading them or by
+    asking for their size"""
+    return MESSAGES_READ_THE_CHECKER.replace("PLACE", place).replace("HOW", "1" if read else "0")
+
 
 # lists its work folder and looks at the size of everything in it: a program may do both
 MESSAGES_LIST_WORK_FOLDER = r"""
@@ -604,19 +627,22 @@ else:
             seen += 1
             if size > 2 and (size - 2) % 7919 == 0:
                 found = (size - 2) // 7919 - 1
-    # a second run that could not look around proves nothing
+            if name in ("state.txt", "nextpass.in", "pass_output.txt", "pass_input.txt"):
+                found = -2
+    # a second pass that could not look around proves nothing
     print(found if seen > 0 else "blind")
 """
 
 
-def run_twice_problem_files():
-    files = {
-        "problem.conf": conf(
-            use_builtin_judger="on", run_twice="on", n_tests=2, n_ex_tests=0, n_sample_tests=0,
-            input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
-            time_limit=1, memory_limit=256,
-        ),  # fmt: skip
-        "relay.cpp": MESSAGES_RELAY,
+def multi_pass_problem_files(**overrides):
+    settings = dict(
+        use_builtin_judger="on", multi_pass=2, n_tests=2, n_ex_tests=0, n_sample_tests=0,
+        input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
+        time_limit=1, memory_limit=256,
+    )  # fmt: skip
+    settings.update(overrides)
+    return {
+        "problem.conf": conf(**settings),
         "chk.cpp": MESSAGES_CHECKER,
         "input1.txt": "first\n3\n5\n123456789\n0\n",
         "output1.txt": "\n",
@@ -624,50 +650,166 @@ def run_twice_problem_files():
         "input2.txt": "first\n1\n7\n",
         "output2.txt": "\n",
     }
-    return files
 
 
-# the relay of this one passes on what it is given and writes no notes, so that a builtin
-# checker compares what the second run wrote with the answer file of the test
-ECHO_RELAY = r"""
+# The second problem has as many passes as its checker likes. A pass is given the number of
+# the step and a value, and writes the value plus one; the checker goes on until step 3. In its
+# state it counts the passes it has seen, and the last pass has to find exactly the ones before.
+STEPS_CHECKER = r"""
 #include "testlib.h"
+#include <fstream>
 int main(int argc, char **argv) {
-    registerInteraction(argc, argv);
-    inf.readToken();
-    int n = ouf.readInt();
-    tout << "second " << n << "\n";
-    quitf(_ok, "passed on");
+    registerTestlibCmd(argc, argv);
+    int step = inf.readInt();
+    long long value = inf.readLong();
+    long long found = ouf.readLong();
+    if (found != value + 1) {
+        quitf(_wa, "step %d: expected %lld, found %lld", step, value + 1, found);
+    }
+    // the passes this checker has seen on this test, this one included
+    int seen = 0;
+    {
+        std::ifstream state("state.txt");
+        if (state) {
+            state >> seen;
+        }
+    }
+    seen++;
+    {
+        std::ofstream state("state.txt");
+        state << seen << "\n";
+    }
+    if (step < 3) {
+        std::ofstream next("nextpass.in");
+        next << step + 1 << " " << found << "\n";
+        next.close();
+        quitf(_ok, "step %d done", step);
+    }
+    // the test began at the step its input says: so many passes there were, and no more
+    int first_step = ans.readInt();
+    if (seen != 3 - first_step + 1) {
+        quitf(_wa, "the checker remembers %d passes, there were %d", seen, 3 - first_step + 1);
+    }
+    quitf(_ok, "%d passes", seen);
 }
 """
 
-# the first run says the number, the second run twice what it is told
-ECHO_THEN_DOUBLE = r"""
+STEPS = r"""
 #include <cstdio>
-#include <cstring>
 int main() {
-    char run[16];
-    int n;
-    scanf("%15s%d", run, &n);
-    printf("%d\n", strcmp(run, "first") == 0 ? n : 2 * n);
+    int step;
+    long long value;
+    scanf("%d%lld", &step, &value);
+    printf("%lld\n", value + 1);
 }
 """
 
 
-def run_twice_plain_problem_files():
+def steps_problem_files(passes):
     files = {
         "problem.conf": conf(
-            use_builtin_judger="on", run_twice="on", use_builtin_checker="ncmp",
-            n_tests=2, n_ex_tests=1, n_sample_tests=1,
+            use_builtin_judger="on", multi_pass=passes, n_tests=3, n_ex_tests=0, n_sample_tests=0,
             input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
             time_limit=1, memory_limit=256,
         ),  # fmt: skip
-        "relay.cpp": ECHO_RELAY,
-        "ex_input1.txt": "first 4\n",
-        "ex_output1.txt": "8\n",
+        "chk.cpp": STEPS_CHECKER,
     }
-    for num, n in enumerate([21, 1000], start=1):
-        files["input%d.txt" % num] = "first %d\n" % n
-        files["output%d.txt" % num] = "%d\n" % (2 * n)
+    # a test that takes three passes, one that takes two, and one that is over after its first
+    for num, first_step in enumerate([1, 2, 3], start=1):
+        files["input%d.txt" % num] = "%d %d\n" % (first_step, 10 * num)
+        files["output%d.txt" % num] = "%d\n" % first_step
+    return files
+
+
+# A checker that does what a checker should not, as the first word of the input of the test
+# tells it. The program has to add one to the number after that word, in every pass.
+UNRULY_CHECKER = r"""
+#include "testlib.h"
+#include <cstdio>
+#include <fstream>
+#include <string>
+#include <sys/stat.h>
+int main(int argc, char **argv) {
+    registerTestlibCmd(argc, argv);
+    std::string kind = inf.readToken();
+    long long value = inf.readLong();
+    long long found = ouf.readLong();
+    if (found != value + 1) {
+        quitf(_wa, "expected %lld, found %lld", value + 1, found);
+    }
+    if (kind == "spin") {
+        // never ends
+        volatile unsigned long long spin = 0;
+        for (;;) spin = spin + 1;
+    }
+    if (kind == "flood") {
+        // writes the input of the next pass without end
+        static char block[1 << 20];
+        FILE *next = fopen("nextpass.in", "w");
+        for (;;) fwrite(block, 1, sizeof(block), next);
+    }
+    if (kind == "folder") {
+        // a folder where the input of the next pass should be, that nobody may look into
+        mkdir("nextpass.in", 0);
+        quitf(_ok, "a folder for the next pass");
+    }
+    if (kind == "stray") {
+        // a file that is neither the input of the next pass nor its state
+        FILE *other = fopen("other.txt", "w");
+        if (other != NULL) {
+            fputs("x\n", other);
+            fclose(other);
+        }
+        quitf(_ok, "a file of its own");
+    }
+    int seen = 0;
+    {
+        std::ifstream state("state.txt");
+        if (state) {
+            state >> seen;
+        }
+    }
+    seen++;
+    {
+        std::ofstream state("state.txt");
+        state << seen << "\n";
+    }
+    // "more" never has enough, anything else is content with three passes
+    if (kind == "more" || seen < 3) {
+        std::ofstream next("nextpass.in");
+        next << kind << " " << found << "\n";
+        next.close();
+        quitf(_ok, "pass %d done", seen);
+    }
+    quitf(_ok, "%d passes", seen);
+}
+"""
+
+UNRULY = r"""
+#include <cstdio>
+int main() {
+    char kind[16];
+    long long value;
+    scanf("%15s%lld", kind, &value);
+    printf("%lld\n", value + 1);
+}
+"""
+
+UNRULY_KINDS = ["spin", "more", "flood", "folder", "stray", "fine"]
+
+
+def unruly_checker_problem_files():
+    files = {
+        "problem.conf": conf(
+            use_builtin_judger="on", multi_pass=3, n_tests=len(UNRULY_KINDS), n_ex_tests=0, n_sample_tests=0,
+            input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
+            time_limit=1, memory_limit=256,
+        ),  # fmt: skip
+        "chk.cpp": UNRULY_CHECKER,
+    }
+    for num, kind in enumerate(UNRULY_KINDS, start=1):
+        files["input%d.txt" % num] = "%s %d\n" % (kind, 10 * num)
+        files["output%d.txt" % num] = "\n"
     return files
 
 

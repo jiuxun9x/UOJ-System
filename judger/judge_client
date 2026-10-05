@@ -685,7 +685,7 @@ def build_problem_programs(data_dir, steps, scratch_dir):
     for step in steps or []:
         if step.get("type") == "compile":
             name = step.get("name")
-            if name not in ("chk", "std", "val", "interactor", "relay"):
+            if name not in ("chk", "std", "val", "interactor"):
                 raise PrepareError("unknown program to build: %r" % (name,))
             command = [main_path + "/run/compile"]
             if step.get("include"):

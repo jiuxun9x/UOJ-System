@@ -349,7 +349,7 @@ class ProblemDataFormTest(unittest.TestCase):
             ("time_limit", "1\nuse_builtin_judger off"),
             ("memory_limit", "256\ntime_limit 100"),
             ("checker", "ncmp extra"),
-            ("type", "traditional\nrun_twice on"),
+            ("type", "traditional\nmulti_pass 2"),
             ("n_samples", "1\nn_tests 99"),
         ):
             r = self.post_settings(**{name: value})

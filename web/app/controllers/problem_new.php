@@ -78,6 +78,7 @@
 			$settings['type'] = 'traditional';
 		}
 		$settings['n_samples'] = validateUInt($typed('n_samples')) ? (int)$typed('n_samples') : null;
+		$settings['passes'] = validateUInt($typed('passes')) ? (int)$typed('passes') : 2;
 		$typed_subtasks = $typed('subtasks');
 	}
 	$limits = uploadLimits();
@@ -146,7 +147,7 @@
 				<ul class="mb-1 mt-1 pl-3">
 					<li><strong>测试点会自动识别</strong>：输入、输出文件成对即可，比如 <code>1.in</code> 和 <code>1.out</code>（或 <code>1.ans</code>）、<code>input1.txt</code> 和 <code>output1.txt</code>，按文件名的自然顺序编号。</li>
 					<li>文件名以 <code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点，例如 <code>sample1.in</code>、<code>sample1.out</code>。</li>
-					<li>需要的程序放在同一个包里：自己的校验器 <code>chk.cpp</code>、交互器 <code>interactor.cpp</code>、中转程序 <code>relay.cpp</code>，由评测机编译。</li>
+					<li>需要的程序放在同一个包里：自己的校验器 <code>chk.cpp</code>（通信题必须有）、交互器 <code>interactor.cpp</code>，由评测机编译。</li>
 					<li>包里如果自带 <code>problem.conf</code>，就完全按它来，上面第 ② 步的选择不起作用。</li>
 				</ul>
 				解压后不超过 <?= round($limits['bytes'] / 1048576) ?> MB、<?= $limits['files'] ?> 个文件。

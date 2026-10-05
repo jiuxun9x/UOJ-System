@@ -1,4 +1,4 @@
-"""End-to-end tests of phase 6: run-twice problems, numbers of problems inside a domain, the
+"""End-to-end tests of phase 6: multi-pass problems, numbers of problems inside a domain, the
 switch for blogs, what a contest shows while it runs, the ICPC rule, and the forms that make a
 problem or a contest in one go.
 
@@ -20,107 +20,121 @@ def setUpModule():
     uoj.admin()
 
 
-class RunTwiceTest(unittest.TestCase):
-    """a program is run twice, and its second run knows of the first what the relay tells it"""
+class MultiPassTest(unittest.TestCase):
+    """a program is run on a test more than once, and a later pass knows of an earlier one what
+    the checker tells it"""
 
     @classmethod
     def setUpClass(cls):
         cls.admin = uoj.admin()
-        cls.problem_id = cls.admin.create_problem(run_twice_problem_files())
+        cls.problem_id = cls.admin.create_problem(multi_pass_problem_files())
 
     def judge(self, code, language="C++17"):
         return uoj.wait_submission(self.admin.submit(self.problem_id, code, language))
 
-    def test_relay_is_built_by_a_judger(self):
-        prepare, status, judger = db(
-            "select prepare, status, judger_name from problem_data_versions where problem_id = %d" % self.problem_id
-        )[0]
-        self.assertEqual(
-            sorted(step["name"] for step in json.loads(prepare)), ["chk", "relay"]
-        )
+    def test_checker_is_built_by_a_judger_and_nothing_else_is_needed(self):
+        prepare, status = db("select prepare, status from problem_data_versions where problem_id = %d" % self.problem_id)[0]
+        self.assertEqual([step["name"] for step in json.loads(prepare)], ["chk"])
         self.assertEqual(status, "ready")
-        container = uoj.JUDGERS[uoj.JUDGER_NAMES.index(judger)]
-        built = docker_exec(container, "ls /opt/uoj_judger/uoj_judger/data/%d | grep relay" % self.problem_id).split()
-        self.assertEqual(sorted(built), ["relay", "relay.cpp"])
+        self.assertEqual(published_conf(self.problem_id)["multi_pass"], "2")
 
-    def test_second_run_is_given_what_the_relay_made_of_the_first(self):
-        # the relay hands the messages over in another order, which only its notes tell the checker
+    def test_second_pass_is_given_what_the_checker_made_of_the_first(self):
+        # the checker hands the messages over in another order, and remembers the numbers itself
         j = self.judge(messages_solution())
         self.assertEqual(j.score, 100, j)
         self.assertEqual(j.infos, ["Accepted"] * 2, j)
         self.assertIn("3 numbers", j.details)
 
-    def test_relay_can_refuse_what_the_first_run_wrote(self):
+    def test_checker_can_refuse_what_the_first_pass_wrote(self):
         j = self.judge(messages_solution(width=41))
         self.assertEqual(j.score, 0, j)
         self.assertEqual(j.infos, ["Wrong Answer"] * 2, j)
         self.assertIn("message 1 is longer than 40 characters", j.details)
 
-    def test_second_run_that_dies(self):
+    def test_pass_that_dies_is_said_to_be_the_one(self):
         j = self.judge(messages_solution(second="return 3;"))
-        self.assertEqual(j.score, 0, j)
-        self.assertEqual(j.infos, ["Runtime Error"] * 2, j)
-        self.assertIn("in the second run", j.details)
-
-    def test_first_run_that_dies(self):
+        self.assertEqual((j.score, j.infos), (0, ["Runtime Error"] * 2), j)
+        self.assertIn("in pass 2", j.details)
         j = self.judge(messages_solution(burn='if (strcmp(run, "first") == 0) return 3;'))
         self.assertEqual(j.infos, ["Runtime Error"] * 2, j)
-        self.assertIn("in the first run", j.details)
+        self.assertIn("in pass 1", j.details)
 
-    def test_each_run_has_the_time_limit_to_itself(self):
-        # Six tenths of a second in each run, with a limit of one second. The clock is asked
+    def test_each_pass_has_the_time_limit_to_itself(self):
+        # Six tenths of a second in each pass, with a limit of one second. The clock is asked
         # now and then only: asking is a system call, and the time that counts is the time
         # the program computes.
         burn = ("volatile unsigned long long spin = 0; "
                 "while (clock() < CLOCKS_PER_SEC * 6 / 10) for (int i = 0; i < 1000000; i++) spin = spin + 1;")  # fmt: skip
         j = self.judge(messages_solution(burn=burn))
         self.assertEqual(j.score, 100, j)
-        # and the time of a test is that of its longer run, not of both: two tests of it
+        # and the time of a test is that of its longest pass, not of all of them: two tests of it
         self.assertGreaterEqual(j.used_time, 2 * 450, j)
         self.assertLess(j.used_time, 2 * 1000, j)
 
-    def test_first_run_can_not_leave_a_file(self):
+    # ---- nothing but what the checker hands on reaches a later pass
+
+    def test_first_pass_can_not_leave_a_file(self):
         j = self.judge(MESSAGES_STASH)
         self.assertEqual(j.score, 0, j)
         self.assertEqual(j.infos, ["Dangerous Syscalls"] * 2, j)
 
-    def test_second_run_can_not_look_at_what_the_first_wrote(self):
-        j = self.judge(MESSAGES_STAT_RESULT_FOLDER)
-        self.assertEqual(j.score, 0, j)
-        self.assertIn(j.infos[1], ("Wrong Answer", "Dangerous Syscalls"), j)
-        self.assertNotIn("found 7", j.details)
+    def test_later_pass_can_not_get_at_what_the_checker_keeps(self):
+        # The checker remembers the very numbers in state.txt, and what the first pass wrote
+        # has a size that says them. A second pass that looks for those files, where the
+        # judger has them and where it has its own files, by reading and by asking for sizes.
+        for place in ("/opt/uoj_judger/uoj_judger/result/passes", "../result/passes", ".", "passes"):
+            for read in (True, False):
+                j = self.judge(messages_cheat_reading_the_checker(place, read))
+                self.assertEqual(j.score, 0, (place, read, j))
+                self.assertIn(j.infos[1], ("Wrong Answer", "Dangerous Syscalls"), (place, read, j))
+                self.assertNotIn("Accepted", j.infos, (place, read, j))
+        # the state of the checker is there all the while: it is what tells the honest program right
+        self.assertEqual(self.judge(messages_solution()).score, 100)
 
-    def test_work_folder_tells_the_second_run_nothing(self):
+    def test_work_folder_tells_a_later_pass_nothing(self):
         # A program may list its work folder and see how large everything in it is. This one
-        # does, in its second run, and looks for a file as large as its first run made it.
+        # does, in its second pass, and looks for a file as large as its first pass made it,
+        # and for the files of the checker.
         j = self.judge(MESSAGES_LIST_WORK_FOLDER, "Python3")
         self.assertEqual(j.score, 0, j)
         self.assertEqual(j.infos[1], "Wrong Answer", j)
         self.assertIn("expected 7, found -1", j.details)
 
-    def test_builtin_checker_reads_the_answer_file_when_the_relay_wrote_no_notes(self):
-        problem_id = self.admin.create_problem(run_twice_plain_problem_files())
-        j = uoj.wait_submission(self.admin.submit(problem_id, ECHO_THEN_DOUBLE))
-        self.assertEqual(j.score, 100, j)
-        self.assertEqual(j.infos, ["Accepted"] * 2 + ["Extra Test Passed"], j)
-        j = uoj.wait_submission(self.admin.submit(problem_id, ECHO_THEN_DOUBLE.replace("2 * n", "3 * n")))
-        self.assertEqual(j.score, 0, j)
-        self.assertEqual(j.infos, ["Wrong Answer"] * 2, j)
+    # ---- as many passes as the problem allows
 
-    def test_run_twice_problem_can_not_be_hacked(self):
-        problem_id = self.admin.create_problem(run_twice_plain_problem_files())
-        r = self.admin.upload_data(problem_id, {"std.cpp": ECHO_THEN_DOUBLE, "val.cpp": ACCEPT_ANYTHING})
+    def test_checker_decides_how_many_passes_there_are(self):
+        problem_id = self.admin.create_problem(steps_problem_files(passes=3))
+        # three passes, two passes and one: the checker counts them in its state, which is
+        # empty again when the next test begins
+        j = uoj.wait_submission(self.admin.submit(problem_id, STEPS))
+        self.assertEqual((j.score, j.infos), (100, ["Accepted"] * 3), j)
+        self.assertRegex(j.details, r"(?s)3 passes.*2 passes.*1 passes")
+        # a pass that is wrong ends the test there
+        j = uoj.wait_submission(self.admin.submit(problem_id, STEPS.replace("value + 1", "value + (step == 2 ? 2 : 1)")))
+        self.assertEqual(j.infos, ["Wrong Answer", "Wrong Answer", "Accepted"], j)
+        self.assertIn("step 2: expected 12, found 13", j.details)
+        self.assertNotIn("step 3", j.details)
+
+    def test_checker_that_asks_for_more_passes_than_allowed_is_wrong_itself(self):
+        problem_id = self.admin.create_problem(steps_problem_files(passes=2))
+        j = uoj.wait_submission(self.admin.submit(problem_id, STEPS))
+        # the test that needs three passes fails for the checker, not for the program
+        self.assertEqual(j.infos, ["Checker Judgment Failed", "Accepted", "Accepted"], j)
+        self.assertIn("asked for another pass after pass 2", j.details)
+
+    def test_multi_pass_problem_is_what_it_can_be(self):
+        # it is judged by a checker of its own, is not hacked, and has an end of passes
+        for change, said in ((dict(use_builtin_checker="ncmp"), "builtin checker"), (dict(multi_pass=99), "between 0 and 20"), (dict(interaction_mode="on"), "interaction_mode")):
+            problem_id = self.admin.new_problem()
+            files = multi_pass_problem_files(**change)
+            files["interactor.cpp"] = DOUBLE_INTERACTOR
+            self.assertIn("上传成功", self.admin.upload_data(problem_id, files).text)
+            self.assertIn(said, self.admin.sync(problem_id), change)
+        problem_id = self.admin.create_problem(multi_pass_problem_files())
+        r = self.admin.upload_data(problem_id, {"std.cpp": messages_solution(), "val.cpp": ACCEPT_ANYTHING})
         self.assertIn("上传成功", r.text)
-        err = self.admin.toggle_hackable(problem_id)
-        self.assertIn("hackable", err)
+        self.assertIn("hackable", self.admin.toggle_hackable(problem_id))
         self.assertEqual(db_value("select hackable from problems where id = %d" % problem_id), "0")
-
-    def test_run_twice_problem_without_a_relay_is_not_synced(self):
-        files = run_twice_plain_problem_files()
-        del files["relay.cpp"]
-        problem_id = self.admin.new_problem()
-        self.admin.upload_data(problem_id, files)
-        self.assertIn("relay", self.admin.sync(problem_id))
 
 
 def judger_leftovers():
@@ -159,6 +173,54 @@ class JudgerIsLeftCleanTest(unittest.TestCase):
             uoj.wait_until("nothing is left of the judgements", lambda: not judger_leftovers(), timeout=30)
         except Exception:
             self.fail(judger_leftovers())
+
+    def test_passes_that_misbehave_leave_no_process_behind(self):
+        problem_id = self.admin.create_problem(multi_pass_problem_files())
+        in_first = 'if (strcmp(run, "first") == 0) { %s }'
+        sleeping = "struct epoll_event event; epoll_wait(epoll_create1(0), &event, 1, 60000);"
+        spinning = "volatile unsigned long long spin = 0; for (;;) spin = spin + 1;"
+        forking = "if (fork() == 0) { for (;;) pause(); }"
+        programs = [
+            ("waits in the first pass", "Time Limit Exceeded", messages_solution(burn=in_first % sleeping)),
+            ("waits in the second pass", "Time Limit Exceeded", messages_solution(second=sleeping)),
+            ("spins in the second pass", "Time Limit Exceeded", messages_solution(second=spinning)),
+            ("leaves a process in the first pass", "Dangerous Syscalls", messages_solution(burn=in_first % forking)),
+            ("leaves a process in the second pass", "Dangerous Syscalls", messages_solution(second=forking)),
+        ]
+        headers = "#include <sys/epoll.h>\n#include <unistd.h>\n"
+        submissions = [(what, info, self.admin.submit(problem_id, headers + code)) for what, info, code in programs]
+        for what, info, submission_id in submissions:
+            j = uoj.wait_submission(submission_id)
+            self.assertEqual((j.score, j.infos), (0, [info] * 2), (what, j))
+        self.assert_nothing_is_left()
+        # and the judgers go on judging
+        self.assertEqual(uoj.wait_submission(self.admin.submit(problem_id, messages_solution())).score, 100)
+
+    def test_checker_that_misbehaves_ends_its_test_and_nothing_else(self):
+        problem_id = self.admin.create_problem(unruly_checker_problem_files())
+        j = uoj.wait_submission(self.admin.submit(problem_id, UNRULY))
+        expected = {
+            "spin": "Checker Time Limit Exceeded",
+            # asks for a fourth pass of three
+            "more": "Checker Judgment Failed",
+            # the input of a pass is no larger than a checker may write
+            "flood": "Checker Output Limit Exceeded",
+            # the input of a pass is a plain file
+            "folder": "Checker Judgment Failed",
+            # two files are all that a checker may write
+            "stray": "Checker Dangerous Syscalls",
+            "fine": "Accepted",
+        }
+        self.assertEqual(j.infos, [expected[kind] for kind in UNRULY_KINDS], j)
+        self.assertIn("asked for another pass after pass 3", j.details)
+        self.assertIn("nextpass.in of the checker is not a plain file", j.details)
+        self.assertIn("3 passes", j.details)
+        # the 64 megabytes that the checker wrote are gone with the test they were written in
+        self.assert_nothing_is_left()
+        for judger in uoj.JUDGERS:
+            megabytes = int(docker_exec(judger, "du -sm /opt/uoj_judger/uoj_judger/result | cut -f1"))
+            self.assertLess(megabytes, 8, judger)
+        self.assertEqual(uoj.wait_submission(self.admin.submit(problem_id, UNRULY)).infos, j.infos)
 
     def test_judger_that_hangs_is_killed_with_all_that_it_started(self):
         # The judger of this problem never ends, and it has started a process that left its
@@ -877,7 +939,7 @@ class ProblemFormTest(unittest.TestCase):
         teacher = self.teacher
         page = teacher.get("/problem/new").text
         for field in ('name="title"', 'name="statement_md"', 'name="tags"', 'name="public"', 'value="traditional"', 'value="interactive"',
-                      'value="run_twice"', 'value="submit_answer"', 'name="time_limit"', 'name="memory_limit"', 'name="checker"',
+                      'value="multi_pass"', 'value="submit_answer"', 'name="time_limit"', 'name="memory_limit"', 'name="checker"',
                       'name="scoring"', 'name="data"', 'name="attachments[]"'):  # fmt: skip
             self.assertIn(field, page, field)
         self.assertIn('href="/problem/new"', teacher.get("/problems").text)
@@ -889,9 +951,10 @@ class ProblemFormTest(unittest.TestCase):
             self.assertIn(said, teacher.new_problem_form(**wrong), wrong)
         self.assertEqual(problems(), before)
         # and what was typed is still in the form
-        page = teacher.post("/problem/new", dict(form="create", title="p6 写了一半", type="run_twice", time_limit="x", memory_limit="64", checker="ncmp", scoring="all")).text
+        page = teacher.post("/problem/new", dict(form="create", title="p6 写了一半", type="multi_pass", passes="7", time_limit="x", memory_limit="64", checker="ncmp", scoring="all")).text
         self.assertIn('value="p6 写了一半"', page)
-        self.assertRegex(page, r'value="run_twice" checked')
+        self.assertRegex(page, r'value="multi_pass" checked')
+        self.assertRegex(page, r'name="passes"[^>]*value="7"')
         self.assertRegex(page, r'value="all" checked')
 
         # ---- one form: title, statement, tags, limits, checker, data named the way people name it, a file to go with it
@@ -930,20 +993,34 @@ class ProblemFormTest(unittest.TestCase):
         self.assertEqual((j.score, j.infos), (100, ["Accepted"] * 3 + ["Extra Test Passed"]), j)
         self.assertIn("p6 A + B", uoj.Client().get("/problem/%d" % problem_id).text)
 
-    def test_run_twice_problem_is_made_by_choosing_its_kind(self):
+    def test_multi_pass_problem_is_made_by_choosing_its_kind(self):
         # inputs alone: the answer of such a problem is not a file
-        data = {"relay.cpp": MESSAGES_RELAY, "chk.cpp": MESSAGES_CHECKER, "a.in": "first\n3\n5\n123456789\n0\n", "b.in": "first\n1\n7\n"}
-        problem_id = self.admin.new_problem(title="p6 通信题", type="run_twice", checker="custom", scoring="all", public="on", files=[data_zip(data)])
+        data = {"chk.cpp": MESSAGES_CHECKER, "a.in": "first\n3\n5\n123456789\n0\n", "b.in": "first\n1\n7\n"}
+        page = self.admin.get("/problem/new").text
+        self.assertIn('value="multi_pass"', page)
+        self.assertIn('name="passes"', page)
+        self.assertIn("轮数", self.admin.new_problem_form(title="x", type="multi_pass", passes="1"))
+        problem_id = self.admin.new_problem(title="p6 通信题", type="multi_pass", passes="2", scoring="all", public="on", files=[data_zip(data)])
         conf = uploaded_conf(problem_id)
-        self.assertEqual((conf["run_twice"], conf["n_tests"], conf["n_subtasks"], "use_builtin_checker" in conf), ("on", "2", "1", False))
-        self.assertEqual(uploaded_files(problem_id), sorted(["chk.cpp", "data1.in", "data1.out", "data2.in", "data2.out", "problem.conf", "relay.cpp"]))
+        self.assertEqual((conf["multi_pass"], conf["n_tests"], conf["n_subtasks"], "use_builtin_checker" in conf), ("2", "2", "1", False))
+        self.assertEqual(uploaded_files(problem_id), sorted(["chk.cpp", "data1.in", "data1.out", "data2.in", "data2.out", "problem.conf"]))
         self.assertEqual(uoj.wait_data_version(problem_id), "")
         j = uoj.wait_submission(self.admin.submit(problem_id, messages_solution()))
         self.assertEqual(j.score, 100, j)
         # all or nothing: the first test that fails is the last that is judged
         j = uoj.wait_submission(self.admin.submit(problem_id, messages_solution(width=41)))
         self.assertEqual((j.score, j.infos), (0, ["Wrong Answer"]), j)
-        self.assertIn("通信题", uoj.text_of(self.admin.get("/problem/%d/manage/data" % problem_id).text))
+        # the form on the page of the data shows the kind and the passes, and changes them
+        page = self.admin.get("/problem/%d/manage/data" % problem_id).text
+        self.assertRegex(page, r'value="multi_pass" checked')
+        self.assertRegex(page, r'name="passes"[^>]*value="2"')
+        self.assertEqual(self.settings(problem_id, type="multi_pass", passes="5", scoring="all").status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertEqual(published_conf(problem_id)["multi_pass"], "5")
+        # and switches them off: the problem is an ordinary one again, with a checker of its own
+        self.assertEqual(self.settings(problem_id, type="traditional", checker="custom", scoring="all").status_code, 302)
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertNotIn("multi_pass", published_conf(problem_id))
 
     def test_problem_conf_that_comes_with_the_data_is_used_as_it_is(self):
         problem_id = self.admin.new_problem(title="p6 自带配置", time_limit="1", checker="wcmp", files=[data_zip(ab_problem_files(time_limit=3))])

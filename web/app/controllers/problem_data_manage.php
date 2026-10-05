@@ -689,6 +689,9 @@ EOD
 		if (!isset(problemTypes()[$judge_settings['type']])) {
 			$judge_settings['type'] = 'traditional';
 		}
+		if (isset($_POST['passes']) && is_string($_POST['passes']) && validateUInt($_POST['passes'])) {
+			$judge_settings['passes'] = (int)$_POST['passes'];
+		}
 	}
 ?>
 <div class="card mb-3 text-left" id="card-judge-settings">
@@ -841,7 +844,7 @@ EOD
 							<div class="form-group">
 									<label for="problem_data_file">上传 zip 文件</label>
 									<input type="file" name="problem_data_file" id="problem_data_file" accept=".zip,application/zip">
-									<p class="help-block text-muted small mt-2">所有文件直接放在压缩包里，都放在一个文件夹里也可以。上传的文件加进这道题已有的文件里，同名的被替换；要从头再来，先点“清空题目数据”。<br />测试点成对即可（<code>1.in</code> 和 <code>1.out</code>、<code>input1.txt</code> 和 <code>output1.txt</code>……），<code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点；校验器 <code>chk.cpp</code>、交互器 <code>interactor.cpp</code>、中转程序 <code>relay.cpp</code> 放在同一个包里。包里带 <code>problem.conf</code> 时完全按它来。</p>
+									<p class="help-block text-muted small mt-2">所有文件直接放在压缩包里，都放在一个文件夹里也可以。上传的文件加进这道题已有的文件里，同名的被替换；要从头再来，先点“清空题目数据”。<br />测试点成对即可（<code>1.in</code> 和 <code>1.out</code>、<code>input1.txt</code> 和 <code>output1.txt</code>……），<code>sample</code> 或 <code>ex_</code> 开头的是样例和额外测试点；校验器 <code>chk.cpp</code>、交互器 <code>interactor.cpp</code> 放在同一个包里。包里带 <code>problem.conf</code> 时完全按它来。</p>
 							</div>
 							<input type="hidden" name="problem_data_file_submit" value="submit">
       				</div>

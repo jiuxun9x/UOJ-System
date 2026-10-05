@@ -506,8 +506,8 @@
 						if ($this->problem['hackable']) {
 							throw new UOJProblemConfException("the problem can't be hackable if submit_answer is on");
 						}
-						if ($this->check_conf_on('run_twice')) {
-							throw new UOJProblemConfException("run_twice can't be combined with submit_answer");
+						if (isset($this->problem_conf['multi_pass']) && $this->problem_conf['multi_pass'] > 1) {
+							throw new UOJProblemConfException("multi_pass can't be combined with submit_answer");
 						}
 
 						for ($num = 1; $num <= $n_tests; $num++) {
@@ -561,19 +561,25 @@
 							$this->need_compile('interactor', array('need_include_header' => true));
 						}
 
-						// a run-twice problem: the relay turns what the first run of a program
-						// wrote into what its second run reads
-						if ($this->check_conf_on('run_twice')) {
-							if ($this->check_conf_on('interaction_mode')) {
-								throw new UOJProblemConfException("run_twice can't be combined with interaction_mode");
+						// A multi-pass problem: after every pass of a program its checker says
+						// whether the program runs again, and on what. Only a checker of the
+						// problem's own does that.
+						if (isset($this->problem_conf['multi_pass'])) {
+							$n_passes = $this->problem_conf['multi_pass'];
+							if (!validateUInt($n_passes) || $n_passes > 20) {
+								throw new UOJProblemConfException("multi_pass must be an integer between 0 and 20");
 							}
-							if ($this->problem['hackable']) {
-								throw new UOJProblemConfException("the problem can't be hackable if run_twice is on");
+							if ($n_passes > 1) {
+								if ($this->check_conf_on('interaction_mode')) {
+									throw new UOJProblemConfException("multi_pass can't be combined with interaction_mode");
+								}
+								if ($this->problem['hackable']) {
+									throw new UOJProblemConfException("the problem can't be hackable if multi_pass is on");
+								}
+								if (isset($this->problem_conf['use_builtin_checker'])) {
+									throw new UOJProblemConfException("multi_pass needs a checker of the problem's own (chk), a builtin checker never asks for another pass");
+								}
 							}
-							if (!$this->copy_source_files_to_prepare('relay')) {
-								throw new UOJFileNotFoundException('relay.*');
-							}
-							$this->need_compile('relay', array('need_include_header' => true));
 						}
 
 						$n_sample_tests = getUOJConfVal($this->problem_conf, 'n_sample_tests', $n_tests);

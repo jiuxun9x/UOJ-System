@@ -260,7 +260,6 @@ const RunLimit RL_GENERATOR_DEFAULT = RunLimit(2, 512, 64);
 const RunLimit RL_JUDGER_DEFAULT = RunLimit(600, 2048, 128);  // 2048 = 2GB. change it if needed
 const RunLimit RL_CHECKER_DEFAULT = RunLimit(5, 256, 64);
 const RunLimit RL_INTERACTOR_DEFAULT = RunLimit(1, 256, 64);
-const RunLimit RL_RELAY_DEFAULT = RunLimit(5, 256, 64);
 const RunLimit RL_VALIDATOR_DEFAULT = RunLimit(5, 256, 64);
 const RunLimit RL_COMPILER_DEFAULT = RunLimit(15, 2048, 64);
 
@@ -1189,45 +1188,34 @@ RunCheckerResult run_checker(const RunLimit &limit, const string &program_name,
 }
 
 /**
- * Runs the relay of a run-twice problem between the two runs of a program. The relay is
- * written like an interactor of testlib, but talks to nobody:
- *
- *   relay <input> <second input> <answer>
- *
- *   inf     the input of the test, which the first run read
- *   ouf     what the first run wrote (the standard input of the relay)
- *   tout    what the second run will read
- *   ans     the answer file of the test
- *   stdout  notes for the checker, see test_run_twice_point()
- *
- * quitf(_ok, ...) lets the second run happen, any other verdict is the verdict of the test.
- * A relay that ends without a verdict and with exit code 0 is taken to have said ok.
+ * Runs the checker of a multi-pass problem after a pass of the program. The checker is run
+ * the way every checker is, with one difference: its work folder is a folder of its own, in
+ * which there are two files that it may write and read. In nextpass.in it leaves the input of
+ * another pass, to ask for one, and in state.txt whatever it wants to remember for when it is
+ * run again. It can make no other file, so what a checker can leave behind is two files of at
+ * most its output limit each.
  */
-RunCheckerResult run_relay(const RunLimit &limit, const string &program_name,
-                           const string &input_file_name, const string &first_output_file_name,
-                           const string &second_input_file_name, const string &answer_file_name,
-                           const string &notes_file_name) {
-    string error_file_name = result_path + "/relay_error.txt";
+RunCheckerResult run_pass_checker(const RunLimit &limit, const string &program_name,
+                                  const string &input_file_name, const string &output_file_name,
+                                  const string &answer_file_name, const string &pass_path) {
+    // The names are given as they are, since these files need not exist. What a program may
+    // write it may read as well.
+    string next_file_name = realpath(pass_path) + "/nextpass.in";
+    string state_file_name = realpath(pass_path) + "/state.txt";
     RunResult ret =
-        run_program((result_path + "/run_relay_result.txt").c_str(),
-                    first_output_file_name.c_str(), notes_file_name.c_str(),
-                    error_file_name.c_str(), limit, ("--add-readable=" + input_file_name).c_str(),
+        run_program((result_path + "/run_checker_result.txt").c_str(), "/dev/null", "/dev/null",
+                    (result_path + "/checker_error.txt").c_str(), limit,
+                    ("--work-path=" + pass_path).c_str(),
+                    ("--add-readable=" + input_file_name).c_str(),
+                    ("--add-readable=" + output_file_name).c_str(),
                     ("--add-readable=" + answer_file_name).c_str(),
-                    ("--add-writable=" + realpath(second_input_file_name)).c_str(),
-                    ("--type=" + conf_str("relay_run_type", "default")).c_str(),
-                    program_name.c_str(), realpath(input_file_name).c_str(),
-                    realpath(second_input_file_name).c_str(), realpath(answer_file_name).c_str(),
-                    NULL);
+                    ("--add-writable-raw=" + next_file_name).c_str(),
+                    ("--add-writable-raw=" + state_file_name).c_str(),
+                    ("--type=" + conf_str("chk_run_type", "default")).c_str(),
+                    realpath(program_name).c_str(), realpath(input_file_name).c_str(),
+                    realpath(output_file_name).c_str(), realpath(answer_file_name).c_str(), NULL);
 
-    if (ret.type == runp::RS_AC && ret.exit_code == 0 && file_size(error_file_name) == 0) {
-        RunCheckerResult res;
-        res.type = ret.type;
-        res.ust = ret.ust;
-        res.usm = ret.usm;
-        res.scr = 100;
-        return res;
-    }
-    return RunCheckerResult::from_file(error_file_name, ret);
+    return RunCheckerResult::from_file(result_path + "/checker_error.txt", ret);
 }
 
 template <typename... Args>
@@ -1458,75 +1446,137 @@ struct TestPointConfig {
 };
 
 /**
- * A test of a run-twice problem. The program is run on the input of the test; the relay of the
- * problem turns what it wrote into the input of a second run of the same program; the checker
- * judges what the second run wrote. Each run has the limits of the problem to itself, and the
- * time and the memory of the test are those of the run that used more.
- *
- * Nothing but what the relay passes on may reach the second run. A program can not write
- * files, but it may list its work folder and look at the size and the age of what is in it.
- * So what the first run wrote and what the relay made of it are kept in the result folder,
- * which no program can look into, and are emptied before every test.
- *
- * The checker reads the notes of the relay as its answer file when the relay wrote any, and
- * the answer file of the test otherwise.
+ * The files of the passes of a test: what a pass wrote, what the next pass reads, and the
+ * work folder of the checker with its state. They are kept in the result folder, which no
+ * program can look into, and they are there for one test only: made empty when the test
+ * begins and removed when it ends, however it ends.
  */
-PointInfo test_run_twice_point(const string &name, const int &num, const TestPointConfig &tpc) {
-    string first_output_file_name = result_path + "/first_run_output.txt";
-    string second_input_file_name = result_path + "/second_run_input.txt";
-    string notes_file_name = result_path + "/relay_notes.txt";
-    file_put_contents(first_output_file_name, "");
-    file_put_contents(second_input_file_name, "");
-    file_put_contents(notes_file_name, "");
+struct PassFiles {
+    string path, input_file_name, output_file_name, next_input_file_name;
 
-    RunResult first_ret = run_submission_program(
-        tpc.disable_program_input ? "/dev/null" : tpc.input_file_name.c_str(),
-        first_output_file_name.c_str(), tpc.limit, name);
-    if (first_ret.type != runp::RS_AC) {
-        return PointInfo(num, 0, -1, -1, info_str(first_ret.type),
-                         file_preview(tpc.input_file_name), file_preview(first_output_file_name),
-                         "in the first run");
+    PassFiles() {
+        path = result_path + "/passes";
+        input_file_name = result_path + "/pass_input.txt";
+        output_file_name = result_path + "/pass_output.txt";
+        next_input_file_name = path + "/nextpass.in";
+        remove();
+        executef("mkdir -p %s", escapeshellarg(path).c_str());
     }
+    ~PassFiles() {
+        remove();
+    }
+    PassFiles(const PassFiles &) = delete;
+    PassFiles &operator=(const PassFiles &) = delete;
 
-    RunCheckerResult relay_ret =
-        run_relay(conf_run_limit("relay", num, RL_RELAY_DEFAULT), conf_str("relay"),
-                  tpc.input_file_name, first_output_file_name, second_input_file_name,
-                  tpc.answer_file_name, notes_file_name);
-    if (relay_ret.type != runp::RS_AC) {
-        return PointInfo(num, 0, -1, -1, "Relay " + info_str(relay_ret.type),
-                         file_preview(tpc.input_file_name), file_preview(first_output_file_name),
-                         "");
-    }
-    if (relay_ret.scr != 100) {
-        return PointInfo(num, 0, first_ret.ust, first_ret.usm, "default",
-                         file_preview(tpc.input_file_name), file_preview(first_output_file_name),
-                         relay_ret.info);
+    void remove() {
+        // the checker may have taken the right to look into what it made away from itself
+        executef("chmod -R u+rwx %s 2>/dev/null; rm -rf %s %s %s", escapeshellarg(path).c_str(),
+                 escapeshellarg(path).c_str(), escapeshellarg(input_file_name).c_str(),
+                 escapeshellarg(output_file_name).c_str());
     }
 
-    RunResult second_ret = run_submission_program(
-        second_input_file_name.c_str(), tpc.output_file_name.c_str(), tpc.limit, name);
-    if (conf_has("token")) {
-        file_hide_token(tpc.output_file_name, conf_str("token", ""));
-    }
-    if (second_ret.type != runp::RS_AC) {
-        return PointInfo(num, 0, -1, -1, info_str(second_ret.type),
-                         file_preview(second_input_file_name), file_preview(tpc.output_file_name),
-                         "in the second run");
+    /**
+     * Whether the checker asked for another pass, and if what it left can not be the input of
+     * one, why. The input of a pass is opened before any limit of time is watched, so only a
+     * plain file will do: not a folder, and nothing that could keep a reader waiting.
+     */
+    bool next_pass_asked_for(string &problem) {
+        struct stat st;
+        problem = "";
+        if (lstat(next_input_file_name.c_str(), &st) != 0) {
+            return false;
+        }
+        if (!S_ISREG(st.st_mode) || st.st_nlink != 1) {
+            problem = "nextpass.in of the checker is not a plain file";
+        }
+        return true;
     }
 
-    RunCheckerResult chk_ret =
-        run_checker(conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker,
-                    tpc.input_file_name, tpc.output_file_name,
-                    file_size(notes_file_name) > 0 ? notes_file_name : tpc.answer_file_name);
-    if (chk_ret.type != runp::RS_AC) {
-        return PointInfo(num, 0, -1, -1, "Checker " + info_str(chk_ret.type),
-                         file_preview(second_input_file_name), file_preview(tpc.output_file_name),
-                         "");
+    /** makes what the checker left the input of the next pass */
+    bool take_next_input() {
+        return chmod(next_input_file_name.c_str(), 0600) == 0
+               && rename(next_input_file_name.c_str(), input_file_name.c_str()) == 0;
     }
-    return PointInfo(num, chk_ret.scr, max(first_ret.ust, second_ret.ust),
-                     max(first_ret.usm, second_ret.usm), "default",
-                     file_preview(second_input_file_name), file_preview(tpc.output_file_name),
-                     chk_ret.info);
+};
+
+/**
+ * A test of a multi-pass problem. The program is run on the input of the test, and the
+ * checker looks at what it wrote. A checker that wants the program to run again leaves the
+ * input of the next pass as nextpass.in in its work folder and says ok; the program is then
+ * run on that, and the checker is run on what it wrote, and so on, for at most as many
+ * passes as the problem allows. The verdict of the checker that asks for nothing more is
+ * the verdict of the test. Between passes the checker keeps what it wants to remember in
+ * state.txt in its work folder. This is how Hydro does it, and a checker written for the
+ * one works with the other.
+ *
+ * Every pass has the limits of the problem to itself, and the time and the memory of the
+ * test are those of the pass that used most.
+ *
+ * Nothing but what the checker hands on may reach a later pass. A program can not write
+ * files, but it may list its work folder and look at the size and the age of what is in it.
+ * So the files of the passes are kept where no program can look, see PassFiles.
+ *
+ * Nothing of a pass is left when the next begins. Each run of the program and of the
+ * checker is a run of run_program, which ends within the limits of the run and kills and
+ * waits for every process that the run started before it returns; there are at most
+ * max_passes of them; and the files are gone when the test is over.
+ */
+PointInfo test_multi_pass_point(const string &name, const int &num, const TestPointConfig &tpc,
+                                int max_passes) {
+    PassFiles files;
+
+    // what the program reads in a pass, and what the checker is told it read
+    string program_input_file_name = tpc.disable_program_input ? "/dev/null" : tpc.input_file_name;
+    string checker_input_file_name = tpc.input_file_name;
+    int ust = 0, usm = 0;
+    for (int pass = 1;; pass++) {
+        string where = "in pass " + vtos(pass);
+        file_put_contents(files.output_file_name, "");
+        RunResult pro_ret = run_submission_program(
+            program_input_file_name.c_str(), files.output_file_name.c_str(), tpc.limit, name);
+        if (conf_has("token")) {
+            file_hide_token(files.output_file_name, conf_str("token", ""));
+        }
+        if (pro_ret.type != runp::RS_AC) {
+            return PointInfo(num, 0, -1, -1, info_str(pro_ret.type),
+                             file_preview(checker_input_file_name),
+                             file_preview(files.output_file_name), where);
+        }
+        ust = max(ust, pro_ret.ust);
+        usm = max(usm, pro_ret.usm);
+
+        executef("rm -rf %s", escapeshellarg(files.next_input_file_name).c_str());
+        RunCheckerResult chk_ret = run_pass_checker(
+            conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker,
+            checker_input_file_name, files.output_file_name, tpc.answer_file_name, files.path);
+        if (chk_ret.type != runp::RS_AC) {
+            return PointInfo(num, 0, -1, -1, "Checker " + info_str(chk_ret.type),
+                             file_preview(checker_input_file_name),
+                             file_preview(files.output_file_name), where);
+        }
+        // only a checker that is content so far gets another pass
+        string problem;
+        bool wants_another_pass = files.next_pass_asked_for(problem) && chk_ret.scr == 100;
+        if (!wants_another_pass) {
+            return PointInfo(num, chk_ret.scr, ust, usm, "default",
+                             file_preview(checker_input_file_name),
+                             file_preview(files.output_file_name), chk_ret.info);
+        }
+        if (problem.empty() && pass >= max_passes) {
+            problem = "the checker asked for another pass after pass " + vtos(pass)
+                      + ", the last that the problem allows";
+        }
+        if (problem.empty() && !files.take_next_input()) {
+            problem = "nextpass.in of the checker could not be made the input of a pass";
+        }
+        if (!problem.empty()) {
+            return PointInfo(num, 0, -1, -1, "Checker Judgment Failed",
+                             file_preview(checker_input_file_name),
+                             file_preview(files.output_file_name), problem + " (" + where + ")");
+        }
+        program_input_file_name = files.input_file_name;
+        checker_input_file_name = files.input_file_name;
+    }
 }
 
 PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = TestPointConfig()) {
@@ -1545,8 +1595,8 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
         }
     }
 
-    if (conf_is("run_twice", "on") && !tpc.submit_answer) {
-        return test_run_twice_point(name, num, tpc);
+    if (conf_int("multi_pass", 0) > 1 && !tpc.submit_answer && !conf_is("interaction_mode", "on")) {
+        return test_multi_pass_point(name, num, tpc, conf_int("multi_pass", 0));
     }
 
     if (!conf_is("interaction_mode", "on")) {
@@ -1910,7 +1960,6 @@ void judger_init(int argc, char **argv) {
         config["checker"] = data_path + "/chk";
     }
     config["validator"] = data_path + "/val";
-    config["relay"] = data_path + "/relay";
 }
 
 /*===================== conf init End ================= */

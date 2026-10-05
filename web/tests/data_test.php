@@ -98,7 +98,7 @@ check_same(2, problemSettingsFromForm(array('n_samples' => '2') + $form)[0]['n_s
 check_same('hcmp', problemSettingsFromForm(array('checker' => 'hcmp') + $form)[0]['checker'], 'a builtin checker that the form does not list is kept');
 foreach (array(
 	array('type' => 'quiz'), array('type' => ''), array('time_limit' => '0'), array('time_limit' => '1s'), array('time_limit' => '601'), array('time_limit' => "1\ntime_limit 9"),
-	array('time_limit' => array('1')), array('memory_limit' => '0'), array('memory_limit' => '256MB'), array('memory_limit' => "256\nrun_twice on"), array('memory_limit' => '99999'),
+	array('time_limit' => array('1')), array('memory_limit' => '0'), array('memory_limit' => '256MB'), array('memory_limit' => "256\nmulti_pass 9"), array('memory_limit' => '99999'),
 	array('checker' => '../../bin/sh'), array('checker' => 'wcmp extra'), array('checker' => ''), array('scoring' => 'curve'), array('n_samples' => '-1'), array('n_samples' => 'all'),
 	array('scoring' => 'subtasks', 'subtasks' => ''), array('scoring' => 'subtasks', 'subtasks' => '10 100'), array('scoring' => 'subtasks', 'subtasks' => "5 50\n3 50"),
 	array('scoring' => 'subtasks', 'subtasks' => "5 50\n10 40"), array('scoring' => 'subtasks', 'subtasks' => "5 fifty\n10 50"), array('scoring' => 'subtasks', 'subtasks' => "5 50 on\n10 50")
@@ -155,7 +155,14 @@ check_same(false, isset($conf_of(array('checker' => 'custom'))['use_builtin_chec
 check_same(1, $conf_of(array('n_samples' => 1))['n_sample_tests'], 'one of the extra tests is a sample');
 check_same(2, $conf_of(array('n_samples' => 9))['n_sample_tests'], 'no more samples than extra tests');
 check_same(array('on', false), array($conf_of(array('type' => 'interactive'))['interaction_mode'], isset($conf_of(array('type' => 'interactive'))['use_builtin_checker'])), 'an interactive problem is checked by its interactor');
-check_same(array('on', 'wcmp'), array($conf_of(array('type' => 'run_twice'))['run_twice'], $conf_of(array('type' => 'run_twice'))['use_builtin_checker']), 'a run-twice problem');
+$passes = $conf_of(array('type' => 'multi_pass', 'passes' => 3));
+check_same(array(3, false), array($passes['multi_pass'], isset($passes['use_builtin_checker'])), 'a multi-pass problem says how many passes, and is judged by a checker of its own');
+check_same(false, isset($conf_of(array('type' => 'traditional', 'passes' => 3))['multi_pass']), 'a problem of another kind has no passes');
+check_same(false, isset($conf_of(array(), array('multi_pass' => '2', 'n_tests' => '2'))['multi_pass']), 'and loses them when it becomes one');
+check_same(array(2, 5), array(problemSettingsFromForm(array('type' => 'multi_pass') + $form)[0]['passes'], problemSettingsFromForm(array('type' => 'multi_pass', 'passes' => '5') + $form)[0]['passes']), 'two passes unless the form says more');
+foreach (array('1', '0', '21', 'many', '2.5') as $bad) {
+	check_same(true, problemSettingsFromForm(array('type' => 'multi_pass', 'passes' => $bad) + $form)[1] !== '', "refused as a number of passes: $bad");
+}
 check_same('on', $conf_of(array('type' => 'grader'))['with_implementer'], 'a problem with a grader');
 $answers = $conf_of(array('type' => 'submit_answer'));
 check_same(array('on', 0, 0, false, false), array($answers['submit_answer'], $answers['n_ex_tests'], $answers['n_sample_tests'], isset($answers['time_limit']), isset($answers['memory_limit'])), 'a problem that asks for answers has no limits and no extra tests');
@@ -173,7 +180,8 @@ check_same(false, isset($conf_of(array('scoring' => 'all'), $old)['point_score_1
 // and back: the form shows what a problem.conf says
 $shown = problemSettingsOfConf($parts + array('n_tests' => 2));
 check_same(array('traditional', '1.5', 512, 'wcmp', 'subtasks', array(array(1, 40), array(2, 60)), 2), array($shown['type'], $shown['time_limit'], $shown['memory_limit'], $shown['checker'], $shown['scoring'], $shown['subtasks'], $shown['n_samples']), 'the settings of a problem.conf');
-check_same(array('run_twice', 'custom', 'all'), array_values(array_intersect_key(problemSettingsOfConf(array('run_twice' => 'on', 'n_subtasks' => '1', 'n_tests' => '3')), array('type' => 0, 'checker' => 0, 'scoring' => 0))), 'of a run-twice problem with a checker of its own');
+check_same(array('multi_pass', 'custom', 'all', 4), array_values(array_intersect_key(problemSettingsOfConf(array('multi_pass' => '4', 'n_subtasks' => '1', 'n_tests' => '3')), array('type' => 0, 'checker' => 0, 'scoring' => 0, 'passes' => 0))), 'of a multi-pass problem');
+check_same('traditional', problemSettingsOfConf(array('multi_pass' => '1'))['type'], 'one pass is no multi-pass problem');
 check_same(array('interactive', 'submit_answer', 'grader', 'traditional'), array(problemSettingsOfConf(array('interaction_mode' => 'on'))['type'], problemSettingsOfConf(array('submit_answer' => 'on'))['type'],
 	problemSettingsOfConf(array('with_implementer' => 'on'))['type'], problemSettingsOfConf(-1)['type']), 'the kinds of problems');
 
@@ -296,15 +304,19 @@ check_same('', $errors_of(array_merge($files, array('std.cpp', 'val.cpp')), $con
 $warnings = uploadPreflight(array_merge($files, array('in3.txt', 'out3.txt')), array('time_limit' => '600') + $conf, false)['warnings'];
 check_same(2, count($warnings), 'files nothing uses and a limit out of the ordinary are worth a look');
 check_same(true, strpos(join(' ', $warnings), 'in3.txt') !== false, 'the files nothing uses are named');
-// a run-twice problem needs its relay, and is neither interactive nor open to hacks
-$twice = array('run_twice' => 'on') + $conf;
-check_same(true, strpos($errors_of($files, $twice), 'relay.cpp') !== false, 'a run-twice problem without its relay');
-check_same('', $errors_of(array_merge($files, array('relay.cpp')), $twice), 'and with it');
-check_same(true, in_array('通信题：程序运行两次，中转程序 relay 由评测机编译', uploadPreflight(array_merge($files, array('relay.cpp')), $twice, false)['facts'], true), 'the report says the problem is run twice');
-check_same(array(), uploadPreflight(array_merge($files, array('relay.cpp')), $twice, false)['warnings'], 'the relay is not a file nothing uses');
-check_same(true, strpos($errors_of(array_merge($files, array('relay.cpp', 'std.cpp', 'val.cpp')), $twice, true), 'Hack') !== false, 'a run-twice problem can not be hacked');
-check_same(true, strpos($errors_of(array_merge($files, array('relay.cpp', 'interactor.cpp')), array('interaction_mode' => 'on') + $twice), '交互题') !== false, 'nor be interactive');
-check_same(true, strpos($errors_of(array_merge($files, array('relay.cpp')), array('submit_answer' => 'on') + $twice), '提交答案') !== false, 'nor ask for answers only');
+// a multi-pass problem needs a checker of its own, and is neither interactive nor open to hacks
+$passes_conf = array('multi_pass' => '2') + $conf;
+unset($passes_conf['use_builtin_checker']);
+$passes_files = array_merge($files, array('chk.cpp'));
+check_same('', $errors_of($passes_files, $passes_conf), 'a multi-pass problem with its checker');
+check_same(true, strpos($errors_of($files, $passes_conf), 'chk.cpp') !== false, 'and without it');
+check_same(true, in_array('通信题：程序最多运行 2 轮，每一轮之后由校验器决定是否再运行一轮', uploadPreflight($passes_files, $passes_conf, false)['facts'], true), 'the report says how many passes');
+check_same(true, strpos($errors_of($files, array('multi_pass' => '2') + $conf), '自己的校验器') !== false, 'a builtin checker never asks for another pass');
+check_same(true, strpos($errors_of(array_merge($passes_files, array('std.cpp', 'val.cpp')), $passes_conf, true), 'Hack') !== false, 'a multi-pass problem can not be hacked');
+check_same(true, strpos($errors_of(array_merge($passes_files, array('interactor.cpp')), array('interaction_mode' => 'on') + $passes_conf), '交互题') !== false, 'nor be interactive');
+check_same(true, strpos($errors_of($passes_files, array('submit_answer' => 'on') + $passes_conf), '提交答案') !== false, 'nor ask for answers only');
+check_same(true, strpos($errors_of($passes_files, array('multi_pass' => '99') + $passes_conf), 'multi_pass') !== false, 'nor have no end of passes');
+check_same('', $errors_of($files, array('multi_pass' => '1') + $conf), 'one pass is what every problem has');
 $custom = uploadPreflight(array('problem.conf', 'judger.cpp', 'Makefile'), array('use_builtin_judger' => 'off'), false);
 check_same(array(0, 1), array(count($custom['errors']), count($custom['warnings'])), 'a judger of its own is said to need the system administrator');
 

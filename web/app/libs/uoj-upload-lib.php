@@ -321,19 +321,24 @@ function uploadPreflight($files, $conf, $hackable) {
 			$need_source('interactor');
 			$report['facts'][] = '交互题';
 		}
-		if ($on('run_twice')) {
-			$need_source('relay');
-			$report['facts'][] = '通信题：程序运行两次，中转程序 relay 由评测机编译';
+		$n_passes = getUOJConfVal($conf, 'multi_pass', 0);
+		if (!validateUInt((string)$n_passes) || $n_passes > 20) {
+			$report['errors'][] = 'multi_pass（最多运行几轮）应是 0 到 20 之间的整数';
+		} elseif ($n_passes > 1) {
+			$report['facts'][] = "通信题：程序最多运行 $n_passes 轮，每一轮之后由校验器决定是否再运行一轮";
 			if ($on('interaction_mode')) {
-				$report['errors'][] = '通信题（run_twice）不能同时是交互题（interaction_mode）';
+				$report['errors'][] = '多轮运行（multi_pass）不能同时是交互题（interaction_mode）';
 			}
 			if ($hackable) {
-				$report['errors'][] = '通信题不能开启 Hack';
+				$report['errors'][] = '多轮运行的题不能开启 Hack';
+			}
+			if (isset($conf['use_builtin_checker'])) {
+				$report['errors'][] = '多轮运行需要自己的校验器 chk.cpp：下一轮的输入由它给出，内置的比较方式不会要求再运行一轮';
 			}
 		}
 	}
-	if ($on('submit_answer') && $on('run_twice')) {
-		$report['errors'][] = '提交答案题不能同时是通信题（run_twice）';
+	if ($on('submit_answer') && getUOJConfVal($conf, 'multi_pass', 0) > 1) {
+		$report['errors'][] = '提交答案题不能多轮运行（multi_pass）';
 	}
 	if ($missing) {
 		$report['errors'][] = '缺少文件：' . join('、', array_slice($missing, 0, 8)) . (count($missing) > 8 ? ' 等 ' . count($missing) . ' 个' : '');
@@ -345,7 +350,7 @@ function uploadPreflight($files, $conf, $hackable) {
 	}
 	$unused = array();
 	foreach ($files as $file) {
-		if (!isset($used[$file]) && !preg_match('/^(chk|std|val|interactor|relay)\.(cpp|c|pas)$/', $file) && !preg_match('/\.h$/', $file)) {
+		if (!isset($used[$file]) && !preg_match('/^(chk|std|val|interactor)\.(cpp|c|pas)$/', $file) && !preg_match('/\.h$/', $file)) {
 			$unused[] = $file;
 		}
 	}

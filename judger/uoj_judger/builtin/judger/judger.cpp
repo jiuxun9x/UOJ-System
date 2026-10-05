@@ -52,7 +52,7 @@ void ordinary_test() {
 }
 
 void hack_test() {
-    if (conf_is("submit_answer", "on") || conf_is("run_twice", "on")) {
+    if (conf_is("submit_answer", "on") || conf_int("multi_pass", 0) > 1) {
         end_judge_judgement_failed("Hack is not supported in this problem.");
     } else {
         if (auto c_ret = compile_submission_program("answer"); !c_ret.succeeded) {

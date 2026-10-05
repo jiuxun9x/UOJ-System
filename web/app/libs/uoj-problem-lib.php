@@ -20,10 +20,10 @@ function problemTypes() {
 			'description' => '程序通过标准输入输出和交互器对话。',
 			'needs' => '数据包里要有交互器 interactor.cpp（用 testlib.h 写）。测试点可以只有输入文件。'
 		),
-		'run_twice' => array(
-			'name' => '通信题（运行两次）',
-			'description' => '同一个程序运行两次：第一次的输出经过中转程序变成第二次的输入，校验器检查第二次的输出。',
-			'needs' => '数据包里要有中转程序 relay.cpp（用 testlib.h 写）。测试点可以只有输入文件。'
+		'multi_pass' => array(
+			'name' => '通信题（多轮运行）',
+			'description' => '同一个程序运行两轮或更多轮：每一轮结束后校验器检查它的输出，并给出下一轮的输入，最后由校验器判定结果。',
+			'needs' => '数据包里要有自己的校验器 chk.cpp（用 testlib.h 写）：要再运行一轮，就把下一轮的输入写到 nextpass.in 并以 ok 结束，要记住的东西写到 state.txt。写法和 Hydro 的 Multi Pass 相同。测试点可以只有输入文件。'
 		),
 		'submit_answer' => array(
 			'name' => '提交答案题',
@@ -68,7 +68,9 @@ function problemDefaultSettings() {
 		// rows of array(the last test of the subtask, its score)
 		'subtasks' => array(),
 		// how many of the extra tests are samples; null for all of them
-		'n_samples' => null
+		'n_samples' => null,
+		// how many times at most the program of a multi-pass problem is run on a test
+		'passes' => 2
 	);
 }
 function problemSubtasksText($subtasks) {
@@ -99,6 +101,13 @@ function problemSettingsFromForm($input) {
 		return array(null, '内存限制应是 1 到 16384 之间的整数，单位是 MB');
 	}
 	$settings['memory_limit'] = (int)$get('memory_limit');
+
+	if ($settings['type'] === 'multi_pass' && $get('passes') !== '') {
+		if (!validateUInt($get('passes')) || $get('passes') < 2 || $get('passes') > 20) {
+			return array(null, '多轮运行的轮数应是 2 到 20 之间的整数');
+		}
+		$settings['passes'] = (int)$get('passes');
+	}
 
 	// the name of another builtin checker is taken as it is: a problem that has one keeps it
 	if (!isset(problemCheckers()[$get('checker')]) && !preg_match('/^[a-z0-9]{1,20}$/D', $get('checker'))) {
@@ -158,8 +167,9 @@ function problemSettingsOfConf($conf) {
 		$settings['type'] = 'submit_answer';
 	} elseif ($on('interaction_mode')) {
 		$settings['type'] = 'interactive';
-	} elseif ($on('run_twice')) {
-		$settings['type'] = 'run_twice';
+	} elseif (isset($conf['multi_pass']) && validateUInt((string)$conf['multi_pass']) && $conf['multi_pass'] > 1) {
+		$settings['type'] = 'multi_pass';
+		$settings['passes'] = (int)$conf['multi_pass'];
 	} elseif ($on('with_implementer')) {
 		$settings['type'] = 'grader';
 	}
@@ -348,7 +358,7 @@ function problemDetectTests($names, $inputs_suffice = false) {
 function problemConfIsManagedKey($key) {
 	static $managed = array(
 		'use_builtin_judger', 'use_builtin_checker', 'n_tests', 'n_ex_tests', 'n_sample_tests', 'input_pre', 'input_suf',
-		'output_pre', 'output_suf', 'time_limit', 'memory_limit', 'interaction_mode', 'run_twice', 'submit_answer',
+		'output_pre', 'output_suf', 'time_limit', 'memory_limit', 'interaction_mode', 'multi_pass', 'submit_answer',
 		'with_implementer', 'n_subtasks'
 	);
 	return in_array($key, $managed, true) || preg_match('/^subtask_(end|score)_[0-9]+$/D', $key) === 1;
@@ -360,7 +370,8 @@ function problemConfIsManagedKey($key) {
 function problemConfFromSettings($settings, $found, $old_conf = array()) {
 	$conf = array('use_builtin_judger' => 'on');
 	$type = $settings['type'];
-	if ($type !== 'interactive') {
+	// an interactive problem is judged by its interactor, a multi-pass problem by a checker of its own
+	if ($type !== 'interactive' && $type !== 'multi_pass') {
 		if ($settings['checker'] !== 'custom') {
 			$conf['use_builtin_checker'] = $settings['checker'];
 		}
@@ -375,9 +386,12 @@ function problemConfFromSettings($settings, $found, $old_conf = array()) {
 		$conf['time_limit'] = $settings['time_limit'];
 		$conf['memory_limit'] = $settings['memory_limit'];
 	}
-	$flags = array('interactive' => 'interaction_mode', 'run_twice' => 'run_twice', 'submit_answer' => 'submit_answer', 'grader' => 'with_implementer');
+	$flags = array('interactive' => 'interaction_mode', 'submit_answer' => 'submit_answer', 'grader' => 'with_implementer');
 	if (isset($flags[$type])) {
 		$conf[$flags[$type]] = 'on';
+	}
+	if ($type === 'multi_pass') {
+		$conf['multi_pass'] = $settings['passes'];
 	}
 	if ($settings['scoring'] === 'all') {
 		$conf['n_subtasks'] = 1;
@@ -450,7 +464,7 @@ function problemApplySettings($problem, $settings, $actor) {
 	$conf_path = "$upload_dir/problem.conf";
 	$old_conf = is_file($conf_path) ? getUOJConf($conf_path) : array();
 	$old_conf = is_array($old_conf) ? $old_conf : array();
-	$inputs_suffice = $settings['type'] === 'interactive' || $settings['type'] === 'run_twice';
+	$inputs_suffice = $settings['type'] === 'interactive' || $settings['type'] === 'multi_pass';
 	$found = problemDetectTests(problemUploadedNames($upload_dir), $inputs_suffice);
 	list($conf, $err) = problemConfFromSettings($settings, $found, $old_conf);
 	if ($err !== '') {

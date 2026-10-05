@@ -19,6 +19,11 @@
 	<?php endforeach ?>
 	<small class="form-text text-info" id="problem-type-needs"></small>
 </div>
+<div class="form-group" id="group-problem-passes" style="max-width:26em">
+	<label for="input-problem-passes">最多运行几轮</label>
+	<input type="number" class="form-control" id="input-problem-passes" name="passes" min="2" max="20" value="<?= (int)$settings['passes'] ?>" />
+	<small class="form-text text-muted">2 就是常说的“运行两次”。校验器可以提前结束：某一轮之后不再给出下一轮的输入，这一轮的结论就是结果。到了最后一轮还要求再运行，算校验器出错。每一轮各自受下面的时间和内存限制。</small>
+</div>
 <div class="form-row" id="group-problem-limits">
 	<div class="form-group col-md-3">
 		<label for="input-problem-time_limit">时间限制（秒）</label>
@@ -37,7 +42,7 @@
 		<option value="<?= HTML::escape($checker) ?>"<?= $settings['checker'] === $checker ? ' selected="selected"' : '' ?>><?= HTML::escape($label) ?></option>
 		<?php endforeach ?>
 	</select>
-	<small class="form-text text-muted">交互题由交互器判定对错，不用这一项。</small>
+	<small class="form-text text-muted">交互题由交互器判定对错，通信题由自己的校验器 chk.cpp 判定，都不用这一项。</small>
 </div>
 <div class="form-group">
 	<label>怎么计分</label>
@@ -64,7 +69,8 @@ $(document).ready(function() {
 		var type = $('input[name=type]:checked');
 		$('#problem-type-needs').text(type.data('needs') || '');
 		$('#group-problem-limits').toggle(type.val() !== 'submit_answer');
-		$('#group-problem-checker').toggle(type.val() !== 'interactive');
+		$('#group-problem-checker').toggle(type.val() !== 'interactive' && type.val() !== 'multi_pass');
+		$('#group-problem-passes').toggle(type.val() === 'multi_pass');
 		$('#group-problem-samples').toggle(type.val() !== 'submit_answer');
 		$('#group-problem-subtasks').toggle($('input[name=scoring]:checked').val() === 'subtasks');
 	};

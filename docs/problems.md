@@ -1,4 +1,4 @@
-# 出题：新建题目、数据、评测设置、通信题
+# 出题：新建题目、数据、评测设置、通信题（多轮运行）
 
 ## 新建题目
 
@@ -42,9 +42,8 @@
 
 | 文件 | 什么时候需要 |
 |---|---|
-| `chk.cpp` | 答案比较方式选了“自己的校验器” |
+| `chk.cpp` | 答案比较方式选了“自己的校验器”；通信题必须有 |
 | `interactor.cpp` | 交互题 |
-| `relay.cpp` | 通信题 |
 | `std.cpp`、`val.cpp` | 开启 Hack 时：标程和数据校验器 |
 | `require/implementer.cpp` | 函数交互题：交互库 |
 
@@ -61,7 +60,7 @@
 - **题目类型**
   - 传统题：读入数据、输出答案。
   - 交互题：程序通过标准输入输出和 `interactor.cpp` 对话，由交互器判定对错。
-  - 通信题（运行两次）：见下一节。
+  - 通信题（多轮运行）：同一个程序在一个测试点上运行两轮或更多轮，见下一节。
   - 提交答案题：选手下载输入文件，提交每个测试点的答案。
   - 函数交互题：选手实现指定的函数，和 `require/implementer.cpp` 一起编译。
 - **时间限制、内存限制**：对每个测试点。时间可以写小数。
@@ -93,104 +92,127 @@
 页面上的“数据检查”在同步之前就指出缺哪些文件；校验器等程序能不能编译，由评测机在同步时告诉你，
 结果显示在页面最上方和“数据版本”表里。
 
-## 通信题（运行两次）
+## 通信题（多轮运行）
 
-选手的**同一个程序运行两次**。第一次读入测试点的输入，它的输出交给出题人的**中转程序** `relay`，
-`relay` 写出第二次运行的输入；校验器检查第二次运行的输出。两次运行之间，除了 `relay` 转交的内容，
-选手的程序带不走任何东西。
+选手的**同一个程序在一个测试点上运行多轮**。每一轮结束后，出题人的校验器 `chk` 检查这一轮的输出，然后二选一：
+
+- **结束**：给出结论，这就是这个测试点的结果；
+- **再运行一轮**：把下一轮的输入写进 `nextpass.in`，程序在这份输入上重新运行，之后校验器再被调用一次。
+
+两轮之间，除了校验器写进 `nextpass.in` 的内容，选手的程序带不走任何东西。“运行两次”（run twice）就是最多两轮的情形。
 
 ```
-测试点输入 ──► 第一次运行 ──► relay ──► 第二次运行 ──► 校验器 ──► 结果
-                              │                          ▲
-                              └──── 给校验器的备注 ────────┘
+测试点输入 ─► 第 1 轮 ─► chk ─ nextpass.in ─► 第 2 轮 ─► chk ─ … ─► 结果
+                         └────── state.txt ─────────────┘
 ```
 
-怎么建：新建题目时类型选“通信题（运行两次）”，数据包里放 `relay.cpp`，测试点可以只有输入文件。
-答案比较方式一般选“自己的校验器”并放 `chk.cpp`。
+这和 Hydro 的 Multi Pass 是同一套约定，为 Hydro 写的校验器可以直接拿来用。
 
-### relay 怎么写
+怎么建：新建题目时类型选“通信题（多轮运行）”，填“最多运行几轮”（2 到 20），数据包里放 `chk.cpp`，
+测试点可以只有输入文件。之后在“数据与评测”页可以改轮数，也可以改回传统题。
 
-`relay.cpp` 按 testlib 的交互器来写（`registerInteraction`），但它不和谁对话：
+### 校验器怎么写
 
-| testlib 里的流 | 是什么 |
+每一轮之后，`chk` 按普通 testlib 校验器的方式被调用一次（`registerTestlibCmd`）：
+
+| | 是什么 |
 |---|---|
-| `inf` | 这个测试点的输入，也就是第一次运行读到的内容 |
-| `ouf` | 第一次运行的输出 |
-| `tout` | 写到这里的内容就是第二次运行的输入 |
-| `ans` | 这个测试点的答案文件 |
-| 标准输出（`printf` / `std::cout`） | 给校验器的备注，选手看不到 |
+| `inf` | **这一轮**程序读到的输入：第 1 轮是测试点的输入，之后是校验器上一次写的 `nextpass.in` |
+| `ouf` | 这一轮程序的输出 |
+| `ans` | 测试点的答案文件，每一轮都是它（数据包里没有的话是空文件） |
+| 当前目录下的 `nextpass.in` | 写了它并以 `_ok` 结束 = 要求再运行一轮，内容就是下一轮的输入 |
+| 当前目录下的 `state.txt` | 校验器自己的记事本：这一次写下的，下一次被调用时还能读到 |
 
-- 以 `quitf(_ok, "...")` 结束表示放行，进行第二次运行；以 `quitf(_wa, "...")` 等结束表示这个测试点不通过
-  （比如第一次的输出不合法），消息显示在评测结果里。
-- **备注**：`relay` 往标准输出写了东西的话，校验器的 `ans` 读到的就是这些备注，而不是测试点的答案文件；
-  什么都没写，`ans` 就是答案文件（这时可以直接用内置的比较方式）。
-  备注用来告诉校验器只有 `relay` 知道的事，比如它把几组数据打乱成了什么顺序。
-- 校验器照常写：`inf` 是测试点的输入，`ouf` 是**第二次**运行的输出。
+- 以 `quitf(_ok, …)` 结束且写了 `nextpass.in`：再运行一轮。
+- 以 `_ok` 结束、没写 `nextpass.in`：这个测试点通过。
+- 以 `_wa` 等结束：这个测试点不通过，到此为止（即使写了 `nextpass.in` 也不会再运行）。消息显示在评测详情里。
+- 校验器不会被告知现在是第几轮，要自己从输入的内容或 `state.txt` 判断。
+- 到了最后一轮还要求再运行一轮，这个测试点是 `Checker Judgment Failed`——这是题目的问题，不是选手的。
+- 校验器**只能写这两个文件**（写别的文件会被沙箱终止），每个文件不超过校验器的输出上限（默认 64 MB），
+  `nextpass.in` 必须是普通文件。它们在每个测试点开始前是空的，测试点结束时删除。
 
-一个例子：第一次运行拿到几个数，为每个数写一条不超过 40 位的 01 串；`relay` 把这些串倒序交给第二次运行，
-并把顺序记在备注里；第二次运行要还原出这些数。
-
-```cpp
-// relay.cpp
-#include "testlib.h"
-#include <cstdio>
-#include <string>
-#include <vector>
-int main(int argc, char **argv) {
-    registerInteraction(argc, argv);
-    inf.readToken();                       // "first"
-    int t = inf.readInt();
-    std::vector<std::string> messages(t);
-    for (int i = 0; i < t; i++) {
-        messages[i] = ouf.readToken();     // 第一次运行的输出
-        if (messages[i].size() > 40) quitf(_wa, "message %d is longer than 40 characters", i + 1);
-    }
-    tout << "second\n" << t << "\n";       // 第二次运行的输入
-    for (int i = t - 1; i >= 0; i--) {
-        tout << messages[i] << "\n";
-        printf("%d\n", i + 1);             // 备注：这个位置上是原来的第几个数
-    }
-    quitf(_ok, "%d messages passed on", t);
-}
-```
+一个例子（最多两轮）：第一轮拿到几个数，为每个数写一条不超过 40 位的 01 串；校验器把这些串倒序交给第二轮，
+第二轮要还原出这些数。校验器把“倒序之后每个位置上应该是哪个数”记在 `state.txt` 里。
 
 ```cpp
 // chk.cpp
 #include "testlib.h"
+#include <fstream>
+#include <string>
 #include <vector>
 int main(int argc, char **argv) {
     registerTestlibCmd(argc, argv);
-    inf.readToken();
+    std::string pass = inf.readToken();     // 输入的第一行是 first 或 second
     int t = inf.readInt();
-    std::vector<int> numbers(t);
-    for (int i = 0; i < t; i++) numbers[i] = inf.readInt();
+    if (pass == "first") {
+        // 第一轮之后：inf 里是那几个数，ouf 里是选手写的串
+        std::vector<long long> numbers(t);
+        for (int i = 0; i < t; i++) numbers[i] = inf.readLong();
+        std::vector<std::string> messages(t);
+        for (int i = 0; i < t; i++) {
+            messages[i] = ouf.readToken();
+            if (messages[i].size() > 40) quitf(_wa, "message %d is longer than 40 characters", i + 1);
+        }
+        std::ofstream next("nextpass.in");  // 第二轮的输入
+        std::ofstream state("state.txt");   // 留给自己：每个位置上应该是哪个数
+        next << "second\n" << t << "\n";
+        for (int i = t - 1; i >= 0; i--) {
+            next << messages[i] << "\n";
+            state << numbers[i] << "\n";
+        }
+        next.close();
+        state.close();
+        quitf(_ok, "%d messages passed on", t);
+    }
+    // 第二轮之后：inf 是上面写的 nextpass.in，ouf 是选手还原出的数
+    std::ifstream state("state.txt");
     for (int i = 0; i < t; i++) {
-        int from = ans.readInt(1, t);      // relay 的备注
-        int found = ouf.readInt();         // 第二次运行的输出
-        if (found != numbers[from - 1]) quitf(_wa, "number %d: expected %d, found %d", i + 1, numbers[from - 1], found);
+        long long expected;
+        state >> expected;
+        long long found = ouf.readLong();
+        if (found != expected) quitf(_wa, "number %d: expected %lld, found %lld", i + 1, expected, found);
     }
     quitf(_ok, "%d numbers", t);
 }
 ```
 
-题面里通常约定输入的第一行是 `first` 或 `second`，让程序知道这是第几次运行（上面的例子就是这样），
-这由出题人在数据和 `relay` 里自己安排，系统不加任何东西。
+题面里通常约定输入的第一行是 `first` 或 `second`，让程序知道这是第几轮（上面的例子就是这样）。
+这由出题人在测试数据和校验器里自己安排，系统不往输入里加任何东西。
 
 ### 规则
 
-- 两次运行**各自**受题目的时间和内存限制；显示的用时和内存取两次中较大的。
-- 任何一次运行出错（超时、运行错误……），这个测试点就是那个结果，评测详情里注明是第几次。
-- `relay` 的时间限制默认 5 秒、内存 256 MB，可以在 `problem.conf` 里用 `relay_time_limit`、`relay_memory_limit` 改。
-- 通信题不能开启 Hack，也不能同时是交互题或提交答案题。
-- “自定义测试”只运行一次：输入里自己写 `first` 或 `second` 来试其中一次。
+- 每一轮**各自**受题目的时间和内存限制；显示的用时和内存取各轮中最大的。
+- 任何一轮出错（超时、运行错误……），这个测试点就是那个结果，评测详情里注明是第几轮（`in pass 2`）。
+- 校验器每次被调用的限制默认是 5 秒、256 MB，可以在 `problem.conf` 里用 `checker_time_limit`、`checker_memory_limit` 改。
+- 通信题不能开启 Hack，不能同时是交互题或提交答案题，也不能用内置的比较方式（内置校验器不会要求下一轮）。
+- “自定义测试”只运行一轮：输入里自己写 `first` 或 `second` 来试其中一轮。
+- 和所有题目一样，一份提交的整次评测（所有测试点、所有轮加起来）不能超过 10 分钟，否则是 `Judgment Failed`。
+  测试点多、轮数多、时限又长的题要算一下最坏情况；确实需要时在 `problem.conf` 里用 `judger_time_limit`（秒）调大。
 
-### 两次运行之间藏不住东西
+### 两轮之间藏不住东西
 
 - 选手的程序不能写文件，也不能创建共享内存之类能留到进程结束之后的东西（沙箱不放行这些系统调用）。
-- 第一次运行的输出和 `relay` 生成的第二次输入放在选手程序读不到、也看不到大小的目录里，每个测试点开始前清空。
-- 这些有端到端测试看守：一个测试程序在第一次运行里想尽办法留信息，第二次运行去找，必须一无所获。
-- 剩下的只有时间这条路：程序可以让第一次运行“恰好”在某个时刻结束，第二次运行去读时钟，一个测试点最多带过几个比特。
+- 每一轮的输出、下一轮的输入、校验器的 `state.txt` 都放在选手程序读不到、也看不到大小的目录里。
+- 这些有端到端测试看守：一个测试程序在第一轮里想尽办法留信息，第二轮去找（读文件、看文件大小、列目录），必须一无所获。
+- 剩下的只有时间这条路：程序可以让某一轮“恰好”在某个时刻结束，下一轮去读时钟，一个测试点最多带过几个比特。
   出题时让需要传递的信息远多于此即可（一个测试点里放多组数据是通常的做法）。
+
+### 评测机不会被拖住，也不会越积越多
+
+多轮运行意味着一个测试点里要启动很多次程序，下面这些保证它不留后患：
+
+- **进程**：每一轮、每一次校验器都是一次独立的受限运行。超时的（包括睡着不动、不占 CPU 的）会被杀掉；
+  一次运行结束时，它启动过的所有进程都被杀掉并回收，然后才开始下一步。选手的程序本来就不能创建子进程。
+- **轮数**：最多 20 轮，由题目设定；校验器要求更多就判校验器出错，不会一直跑下去。
+- **文件**：校验器只能留下 `nextpass.in` 和 `state.txt` 两个有大小上限的文件，测试点结束时删除；
+  每份提交开始评测前，工作目录和结果目录整个清空。评测程序是每份提交一个进程，评完即退出，内存不会累积。
+- **总时限**：整次评测有 10 分钟的上限（见上）。在它之外，评测机还给每次评测设了一个最长时间
+  （默认 1 小时，见 [deployment.md](deployment.md) 的 `MAX_JUDGING_SECONDS`）：到时间还没结束，就杀掉这次评测的全部进程，
+  结果记为 `Judgment Failed`，评测机继续评下一份。
+- **收尾**：每次评测结束后，评测机都会清点这次评测启动的所有进程，还活着的一律杀掉。
+- 这些同样有端到端测试看守：某一轮睡死、死循环、试图留后台进程，校验器死循环、无休止地要求下一轮、
+  无休止地写下一轮的输入、把 `nextpass.in` 建成目录、写别的文件，自定义评测程序挂死并留下脱离进程组的子进程——
+  之后评测机上不能有任何残留的进程和文件，并且照常评测下一份提交。
 
 ## 附件
 
