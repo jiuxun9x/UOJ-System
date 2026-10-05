@@ -70,7 +70,7 @@
 		},
 		'move_problem' => function() use ($contest, $posted, $done) {
 			global $myUser;
-			$err = contestMoveProblemUp($contest, validateUInt($posted('problem_id')) ? $posted('problem_id') : 0, $myUser);
+			$err = contestMoveProblem($contest, validateUInt($posted('problem_id')) ? $posted('problem_id') : 0, $posted('direction') === 'down', $myUser);
 			if ($err !== '') {
 				return $err;
 			}
@@ -227,13 +227,14 @@
 						</td>
 						<?php endif ?>
 						<td class="text-right">
-							<?php if ($index > 0): ?>
+							<?php if (count($problems) > 1): ?>
 							<form method="post" class="d-inline">
 								<?= HTML::hiddenToken() ?>
 								<input type="hidden" name="form" value="move_problem" />
 								<input type="hidden" name="tab" value="problems" />
 								<input type="hidden" name="problem_id" value="<?= $problem['id'] ?>" />
-								<button type="submit" class="btn btn-sm btn-outline-secondary" title="上移一位">上移</button>
+								<button type="submit" name="direction" value="up" class="btn btn-sm btn-outline-secondary" title="上移一位"<?= $index > 0 ? '' : ' disabled="disabled"' ?>>上移</button>
+								<button type="submit" name="direction" value="down" class="btn btn-sm btn-outline-secondary" title="下移一位"<?= $index < count($problems) - 1 ? '' : ' disabled="disabled"' ?>>下移</button>
 							</form>
 							<?php endif ?>
 							<form method="post" class="d-inline" onsubmit="return confirm('把这道题从比赛里移除？');">

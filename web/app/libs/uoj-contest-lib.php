@@ -156,16 +156,18 @@ function contestRemoveProblem($contest, $problem_id, $actor) {
 	auditLog('contest.remove_problem', 'contest', $contest['id'], array('problem_id' => $problem_id), null, $actor);
 	return '';
 }
-// moves a problem one place up in the order
-function contestMoveProblemUp($contest, $problem_id, $actor) {
+// Moves a problem one place in the order, up or down. A problem that stands at the end it
+// would be moved past stays where it is.
+function contestMoveProblem($contest, $problem_id, $down, $actor) {
 	$ids = contestProblemIds($contest['id']);
 	$index = array_search((int)$problem_id, $ids, true);
 	if ($index === false) {
 		return '比赛里没有这道题';
 	}
-	if ($index > 0) {
-		$ids[$index] = $ids[$index - 1];
-		$ids[$index - 1] = (int)$problem_id;
+	$other = $down ? $index + 1 : $index - 1;
+	if (isset($ids[$other])) {
+		$ids[$index] = $ids[$other];
+		$ids[$other] = (int)$problem_id;
 		contestRenumberProblems($contest['id'], $ids);
 		auditLog('contest.order_problems', 'contest', $contest['id'], null, array('problems' => $ids), $actor);
 	}

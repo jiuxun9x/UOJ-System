@@ -522,7 +522,8 @@ function homeworkRemoveProblem($homework, $problem_id, $actor) {
 	return '';
 }
 // moves a problem one place up in the order
-function homeworkMoveProblemUp($homework, $problem_id) {
+// moves a problem one place in the order, up or down
+function homeworkMoveProblem($homework, $problem_id, $down = false) {
 	if ($homework['status'] !== 'draft') {
 		return '作业发布后不能再改题目。开始之前可以先撤回发布';
 	}
@@ -531,11 +532,12 @@ function homeworkMoveProblemUp($homework, $problem_id) {
 		$ids[] = (int)$row['problem_id'];
 	}
 	$index = array_search((int)$problem_id, $ids, true);
-	if ($index === false || $index == 0) {
+	$other = $index === false ? -1 : ($down ? $index + 1 : $index - 1);
+	if (!isset($ids[$other])) {
 		return '';
 	}
-	$ids[$index] = $ids[$index - 1];
-	$ids[$index - 1] = (int)$problem_id;
+	$ids[$index] = $ids[$other];
+	$ids[$other] = (int)$problem_id;
 	foreach ($ids as $position => $id) {
 		DB::update("update homework_problems set position = ".($position + 1)." where homework_id = {$homework['id']} and problem_id = $id");
 	}

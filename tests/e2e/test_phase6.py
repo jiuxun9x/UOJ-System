@@ -767,6 +767,17 @@ class ContestFormTest(unittest.TestCase):
         self.assertEqual(letters(), [(str(third), "A"), (str(first), "B"), (str(second), "C")])
         self.assertEqual(teacher.form(manage, "move_problem", problem_id=str(second), tab="problems"), "")
         self.assertEqual(self.problems(contest_id), [third, second, first])
+        # down as well as up; a problem at the end stays where it is
+        for way in ("up", "down"):
+            self.assertIn('name="direction" value="%s"' % way, teacher.get(manage).text)
+        self.assertEqual(teacher.form(manage, "move_problem", problem_id=str(third), direction="down", tab="problems"), "")
+        self.assertEqual(self.problems(contest_id), [second, third, first])
+        for _ in range(2):
+            self.assertEqual(teacher.form(manage, "move_problem", problem_id=str(third), direction="down", tab="problems"), "")
+            self.assertEqual(self.problems(contest_id), [second, first, third])
+        for _ in range(2):
+            self.assertEqual(teacher.form(manage, "move_problem", problem_id=str(third), direction="up", tab="problems"), "")
+        self.assertEqual(self.problems(contest_id), [third, second, first])
         self.assertEqual(teacher.form(manage, "remove_problem", problem_id=str(third), tab="problems"), "")
         self.assertEqual(letters(), [(str(second), "A"), (str(first), "B")])
         self.assertNotEqual(teacher.form(manage, "add_problem", number=str(first), tab="problems"), "")

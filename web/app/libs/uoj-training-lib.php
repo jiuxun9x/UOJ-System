@@ -129,17 +129,19 @@ function trainingRemoveProblem($training, $problem_id, $actor) {
 	auditLog('training.remove_problem', 'training', $training['id'], array('problem_id' => (int)$problem_id), null, $actor);
 	return '';
 }
-function trainingMoveProblemUp($training, $problem_id) {
+// moves a problem one place in the order, up or down
+function trainingMoveProblem($training, $problem_id, $down = false) {
 	$ids = array();
 	foreach (trainingProblems($training) as $row) {
 		$ids[] = (int)$row['problem_id'];
 	}
 	$index = array_search((int)$problem_id, $ids, true);
-	if ($index === false || $index == 0) {
+	$other = $index === false ? -1 : ($down ? $index + 1 : $index - 1);
+	if (!isset($ids[$other])) {
 		return '';
 	}
-	$ids[$index] = $ids[$index - 1];
-	$ids[$index - 1] = (int)$problem_id;
+	$ids[$index] = $ids[$other];
+	$ids[$other] = (int)$problem_id;
 	foreach ($ids as $position => $id) {
 		DB::update("update training_problems set position = ".($position + 1)." where training_id = {$training['id']} and problem_id = $id");
 	}

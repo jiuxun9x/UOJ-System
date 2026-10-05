@@ -75,7 +75,7 @@
 				return homeworkRemoveProblem($homework, $posted_problem_id(), $myUser);
 			},
 			'move_problem' => function() use ($homework, $posted_problem_id) {
-				return homeworkMoveProblemUp($homework, $posted_problem_id());
+				return homeworkMoveProblem($homework, $posted_problem_id(), isset($_POST['direction']) && $_POST['direction'] === 'down');
 			},
 			'publish' => function() use ($homework) {
 				global $myUser;
@@ -443,12 +443,13 @@ $(document).ready(function() {
 				</td>
 				<?php if ($is_draft): ?>
 				<td class="text-right">
-					<?php if ($index > 0): ?>
+					<?php if (count($problems) > 1): ?>
 					<form method="post" class="d-inline">
 						<?= HTML::hiddenToken() ?>
 						<input type="hidden" name="form" value="move_problem" />
 						<input type="hidden" name="problem_id" value="<?= $problem['problem_id'] ?>" />
-						<button type="submit" class="btn btn-outline-secondary btn-sm" title="上移"><span class="glyphicon glyphicon-arrow-up"></span></button>
+						<button type="submit" name="direction" value="up" class="btn btn-outline-secondary btn-sm" title="上移"<?= $index > 0 ? '' : ' disabled="disabled"' ?>><span class="glyphicon glyphicon-arrow-up"></span></button>
+						<button type="submit" name="direction" value="down" class="btn btn-outline-secondary btn-sm" title="下移"<?= $index < count($problems) - 1 ? '' : ' disabled="disabled"' ?>><span class="glyphicon glyphicon-arrow-down"></span></button>
 					</form>
 					<?php endif ?>
 					<form method="post" class="d-inline">

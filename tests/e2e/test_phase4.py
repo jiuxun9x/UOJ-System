@@ -1090,6 +1090,15 @@ class HomeworkTest(unittest.TestCase):
         self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(own_number), score="50", optional="on"), "")
         self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(copy_number), score="100"), "")
         self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(copy_id)), "")
+        # and down again; a problem at the end stays where it is
+        in_order = lambda: [int(row[0]) for row in self.problems_of(homework_id)]
+        self.assertEqual(in_order(), [copy_id, self.own_id])
+        for _ in range(2):
+            self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(copy_id), direction="down"), "")
+            self.assertEqual(in_order(), [self.own_id, copy_id])
+        self.assertEqual(homework_form(teacher, slug, homework_id, "move_problem", problem_id=str(copy_id), direction="up"), "")
+        for way in ("up", "down"):
+            self.assertIn('name="direction" value="%s"' % way, teacher.get(self.url(homework_id, "/manage?tab=problems")).text)
         promised = [[str(copy_id), "NULL", "100", "1"], [str(self.own_id), "NULL", "50", "0"]]
         self.assertEqual(self.problems_of(homework_id), promised)
         page = teacher.get(self.url(homework_id, "/manage?tab=problems")).text
@@ -1691,6 +1700,14 @@ class TrainingTest(unittest.TestCase):
         self.assertEqual(db_value("select count(*) from problems"), problems)
         self.assertEqual(self.teacher.form(manage, "move_problem", problem_id=str(self.copy_id)), "")
         self.assertEqual(order(), [[str(self.copy_id), "0"], [str(self.own_id), "1"]])
+        # and down again; a problem at the end stays where it is
+        for _ in range(2):
+            self.assertEqual(self.teacher.form(manage, "move_problem", problem_id=str(self.copy_id), direction="down"), "")
+            self.assertEqual(order(), [[str(self.own_id), "1"], [str(self.copy_id), "0"]])
+        self.assertEqual(self.teacher.form(manage, "move_problem", problem_id=str(self.copy_id), direction="up"), "")
+        self.assertEqual(order(), [[str(self.copy_id), "0"], [str(self.own_id), "1"]])
+        for way in ("up", "down"):
+            self.assertIn('name="direction" value="%s"' % way, self.teacher.get(manage).text)
         self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.copy_id)), "")
         self.assertEqual(self.teacher.form(manage, "update_problem", problem_id=str(self.copy_id), optional="on"), "")
         self.assertEqual(self.teacher.form(manage, "remove_problem", problem_id=str(self.own_id)), "")
