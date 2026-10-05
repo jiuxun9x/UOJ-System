@@ -1,5 +1,5 @@
-"""End-to-end tests of phase 7: the accounts judgers work with, and the data of the problems
-that judgers fetch before a submission needs it.
+"""End-to-end tests of phase 7: the accounts judgers work with, the data of the problems that
+judgers fetch before a submission needs it, the announcements, and how a statement is shown.
 
 See test_phase1.py for how to start the containers.
 """
@@ -356,3 +356,46 @@ class AnnouncementTest(unittest.TestCase):
             self.assertEqual(visitor.get("/attachment/%d" % attachment_id).status_code, 404)
         for action in ("announcement.post", "announcement.edit", "announcement.delete"):
             self.assertGreaterEqual(int(db_value("select count(*) from audit_logs where action = '%s' and resource_id = '%d'" % (action, announcement_id))), 1, action)
+
+
+class StatementTest(unittest.TestCase):
+    """a statement is shown as it was written: its formulas in the fonts of the site, and what
+    another judge calls a sample as a sample. What the browser makes of the page is looked at
+    in screenshots.py; here is what the site hands to it."""
+
+    # as it is written for Hydro: sections under "##", in bold, and the samples in blocks of
+    # code that are named input1 and output1
+    HYDRO = (
+        "## **题目描述**\n\n给定一个长度为 $n$ 的数组 $a$。对于每个 $k=1,2,\\ldots,n$，求最大得分。\n\n"
+        "- `Backspace`：删除第一个元素；\n- `Delete`：删除最后一个元素。\n\n"
+        "## **输入格式**\n\n第二行包含 $n$ 个整数 $a_1,a_2,\\ldots,a_n$ $(1\\le a_i\\le 10^9)$。\n\n"
+        "## **样例**\n\n```input1\n5\n2 7 8 1 4\n```\n\n```output1\n4 7 8 8 8\n```\n"
+        "## **样例说明**\n\n对于 $k=1$，最大得分为 $4$。\n"
+    )
+
+    def test_formulas_are_set_in_the_fonts_that_come_with_the_site(self):
+        admin = uoj.admin()
+        problem_id = admin.new_problem(statement_md=self.HYDRO)
+        page = admin.get("/problem/%d" % problem_id).text
+        config = re.search(r'(?s)<script type="text/x-mathjax-config">(.*?)</script>', page).group(1)
+        # A machine that has fonts MathJax likes better than its own (a Mac has STIX) is not
+        # asked for them: the site carries the measures of the fonts of TeX and of no others.
+        self.assertRegex(config, r'"HTML-CSS":\s*\{\s*availableFonts:\s*\["TeX"\],\s*preferredFont:\s*"TeX",\s*webFont:\s*"TeX",\s*imageFont:\s*null')
+        self.assertEqual(admin.get("/js/mathjax/jax/output/HTML-CSS/fonts/TeX/fontdata.js").status_code, 200)
+        self.assertEqual(admin.get("/js/mathjax/jax/output/HTML-CSS/fonts/STIX/fontdata.js").status_code, 404)
+        # the formulas reach the browser as they were written: what is under a "_" is not emphasis
+        self.assertIn("$a_1,a_2,\\ldots,a_n$ $(1\\le a_i\\le 10^9)$", page)
+
+        # ---- the slides set their formulas the same way, with a configuration the site carries
+        db("insert into blogs (title, content, content_md, post_time, poster, zan, is_hidden, type, is_draft)"
+           " values ('p7 slides', '<section><p>$x_1$</p></section>', 'x', now(), '%s', 0, 0, 'S', 0)" % uoj.ADMIN[0])  # fmt: skip
+        slide_id = int(db_value("select max(id) from blogs where type = 'S'"))
+        slides = admin.get("/blog/%s/slide/%d" % (uoj.ADMIN[0].replace("_", "-").lower(), slide_id))
+        self.assertEqual(slides.status_code, 200)
+        asked = re.search(r"math:\s*\{\s*mathjax:\s*'([^']+)',\s*config:\s*'([^']+)'", slides.text)
+        self.assertTrue(asked, "the slides do not say where their formulas are set from")
+        self.assertIn("/js/mathjax/MathJax.js", asked.group(1))
+        self.assertEqual(admin.get("/js/mathjax/config/%s.js" % asked.group(2)).status_code, 200, asked.group(2))
+        plugin = re.search(r"'([^']*/js/reveal/plugin/math/math\.js[^']*)'", slides.text).group(1)
+        self.assertIn("'HTML-CSS': { availableFonts: ['TeX'], preferredFont: 'TeX', webFont: 'TeX', imageFont: null }",
+                      admin.get(plugin[plugin.index("/js/"):]).text)  # fmt: skip

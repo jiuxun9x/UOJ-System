@@ -15,6 +15,8 @@ var RevealMath = window.RevealMath || (function(){
 		MathJax.Hub.Config({
 			messageStyle: 'none',
 			tex2jax: { inlineMath: [['$','$'],['\\(','\\)']] },
+			// the fonts that come with the site, not a font of the reader's machine
+			'HTML-CSS': { availableFonts: ['TeX'], preferredFont: 'TeX', webFont: 'TeX', imageFont: null },
 			skipStartupTypeset: true
 		});
 

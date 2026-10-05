@@ -63,7 +63,7 @@
 
 				math: {
 					mathjax: '<?= HTML::mathjax_url() ?>',
-					config: 'TeX-AMS_HTML-full'
+					config: 'TeX-AMS_HTML'
 				},
 
 				dependencies: [
@@ -71,7 +71,7 @@
 					{ src: '<?= HTML::url('/js/reveal/plugin/highlight/highlight.js') ?>', async: true, condition: function() { return !!document.querySelector( 'pre code' ); }, callback: function() { hljs.initHighlightingOnLoad(); } },
 					{ src: '<?= HTML::url('/js/reveal/plugin/zoom-js/zoom.js') ?>', async: true },
 					{ src: '<?= HTML::url('/js/reveal/plugin/notes/notes.js') ?>', async: true },
-					{ src: '<?= HTML::url('/js/reveal/plugin/math/math.js') ?>', async: true }
+					{ src: '<?= HTML::url('/js/reveal/plugin/math/math.js?v=2') ?>', async: true }
 				]
 			});
 		</script>

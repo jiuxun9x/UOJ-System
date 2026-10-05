@@ -98,7 +98,9 @@ jobs:
         if: always() && matrix.judgers == 1
         continue-on-error: true
         run: |
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk > /dev/null
+          # fonts-stix: a Mac has these fonts and MathJax prefers them to its own, so the browser
+          # that looks at the pages has them too
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fonts-stix > /dev/null
           pip install playwright > /dev/null
           python3 -m playwright install --with-deps chromium > /dev/null
           cd tests/e2e && python3 screenshots.py ../../screenshots

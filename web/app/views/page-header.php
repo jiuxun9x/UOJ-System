@@ -149,6 +149,15 @@
 					inlineMath: [["$", "$"], ["\\\\(", "\\\\)"]],
 					processEscapes:true
 				},
+				// The formulas are set in the fonts that come with the site, on every machine.
+				// Left to itself MathJax prefers a font of the reader's machine: a Mac has the
+				// STIX fonts, and the site does not carry what is needed to set formulas in them.
+				"HTML-CSS": {
+					availableFonts: ["TeX"],
+					preferredFont: "TeX",
+					webFont: "TeX",
+					imageFont: null
+				},
 				menuSettings: {
 					zoom: "Hover"
     			}
