@@ -6,6 +6,7 @@ See test_phase1.py for how to start the containers.
 
 import json
 import re
+import shlex
 import unittest
 
 import test_phase3 as p3
@@ -421,3 +422,30 @@ class StatementTest(unittest.TestCase):
         self.assertIn(".uoj-samples {", "".join(sheets))
         # a paragraph of a text begins where its lines begin
         self.assertNotRegex("".join(sheets), r"article p\s*\{[^}]*text-indent")
+
+
+class QuietWebServerTest(unittest.TestCase):
+    """what the site does behind a page leaves no complaint in the logs of the web server"""
+
+    @staticmethod
+    def complaints(about):
+        """the lines of the logs of the web server that have this in them. What a command that
+        a page starts writes to its standard error goes to the log of the whole server, not
+        to the one of the site."""
+        logs = "/var/log/apache2/error.log /var/log/apache2/uoj_error.log"
+        return docker_exec(uoj.WEB, "cat %s 2>/dev/null | grep -F -- %s; true" % (logs, shlex.quote(about))).splitlines()
+
+    def test_making_a_problem_removes_no_archive_that_is_not_there(self):
+        admin = uoj.admin()
+        slug = "p7-quiet"
+        if db_value("select count(*) from domains where slug = '%s'" % slug) == "0":
+            admin.new_domain(slug)
+        # made on the site, made in a domain, and copied into a domain
+        on_site = admin.create_problem(ab_problem_files())
+        in_domain = admin.new_problem(slug)
+        made = [on_site, in_domain, admin.copy_problem(slug, on_site)]
+        self.assertEqual(len(set(made)), 3)
+        # the archive of a problem that has no data yet is made with the problem
+        self.assertEqual(docker_exec(uoj.WEB, "test -f /var/uoj_data/%d.zip && echo there" % in_domain).strip(), "there")
+        for problem_id in made:
+            self.assertEqual(self.complaints("%d.zip" % problem_id), [], problem_id)

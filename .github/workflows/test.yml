@@ -122,6 +122,9 @@ jobs:
             docker logs "$c" > "e2e-logs/$c.log" 2>&1 || true
           done
           docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_error.log' > e2e-logs/apache_error.log 2>&1 || true
+          # what a command started by a page writes to its standard error goes to the log of the
+          # whole server, not to the one of the site
+          docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/error.log' > e2e-logs/apache_main_error.log 2>&1 || true
           docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_judge.log' > e2e-logs/apache_judge.log 2>&1 || true
           sudo cp uoj_data/judger/log/judge.log e2e-logs/judge-1.log 2>/dev/null || true
           for n in 2 3 4; do
