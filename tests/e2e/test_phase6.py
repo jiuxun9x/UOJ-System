@@ -430,6 +430,24 @@ class AfterSubmittingTest(unittest.TestCase):
         uoj.wait_idle()
 
 
+class SubmissionsSearchTest(unittest.TestCase):
+    """the list of what was submitted is narrowed down by choosing, where there is a choice"""
+
+    def test_language_is_chosen_from_the_languages_there_are(self):
+        visitor = uoj.Client()
+        page = visitor.get("/submissions").text
+        self.assertRegex(page, r'<select[^>]*name="language"')
+        self.assertNotRegex(page, r'<input[^>]*name="language"')
+        for language in ("C++17", "C11", "Java17", "Pascal", "Python3"):
+            self.assertIn('<option value="%s">%s</option>' % (language, language), page)
+        # what is chosen stays chosen, and is what the list is narrowed down to
+        page = visitor.get("/submissions", params={"language": "Pascal"}).text
+        self.assertIn('<option value="Pascal" selected="selected">', page)
+        self.assertNotIn(">C++17</a>", page)
+        # a language that is asked for and not offered is still what was asked for
+        self.assertIn('<option value="Fortran" selected="selected">', visitor.get("/submissions", params={"language": "Fortran"}).text)
+
+
 class ContestFeedbackTest(unittest.TestCase):
     """what somebody is told about what they submitted: in a contest, in a homework, in a domain"""
 

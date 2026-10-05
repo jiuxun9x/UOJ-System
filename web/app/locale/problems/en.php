@@ -34,6 +34,7 @@ return [
 	'used time' => 'Time',
 	'used memory' => 'Memory',
 	'language' => 'Language',
+	'all languages' => 'All',
 	'file size' => 'File size',
 	'submit time' => 'Submit time',
 	'judge time' => 'Judge time',

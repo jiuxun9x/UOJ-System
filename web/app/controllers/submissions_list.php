@@ -1,4 +1,5 @@
 <?php
+	requirePHPLib('judger');
 	$conds = array();
 	
 	$q_problem_id = isset($_GET['problem_id']) && validateUInt($_GET['problem_id']) ? $_GET['problem_id'] : null;
@@ -64,25 +65,37 @@
 	</div>
 	<?php endif ?>
 	<form id="form-search" class="form-inline" method="get">
-		<div id="form-group-problem_id" class="form-group">
-			<label for="input-problem_id" class="control-label"><?= UOJLocale::get('problems::problem id')?>:</label>
+		<div id="form-group-problem_id" class="form-group mr-3 mb-2">
+			<label for="input-problem_id" class="control-label mr-1"><?= UOJLocale::get('problems::problem id')?>:</label>
 			<input type="text" class="form-control input-sm" name="problem_id" id="input-problem_id" value="<?= $q_problem_id ?>" maxlength="10" style="width:6em" />
 		</div>
-		<div id="form-group-submitter" class="form-group">
-			<label for="input-submitter" class="control-label"><?= UOJLocale::get('username')?>:</label>
+		<div id="form-group-submitter" class="form-group mr-3 mb-2">
+			<label for="input-submitter" class="control-label mr-1"><?= UOJLocale::get('username')?>:</label>
 			<input type="text" class="form-control input-sm" name="submitter" id="input-submitter" value="<?= $q_submitter ?>" maxlength="20" style="width:10em" />
 		</div>
-		<div id="form-group-score" class="form-group">
-			<label for="input-min_score" class="control-label"><?= UOJLocale::get('score range')?>:</label>
+		<div id="form-group-score" class="form-group mr-3 mb-2">
+			<label for="input-min_score" class="control-label mr-1"><?= UOJLocale::get('score range')?>:</label>
 			<input type="text" class="form-control input-sm" name="min_score" id="input-min_score" value="<?= $q_min_score ?>" maxlength="3" style="width:4em" placeholder="0" />
-			<label for="input-max_score" class="control-label">~</label>
+			<label for="input-max_score" class="control-label mx-1">~</label>
 			<input type="text" class="form-control input-sm" name="max_score" id="input-max_score" value="<?= $q_max_score ?>" maxlength="3" style="width:4em" placeholder="100" />
 		</div>
-		<div id="form-group-language" class="form-group">
-			<label for="input-language" class="control-label"><?= UOJLocale::get('problems::language')?>:</label>
-			<input type="text" class="form-control input-sm" name="language" id="input-language" value="<?= $html_esc_q_language ?>" maxlength="10" style="width:8em" />
+		<div id="form-group-language" class="form-group mr-3 mb-2">
+			<label for="input-language" class="control-label mr-1"><?= UOJLocale::get('problems::language')?>:</label>
+			<?php
+				// the languages there are to choose from; one that is asked for and no longer offered stays chosen
+				$language_options = $GLOBALS['uojSupportedLanguages'];
+				if ($q_language != null && !in_array($q_language, $language_options, true)) {
+					$language_options[] = $q_language;
+				}
+			?>
+			<select class="form-control input-sm" name="language" id="input-language" style="width:8em">
+				<option value=""><?= UOJLocale::get('problems::all languages') ?></option>
+				<?php foreach ($language_options as $language_option): ?>
+				<option value="<?= HTML::escape($language_option) ?>"<?= $q_language === $language_option ? ' selected="selected"' : '' ?>><?= HTML::escape($language_option) ?></option>
+				<?php endforeach ?>
+			</select>
 		</div>
-		<button type="submit" id="submit-search" class="btn btn-secondary btn-sm ml-2"><?= UOJLocale::get('search')?></button>
+		<button type="submit" id="submit-search" class="btn btn-secondary btn-sm mb-2"><?= UOJLocale::get('search')?></button>
 	</form>
 	<script type="text/javascript">
 		$('#form-search').submit(function(e) {

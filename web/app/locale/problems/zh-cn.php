@@ -34,6 +34,7 @@ return [
 	'used time' => '用时',
 	'used memory' => '内存',
 	'language' => '语言',
+	'all languages' => '全部',
 	'file size' => '文件大小',
 	'submit time' => '提交时间',
 	'judge time' => '测评时间',
