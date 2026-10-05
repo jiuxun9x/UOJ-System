@@ -418,3 +418,5 @@ class StatementTest(unittest.TestCase):
         sheets = [admin.get(href[href.index("/css/"):]).text for href in re.findall(r'<link[^>]*href="([^"]*/css/uoj-[a-z]+\.css\?v=[^"]+)"', page)]
         self.assertEqual(len(sheets), 2)
         self.assertIn(".uoj-samples {", "".join(sheets))
+        # a paragraph of a text begins where its lines begin
+        self.assertNotRegex("".join(sheets), r"article p\s*\{[^}]*text-indent")

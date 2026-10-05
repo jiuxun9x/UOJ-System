@@ -390,6 +390,47 @@
 	white-space: normal;
 }
 
+/* ---- what is written in Markdown and read as a text: a statement, an announcement, a post.
+   Its headings are headings of a text, not of the page, whichever of them the writer took:
+   the statements of other judges begin their sections with "##", those of this one with
+   "###". A paragraph begins where its lines begin, as the lists and the samples around it. */
+article {
+	line-height: 1.7;
+}
+article h1, article h2, article h3, article h4, article h5, article h6 {
+	margin: 1.5em 0 0.6em;
+	font-weight: 600;
+	line-height: 1.3;
+}
+article h1 {
+	font-size: 1.6rem;
+}
+article h2 {
+	font-size: 1.45rem;
+}
+article h3 {
+	font-size: 1.3rem;
+}
+article h4 {
+	font-size: 1.15rem;
+}
+article h5, article h6 {
+	font-size: 1rem;
+}
+article > :first-child {
+	margin-top: 0;
+}
+/* a heading written in bold is a heading */
+article h1 strong, article h2 strong, article h3 strong, article h4 strong, article h5 strong, article h6 strong {
+	font-weight: inherit;
+}
+article pre {
+	line-height: 1.5;
+}
+article img {
+	max-width: 100%;
+}
+
 /* ---- the samples of a statement: each under what it is, an input beside its output */
 .uoj-samples {
 	display: flex;
@@ -424,4 +465,14 @@
 	max-height: 32em;
 	overflow: auto;
 	border-radius: 0 0 4px 4px;
+}
+/* what is quoted is seen to be quoted */
+article blockquote {
+	margin: 0 0 1rem;
+	padding: 0.4rem 1rem;
+	border-left: 4px solid #dee2e6;
+	color: #555;
+}
+article blockquote > :last-child {
+	margin-bottom: 0;
 }

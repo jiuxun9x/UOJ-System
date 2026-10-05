@@ -396,6 +396,8 @@ def statement_is_read_as_it_was_written(page, seeded):
     assert seen["font"] == "TeX" and seen["web"], seen
     assert "MathJax_Math" in seen["letter"], seen
     assert seen["samples"] == ["输入 #1 + 输出 #1", "输入 #2 + 输出 #2"] and seen["left"] == 0, seen
+    # a section of a text is not as large as the title of the page, and a paragraph is not indented
+    assert seen["text"] < seen["heading"] < 1.6 * seen["text"] and seen["indent"] == "0px", seen
     assert not seen["wide"], seen
     # ---- the button of a sample copies it, with the end of its last line
     page.evaluate(

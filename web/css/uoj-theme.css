@@ -46,11 +46,7 @@ a sub {
 	text-indent: 2em;
 }
 
-article p {
-	text-indent: 2em;
-}
 .markdown-editor-out p {
-	text-indent: 2em;
 	word-break: break-all;
 }
 
