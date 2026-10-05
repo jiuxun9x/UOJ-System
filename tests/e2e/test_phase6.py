@@ -1166,8 +1166,10 @@ class BlogSwitchTest(unittest.TestCase):
         comments = lambda: int(db_value("select count(*) from blogs_comments where blog_id in (%d, %d)" % (news, diary)))
 
         # ---- closed: no blogs in the navigation, nobody but the administrators has one
+        # the navigation writes its addresses in full
+        blogs_link = r'href="[^"]*/blogs"'
         for client in (reader, visitor):
-            self.assertNotIn('href="/blogs"', client.get("/").text)
+            self.assertNotRegex(client.get("/").text, blogs_link)
         r = reader.get("/blogs")
         self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/announcements"))
         for client in (writer, reader, visitor):
@@ -1202,7 +1204,7 @@ class BlogSwitchTest(unittest.TestCase):
         self.assertEqual(p5.site_settings(admin, blog_enabled=True), "")
         try:
             # ---- open: everybody has a blog, and posts are discussed
-            self.assertIn('href="/blogs"', reader.get("/").text)
+            self.assertRegex(reader.get("/").text, blogs_link)
             self.assertEqual(reader.get("/blogs").status_code, 200)
             self.assertIn("p6 日记", reader.get("/blogs").text)
             self.assertEqual(reader.get(self.blog("p6_blog_writer", "/post/%d" % diary)).status_code, 200)
