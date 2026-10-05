@@ -44,7 +44,7 @@ function attachmentSizeText($bytes) {
 // with a reader of its own; everything else is a download, whatever it calls itself, so that
 // no file of somebody's making is ever a page of this site.
 function attachmentIsShownInline($name) {
-	return strtolower(pathinfo($name, PATHINFO_EXTENSION)) === 'pdf';
+	return strtolower(uojFileNameParts($name)[1]) === 'pdf';
 }
 
 function queryAttachment($id) {
@@ -141,7 +141,7 @@ function attachmentsAddUploaded($owner_type, $owner_id, $field, $actor) {
 			$errors[] = "$name 没有传完（错误 $code）" . ($code == UPLOAD_ERR_INI_SIZE || $code == UPLOAD_ERR_FORM_SIZE ? '：文件太大' : '');
 			continue;
 		}
-		$err = attachmentAdd($owner_type, $owner_id, $_FILES[$field]['tmp_name'][$index], is_string($name) ? basename(str_replace('\\', '/', $name)) : '', $actor);
+		$err = attachmentAdd($owner_type, $owner_id, $_FILES[$field]['tmp_name'][$index], is_string($name) ? uojFileBaseName($name) : '', $actor);
 		if ($err !== '') {
 			$errors[] = $err;
 		} else {

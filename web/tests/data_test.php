@@ -72,7 +72,19 @@ check_same(false, judgerPasswordIsHashed($judger_password), 'a password is not a
 check_same(true, judgerPasswordIsHashed($stored), 'a hash is a hash');
 
 // ---- setting up a problem: the form, the files, problem.conf
+require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-problem-lib.php';
+
+// The names of files are taken apart byte by byte. The functions of PHP for it go by the
+// locale before PHP 8, and in the locale of a server they eat the Chinese a name begins with.
+$locale_before = setlocale(LC_ALL, 0);
+setlocale(LC_ALL, 'C');
+check_same(array('本地测试 工具.py', '题面.pdf', 'c.txt', 'plain', ''), array(uojFileBaseName('本地测试 工具.py'), uojFileBaseName('C:\\fake\\题面.pdf'), uojFileBaseName('a/b/c.txt'), uojFileBaseName('plain'), uojFileBaseName('a/')), 'the name of a file without its folders');
+check_same(array(array('题面1', 'in'), array('a.tar', 'gz'), array('Makefile', ''), array('', 'in')), array(uojFileNameParts('题面1.in'), uojFileNameParts('a.tar.gz'), uojFileNameParts('Makefile'), uojFileNameParts('.in')), 'a name around its last dot');
+check_same(array(array('in', '数据1'), array('out', '数据1'), array('in', '样例_1.txt')), array(problemTestFileRole('数据1.in'), problemTestFileRole('数据1.ans'), problemTestFileRole('样例_input1.txt')), 'test files with Chinese names');
+$found = problemDetectTests(array('甲1.in', '甲1.out', '乙1.in', '乙1.out'));
+check_same(2, count($found['tests']), 'two tests whose names differ in their Chinese only are two tests');
+setlocale(LC_ALL, $locale_before);
 
 // what the form says
 $form = array('type' => 'traditional', 'time_limit' => '1.5', 'memory_limit' => '512', 'checker' => 'wcmp', 'scoring' => 'per_test', 'subtasks' => '', 'n_samples' => '');

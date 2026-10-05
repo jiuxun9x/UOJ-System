@@ -196,8 +196,8 @@ function problemSettingsOfConf($conf) {
 //   input1.txt / output1.txt      or a word at the beginning of the name, or after a separator
 //   ex_in3.dat / ex_out3.dat
 function problemTestFileRole($name) {
-	$ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-	$stem = pathinfo($name, PATHINFO_FILENAME);
+	list($stem, $ext) = uojFileNameParts($name);
+	$ext = strtolower($ext);
 	if ($ext === '' || $stem === '') {
 		return null;
 	}

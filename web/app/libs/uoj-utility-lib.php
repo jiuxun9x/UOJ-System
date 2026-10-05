@@ -115,6 +115,22 @@ function base64url_decode($data) {
 	return base64_decode(str_pad(strtr($data, '-_', '+/'), strlen($data) % 4, '=', STR_PAD_RIGHT));
 }
 
+// The name of a file without the folders it lies in, and the two parts of it around its last
+// dot. basename() and pathinfo() go by the locale before PHP 8: in the "C" locale of a server
+// they drop the characters a name like 题面.pdf begins with.
+function uojFileBaseName($path) {
+	$cut = max(strrpos('/' . $path, '/'), strrpos('\\' . $path, '\\'));
+	return (string)substr($path, $cut);
+}
+// array(what is before the last dot, what is after it); a name without a dot has no ending
+function uojFileNameParts($name) {
+	$dot = strrpos($name, '.');
+	if ($dot === false) {
+		return array($name, '');
+	}
+	return array((string)substr($name, 0, $dot), (string)substr($name, $dot + 1));
+}
+
 function blog_name_encode($name) {
 	$name = str_replace('-', '_', $name);
 	if (!strStartWith($name, '_') && !strEndWith($name, '_')) {
