@@ -119,6 +119,28 @@ function getContestProblemLink($problem, $contest_id, $problem_title = '!title_o
 	}
 	return '<a href="/contest/'.$contest_id.'/problem/'.problemNumber($problem).'">'.$problem_title.'</a>';
 }
+// A problem of a homework is read in the homework: the page of the problem itself may be
+// closed to the people who do the homework. Whoever does not get into the homework is given
+// the address of the problem as it is.
+function getHomeworkProblemLink($problem, $homework_id, $problem_title = '!title_only') {
+	static $homeworks = array();
+	global $myUser;
+	$homework_id = (int)$homework_id;
+	if (!array_key_exists($homework_id, $homeworks)) {
+		$homework = queryHomework($homework_id);
+		$domain = $homework ? queryDomain($homework['domain_id']) : null;
+		$homeworks[$homework_id] = $homework && $domain && can($myUser, 'homework.solve', $homework) ? homeworkUrl($domain, $homework) : null;
+	}
+	if ($homeworks[$homework_id] === null) {
+		return getProblemLink($problem, $problem_title);
+	}
+	if ($problem_title == '!title_only') {
+		$problem_title = $problem['title'];
+	} elseif ($problem_title == '!id_and_title') {
+		$problem_title = problemLabel($problem) . ". {$problem['title']}";
+	}
+	return '<a href="'.$homeworks[$homework_id].'/problem/'.problemNumber($problem).'">'.$problem_title.'</a>';
+}
 function getBlogLink($id) {
 	if (validateUInt($id) && $blog = queryBlog($id)) {
 		return '<a href="/blogs/'.$id.'">'.$blog['title'].'</a>';
@@ -269,6 +291,8 @@ function echoSubmission($submission, $config, $user) {
 	if (!isset($config['problem_hidden'])) {
 		if ($submission['contest_id']) {
 			echo '<td>', getContestProblemLink($problem, $submission['contest_id'], '!id_and_title'), '</td>';
+		} elseif (!empty($submission['homework_id'])) {
+			echo '<td>', getHomeworkProblemLink($problem, $submission['homework_id'], '!id_and_title'), '</td>';
 		} else {
 			echo '<td>', getProblemLink($problem, '!id_and_title'), '</td>';
 		}
@@ -382,6 +406,7 @@ function echoSubmissionsList($cond, $tail, $config, $user) {
 		$header_row .= '<th>'.UOJLocale::get('problems::problem').'</th>';
 		$col_names[] = 'submissions.problem_id';
 		$col_names[] = 'submissions.contest_id';
+		$col_names[] = 'submissions.homework_id';
 	}
 	if (!isset($config['submitter_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::submitter').'</th>';

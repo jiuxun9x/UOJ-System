@@ -344,7 +344,6 @@ class AfterSubmittingTest(unittest.TestCase):
         own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
         self.assertIn("上传成功", teacher.upload_data(own_id, ab_problem_files()).text)
         self.assertEqual(teacher.sync(own_id), "")
-        db("update problems set is_hidden = 0 where id = %d" % own_id)
         homework_id = p4.new_homework(teacher, slug, title="p6 作业")
         self.assertEqual(p4.homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(uoj.pid(own_id)), score="100"), "")
         self.assertEqual(p4.homework_form(teacher, slug, homework_id, "publish"), "")
@@ -363,6 +362,14 @@ class AfterSubmittingTest(unittest.TestCase):
         self.assertIn('href="/submission/%d"' % submission_id, listing.text)
         self.assertIn('id="submissions-of-homework"', listing.text)
         self.assertIn("p6 作业", listing.text)
+        # The problem named there is the problem in the homework: on its own it is hidden, as
+        # a problem that was just made is, and closed to the pupils.
+        in_domain = "/d/%s/problem/%d" % (slug, uoj.pid(own_id))
+        self.assertEqual(pupil.get(in_domain).status_code, 404)
+        for page in (listing.text, pupil.get("/submission/%d" % submission_id).text, pupil.get("/d/%s/homework/%d" % (slug, homework_id)).text):
+            self.assertIn('<a href="%s">' % in_homework, page)
+            self.assertNotIn('href="%s"' % in_domain, page)
+        self.assertEqual(pupil.get(in_homework).status_code, 200)
         # and how it did on every test, as when practising
         page = pupil.get("/submission/%d" % submission_id).text
         self.assertIn("Test #", page)
@@ -377,7 +384,7 @@ class AfterSubmittingTest(unittest.TestCase):
         self.assertNotIn('id="submissions-of-homework"', listing)
 
         # outside of the homework, in the domain: what one submitted to the problem
-        in_domain = "/d/%s/problem/%d" % (slug, uoj.pid(own_id))
+        db("update problems set is_hidden = 0 where id = %d" % own_id)
         self.assertEqual(submit_and_follow(pupil, in_domain, AB), "/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id)
         practice = last_submission("p6_hw_pupil")
         self.assertIn('href="/submission/%d"' % practice, pupil.get("/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id).text)
