@@ -134,9 +134,9 @@ class JudgingAccountTest(unittest.TestCase):
             self.assertIn(nobody.get(self.PAGE).status_code, (302, 403, 404))
             for form in ("judger_switch", "judger_reset", "judger_delete"):
                 nobody.post(self.PAGE, {"form": form, "judger_name": "p7_kept"})
-            nobody.post(self.PAGE, {"submit-judger_adder": "judger_adder", "judger_adder_name": "p7_sneaked"})
+            nobody.post(self.PAGE, {"submit-judger_adder": "judger_adder", "judger_adder_name": "p7_sneaked", "judger_adder_note": ""})
         self.assertEqual(db("select judger_name, enabled from judger_info where judger_name like 'p7\\_%' order by judger_name"), [["p7_kept", "1"]])
-        r = oj_admin.post(self.PAGE, {"submit-judger_adder": "judger_adder", "judger_adder_name": "p7_by_oj_admin"})
+        r = oj_admin.post(self.PAGE, {"submit-judger_adder": "judger_adder", "judger_adder_name": "p7_by_oj_admin", "judger_adder_note": ""})
         self.assertRegex(r.text, r'id="judger-password">[0-9a-zA-Z]{32}<')
         self.assertEqual(db_value("select created_by from judger_info where judger_name = 'p7_by_oj_admin'"), "p7_oj_admin")
         self.assertEqual(oj_admin.post(self.PAGE, {"form": "judger_switch", "judger_name": "p7_kept"}).status_code, 302)

@@ -527,7 +527,7 @@ class JudgerPasswordTest(unittest.TestCase):
     def test_password_of_a_new_judger_is_shown_once(self):
         admin = uoj.admin()
         try:
-            r = admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "p3_new_judger"})
+            r = admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "p3_new_judger", "judger_adder_note": ""})
             password = re.search(r'id="judger-password">([0-9a-zA-Z]{32})<', r.text).group(1)
             self.assertEqual(self.stored("p3_new_judger"), "sha256:" + uoj.sha256(password.encode()))
             listing = admin.get("/super-manage/judger").text
