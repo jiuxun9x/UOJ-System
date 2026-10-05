@@ -15,8 +15,12 @@ function queryAnnouncement($id) {
 function announcementUrl($id, $path = '') {
 	return '/announcement/' . (int)$id . $path;
 }
+// The text of an announcement as the page shows it. A film or a sound in it always comes
+// with the buttons it is played with: written the short way ("controls" without a value),
+// the purifier takes the word for an attribute that says nothing and drops it.
 function announcementRender($content_md) {
-	return HTML::pruifier()->purify(HTML::parsedown()->text($content_md));
+	$html = HTML::pruifier()->purify(HTML::parsedown()->text($content_md));
+	return preg_replace('/<(video|audio)\b(?![^>]*\scontrols\b)/', '<$1 controls="controls"', $html);
 }
 // What a file that was uploaded for an announcement is written as in the text of the
 // announcement: a picture is shown, a film or a sound is played, anything else is a link.
