@@ -716,6 +716,18 @@ def build_problem_programs(data_dir, steps, scratch_dir):
             raise PrepareError("unknown step to build the data: %r" % (step,))
 
 
+# how many problems a judger keeps the data of, unless its configuration says otherwise
+DATA_CACHE_PROBLEMS = 300
+
+
+def data_cache_limit():
+    """how many problems this judger keeps the data of"""
+    limit = jconf.get("data_cache_problems", DATA_CACHE_PROBLEMS)
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 2:
+        return DATA_CACHE_PROBLEMS
+    return limit
+
+
 def evict_problem_data(keep):
     """keep the data of the problems used last, and nothing an interrupted update left behind"""
     data_root = uoj_judger_path("/data")
@@ -726,7 +738,7 @@ def evict_problem_data(keep):
         elif os.path.isdir(os.path.join(data_root, fname)):
             folders.append(fname)
     folders.sort(key=lambda fname: os.path.getatime(os.path.join(data_root, fname)))
-    for fname in folders[:-99]:
+    for fname in folders[: -(data_cache_limit() - 1)]:
         if fname != keep:
             remove_tree(os.path.join(data_root, fname))
             if os.path.exists(os.path.join(data_root, fname + ".version")):
@@ -791,6 +803,131 @@ def update_problem_data(problem_id, version, sha256, steps):
         raise
     else:
         log_event("problem_data_sync", result="ok", **event)
+
+
+# ---- the data of the problems, ahead of the submissions
+#
+# A judger fetches the data of a problem when it is given a submission to it. A judger that
+# has only just been set up, perhaps far from the web server, would make the first submission
+# to every problem wait for that. So a judger with nothing to judge asks the web server which
+# data the problems have now, and fetches what it does not hold: one problem at a time, with
+# a look for work in between, the data that was published last first.
+#
+# A judger keeps the data of so many problems (data_cache_problems) and no more. While it has
+# room, it fills it. When it is full, it goes on fetching what is published from then on,
+# which pushes out the data that was used longest ago, as judging does; it does not go back
+# for older data it has no room for, or it would fetch and push out for ever. What it holds
+# it keeps up to date.
+
+# seconds between two questions to the web server
+DATA_SYNC_INTERVAL = 30
+# seconds before data that could not be fetched is tried again
+DATA_SYNC_RETRY_AFTER = 600
+
+data_sync_plan = []
+data_sync_asked_at = 0
+data_sync_failed = {}
+data_sync_counts = None
+# the newest data this judger has been told of: what comes after it is new
+data_sync_seen = None
+
+
+def data_sync_enabled():
+    return jconf.get("data_sync", True) is not False
+
+
+def cached_data_versions():
+    """the versions of the data this judger holds: problem id => what its version file says"""
+    cached = {}
+    data_root = uoj_judger_path("/data")
+    for fname in os.listdir(data_root):
+        if fname.isdigit() and os.path.isdir(os.path.join(data_root, fname)):
+            cached[int(fname)] = cached_data_version(int(fname))
+    return cached
+
+
+def plan_data_sync(versions, cached, limit, failed, now, seen=None):
+    """Which data is to be fetched, in which order, and how much of the data there is is held.
+
+    versions: what the web server has, the newest first: rows of problem id, version, SHA256,
+    the steps that build the programs, and a number that grows with every publication.
+    cached: what this judger holds. failed: when a version could not be fetched, by (problem
+    id, version). seen: the number of the newest publication this judger was told of before,
+    None when it is told for the first time.
+    """
+    plan = []
+    have = 0
+    room = limit - len(cached)
+    for problem_id, version, sha256, steps, serial in versions:
+        held = cached.get(problem_id) if problem_id in cached else False
+        if held == {"version": version, "sha256": sha256}:
+            have += 1
+            continue
+        if failed.get((problem_id, version), 0) > now - DATA_SYNC_RETRY_AFTER:
+            continue
+        if held is False:
+            # Data of a problem this judger has nothing of takes room. Where there is none,
+            # only what was published since the judger last looked is worth pushing out
+            # something else for.
+            if room > 0:
+                room -= 1
+            elif seen is None or serial <= seen:
+                continue
+        plan.append((problem_id, version, sha256, steps))
+    return plan, have
+
+
+def read_data_versions(answer):
+    """what the web server said about the data of the problems, as rows that can be relied on"""
+    versions = []
+    for row in json.loads(answer)["versions"]:
+        problem_id, version, sha256, steps, serial = row
+        well_typed = all(isinstance(n, int) and not isinstance(n, bool) for n in (problem_id, version, serial))
+        if well_typed and isinstance(sha256, str) and (steps is None or isinstance(steps, list)):
+            versions.append((problem_id, version, sha256, steps, serial))
+    return versions
+
+
+def sync_data_ahead():
+    """one step of fetching data ahead of the submissions; tells whether something was fetched"""
+    global data_sync_plan, data_sync_asked_at, data_sync_counts, data_sync_seen
+
+    if not data_sync_enabled():
+        return False
+    now = time.time()
+    if now - data_sync_asked_at >= DATA_SYNC_INTERVAL:
+        data_sync_asked_at = now
+        try:
+            # (a web server that does not know the question is not to answer with a task)
+            question = {"data_versions": "1", "fetch_new": "0"}
+            if data_sync_counts is not None:
+                question["data_have"], question["data_total"] = data_sync_counts
+            versions = read_data_versions(uoj_interact(question))
+            data_sync_plan, have = plan_data_sync(
+                versions, cached_data_versions(), data_cache_limit(), data_sync_failed, now, data_sync_seen
+            )
+            data_sync_counts = (have, len(versions))
+            if versions:
+                data_sync_seen = max([row[4] for row in versions] + [data_sync_seen or 0])
+        except UOJAuthError as e:
+            log(e)
+            return False
+        except Exception:
+            traceback.print_exc()
+            return False
+    if not data_sync_plan:
+        return False
+
+    problem_id, version, sha256, steps = data_sync_plan.pop(0)
+    try:
+        update_problem_data(problem_id, version, sha256, steps)
+    except Exception as e:
+        # it is tried again later; a submission to the problem tries at once, and says why not
+        data_sync_failed[(problem_id, version)] = time.time()
+        log("data of problem #%d was not fetched ahead: %s: %s" % (problem_id, type(e).__name__, e))
+        return False
+    data_sync_counts = (data_sync_counts[0] + 1, data_sync_counts[1])
+    return True
 
 
 def prepare():
@@ -1050,7 +1187,9 @@ def judger_loop():
                     break
 
                 print("[" + time.asctime() + "]", "Nothing to judge...")
-                time.sleep(2)
+                # the time nothing is judged in is the time to fetch data ahead
+                if not sync_data_ahead():
+                    time.sleep(2)
 
             ok = True
             print_judge_client_status()

@@ -27,8 +27,19 @@ EOD
 
 initProgress(){
     printf "\n\n==> Doing initial config and start service\n"
+    # A judger needs three things to work for a site: where the site is, and the name and the
+    # password of the judging account the site gave it. The address can be given in one piece.
+    if [ -n "$UOJ_SERVER_URL" ]; then
+        UOJ_PROTOCOL="${UOJ_SERVER_URL%%://*}"
+        UOJ_HOST="${UOJ_SERVER_URL#*://}"
+        UOJ_HOST="${UOJ_HOST%/}"
+    fi
+    # The socket is for commands given on the judger's own machine, and is nothing the site
+    # connects to: when nothing is said about it, it gets a password nobody knows.
+    SOCKET_PORT="${SOCKET_PORT:-2333}"
+    SOCKET_PASSWORD="${SOCKET_PASSWORD:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
     # Check envs
-    if [ -z "$UOJ_PROTOCOL" -o -z "$UOJ_HOST" -o -z "$JUDGER_NAME" -o -z "$JUDGER_PASSWORD" -o -z "$SOCKET_PORT" -o -z "$SOCKET_PASSWORD" ]; then
+    if [ -z "$UOJ_PROTOCOL" -o -z "$UOJ_HOST" -o -z "$JUDGER_NAME" -o -z "$JUDGER_PASSWORD" ]; then
         echo "!! Environment variables not set! Please edit config file by yourself!"
     else
         # Set judge_client config file
@@ -40,7 +51,9 @@ initProgress(){
     "judger_password": "$JUDGER_PASSWORD",
     "socket_port": $SOCKET_PORT,
     "socket_password": "$SOCKET_PASSWORD",
-    "max_judging_seconds": ${MAX_JUDGING_SECONDS:-3600}
+    "max_judging_seconds": ${MAX_JUDGING_SECONDS:-3600},
+    "data_sync": ${DATA_SYNC:-true},
+    "data_cache_problems": ${DATA_CACHE_PROBLEMS:-300}
 }
 UOJEOF
         chmod 600 .conf.json && chown judger:judger .conf.json
@@ -48,8 +61,8 @@ UOJEOF
         #Start services
         service ntpd restart
         su judger -c '/opt/uoj_judger/judge_client start'
-        echo "please modify the database after getting the judger server ready:"
-        echo "insert into judger_info (judger_name, password, ip) values ('$JUDGER_NAME', '$JUDGER_PASSWORD', '__judger_ip_here__');"
+        echo "this judger works for $UOJ_PROTOCOL://$UOJ_HOST as the judging account $JUDGER_NAME;"
+        echo "the account is made on the site: system management, judgers."
         printf "\n\n***Installation complete. Enjoy!***\n"
     fi
 }

@@ -505,6 +505,7 @@ class UpdateProblemDataTest(ProblemDataTestCase):
         self.assert_no_leftovers()
 
     def test_data_of_the_problems_used_last_is_kept(self):
+        self.jc.jconf["data_cache_problems"] = 100
         for problem_id in range(1, 121):
             os.makedirs(self.data_path(str(problem_id)))
             with open(self.data_path("%d.version" % problem_id), "w") as f:
@@ -516,6 +517,198 @@ class UpdateProblemDataTest(ProblemDataTestCase):
         self.assertEqual(kept, [1] + list(range(22, 121)))
         versions = sorted(int(name[:-8]) for name in os.listdir(self.data_path()) if name.endswith(".version"))
         self.assertEqual(versions, kept)
+
+
+    def test_how_much_data_is_kept_is_a_setting(self):
+        self.assertEqual(self.jc.data_cache_limit(), self.jc.DATA_CACHE_PROBLEMS)
+        for value, limit in ((500, 500), (2, 2), (1, 300), (0, 300), (-5, 300), ("many", 300), (True, 300), (2.5, 300), (None, 300)):
+            self.jc.jconf["data_cache_problems"] = value
+            self.assertEqual(self.jc.data_cache_limit(), limit, value)
+        self.jc.jconf["data_cache_problems"] = 3
+        for problem_id in range(1, 7):
+            os.makedirs(self.data_path(str(problem_id)))
+            os.utime(self.data_path(str(problem_id)), (1000000 + problem_id, 1000000))
+        self.jc.evict_problem_data("1")
+        self.assertEqual(sorted(name for name in os.listdir(self.data_path()) if name.isdigit()), ["1", "5", "6"])
+
+
+class DataSyncTest(ProblemDataTestCase):
+    """a judger with nothing to judge fetches the data of the problems before it is needed"""
+
+    SHA = {n: ("%02d" % n) * 32 for n in range(1, 10)}
+
+    def version(self, problem_id, version=1, steps=None, serial=None):
+        # the later a version was published, the larger its number: here, the problem's
+        return (problem_id, version, self.SHA[problem_id], steps, 10 * problem_id + version if serial is None else serial)
+
+    def held(self, problem_id, version=1):
+        return {"version": version, "sha256": self.SHA[problem_id]}
+
+    def plan(self, versions, cached, limit=10, failed=None, now=10000, seen=None):
+        plan, have = self.jc.plan_data_sync(versions, cached, limit, failed or {}, now, seen)
+        return [row[0] for row in plan], have
+
+    def test_what_is_not_held_is_fetched_the_newest_first(self):
+        versions = [self.version(n) for n in (5, 4, 3, 2, 1)]
+        self.assertEqual(self.plan(versions, {}), ([5, 4, 3, 2, 1], 0))
+        # what is held and current is counted, and left alone
+        self.assertEqual(self.plan(versions, {4: self.held(4), 2: self.held(2)}), ([5, 3, 1], 2))
+        self.assertEqual(self.plan(versions, {n: self.held(n) for n in range(1, 6)}), ([], 5))
+        self.assertEqual(self.plan([], {1: self.held(1)}), ([], 0))
+
+    def test_what_is_held_is_kept_up_to_date(self):
+        versions = [self.version(2, version=3), self.version(1)]
+        # another version, the same number with other content, and a copy nobody knows the version of
+        self.assertEqual(self.plan(versions, {2: self.held(2, version=2), 1: self.held(1)}), ([2], 1))
+        self.assertEqual(self.plan(versions, {2: {"version": 3, "sha256": "f" * 64}, 1: self.held(1)}), ([2], 1))
+        self.assertEqual(self.plan(versions, {2: None, 1: self.held(1)}), ([2], 1))
+
+    def test_fetching_ahead_fills_the_room_there_is_and_no_more(self):
+        versions = [self.version(n) for n in (5, 4, 3, 2, 1)]
+        self.assertEqual(self.plan(versions, {}, limit=3), ([5, 4, 3], 0))
+        # data that was judged with is not pushed out by data nobody asked for
+        others = {n: self.held(1) for n in (101, 102)}
+        self.assertEqual(self.plan(versions, others, limit=3), ([5], 0))
+        self.assertEqual(self.plan(versions, {101: self.held(1), 102: self.held(1), 103: None}, limit=3), ([], 0))
+        # what is held takes no new room: it is refreshed however full the judger is
+        full = {101: self.held(1), 102: self.held(1), 4: self.held(4, version=9)}
+        self.assertEqual(self.plan(versions, full, limit=3), ([4], 0))
+
+    def test_full_judger_still_fetches_what_is_published_from_then_on(self):
+        versions = [self.version(n) for n in (5, 4, 3, 2, 1)]
+        full = {101: self.held(1), 102: self.held(1), 103: self.held(1)}
+        # told for the first time: there is no room, and nothing is new to it
+        self.assertEqual(self.plan(versions, full, limit=3, seen=None), ([], 0))
+        # what was published since it last looked is fetched, whatever that pushes out;
+        # it does not go back for the older data it had no room for
+        self.assertEqual(self.plan(versions, full, limit=3, seen=31), ([5, 4], 0))
+        self.assertEqual(self.plan(versions, full, limit=3, seen=51), ([], 0))
+        # with room for one, the newest takes it, new or not; what is new comes besides
+        self.assertEqual(self.plan(versions, {101: self.held(1), 102: self.held(1)}, limit=3, seen=31), ([5, 4], 0))
+        self.assertEqual(self.plan(versions, {101: self.held(1), 102: self.held(1)}, limit=3, seen=51), ([5], 0))
+
+    def test_what_could_not_be_fetched_is_left_for_a_while(self):
+        versions = [self.version(2), self.version(1)]
+        now = 10000
+        just_now = {(2, 1): now - 5}
+        self.assertEqual(self.plan(versions, {}, failed=just_now, now=now), ([1], 0))
+        long_ago = {(2, 1): now - self.jc.DATA_SYNC_RETRY_AFTER - 1}
+        self.assertEqual(self.plan(versions, {}, failed=long_ago, now=now), ([2, 1], 0))
+        # another version of the problem is another thing to try
+        self.assertEqual(self.plan([self.version(2, version=2)], {}, failed=just_now, now=now), ([2], 0))
+        # and what failed does not take the room of what can be fetched
+        self.assertEqual(self.plan(versions, {}, limit=1, failed=just_now, now=now), ([1], 0))
+
+    def test_only_an_answer_that_can_be_relied_on_is_used(self):
+        answer = {"versions": [[3, 2, "a" * 64, [{"type": "make"}], 9], [2, 1, "b" * 64, None, 8], ["4", 1, "c" * 64, None, 7], [5, True, "d" * 64, None, 6],
+                               [6, 1, 7, None, 5], [7, 1, "e" * 64, "make", 4], [8, 1, "f" * 64, None, "3"]]}  # fmt: skip
+        self.assertEqual(self.jc.read_data_versions(json.dumps(answer)), [(3, 2, "a" * 64, [{"type": "make"}], 9), (2, 1, "b" * 64, None, 8)])
+        for nonsense in ("Nothing to judge", "{}", '{"versions": [[1, 2]]}', '{"versions": [[1, 2, "a", null]]}', ""):
+            with self.assertRaises(Exception):
+                self.jc.read_data_versions(nonsense)
+
+    def sync(self, answers, fetched=None, fails=()):
+        """run steps of fetching ahead against a web server that gives these answers"""
+        asked = []
+
+        def interact(data, files={}):
+            asked.append(dict(data))
+            answer = answers[min(len(asked), len(answers)) - 1]
+            if isinstance(answer, Exception):
+                raise answer
+            return json.dumps({"versions": [list(row) for row in answer]})
+
+        def update(problem_id, version, sha256, steps):
+            if problem_id in fails:
+                raise Exception("no data today")
+            os.makedirs(self.data_path(str(problem_id)), exist_ok=True)
+            with open(self.data_path("%d.version" % problem_id), "w") as f:
+                json.dump({"version": version, "sha256": sha256}, f)
+            if fetched is not None:
+                fetched.append((problem_id, version, steps))
+
+        return asked, mock.patch.object(self.jc, "uoj_interact", side_effect=interact), mock.patch.object(self.jc, "update_problem_data", side_effect=update)
+
+    def test_idle_judger_asks_and_fetches_one_problem_at_a_time(self):
+        fetched = []
+        steps = [{"type": "compile", "name": "chk", "include": True}]
+        asked, interact, update = self.sync([[self.version(3, steps=steps), self.version(2), self.version(1)]], fetched)
+        with interact, update:
+            # one problem a step, so that the judger looks for work in between
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertEqual(fetched, [(3, 1, steps)])
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertEqual([row[0] for row in fetched], [3, 2, 1])
+            # nothing left: the judger rests, and does not ask again before it is time
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.assertEqual(asked, [{"data_versions": "1", "fetch_new": "0"}])
+            # when it asks again, it says how much it holds of what there was
+            self.jc.data_sync_asked_at -= self.jc.DATA_SYNC_INTERVAL
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.assertEqual(asked[1], {"data_versions": "1", "fetch_new": "0", "data_have": 3, "data_total": 3})
+            self.assertEqual(len(fetched), 3)
+
+    def test_new_data_is_fetched_when_the_judger_next_asks(self):
+        fetched = []
+        asked, interact, update = self.sync([[self.version(1)], [self.version(1, version=2), self.version(2)]], fetched)
+        with interact, update:
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.jc.data_sync_asked_at -= self.jc.DATA_SYNC_INTERVAL
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertEqual([row[:2] for row in fetched], [(1, 1), (1, 2), (2, 1)])
+            self.assertEqual(asked[1], {"data_versions": "1", "fetch_new": "0", "data_have": 1, "data_total": 1})
+
+    def test_full_judger_is_told_of_new_data_once(self):
+        self.jc.jconf["data_cache_problems"] = 2
+        fetched = []
+        first = [self.version(2), self.version(1)]
+        later = [self.version(4), self.version(3)] + first
+        asked, interact, update = self.sync([first, later, later], fetched)
+        with interact, update:
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertEqual(self.jc.data_sync_seen, 21)
+            # full now; two problems are published, and are fetched all the same
+            self.jc.data_sync_asked_at -= self.jc.DATA_SYNC_INTERVAL
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertEqual([row[0] for row in fetched], [2, 1, 4, 3])
+            # (the judger that is told of them pushes out what was used longest ago: here that
+            # is left to the function that fetches, which this test replaces)
+            self.assertEqual(self.jc.data_sync_seen, 41)
+
+    def test_data_that_can_not_be_fetched_does_not_stop_the_rest(self):
+        fetched = []
+        asked, interact, update = self.sync([[self.version(3), self.version(2), self.version(1)]], fetched, fails=(3,))
+        with interact, update:
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertTrue(self.jc.sync_data_ahead())
+            self.assertEqual([row[0] for row in fetched], [2, 1])
+            # it is not tried again at once, and is not counted as held
+            self.jc.data_sync_asked_at -= self.jc.DATA_SYNC_INTERVAL
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.assertEqual(asked[1], {"data_versions": "1", "fetch_new": "0", "data_have": 2, "data_total": 3})
+            self.assertEqual(len(fetched), 2)
+
+    def test_web_server_that_does_not_answer_is_asked_again_later(self):
+        asked, interact, update = self.sync([Exception("HTTP 502"), [self.version(1)]], [])
+        with interact, update, mock.patch("traceback.print_exc"):
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.assertFalse(self.jc.sync_data_ahead())
+            self.assertEqual(len(asked), 1)
+            self.jc.data_sync_asked_at -= self.jc.DATA_SYNC_INTERVAL
+            self.assertTrue(self.jc.sync_data_ahead())
+
+    def test_fetching_ahead_can_be_switched_off(self):
+        self.jc.jconf["data_sync"] = False
+        asked, interact, update = self.sync([[self.version(1)]], [])
+        with interact, update:
+            self.assertFalse(self.jc.sync_data_ahead())
+        self.assertEqual(asked, [])
 
 
 class BuildProblemProgramsTest(ProblemDataTestCase):
