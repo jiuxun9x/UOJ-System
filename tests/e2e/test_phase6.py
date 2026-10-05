@@ -388,6 +388,43 @@ class AfterSubmittingTest(unittest.TestCase):
         self.assertEqual(submit_and_follow(pupil, in_domain, AB), "/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id)
         practice = last_submission("p6_hw_pupil")
         self.assertIn('href="/submission/%d"' % practice, pupil.get("/submissions?problem_id=%d&submitter=p6_hw_pupil" % own_id).text)
+
+        # ---- the way to what was submitted: from the homework, for the people who look after
+        # it to everything, for who does it to their own
+        everything = 'href="/submissions?homework_id=%d" id="link-homework-submissions"' % homework_id
+        for path in ("", "/manage", "/scoreboard"):
+            self.assertIn(everything, teacher.get("/d/%s/homework/%d%s" % (slug, homework_id, path)).text, path)
+        page = pupil.get("/d/%s/homework/%d" % (slug, homework_id)).text
+        self.assertIn('href="/submissions?homework_id=%d&amp;submitter=p6_hw_pupil" id="link-homework-submissions"' % homework_id, page)
+        self.assertNotIn(everything, page)
+
+        # and from a training: what its problems were sent, wherever that was
+        self.assertEqual(teacher.form("/d/%s/training/new" % slug, "save", title="p6 训练", description_md="", status="published"), "")
+        training_id = int(db_value("select max(id) from trainings where domain_id = %d" % did))
+        self.assertEqual(teacher.form("/d/%s/training/%d/manage" % (slug, training_id), "add_problem", problem_id=str(uoj.pid(own_id))), "")
+        another = teacher.new_problem(slug, title="p6 不在训练里")
+        db("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden)"
+           " values (%d, %d, now(), 'p6_hw_pupil', '{}', 'C++', 10, 'Judged', '{}', 0)" % (another, did))  # fmt: skip
+        elsewhere = last_submission("p6_hw_pupil")
+        of_training = "/submissions?training_id=%d" % training_id
+        listed = lambda client, query="": set(int(n) for n in re.findall(r'href="/submission/(\d+)"', client.get(of_training + query).text))
+        self.assertIn('href="%s" id="link-training-submissions"' % of_training, teacher.get("/d/%s/training/%d" % (slug, training_id)).text)
+        self.assertIn('href="%s&amp;submitter=p6_hw_pupil" id="link-training-submissions"' % of_training,
+                      pupil.get("/d/%s/training/%d" % (slug, training_id)).text)  # fmt: skip
+        page = teacher.get(of_training).text
+        self.assertIn('id="submissions-of-training"', page)
+        self.assertIn("p6 训练", page)
+        # the teacher sees what everybody sent these problems, in the homework as well; a pupil
+        # what is theirs, and of the others what a pupil may see; and nothing of other problems
+        self.assertEqual(listed(teacher), {submission_id, practice})
+        self.assertEqual(listed(pupil, "&submitter=p6_hw_pupil"), {submission_id, practice})
+        self.assertEqual(listed(other), {practice})
+        # a training nobody may see filters nothing, and names nothing
+        page = stranger.get(of_training).text
+        self.assertNotIn("p6 训练", page)
+        self.assertNotIn('id="submissions-of-training"', page)
+        self.assertNotIn('href="/submission/%d"' % practice, page)
+        self.assertNotIn(elsewhere, listed(teacher))
         # and on the site as ever
         self.assertEqual(submit_and_follow(pupil, "/problem/%d" % site_problem, AB), "/submissions")
         uoj.wait_idle()

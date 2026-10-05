@@ -106,6 +106,7 @@
 			<?php endif ?>
 			<a class="btn btn-outline-secondary<?= $snapshot === null && $view === 'correction' ? ' active' : '' ?>" href="<?= $here ?>?view=correction">订正进度</a>
 		</div>
+		<a class="btn btn-outline-secondary btn-sm mr-2" href="/submissions?homework_id=<?= $homework['id'] ?>" id="link-homework-submissions">提交记录</a>
 		<div class="btn-group btn-group-sm">
 			<a class="btn btn-outline-primary" href="<?= $here ?>?<?= $query ?>export=1" id="link-export-scores">导出 CSV</a>
 			<a class="btn btn-outline-primary" href="<?= $here ?>?<?= $query ?>export=1&amp;unclaimed=1" title="未认领的学生也列出来，成绩留空">含未认领</a>

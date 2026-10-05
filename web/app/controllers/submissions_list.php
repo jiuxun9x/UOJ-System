@@ -15,6 +15,16 @@
 	if ($q_homework) {
 		$conds[] = "submissions.homework_id = {$q_homework['id']}";
 	}
+	// what was submitted to the problems of a training: a training keeps nothing of its own,
+	// its problems are problems of the domain, so this is what they were sent
+	$q_training = isset($_GET['training_id']) && validateUInt($_GET['training_id']) ? queryTraining($_GET['training_id']) : null;
+	$q_training_domain = $q_training ? queryDomain($q_training['domain_id']) : null;
+	if ($q_training && !($q_training_domain && can($myUser, 'domain.view', $q_training_domain) && can($myUser, 'training.view', $q_training))) {
+		$q_training = null;
+	}
+	if ($q_training) {
+		$conds[] = "submissions.problem_id in (select problem_id from training_problems where training_id = {$q_training['id']})";
+	}
 	if ($q_problem_id != null) {
 		$conds[] = "problem_id = $q_problem_id";
 	}
@@ -42,7 +52,10 @@
 <?php echoUOJPageHeader(UOJLocale::get('submissions')) ?>
 <?php if ($q_homework): ?>
 <p class="uoj-domain-back" id="submissions-of-homework"><a href="<?= homeworkUrl($q_homework_domain, $q_homework) ?>"><span class="glyphicon glyphicon-chevron-left"></span> 作业：<?= HTML::escape($q_homework['title']) ?></a>
-<span class="text-muted">下面是提交到这个作业的记录。</span></p>
+<span class="text-muted">下面是提交到这个作业的记录<?= can($myUser, 'homework.view_scores', $q_homework) ? '，所有人的都在' : '' ?>。</span></p>
+<?php elseif ($q_training): ?>
+<p class="uoj-domain-back" id="submissions-of-training"><a href="<?= trainingUrl($q_training_domain, $q_training) ?>"><span class="glyphicon glyphicon-chevron-left"></span> 训练：<?= HTML::escape($q_training['title']) ?></a>
+<span class="text-muted">下面是这份训练里的题目收到的提交<?= can($myUser, 'training.view_progress', $q_training) ? '，所有人的都在' : '' ?>。</span></p>
 <?php endif ?>
 <div class="d-none d-sm-block">
 	<?php if ($myUser != null): ?>
@@ -84,6 +97,8 @@
 			});
 			<?php if ($q_homework): ?>
 			qs.push('homework_id=<?= $q_homework['id'] ?>');
+			<?php elseif ($q_training): ?>
+			qs.push('training_id=<?= $q_training['id'] ?>');
 			<?php endif ?>
 			if (qs.length > 0) {
 				url += '?' + qs.join('&');

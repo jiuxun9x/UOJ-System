@@ -82,6 +82,11 @@
 		<?php endif ?>
 	</h3>
 	<div class="mb-2">
+		<?php if ($can_view_progress): ?>
+		<a class="btn btn-outline-secondary btn-sm" href="/submissions?training_id=<?= $training['id'] ?>" id="link-training-submissions">提交记录</a>
+		<?php elseif (Auth::check()): ?>
+		<a class="btn btn-outline-secondary btn-sm" href="/submissions?training_id=<?= $training['id'] ?>&amp;submitter=<?= Auth::id() ?>" id="link-training-submissions">我的提交</a>
+		<?php endif ?>
 		<?php if ($can_manage): ?>
 		<a class="btn btn-outline-secondary btn-sm" href="<?= $here ?>/manage" id="link-manage-training"><span class="glyphicon glyphicon-cog"></span> 管理</a>
 		<?php endif ?>

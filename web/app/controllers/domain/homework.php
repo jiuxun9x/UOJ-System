@@ -65,7 +65,10 @@
 	<h3 class="mr-auto mb-2"><?= HTML::escape($homework['title']) ?> <span class="badge <?= $phase_name[1] ?>" id="homework-phase"><?= $phase_name[0] ?></span></h3>
 	<div class="mb-2">
 		<?php if ($can_view_scores): ?>
+		<a class="btn btn-outline-secondary btn-sm" href="/submissions?homework_id=<?= $homework['id'] ?>" id="link-homework-submissions">提交记录</a>
 		<a class="btn btn-outline-secondary btn-sm" href="<?= homeworkUrl($domain, $homework, '/scoreboard') ?>">成绩表</a>
+		<?php elseif ($is_participant): ?>
+		<a class="btn btn-outline-secondary btn-sm" href="/submissions?homework_id=<?= $homework['id'] ?>&amp;submitter=<?= Auth::id() ?>" id="link-homework-submissions">我的提交</a>
 		<?php endif ?>
 		<?php if ($can_manage): ?>
 		<a class="btn btn-outline-primary btn-sm" href="<?= homeworkUrl($domain, $homework, '/manage') ?>">管理</a>

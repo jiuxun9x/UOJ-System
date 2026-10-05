@@ -204,6 +204,7 @@
 	<h3 class="mr-auto mb-2"><?= HTML::escape($homework['title']) ?> <span class="badge <?= $phase_name[1] ?>" id="homework-phase"><?= $phase_name[0] ?></span></h3>
 	<div class="mb-2">
 		<a class="btn btn-outline-secondary btn-sm" href="<?= homeworkUrl($domain, $homework) ?>">查看作业</a>
+		<a class="btn btn-outline-secondary btn-sm" href="/submissions?homework_id=<?= $homework['id'] ?>" id="link-homework-submissions">提交记录</a>
 		<a class="btn btn-outline-secondary btn-sm" href="<?= homeworkUrl($domain, $homework, '/scoreboard') ?>">成绩表</a>
 	</div>
 </div>
