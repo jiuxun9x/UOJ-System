@@ -193,7 +193,7 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 				<?php $cell = isset($my_row['cells'][$index]) ? $my_row['cells'][$index] : null; ?>
 				<tr>
 					<td><?= $problem['letter'] ?></td>
-					<td><a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['number'] ?>"><?= $problem['title'] ?></a></td>
+					<td><a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['letter'] ?>"><?= $problem['title'] ?></a></td>
 					<td data-problem="<?= $problem['id'] ?>"><?= $cell ? '<a href="/submission/' . $cell[2] . '">' . ($is_icpc ? $icpc_text($cell) : $cell[0]) . '</a>' : '<span class="text-muted">—</span>' ?></td>
 				</tr>
 				<?php endforeach ?>
@@ -235,7 +235,7 @@ $('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
 				<th class="uoj-scoreboard-name">选手</th>
 				<th><?= $is_icpc ? '通过 / 罚时' : '总分' ?></th>
 				<?php foreach ($problems as $problem): ?>
-				<th title="<?= HTML::escape(strip_tags($problem['title'])) ?>"><a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['number'] ?>"><?= $problem['letter'] ?></a></th>
+				<th title="<?= HTML::escape(strip_tags($problem['title'])) ?>"><a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem['letter'] ?>"><?= $problem['letter'] ?></a></th>
 				<?php endforeach ?>
 			</tr>
 		</thead>

@@ -520,6 +520,11 @@ class IcpcTest(unittest.TestCase):
         page = ann.get("/submission/%d" % ann_wrong).text
         self.assertIn('id="details-after-contest"', page)
         self.assertNotIn("Test #", page)
+        # the problem is called what it is called in the contest, here and on the board
+        for told in (listing, page, ann.get(here + "/standings").text):
+            self.assertIn('href="%s/problem/A"' % here, told)
+            self.assertNotIn('href="%s/problem/%d"' % (here, first), told)
+        self.assertRegex(listing, r'<a href="%s/problem/A">A\. ' % here)
         # also after the board froze, about what is one's own
         self.assertRegex(cat.get(here + "/submissions").text, r'href="/submission/%d" class="uoj-verdict text-success"' % cat_first)
 
@@ -722,9 +727,27 @@ class ContestFormTest(unittest.TestCase):
         self.assertEqual(pupil.submit_form("/contest/%d/register" % contest_id, "register", {"join_password": "open sesame"}), "")
         uoj.move_contest(contest_id, -60, 600)
         dashboard = pupil.get("/contest/%d" % contest_id).text
-        order = [int(problem_id) for problem_id in re.findall(r'href="/contest/%d/problem/(\d+)"' % contest_id, dashboard)]
-        self.assertEqual(order, [second, first, third])
+        self.assertEqual(re.findall(r'href="/contest/%d/problem/(\w+)"' % contest_id, dashboard), ["A", "B", "C"])
         self.assertRegex(pupil.get("/contest/%d/problem/%d" % (contest_id, first)).text, r">\s*B\. ")
+
+        # ---- in a contest a problem is called by its letter: that is its address, and what
+        # the list of what was submitted calls it, not the number it has outside
+        heading = lambda path: re.search(r"(?s)<h1[^>]*>(.*?)</h1>", pupil.get(path).text).group(1)
+        for title, problem_id in zip(("p6 乙", "p6 甲", "p6 丙"), (second, first, third)):
+            db("update problems set title = '%s' where id = %d" % (title, problem_id))
+        for letter, title, problem_id in zip("ABC", ("p6 乙", "p6 甲", "p6 丙"), (second, first, third)):
+            by_letter = "/contest/%d/problem/%s" % (contest_id, letter)
+            self.assertEqual(heading(by_letter).strip(), "%s. %s" % (letter, title))
+            self.assertEqual(heading("/contest/%d/problem/%d" % (contest_id, problem_id)), heading(by_letter))
+            self.assertEqual(pupil.get(by_letter + "/statistics").status_code, 200)
+        for nowhere in ("D", "Z", "a", "AB"):
+            self.assertEqual(pupil.get("/contest/%d/problem/%s" % (contest_id, nowhere)).status_code, 404, nowhere)
+        # (these problems have no data to submit to: what was submitted is written down as such)
+        db("insert into submissions (problem_id, contest_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden)"
+           " values (%d, %d, now(), 'p6_form_pupil', '{}', 'C++', 10, 'Judged', '{}', 0)" % (first, contest_id))  # fmt: skip
+        for page in (pupil.get("/contest/%d/submissions" % contest_id).text, pupil.get("/submissions?submitter=p6_form_pupil").text):
+            self.assertIn('<a href="/contest/%d/problem/B">B. p6 甲</a>' % contest_id, page)
+            self.assertNotIn("#%d. p6 甲" % first, page)
 
         # ---- the people who run it
         helper = p3.account("p6_form_helper")

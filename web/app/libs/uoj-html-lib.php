@@ -157,13 +157,16 @@ function getProblemLink($problem, $problem_title = '!title_only') {
 	}
 	return '<a href="'.problemUrl($problem).'">'.$problem_title.'</a>';
 }
+// In a contest a problem is A, B, C: that is what it is called there, on its page, on the
+// board and in the list of what was submitted, and not the number it has outside.
 function getContestProblemLink($problem, $contest_id, $problem_title = '!title_only') {
 	if ($problem_title == '!title_only') {
 		$problem_title = $problem['title'];
 	} elseif ($problem_title == '!id_and_title') {
-		$problem_title = problemLabel($problem) . ". {$problem['title']}";
+		$letter = contestProblemLetter($contest_id, $problem['id']);
+		$problem_title = ($letter !== null ? $letter : problemLabel($problem)) . ". {$problem['title']}";
 	}
-	return '<a href="/contest/'.$contest_id.'/problem/'.problemNumber($problem).'">'.$problem_title.'</a>';
+	return '<a href="'.contestProblemUrl($contest_id, $problem).'">'.$problem_title.'</a>';
 }
 // A problem of a homework is read in the homework: the page of the problem itself may be
 // closed to the people who do the homework. Whoever does not get into the homework is given

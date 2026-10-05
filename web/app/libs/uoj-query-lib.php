@@ -73,6 +73,12 @@ function problemSourceNote($source_problem_id, $source_data_version) {
 // domain. Returns null when there is no such problem; a stranger to the domain is shown the
 // door by domainOfPage().
 function problemOfPage() {
+	// in a contest a problem is called by its letter
+	if (isset($_GET['letter']) && is_string($_GET['letter']) && isset($_GET['contest_id']) && validateUInt($_GET['contest_id'])) {
+		$ids = contestProblemIds($_GET['contest_id']);
+		$index = preg_match('/^[A-Z]$/D', $_GET['letter']) ? ord($_GET['letter']) - ord('A') : -1;
+		return isset($ids[$index]) ? queryProblemBrief($ids[$index]) : null;
+	}
 	if (!isset($_GET['id']) || !validateUInt($_GET['id'])) {
 		return null;
 	}
@@ -138,6 +144,23 @@ function queryProblemTags($id) {
 function queryContestProblemRank($contest, $problem) {
 	$index = array_search((int)$problem['id'], contestProblemIds($contest['id']), true);
 	return $index === false ? null : $index + 1;
+}
+// The letter a problem has in a contest, or null for a problem that is not in it. The order
+// of the problems of a contest is looked up once a page.
+function contestProblemLetter($contest_id, $problem_id) {
+	static $orders = array();
+	$contest_id = (int)$contest_id;
+	if (!isset($orders[$contest_id])) {
+		$orders[$contest_id] = contestProblemIds($contest_id);
+	}
+	$index = array_search((int)$problem_id, $orders[$contest_id], true);
+	return $index === false || $index >= 26 ? null : chr(ord('A') + $index);
+}
+// the address of a problem in a contest: by its letter there, which is what it is called in
+// the contest; a problem that is no longer in the contest keeps the address it had by its number
+function contestProblemUrl($contest_id, $problem, $path = '') {
+	$letter = contestProblemLetter($contest_id, $problem['id']);
+	return '/contest/' . (int)$contest_id . '/problem/' . ($letter !== null ? $letter : problemNumber($problem)) . $path;
 }
 function querySubmission($id) {
 	return DB::selectFirst("select * from submissions where id = $id", MYSQLI_ASSOC);

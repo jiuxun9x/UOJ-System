@@ -316,7 +316,7 @@ EOD
 	<h1 class="col-md-7 text-center"><?= $problem_letter ?>. <?= $problem['title'] ?></h1>
 	<div class="col-md-2 text-right" id="contest-countdown"></div>
 </div>
-<a role="button" class="btn btn-info float-right" href="/contest/<?= $contest['id'] ?>/problem/<?= problemNumber($problem) ?>/statistics"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('problems::statistics') ?></a>
+<a role="button" class="btn btn-info float-right" href="<?= contestProblemUrl($contest['id'], $problem, '/statistics') ?>"><span class="glyphicon glyphicon-stats"></span> <?= UOJLocale::get('problems::statistics') ?></a>
 <?php if ($contest['cur_progress'] <= CONTEST_IN_PROGRESS): ?>
 <script type="text/javascript">
 checkContestNotice(<?= $contest['id'] ?>, '<?= UOJTime::$time_now_str ?>');

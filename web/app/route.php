@@ -11,6 +11,7 @@ Route::pattern('provider', '[a-zA-Z0-9_-]{1,20}');
 Route::pattern('slug', '[a-z0-9][a-z0-9-]{1,30}');
 Route::pattern('homework_id', '[1-9][0-9]{0,9}');
 Route::pattern('training_id', '[1-9][0-9]{0,9}');
+Route::pattern('letter', '[A-Z]');
 
 Route::group([
 		'domain' => '('.UOJConfig::$data['web']['main']['host'].'|127.0.0.1'.')'
@@ -38,6 +39,9 @@ Route::group([
 		Route::any('/contest/{id}/backstage', '/contest_inside.php?tab=backstage');
 		Route::any('/contest/{id}/export_standings', '/export_contest_standings_table.php');
 		Route::any('/contest/{id}/virtual', '/contest_virtual.php');
+		// a problem of a contest is called by its letter there; its number is understood as well
+		Route::any('/contest/{contest_id}/problem/{letter}', '/problem.php');
+		Route::any('/contest/{contest_id}/problem/{letter}/statistics', '/problem_statistics.php');
 		Route::any('/contest/{contest_id}/problem/{id}', '/problem.php');
 		Route::any('/contest/{contest_id}/problem/{id}/statistics', '/problem_statistics.php');
 		

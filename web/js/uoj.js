@@ -1370,7 +1370,9 @@ function showStandings() {
 			'<th style="width:14em">'+uojLocale('username')+'</th>' +
 			'<th style="width:5em">'+uojLocale('contests::total score')+'</th>' +
 			$.map(problems, function(col, idx) {
-				return '<th style="width:8em;">' + '<a href="/contest/' + contest_id + '/problem/' + col + '">' + String.fromCharCode('A'.charCodeAt(0) + idx) + '</a>' + '</th>';
+				// a problem of a contest is called by its letter, in its address as well
+				var letter = String.fromCharCode('A'.charCodeAt(0) + idx);
+				return '<th style="width:8em;">' + '<a href="/contest/' + contest_id + '/problem/' + letter + '">' + letter + '</a>' + '</th>';
 			}).join('') +
 		'</tr>',
 		function(row) {

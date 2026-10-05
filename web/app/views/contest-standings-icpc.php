@@ -34,7 +34,7 @@
 				<th style="width:6em">通过<div class="uoj-icpc-under">罚时</div></th>
 				<?php foreach ($problems as $pos => $problem): ?>
 				<th style="width:5.5em"<?= isset($solved_by[$pos]) ? ' class="uoj-icpc-solved-by"' : '' ?> title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?>">
-					<a href="/contest/<?= $contest['id'] ?>/problem/<?= $problem ? problemNumber($problem) : $contest_data['problems'][$pos] ?>"><?= chr(ord('A') + $pos % 26) ?></a>
+					<a href="/contest/<?= $contest['id'] ?>/problem/<?= chr(ord('A') + $pos % 26) ?>"><?= chr(ord('A') + $pos % 26) ?></a>
 					<div class="uoj-icpc-under" data-solved-by="<?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>"><?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>/<?= isset($tried_by[$pos]) ? $tried_by[$pos] : 0 ?></div>
 				</th>
 				<?php endforeach ?>
