@@ -30,6 +30,7 @@
 	requirePHPLib('upload');
 	requirePHPLib('virtual');
 	requirePHPLib('attachment');
+	requirePHPLib('notice');
 	requirePHPLib('html');
 	
 	Session::init();

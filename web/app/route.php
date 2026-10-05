@@ -89,6 +89,9 @@ Route::group([
 		Route::any('/post/{id}', '/blog_show.php');
 		
 		Route::any('/announcements', '/announcements.php');
+		Route::any('/announcement/new', '/announcement_edit.php');
+		Route::any('/announcement/{id}', '/announcement.php');
+		Route::any('/announcement/{id}/edit', '/announcement_edit.php');
 		
 		Route::any('/faq', '/faq.php');
 		Route::any('/ranklist', '/ranklist.php?type=rating');

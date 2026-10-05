@@ -526,6 +526,8 @@ function can($user, $ability, $resource = null) {
 		// kinds. Whoever holds such an account is given every submission to judge, so it is
 		// not for anybody else to make one.
 		case 'judger.manage':
+		// the announcements of the site
+		case 'announcement.manage':
 		case 'site.manage':
 		case 'user.ban':
 		case 'user.view_private':
@@ -649,6 +651,9 @@ function can($user, $ability, $resource = null) {
 		// the row of the attachment. Whoever manages what it belongs to manages it; whoever
 		// reads the problem, or is inside the contest, may have it.
 		case 'attachment.manage':
+			if ($resource['owner_type'] === 'notice') {
+				return can($user, 'announcement.manage');
+			}
 			if ($resource['owner_type'] === 'contest') {
 				$contest = $facts->contest($resource['owner_id']);
 				return $contest != null && can($user, 'contest.manage', $contest);
@@ -656,6 +661,11 @@ function can($user, $ability, $resource = null) {
 			$problem = $facts->problem($resource['owner_id']);
 			return $problem != null && can($user, 'problem.manage', $problem);
 		case 'attachment.view':
+			// what an announcement shows is for everybody the announcement is for: everybody
+			if ($resource['owner_type'] === 'notice') {
+				$announcement = queryAnnouncement($resource['owner_id']);
+				return $announcement != null && (!$announcement['is_hidden'] || can($user, 'announcement.manage'));
+			}
 			if ($resource['owner_type'] === 'contest') {
 				$contest = $facts->contest($resource['owner_id']);
 				return $contest != null && can($user, 'contest.read', $contest);

@@ -373,3 +373,12 @@
 .uoj-conf-text[readonly] {
 	background: #f8f9fa;
 }
+
+/* ---- an announcement: its pictures and films fit the page */
+.uoj-announcement-text img, .uoj-announcement-text video {
+	max-width: 100%;
+	height: auto;
+}
+.uoj-announcement-text audio {
+	max-width: 100%;
+}

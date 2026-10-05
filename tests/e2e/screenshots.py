@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 
 import test_phase3 as p3
 import test_phase4 as p4
+import test_phase7 as p7
 import uoj
 from fixtures import AB, AB_WRONG, ab_problem_files
 from uoj import db, db_value
@@ -180,7 +181,13 @@ def seed():
             db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
                % (icpc, minute, submission_id))  # fmt: skip
     uoj.wait_idle()
-    return {"teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
+    # an announcement of the site with a picture in it, and a judging account nobody uses yet
+    admin.post("/announcement/new", {"form": "save", "title": "2026 秋季学期上机安排", "level": "1",
+                                     "content_md": "第 3 周起，每周三晚 **19:00** 在实验楼 305 上机。\n\n- 带校园卡\n- 提前 10 分钟到"},
+               [("media[]", ("机房.png", p7.PNG, "image/png")), ("media[]", ("座位表.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))])  # fmt: skip
+    announcement = int(db_value("select max(blog_id) from important_blogs"))
+    admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "lab305", "judger_adder_note": "实验楼 305 的机器"})
+    return {"announcement": announcement, "teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
             "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
             "sitter": sitter, "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
 
@@ -332,6 +339,11 @@ def pages(seeded):
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"])),
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
         ("monitor", "admin", "/super-manage/monitor"),
+        ("judgers", "admin", "/super-manage/judger"),
+        ("announcements-admin", "admin", "/announcements"),
+        ("announcement", "visitor", "/announcement/%d" % seeded["announcement"]),
+        ("announcement-edit", "admin", "/announcement/%d/edit" % seeded["announcement"]),
+        ("home", "visitor", "/"),
         ("contests", "student", "/contests"),
         ("submissions", "student", "/submissions"),
         ("contest-submissions", "admin", "/contest/%d/submissions" % seeded["contest"]),

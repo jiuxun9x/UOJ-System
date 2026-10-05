@@ -7,7 +7,8 @@
 define('UOJ_ATTACHMENT_DIR', '/var/uoj_data/attachments');
 
 function attachmentOwnerTypes() {
-	return array('problem' => '题目', 'contest' => '比赛');
+	// 'notice': an announcement of the site, which has pictures and films to show in its text
+	return array('problem' => '题目', 'contest' => '比赛', 'notice' => '公告');
 }
 // how large an attachment may be, in bytes, and how many a problem or a contest may have
 function attachmentLimits() {
@@ -40,11 +41,22 @@ function attachmentSizeText($bytes) {
 	}
 	return round($bytes / 1048576, 1) . ' MB';
 }
-// What the browser is told a file is. Only a PDF is shown in the browser, which reads it
-// with a reader of its own; everything else is a download, whatever it calls itself, so that
-// no file of somebody's making is ever a page of this site.
+// What the browser is told a file is. A PDF is shown in the browser, which reads it with a
+// reader of its own, and so are pictures and films, which a page shows in its text and which
+// can do nothing there. Everything else is a download, whatever it calls itself, so that no
+// file of somebody's making is ever a page of this site: an SVG, which can hold scripts, too.
+function attachmentInlineType($name) {
+	static $types = array(
+		'pdf' => 'application/pdf',
+		'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp',
+		'mp4' => 'video/mp4', 'webm' => 'video/webm', 'ogv' => 'video/ogg', 'mov' => 'video/quicktime',
+		'mp3' => 'audio/mpeg', 'ogg' => 'audio/ogg', 'wav' => 'audio/wav', 'm4a' => 'audio/mp4'
+	);
+	$ending = strtolower(uojFileNameParts($name)[1]);
+	return isset($types[$ending]) ? $types[$ending] : null;
+}
 function attachmentIsShownInline($name) {
-	return strtolower(uojFileNameParts($name)[1]) === 'pdf';
+	return attachmentInlineType($name) !== null;
 }
 
 function queryAttachment($id) {

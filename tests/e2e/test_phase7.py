@@ -218,3 +218,141 @@ class DataAheadTest(unittest.TestCase):
         # and the first submission is judged with what is there already
         j = uoj.wait_submission(admin.submit(problem_id, AB))
         self.assertEqual(j.score, 100, j)
+
+
+# a picture of four dots
+PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000002000000020802000000fdd49a7300"
+    "0000164944415478da63b8636363b3e00ec38713366e5ba2002c8206554424bcf700"
+    "00000049454e44ae426082"
+)
+MP4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + bytes(range(256))
+
+
+class AnnouncementTest(unittest.TestCase):
+    """the announcements of the site are posted where they are read, by the administrators, with
+    the pictures and films that go with them, and say who posted them"""
+
+    def announcements(self):
+        return int(db_value("select count(*) from important_blogs"))
+
+    def test_announcement_from_its_posting_to_its_end(self):
+        admin, visitor = uoj.admin(), uoj.Client()
+        student, teacher, oj_admin = (p3.account("p7_ann_" + name) for name in ("student", "teacher", "oj_admin"))
+        self.assertEqual(admin.change_user("p7_ann_teacher", "grant:teacher"), "")
+        self.assertEqual(admin.change_user("p7_ann_oj_admin", "grant:oj_admin"), "")
+        form = dict(form="save", title="p7 公告", content_md="正文", level="0")
+
+        # ---- the way in is on the page of the announcements, for who may post
+        for may in (admin, oj_admin):
+            self.assertIn('id="button-new-announcement"', may.get("/announcements").text)
+            self.assertIn('name="media[]"', may.get("/announcement/new").text)
+        for may_not in (teacher, student, visitor):
+            self.assertNotIn('id="button-new-announcement"', may_not.get("/announcements").text)
+        self.assertEqual(student.get("/announcement/new").status_code, 403)
+        self.assertEqual(visitor.get("/announcement/new").status_code, 302)
+        before = self.announcements()
+        self.assertEqual(teacher.post("/announcement/new", form).status_code, 403)
+        # what is wrong with one is said, and nothing is posted
+        for wrong, said in ((dict(title="  "), "标题"), (dict(level="9"), "置顶"), (dict(title="长" * 201), "标题")):
+            r = admin.post("/announcement/new", dict(form, **wrong))
+            self.assertEqual(r.status_code, 200, wrong)
+            self.assertIn(said, uoj.text_of(r.text), wrong)
+        self.assertIn("正文", admin.post("/announcement/new", dict(form, title=" ")).text)
+        self.assertEqual(self.announcements(), before)
+
+        # ---- posted, with a picture, a film and a file
+        files = [("media[]", ("校园.png", PNG, "image/png")), ("media[]", ("开幕式.mp4", MP4, "video/mp4")),
+                 ("media[]", ("报名表.zip", uoj.make_zip({"a.txt": "a"}), "application/zip"))]  # fmt: skip
+        r = admin.post("/announcement/new", dict(form, title="p7 秋季赛 <通知>", content_md="**报名**开始了。\n\n<script>alert(1)</script>", level="2"), files)
+        self.assertEqual(r.status_code, 302, r.text[-400:])
+        announcement_id = int(db_value("select max(blog_id) from important_blogs"))
+        here = "/announcement/%d" % announcement_id
+        self.assertEqual(r.headers["Location"], here)
+        self.assertEqual(self.announcements(), before + 1)
+        stored = lambda: db("select poster, is_hidden, (select level from important_blogs where blog_id = blogs.id) from blogs where id = %d" % announcement_id)[0]
+        self.assertEqual(stored(), [admin.username, "0", "2"])
+        media = {row[1]: int(row[0]) for row in db("select id, name from attachments where owner_type = 'notice' and owner_id = %d" % announcement_id)}
+        self.assertEqual(set(media), {"校园.png", "开幕式.mp4", "报名表.zip"})
+        text_of_it = lambda: bytes.fromhex(db_value("select hex(content_md) from blogs where id = %d" % announcement_id)).decode()
+        # each file was written into the text, as what it is
+        self.assertIn("![校园.png](/attachment/%d)" % media["校园.png"], text_of_it())
+        self.assertIn('<video controls src="/attachment/%d"></video>' % media["开幕式.mp4"], text_of_it())
+        self.assertIn("[报名表.zip](/attachment/%d)" % media["报名表.zip"], text_of_it())
+
+        # ---- everybody reads it, logged in or not: what it says, who posted it, what it shows
+        for reader in (visitor, student):
+            r = reader.get(here)
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("p7 秋季赛 &lt;通知&gt;", r.text)
+            self.assertRegex(r.text, r'(?s)id="announcement-meta">.*?发布者：.*?>%s<' % admin.username)
+            self.assertIn("<strong>报名</strong>", r.text)
+            self.assertNotIn("alert(1)", r.text)
+            self.assertRegex(r.text, r'<img[^>]*src="/attachment/%d"' % media["校园.png"])
+            self.assertRegex(r.text, r'<video[^>]*src="/attachment/%d"' % media["开幕式.mp4"])
+            self.assertRegex(r.text, r"<video[^>]*controls")
+            self.assertIn('<a href="/attachment/%d">报名表.zip</a>' % media["报名表.zip"], r.text)
+            # a picture is a picture and a film a film to the browser; a file is a download
+            for name, content, kind, how in (("校园.png", PNG, "image/png", "inline"), ("开幕式.mp4", MP4, "video/mp4", "inline"),
+                                             ("报名表.zip", None, "application/octet-stream", "attachment")):  # fmt: skip
+                r = reader.get("/attachment/%d" % media[name])
+                self.assertEqual((r.status_code, r.headers["Content-Type"].split(";")[0]), (200, kind), name)
+                self.assertTrue(r.headers["Content-Disposition"].startswith(how), name)
+                if content is not None:
+                    self.assertEqual(r.content, content, name)
+        # a film is played from where one moves to: a part of it can be asked for
+        r = visitor.get("/attachment/%d" % media["开幕式.mp4"], headers={"Range": "bytes=4-11"})
+        self.assertEqual((r.status_code, r.content), (206, MP4[4:12]))
+        # it stands on the front page and among the announcements, with who posted it
+        for path in ("/", "/announcements"):
+            page = visitor.get(path).text
+            self.assertIn('href="%s"' % here, page, path)
+            self.assertIn("p7 秋季赛 &lt;通知&gt;", page, path)
+        self.assertRegex(visitor.get("/announcements").text, r'(?s)data-announcement="%d".*?置顶.*?uoj-username[^>]*>%s<' % (announcement_id, admin.username))
+
+        # ---- changed by another administrator: who posted it stays who posted it
+        edit = here + "/edit"
+        page = oj_admin.get(edit).text
+        self.assertIn('value="p7 秋季赛 &lt;通知&gt;"', page)
+        self.assertRegex(page, r'<option value="2" selected="selected">')
+        self.assertEqual(len(re.findall(r'<tr data-attachment="\d+">', page)), 3)
+        r = oj_admin.post(edit, dict(form, title="p7 秋季赛（改期）", content_md=text_of_it().replace("开始了", "改期了"), level="0"))
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, here))
+        self.assertEqual(stored(), [admin.username, "0", "0"])
+        page = visitor.get(here).text
+        self.assertIn("改期了", page)
+        self.assertIn("p7 秋季赛（改期）", page)
+        self.assertRegex(page, r'<img[^>]*src="/attachment/%d"' % media["校园.png"])
+        # another file is added to it, and one is taken away
+        r = oj_admin.post(edit, dict(form, title="p7 秋季赛（改期）", content_md=text_of_it()), [("media[]", ("路线.png", PNG, "image/png"))])
+        self.assertEqual(r.status_code, 302)
+        route = int(db_value("select id from attachments where owner_type = 'notice' and owner_id = %d and name = '路线.png'" % announcement_id))
+        self.assertRegex(visitor.get(here).text, r'<img[^>]*src="/attachment/%d"' % route)
+        self.assertEqual(oj_admin.post(edit, {"form": "delete_media", "attachment_id": str(media["开幕式.mp4"])}).status_code, 302)
+        self.assertEqual(visitor.get("/attachment/%d" % media["开幕式.mp4"]).status_code, 404)
+        self.assertEqual(visitor.get("/attachment/%d" % route).status_code, 200)
+        # a file of something else is not taken away from here
+        self.assertIn("没有这个文件", uoj.text_of(oj_admin.post(edit, {"form": "delete_media", "attachment_id": "99999999"}).text))
+
+        # ---- nobody else changes it or takes it away
+        for nobody in (teacher, student):
+            self.assertEqual(nobody.get(edit).status_code, 403)
+            self.assertEqual(nobody.post(edit, dict(form, title="p7 不该成功")).status_code, 403)
+            nobody.post(edit, {"form": "delete_media", "attachment_id": str(route)})
+            nobody.post(here, {"form": "delete"})
+        self.assertEqual(self.announcements(), before + 1)
+        self.assertIn("p7 秋季赛（改期）", visitor.get(here).text)
+        self.assertEqual(visitor.get("/attachment/%d" % route).status_code, 200)
+
+        # ---- taken away: gone from the lists, and its files with it
+        r = admin.post(here, {"form": "delete"})
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/announcements"))
+        self.assertEqual(self.announcements(), before)
+        self.assertEqual(visitor.get(here).status_code, 404)
+        self.assertNotIn("p7 秋季赛", visitor.get("/announcements").text)
+        self.assertNotIn("p7 秋季赛", visitor.get("/").text)
+        self.assertEqual(db_value("select count(*) from attachments where owner_type = 'notice' and owner_id = %d" % announcement_id), "0")
+        for attachment_id in (media["校园.png"], media["报名表.zip"], route):
+            self.assertEqual(visitor.get("/attachment/%d" % attachment_id).status_code, 404)
+        for action in ("announcement.post", "announcement.edit", "announcement.delete"):
+            self.assertGreaterEqual(int(db_value("select count(*) from audit_logs where action = '%s' and resource_id = '%d'" % (action, announcement_id))), 1, action)

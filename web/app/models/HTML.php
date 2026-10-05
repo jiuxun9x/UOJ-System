@@ -183,6 +183,11 @@ class HTML {
 		$def->addElement('aside',   'Block', 'Flow', 'Common');
 		$def->addElement('header',  'Block', 'Flow', 'Common');
 		$def->addElement('footer',  'Block', 'Flow', 'Common');
+		// films and sound, played by the browser: an announcement shows them in its text
+		$media = array('src' => 'URI', 'width' => 'Length', 'height' => 'Length', 'poster' => 'URI', 'preload' => 'Enum#auto,metadata,none', 'controls' => 'Bool', 'loop' => 'Bool', 'muted' => 'Bool');
+		$def->addElement('video', 'Block', 'Optional: (source, Flow) | (Flow, source) | Flow', 'Common', $media);
+		$def->addElement('audio', 'Block', 'Optional: (source, Flow) | (Flow, source) | Flow', 'Common', array('src' => 'URI', 'preload' => 'Enum#auto,metadata,none', 'controls' => 'Bool', 'loop' => 'Bool', 'muted' => 'Bool'));
+		$def->addElement('source', 'Block', 'Empty', 'Common', array('src' => 'URI', 'type' => 'Text'));
 		
 		return new HTMLPurifier($config);
 	}
