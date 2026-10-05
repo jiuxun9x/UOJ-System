@@ -577,6 +577,16 @@ class IcpcTest(unittest.TestCase):
         page = ann.get("/submission/%d" % ann_wrong).text
         self.assertIn('id="details-after-contest"', page)
         self.assertNotIn("Test #", page)
+        # The people who run the contest are shown what everybody submitted without having to
+        # ask for it; a contestant is shown what is their own. Either can say otherwise.
+        everything = admin.get(here + "/submissions").text
+        for submission_id in (ann_right, bob_first, cat_first):
+            self.assertIn('href="/submission/%d"' % submission_id, everything)
+        self.assertRegex(everything, r'id="input-show_all_submissions" checked')
+        self.assertNotIn('href="/submission/%d"' % bob_first, listing)
+        self.assertNotRegex(listing, r'id="input-show_all_submissions" checked')
+        only_mine = admin.get(here + "/submissions", cookies={"show_all_submissions": "0"}).text
+        self.assertNotIn('href="/submission/%d"' % bob_first, only_mine)
         # the problem is called what it is called in the contest, here and on the board
         for told in (listing, page, ann.get(here + "/standings").text):
             self.assertIn('href="%s/problem/A"' % here, told)

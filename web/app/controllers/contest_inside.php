@@ -403,7 +403,12 @@ EOD;
 	function echoMySubmissions() {
 		global $contest, $myUser;
 
-		$show_all_submissions_status = Cookie::get('show_all_submissions') !== null ? 'checked="checked" ' : '';
+		// Whose submissions: one's own, or everybody's. The people who run the contest have
+		// none of their own and are there to look at everybody's, so that is what they are
+		// shown unless they say otherwise; everybody else is shown their own unless they ask.
+		$choice = Cookie::get('show_all_submissions');
+		$show_all = $choice === null ? can($myUser, 'contest.assist', $contest) : $choice !== '0';
+		$show_all_submissions_status = $show_all ? 'checked="checked" ' : '';
 		$show_all_submissions = UOJLocale::get('contests::show all submissions');
 		echo <<<EOD
 			<div class="checkbox text-right">
@@ -411,16 +416,12 @@ EOD;
 			</div>
 			<script type="text/javascript">
 				$('#input-show_all_submissions').click(function() {
-					if (this.checked) {
-						$.cookie('show_all_submissions', '');
-					} else {
-						$.removeCookie('show_all_submissions');
-					}
+					$.cookie('show_all_submissions', this.checked ? '' : '0');
 					location.reload();
 				});
 			</script>
 EOD;
-		if (Cookie::get('show_all_submissions') !== null) {
+		if ($show_all) {
 			echoSubmissionsList("contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => ''), $myUser);
 		} else {
 			echoSubmissionsList("submitter = '{$myUser['username']}' and contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => ''), $myUser);
