@@ -749,7 +749,7 @@ int main(int argc, char **argv) {
         for (;;) fwrite(block, 1, sizeof(block), next);
     }
     if (kind == "folder") {
-        // a folder where the input of the next pass should be, that nobody may look into
+        // a folder where the input of the next pass should be
         mkdir("nextpass.in", 0);
         quitf(_ok, "a folder for the next pass");
     }

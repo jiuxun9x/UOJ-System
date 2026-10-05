@@ -165,14 +165,20 @@ class JudgerIsLeftCleanTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.admin = uoj.admin()
+        # what was there before these tests is not theirs
+        uoj.wait_idle()
+        cls.before = set(judger_leftovers())
+
+    def left(self):
+        return [line for line in judger_leftovers() if line not in self.before]
 
     def assert_nothing_is_left(self):
         uoj.wait_idle()
         # a process that was killed is gone a moment later
         try:
-            uoj.wait_until("nothing is left of the judgements", lambda: not judger_leftovers(), timeout=30)
+            uoj.wait_until("nothing is left of the judgements", lambda: not self.left(), timeout=30)
         except Exception:
-            self.fail(judger_leftovers())
+            self.fail(self.left())
 
     def test_passes_that_misbehave_leave_no_process_behind(self):
         problem_id = self.admin.create_problem(multi_pass_problem_files())
@@ -205,15 +211,13 @@ class JudgerIsLeftCleanTest(unittest.TestCase):
             "more": "Checker Judgment Failed",
             # the input of a pass is no larger than a checker may write
             "flood": "Checker Output Limit Exceeded",
-            # the input of a pass is a plain file
-            "folder": "Checker Judgment Failed",
-            # two files are all that a checker may write
+            # two files are all that a checker may make: no folder, and no file of its own
+            "folder": "Checker Dangerous Syscalls",
             "stray": "Checker Dangerous Syscalls",
             "fine": "Accepted",
         }
         self.assertEqual(j.infos, [expected[kind] for kind in UNRULY_KINDS], j)
         self.assertIn("asked for another pass after pass 3", j.details)
-        self.assertIn("nextpass.in of the checker is not a plain file", j.details)
         self.assertIn("3 passes", j.details)
         # the 64 megabytes that the checker wrote are gone with the test they were written in
         self.assert_nothing_is_left()

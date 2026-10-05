@@ -1469,7 +1469,9 @@ struct PassFiles {
     PassFiles &operator=(const PassFiles &) = delete;
 
     void remove() {
-        // the checker may have taken the right to look into what it made away from itself
+        // A checker of the usual kind can make its two files and nothing else. One that is
+        // run as another kind of program may be allowed more, so nothing is taken for granted
+        // about what is in the folder and who may look into it.
         executef("chmod -R u+rwx %s 2>/dev/null; rm -rf %s %s %s", escapeshellarg(path).c_str(),
                  escapeshellarg(path).c_str(), escapeshellarg(input_file_name).c_str(),
                  escapeshellarg(output_file_name).c_str());
