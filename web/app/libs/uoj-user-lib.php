@@ -47,6 +47,7 @@ function usernameColumns() {
 		'custom_test_submissions' => array('submitter'),
 		'domain_announcements' => array('created_by'),
 		'domain_invites' => array('created_by'),
+		'judger_info' => array('created_by'),
 		'domain_members' => array('username', 'added_by'),
 		'domain_pending_members' => array('created_by'),
 		'domains' => array('owner_username', 'created_by'),

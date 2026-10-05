@@ -187,12 +187,15 @@ docker compose up -d --force-recreate uoj-judger
 
 | 环境变量 | 默认 | 含义 | 改了意味着什么 |
 |---|---|---|---|
+| `UOJ_SERVER_URL` | 不写 | 网站的地址，一项写全，如 `https://oj.example.edu.cn`。写了它就不用写下面两项 | 评测机在别的机器上时用这一项最省事：和“评测机管理”里显示的站点地址一样 |
 | `UOJ_PROTOCOL` | `http` | 评测机访问网站用的协议 | 评测机走公网访问 HTTPS 的网站时改成 `https` |
 | `UOJ_HOST` | `uoj-web` | 网站的地址，可以带端口，如 `oj.example.edu.cn` 或 `10.0.0.5:8080` | 同一个 compose 里就用容器名 `uoj-web`；评测机在别的机器上时改成它能访问到的网站地址 |
-| `JUDGER_NAME` | `compose_judger` | 评测机的名字，要和“评测机管理”里登记的一致 | 每台评测机名字不同。评测记录里会记下是哪台评测的 |
-| `JUDGER_PASSWORD` | `_judger_password_` | 评测机的密码，要和登记时得到的一致 | 不一致时评测机取不到任务，日志里是 `judger authentication failed` |
-| `SOCKET_PORT` | `2333` | 评测机本地的控制端口（见 6.6） | 一般不用改 |
-| `SOCKET_PASSWORD` | `_judger_socket_password_` | 控制端口的口令 | 评测机不在可信网络里时换一个 |
+| `JUDGER_NAME` | `compose_judger` | 评测账户的名称，在“评测机管理”里添加 | 一个账户给一台评测机用。评测记录里会记下是哪台评测的 |
+| `JUDGER_PASSWORD` | `_judger_password_` | 评测账户的密码，添加账户时页面上显示的那一个 | 不一致时评测机取不到任务，日志里是 `judger authentication failed` |
+| `SOCKET_PORT` | `2333` | 评测机本地的控制端口（见 6.6）。可以不写 | 一般不用改 |
+| `SOCKET_PASSWORD` | 不写时随机生成 | 控制端口的口令。可以不写 | 只在评测机自己的机器上用，网站不需要知道 |
+| `DATA_SYNC` | `true` | 评测机空闲时是否提前同步题目数据（见 6.4）。可以不写 | 写 `false` 就回到“评测到哪道题才下载哪道题的数据” |
+| `DATA_CACHE_PROBLEMS` | `300` | 这台评测机最多保留多少道题的数据。可以不写 | 磁盘够就调大，题库里的题都能提前同步过去；超过的部分按“最久没用到的先清掉”处理 |
 | `MAX_JUDGING_SECONDS` | `3600` | 一份提交的评测最长多少秒（见 6.1）。可以不写 | 正常的评测远远用不到；只有题目把 `judger_time_limit` 调到一小时以上时才需要跟着调大 |
 
 其他项：
@@ -422,24 +425,28 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 每次评测结束后（无论怎么结束的），评测机都会清点并杀掉这次评测留下的进程，开始下一次评测前清空工作目录。
 已经在运行的评测机（配置文件里没有这一项）用默认值；要改的话在 `.conf.json` 里加 `"max_judging_seconds": 秒数` 后重启评测机。
 
-### 6.2 更换默认评测机的密码
+### 6.2 评测账户，和更换默认评测机的密码
 
-数据库初始化时登记了一台 `compose_judger`，密码是公开的默认值，上线前要换：
+每台评测机用一个**评测账户**为网站工作：一个名称加一个密码。评测机主动连接网站，领取评测任务、下载题目数据、
+交回结果；网站从不主动连接评测机。所以评测机只要能访问网站就行，不必和网站在同一台机器、同一个局域网。
 
-1. “系统管理 → 评测机管理” → 删除 `compose_judger`。
-2. 添加一台新的（名字可以还叫 `compose_judger`）。页面会显示一个随机密码，**只显示这一次**，数据库里只存它的哈希。
-3. 把名字和密码写进 `docker-compose.yml` 的 `JUDGER_NAME`、`JUDGER_PASSWORD`。
-4. 重建评测机容器：
+评测账户在“系统管理 → 评测机管理”里由管理员或系统管理员添加：填一个名称（和备注，比如机器在哪里），提交后页面显示
+这个账户的**编号、站点地址、名称、密码**和一条可以直接用的启动命令。密码**只显示这一次**，数据库里只存它的哈希；
+丢了就在列表里点“重置密码”换一个新的。评测账户有自己的编号，和用户的编号互不相干。
+
+数据库初始化时登记了一个账户 `compose_judger`，密码是公开的默认值，上线前要换：
+
+1. “评测机管理”里对 `compose_judger` 点“重置密码”，记下新密码。
+2. 把它写进 `docker-compose.yml` 的 `JUDGER_PASSWORD`。
+3. 重建评测机容器：
 
 ```bash
 docker compose up -d --force-recreate uoj-judger
 ```
 
-密码丢了没法找回，只能删除后重新添加。
-
 ### 6.3 再加一台评测机（同一台机器）
 
-先在“评测机管理”里添加，记下密码。然后在 `docker-compose.yml` 里照着 `uoj-judger` 再写一个服务，
+先在“评测机管理”里添加一个评测账户，记下密码。然后在 `docker-compose.yml` 里照着 `uoj-judger` 再写一个服务，
 改四处：服务名、`container_name`、日志目录、`JUDGER_NAME` 和 `JUDGER_PASSWORD`。例如：
 
 ```yaml
@@ -461,37 +468,52 @@ docker compose up -d --force-recreate uoj-judger
       - UOJ_HOST=uoj-web
       - JUDGER_NAME=judger_2
       - JUDGER_PASSWORD=（添加时页面显示的密码）
-      - SOCKET_PORT=2333
-      - SOCKET_PASSWORD=_judger_socket_password_
 ```
 
-然后 `docker compose up -d`。几秒后它会出现在评测机列表里并开始接任务。
+然后 `docker compose up -d`。几秒后它在评测机列表里变成“在线”并开始接任务。
 
 多台评测机会让同一道题在不同机器上评测。**机器性能不同会导致同一份代码的运行时间不同**，
 所以建议所有评测机用相同的硬件，并用 `cpuset` 让每台独占 CPU 核。
 
-### 6.4 评测机放在另一台机器上
+### 6.4 评测机放在另一台机器上，和题目数据的自动同步
 
-在那台机器上放一份本仓库，只构建和启动评测机：
+评测机可以在任何一台能访问网站的 Linux x86_64 机器上，不需要和网站在同一个局域网。步骤：
 
-```bash
-docker compose build uoj-judger
-```
+1. “评测机管理”里添加一个评测账户，记下页面上的三样东西：站点地址、名称、密码。
+2. 在那台机器上放一份本仓库，构建评测机镜像：
 
-把 `docker-compose.yml` 里 `uoj-judger` 的 `UOJ_HOST` 改成它能访问到的网站地址
-（走 HTTPS 就把 `UOJ_PROTOCOL` 改成 `https`），填好名字和密码，然后只启动评测机
-（`--no-deps` 表示不要顺带启动网站和数据库）：
+   ```bash
+   docker build -t school-oj-judger ./judger
+   ```
 
-```bash
-docker compose up -d --no-deps uoj-judger
-```
+3. 用那三样东西启动（添加账户后的页面上有填好的同一条命令）：
 
-网络上只需要“评测机 → 网站”这一个方向通。评测机和网站之间传输题目数据和选手代码，
-跨公网时务必走 HTTPS。
+   ```bash
+   docker run -dit --name uoj-judger-lab3 --restart always --cap-add SYS_PTRACE \
+     -e UOJ_SERVER_URL=https://oj.example.edu.cn \
+     -e JUDGER_NAME=lab3 \
+     -e JUDGER_PASSWORD=（页面显示的密码） \
+     -v "$PWD/judger-log:/opt/uoj_judger/log" \
+     school-oj-judger
+   ```
+
+网络上只需要“评测机 → 网站”这一个方向通。评测机和网站之间传输题目数据、选手代码和账户的密码，
+**跨公网时务必让网站走 HTTPS**。持有评测账户的机器能拿到每一份提交的代码和每道题的数据，只把账户交给可信的机器。
+
+**题目数据的自动同步**：评测机空闲时每半分钟向网站要一次“各题现在的数据版本”，把自己没有的下载过来、
+把题目带的程序（校验器等）编译好，新发布的数据先同步。所以新接入的评测机不用等到第一次评测某道题时才去下载它的数据，
+老师改了数据之后各台评测机也会在半分钟左右自己跟上。“评测机管理”的列表里能看到每台评测机手里有多少道题的最新数据。
+
+- 每台评测机最多保留 `DATA_CACHE_PROBLEMS`（默认 300）道题的数据。没装满时，题库里已有的题都会同步过去；
+  装满之后只同步**之后新发布**的数据（最久没用到的被清掉），其余的在评测到时才下载。磁盘够的话把它调到比题目总数大。
+- 同步只在评测机没有任务时进行，一次一道题，中间照常领取评测任务，不会让提交排队等它。
+- 某道题的数据暂时下不来不影响别的题，十分钟后再试；真有提交要评这道题时会立刻再下载一次，下不来才报错。
+- 不想要这个行为：启动时加 `-e DATA_SYNC=false`。
 
 ### 6.5 停用、维护
 
-- **停用**：“评测机管理”里切换启用状态。停用的评测机会评完手上的任务，不再接新任务。适合维护前先排空。
+- **停用**：“评测机管理”里点这个账户的“停用”。停用的评测机会评完手上的任务，不再接新任务，也不再同步数据。适合维护前先排空。
+- **删除**：点“删除”。用这个账户的评测机立刻连不上。
 - **看日志**：`uoj_data/judger/log/judge.log`，或 `docker compose logs uoj-judger`。
 - **重启**：`docker compose restart uoj-judger`。正在评的提交会在超时后被回收重评。
 - **版本**：评测机列表里有每台的版本。网站和评测机必须是同一个版本的代码，升级时一起升（见第 9 节）。

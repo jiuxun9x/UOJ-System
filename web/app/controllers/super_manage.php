@@ -255,70 +255,97 @@
 	};
 	$custom_test_deleter->runAtServer();
 
+	// ---- the accounts judgers work with
+	// What somebody who was just given the password of an account is shown: the three things
+	// a judger needs, and how a judger is started with them. The password is shown this once.
+	function judgerCredentialsPage($name, $password, $what) {
+		$account = queryJudger($name);
+		$number = $account ? (int)$account['id'] : 0;
+		$name = HTML::escape($name);
+		$url = rtrim(HTML::url('/'), '/');
+		$esc_url = HTML::escape($url);
+		becomeMsgPage(<<<EOD
+<div class="text-left" id="judger-credentials">
+	<h3>评测账户 <strong>{$name}</strong>（编号 #{$number}）{$what}</h3>
+	<table class="table table-bordered" style="max-width:44em">
+		<tr><th style="width:8em">站点地址</th><td><code id="judger-server-url">{$esc_url}</code></td></tr>
+		<tr><th>评测账户</th><td><code id="judger-name">{$name}</code></td></tr>
+		<tr><th>密码</th><td><code id="judger-password">{$password}</code></td></tr>
+	</table>
+	<p class="text-danger">密码只显示这一次，请现在就记下来或写进评测机的配置；丢了就在评测机列表里“重置密码”。</p>
+	<h4>用它启动一台评测机</h4>
+	<p>评测机可以在任何一台能访问上面这个地址的 Linux x86_64 机器上，不需要和本站在同一个局域网：是评测机主动连本站领取任务、下载数据，本站不需要能连到评测机。</p>
+	<ol>
+		<li>在那台机器上取得本站的代码，构建评测机镜像：<pre>docker build -t school-oj-judger ./judger</pre></li>
+		<li>启动（只要填上面这三样）：
+<pre id="judger-command">docker run -dit --name uoj-judger-{$name} --restart always --cap-add SYS_PTRACE \
+  -e UOJ_SERVER_URL={$esc_url} \
+  -e JUDGER_NAME={$name} \
+  -e JUDGER_PASSWORD={$password} \
+  -v "\$PWD/judger-log:/opt/uoj_judger/log" \
+  school-oj-judger</pre></li>
+		<li>回到评测机列表，一分钟之内它的状态会变成“在线”，随后自动把各题的数据同步过去，不用等到第一次评测。</li>
+	</ol>
+	<p class="text-muted small">本站不是 HTTPS 时，密码和提交的代码在网络上是明文传输的：评测机不在可信的内网里时，请先给本站配置 HTTPS。更多说明见部署文档的“评测机”一节。</p>
+	<p><a class="btn btn-primary" href="/super-manage/judger">回到评测机列表</a></p>
+</div>
+EOD
+		, '评测账户');
+	}
+	$judger_error = '';
 	if ($can_manage_judgers) {
 		$judger_adder = new UOJForm('judger_adder');
-		$judger_adder->addInput('judger_adder_name', 'text', '评测机名称', '',
+		$judger_adder->addInput('judger_adder_name', 'text', '账户名称', '',
 			function ($x, &$vdata) {
-				if (!validateUsername($x)) {
-					return '不合法';
-				}
-				if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=0) {
-					return '不合法';
+				$err = judgerNameError($x);
+				if ($err !== '') {
+					return $err;
 				}
 				$vdata['name'] = $x;
+				return '';
+			},
+			null
+		);
+		$judger_adder->addInput('judger_adder_note', 'text', '备注（可选，比如这台机器在哪里）', '',
+			function ($x, &$vdata) {
+				if (!is_string($x) || mb_strlen($x, 'UTF-8') > 100) {
+					return '不能超过 100 个字';
+				}
+				$vdata['note'] = $x;
 				return '';
 			},
 			null
 		);
 		$judger_adder->handle = function(&$vdata) {
-			$password=uojRandString(32);
-			DB::insert("insert into judger_info (judger_name,password) values('{$vdata['name']}','".judgerPasswordToStore($password)."')");
-			auditLog('judger.add', 'judger', $vdata['name']);
-			// only its hash is kept, so this is the one time the password can be shown
-			becomeMsgPage('<p>评测机 <strong>' . $vdata['name'] . '</strong> 已添加，密码为 <code id="judger-password">' . $password . '</code>。</p><p>密码只显示这一次，请立即写入评测机的配置；遗失后只能删除评测机重新添加。</p><p><a href="/super-manage/judger">返回</a></p>');
+			global $myUser;
+			list($password, $err) = judgerCreate($vdata['name'], isset($vdata['note']) ? $vdata['note'] : '', $myUser);
+			if ($err !== '') {
+				becomeMsgPage(HTML::escape($err));
+			}
+			judgerCredentialsPage($vdata['name'], $password, '已创建');
 		};
+		$judger_adder->submit_button_config['text'] = '添加评测账户';
 		$judger_adder->runAtServer();
-	
-		$judger_deleter = new UOJForm('judger_deleter');
-		$judger_deleter->addInput('judger_deleter_name', 'text', '评测机名称', '',
-			function ($x, &$vdata) {
-				if (!validateUsername($x)) {
-					return '不合法';
-				}
-				if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
-					return '不合法';
-				}
-				$vdata['name'] = $x;
-				return '';
-			},
-			null
-		);
-		$judger_deleter->handle = function(&$vdata) {
-			DB::delete("delete from judger_info where judger_name='{$vdata['name']}'");
-			auditLog('judger.delete', 'judger', $vdata['name']);
-		};
-		$judger_deleter->runAtServer();
 
-		// a judger that is switched off finishes what it is judging and is given nothing new
-		$judger_switcher = new UOJForm('judger_switcher');
-		$judger_switcher->addInput('judger_switcher_name', 'text', '评测机名称', '',
-			function ($x, &$vdata) {
-				if (!validateUsername($x)) {
-					return '不合法';
+		// what is done with an account that is there: the row of the account says which
+		if (isset($_POST['form']) && in_array($_POST['form'], array('judger_switch', 'judger_reset', 'judger_delete'), true)) {
+			crsf_defend();
+			$name = isset($_POST['judger_name']) && is_string($_POST['judger_name']) ? $_POST['judger_name'] : '';
+			if ($_POST['form'] === 'judger_reset') {
+				list($password, $judger_error) = judgerResetPassword($name, $myUser);
+				if ($judger_error === '') {
+					judgerCredentialsPage($name, $password, '有了新的密码，原来的密码不能再用');
 				}
-				if (DB::selectCount("select count(*) from judger_info where judger_name='$x'")!=1) {
-					return '不合法';
-				}
-				$vdata['name'] = $x;
-				return '';
-			},
-			null
-		);
-		$judger_switcher->handle = function(&$vdata) {
-			DB::update("update judger_info set enabled = 1 - enabled where judger_name='{$vdata['name']}'");
-			auditLog('judger.switch', 'judger', $vdata['name'], null, array('enabled' => (int)DB::selectFirst("select enabled from judger_info where judger_name='{$vdata['name']}'")['enabled']));
-		};
-		$judger_switcher->runAtServer();
+			} elseif ($_POST['form'] === 'judger_switch') {
+				$judger_error = judgerSwitch($name, $myUser);
+			} else {
+				$judger_error = judgerDelete($name, $myUser);
+			}
+			if ($judger_error === '') {
+				domainFlash($_POST['form'] === 'judger_delete' ? "评测账户 {$name} 已删除。" : "评测账户 {$name} 已" . (queryJudger($name)['enabled'] ? '启用' : '停用') . '。');
+				redirectTo('/super-manage/judger');
+			}
+		}
 	}
 
 	$paste_deleter = new UOJForm('paste_deleter');
@@ -336,46 +363,6 @@
 		DB::delete("delete from pastes where `index` = '${vdata['name']}'");
 	};
 	$paste_deleter->runAtServer();
-	
-	$judgerlist_cols = array('judger_name', 'enabled', 'last_heartbeat_at', 'version', 'timestampdiff(second, last_heartbeat_at, now()) as silent_seconds');
-	$judgerlist_config = array();
-	$judgerlist_header_row = <<<EOD
-	<tr>
-		<th>评测机名称</th>
-		<th>状态</th>
-		<th>最近响应</th>
-		<th>版本</th>
-		<th>正在评测</th>
-	</tr>
-EOD;
-	$judgerlist_print_row = function($row) {
-		if ($row['last_heartbeat_at'] === null) {
-			$status = '从未连接';
-		} elseif ($row['silent_seconds'] <= 30) {
-			$status = '在线';
-		} else {
-			$status = '<span class="text-danger">离线</span>';
-		}
-		if (!$row['enabled']) {
-			$status .= '，已停用';
-		}
-		// a judger that reports no version is too old to be given work
-		$version = $row['version'] !== '' ? HTML::escape($row['version']) : '<span class="text-danger">未上报，需要升级</span>';
-		$judging = array();
-		foreach (DB::selectAll("select kind, target_id from submission_judgements where judger_name = '{$row['judger_name']}' and finished_at is null order by id desc limit 3") as $judgement) {
-			$judging[] = $judgement['kind'] . ' #' . $judgement['target_id'];
-		}
-		$judging = join(', ', $judging);
-		echo <<<EOD
-			<tr>
-				<td>{$row['judger_name']}</td>
-				<td>{$status}</td>
-				<td>{$row['last_heartbeat_at']}</td>
-				<td>{$version}</td>
-				<td>{$judging}</td>
-			</tr>
-EOD;
-	};
 	
 	$banlist_cols = array('username', 'usergroup');
 	$banlist_config = array();
@@ -648,20 +635,83 @@ EOD;
 			))
 		?>
 		<?php elseif ($cur_tab === 'judger'): ?>
-			<div>
-				<h4>添加评测机</h4>
-				<?php $judger_adder->printHTML(); ?>
+			<div class="text-left">
+			<?php $flash = domainTakeFlash(); ?>
+			<?php if ($flash): ?>
+			<div class="alert alert-<?= $flash[0] ?>" role="alert" id="judger-flash"><?= HTML::escape($flash[1]) ?></div>
+			<?php endif ?>
+			<?php echoDomainError($judger_error) ?>
+			<h3>评测机</h3>
+			<p class="text-muted">
+				每台评测机用一个<strong>评测账户</strong>为本站工作：评测机主动连接本站，领取评测任务、下载题目数据，所以它可以在任何能访问本站的机器上，不必和本站在同一个局域网。
+				评测机空闲时会自动把各题的数据同步过去，新上线的评测机不用等到第一次评测才下载数据。
+			</p>
+			<?php $judger_accounts = judgerAccounts(); ?>
+			<div class="table-responsive">
+				<table class="table table-bordered table-hover uoj-roster" id="table-judger-accounts">
+					<thead>
+						<tr>
+							<th style="width:4em">编号</th>
+							<th>评测账户</th>
+							<th>备注</th>
+							<th>状态</th>
+							<th>最近响应</th>
+							<th>题目数据</th>
+							<th>正在评测</th>
+							<th>版本</th>
+							<th style="width:15em">操作</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ($judger_accounts as $account): ?>
+						<?php
+							if ($account['last_heartbeat_at'] === null) {
+								$state = array('never', '<span class="badge badge-light border">从未连接</span>');
+							} elseif ($account['silent_seconds'] <= 30) {
+								$state = array('online', '<span class="badge badge-success">在线</span>');
+							} else {
+								$state = array('offline', '<span class="badge badge-danger">离线</span>');
+							}
+						?>
+						<tr data-judger="<?= HTML::escape($account['judger_name']) ?>" data-state="<?= $state[0] ?>" data-enabled="<?= (int)$account['enabled'] ?>">
+							<td data-id="<?= (int)$account['id'] ?>">#<?= (int)$account['id'] ?></td>
+							<td><strong><?= HTML::escape($account['judger_name']) ?></strong></td>
+							<td><?= HTML::escape($account['note']) ?><?php if ($account['created_by'] !== ''): ?> <small class="text-muted">（<?= HTML::escape($account['created_by']) ?> 添加）</small><?php endif ?></td>
+							<td><?= $state[1] ?><?php if (!$account['enabled']): ?> <span class="badge badge-secondary">已停用</span><?php endif ?></td>
+							<td><small><?= $account['last_heartbeat_at'] !== null ? $account['last_heartbeat_at'] : '—' ?></small></td>
+							<td data-have="<?= $account['data_have'] === null ? '' : (int)$account['data_have'] ?>" data-total="<?= $account['data_total'] === null ? '' : (int)$account['data_total'] ?>">
+								<?php if ($account['data_checked_at'] === null || $account['data_total'] === null): ?>
+								<span class="text-muted" title="这台评测机还没有报告过">—</span>
+								<?php elseif ($account['data_have'] >= $account['data_total']): ?>
+								<span class="text-success">已同步</span> <small class="text-muted"><?= (int)$account['data_total'] ?> 题</small>
+								<?php else: ?>
+								<?= (int)$account['data_have'] ?> / <?= (int)$account['data_total'] ?> 题
+								<?php endif ?>
+							</td>
+							<td><small><?= HTML::escape(join(', ', $account['judging'])) ?></small></td>
+							<td><small><?= $account['version'] !== '' ? HTML::escape($account['version']) : ($account['last_heartbeat_at'] === null ? '—' : '<span class="text-danger">未上报，需要升级</span>') ?></small></td>
+							<td>
+								<form method="post" class="d-inline">
+									<?= HTML::hiddenToken() ?>
+									<input type="hidden" name="judger_name" value="<?= HTML::escape($account['judger_name']) ?>" />
+									<button type="submit" name="form" value="judger_switch" class="btn btn-sm btn-outline-secondary" title="停用的账户不再领到新任务，正在评测的会评完"><?= $account['enabled'] ? '停用' : '启用' ?></button>
+									<button type="submit" name="form" value="judger_reset" class="btn btn-sm btn-outline-secondary" onclick="return confirm('给 <?= HTML::escape($account['judger_name']) ?> 换一个新密码吗？用旧密码的评测机会连不上，要改它的配置。');">重置密码</button>
+									<button type="submit" name="form" value="judger_delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('删除评测账户 <?= HTML::escape($account['judger_name']) ?> 吗？用它的评测机会连不上。');">删除</button>
+								</form>
+							</td>
+						</tr>
+						<?php endforeach ?>
+						<?php if (!$judger_accounts): ?>
+						<tr><td colspan="9" class="text-muted">还没有评测账户。</td></tr>
+						<?php endif ?>
+					</tbody>
+				</table>
 			</div>
-			<div>
-				<h4>删除评测机</h4>
-				<?php $judger_deleter->printHTML(); ?>
+			<p class="text-muted small">“题目数据”是这台评测机上次报告时手里有多少道题的最新数据：评测机空闲时每半分钟检查一次，新发布的数据先同步，不用等到第一次评测。每台评测机默认最多保留 300 道题的数据（启动时用 <code>DATA_CACHE_PROBLEMS</code> 调整）：没装满时把已有的题目都同步过去；装满之后只同步新发布的数据（最久没用到的被换出），其余的评测到时才下载。</p>
+			<h4 class="mt-4">添加评测账户</h4>
+			<p class="text-muted small">起一个名字，提交后会显示这个账户的密码和启动评测机的命令。一个账户给一台评测机用。</p>
+			<div style="max-width:36em"><?php $judger_adder->printHTML(); ?></div>
 			</div>
-			<div>
-				<h4>停用/启用评测机</h4>
-				<?php $judger_switcher->printHTML(); ?>
-			</div>
-			<h3>评测机列表</h3>
-			<?php echoLongTable($judgerlist_cols, 'judger_info', "1=1", '', $judgerlist_header_row, $judgerlist_print_row, $judgerlist_config) ?>
 		<?php elseif ($cur_tab === 'monitor'): ?>
 			<?php
 				$silent_after = siteSetting('alert.judger_silent_seconds');

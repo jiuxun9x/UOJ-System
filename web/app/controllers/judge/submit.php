@@ -345,6 +345,19 @@
 		// the authentication has already noted that the judger is alive
 		die();
 	}
+	// A judger that has nothing to judge asks which data the problems have, to fetch what it
+	// lacks before a submission needs it. With the question it says how much of what it was
+	// told the last time it holds. An account that is switched off is told of nothing.
+	if (isset($_POST['data_versions'])) {
+		$set = 'data_checked_at = now()';
+		foreach (array('data_have', 'data_total') as $field) {
+			if (isset($_POST[$field]) && is_string($_POST[$field]) && validateUInt($_POST[$field]) && strlen($_POST[$field]) <= 9) {
+				$set .= ", $field = {$_POST[$field]}";
+			}
+		}
+		DB::update("update judger_info set $set where judger_name = '" . DB::escape(judgerName()) . "'");
+		die(json_encode(array('versions' => $uojJudger['enabled'] ? judgerDataVersions() : array())));
+	}
 	
 	// ---- what a judger is given to do
 	

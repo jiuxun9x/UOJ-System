@@ -172,10 +172,12 @@ class RolesTest(unittest.TestCase):
 
     def test_only_a_system_administrator_changes_roles(self):
         victim = account("p3_victim")
-        # an administrator of the OJ sees the administration, but not the judgers
+        # an administrator of the OJ sees the administration, and the accounts of the judgers
+        # with it; the settings of the site are the system administrator's
         self.assertEqual(self.oj_admin.get("/super-manage/users").status_code, 200)
-        self.assertEqual(self.oj_admin.get("/super-manage/judger").status_code, 404)
+        self.assertEqual(self.oj_admin.get("/super-manage/judger").status_code, 200)
         self.assertEqual(self.admin.get("/super-manage/judger").status_code, 200)
+        self.assertEqual(self.oj_admin.get("/super-manage/settings").status_code, 404)
         self.assertNotIn("_judger_password_", self.oj_admin.get("/super-manage/users").text)
 
         for operation in ("grant:teacher", "grant:oj_admin", "superuser", "revoke:teacher"):

@@ -210,7 +210,7 @@ class JudgerProtocolTest(unittest.TestCase):
         for judger in uoj.JUDGER_NAMES:
             self.assertIn(judger, page)
         self.assertIn("在线", page)
-        self.assertIn("停用/启用评测机", page)
+        self.assertIn('value="judger_switch"', page)
 
 
 class DataVersionTest(unittest.TestCase):

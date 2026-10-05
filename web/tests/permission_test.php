@@ -150,10 +150,10 @@ check_same(array(), userRoles(null), 'a visitor has no role');
 
 // ---- the site
 // what could break the site or run programs on the judgers is left to the system administrators
-foreach (array('user.manage_roles', 'user.rename', 'judger.manage', 'problem.approve_judger', 'problem.edit_raw_config') as $ability) {
+foreach (array('user.manage_roles', 'user.rename', 'problem.approve_judger', 'problem.edit_raw_config') as $ability) {
 	check_ability($ability, null, array('nobody' => false, 'root' => true, 'ojadmin' => false, 'teacher' => false, 'owner' => false, 'setter' => false, 'alice' => false), 'site');
 }
-foreach (array('site.manage', 'user.ban', 'user.view_private', 'contest.rate', 'submission.view_all', 'submission.delete', 'hack.delete') as $ability) {
+foreach (array('site.manage', 'judger.manage', 'user.ban', 'user.view_private', 'contest.rate', 'submission.view_all', 'submission.delete', 'hack.delete') as $ability) {
 	check_ability($ability, null, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'owner' => false, 'setter' => false, 'helper' => false, 'alice' => false), 'site');
 }
 foreach (array('problem.create', 'contest.create') as $ability) {

@@ -518,11 +518,14 @@ function can($user, $ability, $resource = null) {
 		case 'user.rename':
 		case 'site.manage_settings':
 		case 'audit.view':
-		case 'judger.manage':
 		case 'problem.edit_raw_config':
 		// a judger of a problem runs unrestricted on the judgers
 		case 'problem.approve_judger':
 			return userHasRole($user, UOJ_ROLE_SYSTEM_ADMIN);
+		// The accounts judgers work with are made by the administrators of the site, of both
+		// kinds. Whoever holds such an account is given every submission to judge, so it is
+		// not for anybody else to make one.
+		case 'judger.manage':
 		case 'site.manage':
 		case 'user.ban':
 		case 'user.view_private':

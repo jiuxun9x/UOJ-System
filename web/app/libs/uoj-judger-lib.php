@@ -53,6 +53,95 @@
 		DB::update("update judger_info set last_heartbeat_at = now() where judger_name = '$esc_judger_name' and (last_heartbeat_at is null or last_heartbeat_at < now() - interval 3 second)");
 	}
 	
+	// ---- the accounts judgers work with
+	//
+	// A judger asks the site for work; the site never has to reach a judger. So a judger can
+	// run anywhere the site can be reached from: all it needs is the address of the site and
+	// an account, which is a name and a password the site made up for it.
+
+	// '' when a name can be the name of a judging account, or why not
+	function judgerNameError($name) {
+		if (!is_string($name) || !preg_match('/^[a-zA-Z0-9_]{1,20}$/D', $name)) {
+			return '名称应由 1 到 20 个字母、数字和下划线组成';
+		}
+		if (DB::selectFirst("select 1 from judger_info where judger_name = '".DB::escape($name)."'")) {
+			return "已经有一个叫 $name 的评测账户了";
+		}
+		return '';
+	}
+	function queryJudger($name) {
+		return is_string($name) ? DB::selectFirst("select * from judger_info where judger_name = '".DB::escape($name)."'", MYSQLI_ASSOC) : null;
+	}
+	// Makes an account and returns array(its password, '') or array(null, why not). Only the
+	// hash of the password is kept: this is the one time it is known.
+	function judgerCreate($name, $note, $actor) {
+		$err = judgerNameError($name);
+		if ($err !== '') {
+			return array(null, $err);
+		}
+		$note = is_string($note) ? trim($note) : '';
+		if (mb_strlen($note, 'UTF-8') > 100 || !mb_check_encoding($note, 'UTF-8')) {
+			return array(null, '备注不能超过 100 个字');
+		}
+		$password = uojRandString(32);
+		DB::insert("insert into judger_info (judger_name, password, ip, note, created_by, created_at) values ('".DB::escape($name)."', '".judgerPasswordToStore($password)."', '', '".DB::escape($note)."', '".DB::escape($actor['username'])."', now())");
+		auditLog('judger.add', 'judger', $name, null, $note !== '' ? array('note' => $note) : null, $actor);
+		return array($password, '');
+	}
+	// gives an account a new password, which the judger that used the old one no longer has
+	function judgerResetPassword($name, $actor) {
+		if (!queryJudger($name)) {
+			return array(null, '没有这个评测账户');
+		}
+		$password = uojRandString(32);
+		DB::update("update judger_info set password = '".judgerPasswordToStore($password)."' where judger_name = '".DB::escape($name)."'");
+		auditLog('judger.reset_password', 'judger', $name, null, null, $actor);
+		return array($password, '');
+	}
+	// An account that is switched off is given nothing new; what its judger is judging is
+	// finished. Returns '' or why not.
+	function judgerSwitch($name, $actor) {
+		if (!queryJudger($name)) {
+			return '没有这个评测账户';
+		}
+		$esc_name = DB::escape($name);
+		DB::update("update judger_info set enabled = 1 - enabled where judger_name = '$esc_name'");
+		auditLog('judger.switch', 'judger', $name, null, array('enabled' => (int)queryJudger($name)['enabled']), $actor);
+		return '';
+	}
+	function judgerDelete($name, $actor) {
+		if (!queryJudger($name)) {
+			return '没有这个评测账户';
+		}
+		DB::delete("delete from judger_info where judger_name = '".DB::escape($name)."'");
+		auditLog('judger.delete', 'judger', $name, null, null, $actor);
+		return '';
+	}
+	// The accounts with what is known of their judgers: whether they answer, what they are
+	// judging, and how much of the data of the problems they hold.
+	function judgerAccounts() {
+		$accounts = DB::selectAll("select id, judger_name, enabled, note, created_by, created_at, version, last_heartbeat_at, timestampdiff(second, last_heartbeat_at, now()) as silent_seconds, data_have, data_total, data_checked_at, timestampdiff(second, data_checked_at, now()) as data_checked_seconds from judger_info order by id", MYSQLI_ASSOC);
+		foreach ($accounts as &$account) {
+			$account['judging'] = array();
+			foreach (DB::selectAll("select kind, target_id from submission_judgements where judger_name = '".DB::escape($account['judger_name'])."' and finished_at is null and started_at > now() - interval 1 day order by id desc limit 3") as $judgement) {
+				$account['judging'][] = $judgement['kind'] . ' #' . $judgement['target_id'];
+			}
+		}
+		unset($account);
+		return $accounts;
+	}
+	// What a judger is told about the data of the problems when it asks: for every problem
+	// that has data, the version that is judged with, the newest first. Rows of problem id,
+	// version, SHA256, the steps that build the programs of the problem, and a number that
+	// grows with every publication, by which a judger tells what is new to it.
+	function judgerDataVersions($limit = 20000) {
+		$versions = array();
+		foreach (DB::selectAll("select problem_data_versions.id, problem_data_versions.problem_id, problem_data_versions.version, problem_data_versions.sha256, problem_data_versions.prepare from problems, problem_data_versions where problem_data_versions.problem_id = problems.id and problem_data_versions.version = problems.data_version and problem_data_versions.status = 'ready' order by problem_data_versions.id desc limit ".(int)$limit) as $row) {
+			$versions[] = array((int)$row['problem_id'], (int)$row['version'], $row['sha256'], json_decode($row['prepare'], true), (int)$row['id']);
+		}
+		return $versions;
+	}
+
 	function judgerCodeStr($code) {
 		switch ($code) {
 			case 0:
