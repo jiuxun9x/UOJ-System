@@ -1189,8 +1189,9 @@ class BlogSwitchTest(unittest.TestCase):
         self.assertEqual(oj_admin.get(self.blog("p6_blog_ojadmin", "/post/new/write")).status_code, 200)
 
         # ---- the switch is the system administrator's
+        # the page of the administrators has no such tab for anybody else
         settings = "/super-manage/settings"
-        self.assertEqual(oj_admin.get(settings).status_code, 403)
+        self.assertEqual(oj_admin.get(settings).status_code, 404)
         p5.site_settings(oj_admin, blog_enabled=True)
         self.assertIsNone(db_value("select value from site_settings where name = 'blog.enabled'"))
         self.assertIn("开放用户博客", admin.get(settings).text)
