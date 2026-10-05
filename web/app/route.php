@@ -23,6 +23,7 @@ Route::group([
 		Route::any('/problem/{id}/manage/statement', '/problem_statement_manage.php');
 		Route::any('/problem/{id}/manage/managers', '/problem_managers_manage.php');
 		Route::any('/problem/{id}/manage/data', '/problem_data_manage.php');
+		Route::any('/problem/{id}/manage/attachments', '/problem_attachments_manage.php');
 		
 		Route::any('/contests', '/contests.php');
 		Route::any('/contest/new', '/add_contest.php');
@@ -64,6 +65,7 @@ Route::group([
 		Route::any('/d/{slug}/problem/{id}/manage/statement', '/problem_statement_manage.php');
 		Route::any('/d/{slug}/problem/{id}/manage/managers', '/problem_managers_manage.php');
 		Route::any('/d/{slug}/problem/{id}/manage/data', '/problem_data_manage.php');
+		Route::any('/d/{slug}/problem/{id}/manage/attachments', '/problem_attachments_manage.php');
 
 		Route::any('/submissions', '/submissions_list.php');
 		Route::any('/submission/{id}', '/submission.php');
@@ -99,6 +101,7 @@ Route::group([
 		Route::any('/super-manage(?:/{tab})?', '/super_manage.php');
 		
 		Route::any('/download.php', '/download.php');
+		Route::any('/attachment/{id}', '/attachment.php');
 		
 		Route::any('/click-zan', '/click_zan.php');
 

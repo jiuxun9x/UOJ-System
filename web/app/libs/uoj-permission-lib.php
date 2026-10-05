@@ -142,6 +142,21 @@ class UOJPermissionFacts {
 	public function hasAccepted($username, $problem_id) {
 		return DB::selectFirst("select 1 from best_ac_submissions where submitter = '".DB::escape($username)."' and problem_id = ".(int)$problem_id) != null;
 	}
+	// the contests and the homeworks a problem is part of
+	public function contestIdsOfProblem($problem_id) {
+		$ids = array();
+		foreach (DB::selectAll("select contest_id from contests_problems where problem_id = ".(int)$problem_id) as $row) {
+			$ids[] = (int)$row['contest_id'];
+		}
+		return $ids;
+	}
+	public function homeworkIdsOfProblem($problem_id) {
+		$ids = array();
+		foreach (DB::selectAll("select homework_id from homework_problems where problem_id = ".(int)$problem_id) as $row) {
+			$ids[] = (int)$row['homework_id'];
+		}
+		return $ids;
+	}
 	// A problem is closed while a contest it is part of runs. The clock is the one of the web
 	// server, the same that decides whether a contest has started.
 	public function problemIsInRunningContest($problem_id) {
@@ -603,6 +618,48 @@ function can($user, $ability, $resource = null) {
 				return false;
 			}
 			return !$resource['is_hidden'];
+		// Reading a problem wherever one gets to read it: on its own page, or, while it is
+		// hidden there, in a contest or a homework it is part of. What comes with the
+		// problem for its readers, its samples and its attachments, goes by this.
+		case 'problem.read':
+			if (can($user, 'problem.view', $resource)) {
+				return true;
+			}
+			if ($name === null) {
+				return false;
+			}
+			foreach ($facts->contestIdsOfProblem($resource['id']) as $contest_id) {
+				$contest = $facts->contest($contest_id);
+				if ($contest != null && can($user, 'contest.view', $contest) && (can($user, 'contest.assist', $contest) || canViewContestProblem($user, $resource, $contest))) {
+					return true;
+				}
+			}
+			foreach ($facts->homeworkIdsOfProblem($resource['id']) as $homework_id) {
+				$homework = $facts->homework($homework_id);
+				if ($homework != null && can($user, 'homework.solve', $homework)) {
+					return true;
+				}
+			}
+			return false;
+
+		// ---- attachments: the files that come with a problem or a contest. The resource is
+		// the row of the attachment. Whoever manages what it belongs to manages it; whoever
+		// reads the problem, or is inside the contest, may have it.
+		case 'attachment.manage':
+			if ($resource['owner_type'] === 'contest') {
+				$contest = $facts->contest($resource['owner_id']);
+				return $contest != null && can($user, 'contest.manage', $contest);
+			}
+			$problem = $facts->problem($resource['owner_id']);
+			return $problem != null && can($user, 'problem.manage', $problem);
+		case 'attachment.view':
+			if ($resource['owner_type'] === 'contest') {
+				$contest = $facts->contest($resource['owner_id']);
+				return $contest != null && can($user, 'contest.read', $contest);
+			}
+			$problem = $facts->problem($resource['owner_id']);
+			return $problem != null && can($user, 'problem.read', $problem);
+
 		// Taking a copy of a problem into a domain: a problem of the site that the user can
 		// see, or a problem of another domain where the user teaches.
 		case 'problem.copy':
@@ -637,6 +694,23 @@ function can($user, $ability, $resource = null) {
 		case 'contest.virtual':
 			return $name !== null && isset($resource['cur_progress']) && $resource['cur_progress'] == CONTEST_FINISHED
 				&& can($user, 'contest.enter', $resource);
+		// Reading what a contest has for the people inside it: its problems and the files
+		// that come with it. The staff at any time; the contestants who registered while it
+		// runs; and when it is over whoever may get inside.
+		case 'contest.read':
+			if (!can($user, 'contest.view', $resource)) {
+				return false;
+			}
+			if (can($user, 'contest.assist', $resource)) {
+				return true;
+			}
+			if ($resource['cur_progress'] == CONTEST_NOT_STARTED) {
+				return false;
+			}
+			if ($resource['cur_progress'] == CONTEST_IN_PROGRESS) {
+				return $name !== null && $facts->hasRegistered($name, $resource['id']);
+			}
+			return can($user, 'contest.enter', $resource);
 		// Getting inside once it has begun: its problems, its standings, what was submitted.
 		// A contest that is not for everybody stays with the people who registered for it,
 		// after it has ended as well. Whether a contest for everybody is open to somebody

@@ -29,6 +29,7 @@
 	requirePHPLib('backup');
 	requirePHPLib('upload');
 	requirePHPLib('virtual');
+	requirePHPLib('attachment');
 	requirePHPLib('html');
 	
 	Session::init();

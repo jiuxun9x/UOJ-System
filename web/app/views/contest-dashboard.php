@@ -1,3 +1,4 @@
+<?php echoAttachments($attachments, '比赛附件') ?>
 <div class="table-responsive">
 	<table class="table table-bordered table-hover table-striped table-text-center">
 		<thead>

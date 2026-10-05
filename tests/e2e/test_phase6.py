@@ -631,6 +631,168 @@ class ContestFormTest(unittest.TestCase):
         self.assertEqual(self.config(unrated)["rating_k"], 250)
 
 
+def attach(client, path, files, **fields):
+    """send files to the form that adds attachments on a page: '' or why it was refused.
+    files is a list of (name, content)."""
+    fields["form"] = "add_attachments"
+    r = client.post(path, fields, [("attachments[]", (name, content, "application/octet-stream")) for name, content in files])
+    return "" if r.status_code in (301, 302) else "HTTP %d: %s" % (r.status_code, uoj.text_of(r.text))
+
+
+def attachments_of(owner_type, owner_id):
+    """name => (id, size, sha256)"""
+    return {
+        row[1]: (int(row[0]), int(row[2]), row[3])
+        for row in db("select id, name, size, sha256 from attachments where owner_type = '%s' and owner_id = %d" % (owner_type, owner_id))
+    }
+
+
+class AttachmentTest(unittest.TestCase):
+    """the files that come with a problem or a contest"""
+
+    TOOL = b"#!/usr/bin/env python3\nprint('a tool to try a solution with')\n"
+    PAGE = b"<html><script>alert(document.cookie)</script></html>"
+    PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.setter = p3.account("p6_att_setter")
+        assert cls.admin.change_user("p6_att_setter", "grant:teacher") == ""
+        cls.reader, cls.outsider = p3.account("p6_att_reader"), p3.account("p6_att_outsider")
+
+    def test_files_of_a_problem_go_with_the_problem(self):
+        setter, reader = self.setter, self.reader
+        problem_id = setter.new_problem()
+        manage = "/problem/%d/manage/attachments" % problem_id
+        self.assertEqual(setter.get(manage).status_code, 200)
+        self.assertIn('href="%s"' % manage, setter.get("/problem/%d/manage/statement" % problem_id).text)
+        # only who manages the problem adds to it
+        self.assertEqual(reader.get(manage).status_code, 403)
+        self.assertNotEqual(attach(reader, manage, [("tool.py", self.TOOL)]), "")
+        self.assertEqual(attachments_of("problem", problem_id), {})
+        # what a file may not be called
+        self.assertIn("文件名", attach(setter, manage, [(".htaccess", b"deny from all")]))
+        self.assertIn("请选择", attach(setter, manage, []))
+        self.assertEqual(attachments_of("problem", problem_id), {})
+
+        self.assertEqual(attach(setter, manage, [("本地测试 工具.py", self.TOOL), ("page.html", self.PAGE), ("题面.pdf", self.PDF)]), "")
+        files = attachments_of("problem", problem_id)
+        self.assertEqual(sorted(files), sorted(["本地测试 工具.py", "page.html", "题面.pdf"]))
+        tool_id, size, digest = files["本地测试 工具.py"]
+        self.assertEqual((size, digest), (len(self.TOOL), uoj.sha256(self.TOOL)))
+        self.assertEqual(uoj.file_sha256(uoj.WEB, "/var/uoj_data/attachments/%d" % tool_id), digest)
+
+        # ---- they are shown under the statement, to whoever reads the problem
+        page = setter.get("/problem/%d" % problem_id).text
+        self.assertIn('href="/attachment/%d"' % tool_id, page)
+        self.assertIn("本地测试 工具.py", page)
+        r = setter.get("/attachment/%d" % tool_id)
+        self.assertEqual((r.status_code, r.content), (200, self.TOOL))
+        self.assertIn("attachment", r.headers["Content-Disposition"])
+        self.assertIn("filename*=UTF-8''%E6%9C%AC%E5%9C%B0%E6%B5%8B%E8%AF%95%20%E5%B7%A5%E5%85%B7.py", r.headers["Content-Disposition"])
+        # the problem is hidden: to anybody else its files are not there
+        self.assertEqual(reader.get("/attachment/%d" % tool_id).status_code, 404)
+        self.assertEqual(uoj.Client().get("/attachment/%d" % tool_id).status_code, 302)
+        self.assertEqual(reader.get("/attachment/99999999").status_code, 404)
+        db("update problems set is_hidden = 0 where id = %d" % problem_id)
+        for client in (reader, uoj.Client()):
+            self.assertEqual(client.get("/attachment/%d" % tool_id).content, self.TOOL)
+            self.assertIn('href="/attachment/%d"' % tool_id, client.get("/problem/%d" % problem_id).text)
+
+        # ---- a file is a download, never a page of the site; a PDF is read in the browser
+        r = reader.get("/attachment/%d" % files["page.html"][0])
+        self.assertEqual(r.content, self.PAGE)
+        self.assertEqual(r.headers["Content-Type"].split(";")[0], "application/octet-stream")
+        self.assertTrue(r.headers["Content-Disposition"].startswith("attachment"))
+        self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
+        r = reader.get("/attachment/%d" % files["题面.pdf"][0])
+        self.assertEqual(r.headers["Content-Type"].split(";")[0], "application/pdf")
+        self.assertTrue(r.headers["Content-Disposition"].startswith("inline"))
+
+        # ---- a file of the same name takes the place of the one there is
+        newer = self.TOOL + b"# version 2\n"
+        self.assertEqual(attach(setter, manage, [("本地测试 工具.py", newer)]), "")
+        self.assertEqual(attachments_of("problem", problem_id)["本地测试 工具.py"], (tool_id, len(newer), uoj.sha256(newer)))
+        self.assertEqual(reader.get("/attachment/%d" % tool_id).content, newer)
+
+        # ---- a copy of the problem has copies of its files, which are its own
+        teacher = p3.account("p6_att_teacher")
+        self.assertEqual(self.admin.change_user("p6_att_teacher", "grant:teacher"), "")
+        teacher.new_domain("p6-attachments")
+        db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        public_id = self.admin.create_problem(ab_problem_files())
+        self.assertEqual(attach(self.admin, "/problem/%d/manage/attachments" % public_id, [("checker-notes.txt", b"notes")]), "")
+        copy_id = teacher.copy_problem("p6-attachments", public_id)
+        copied = attachments_of("problem", copy_id)
+        self.assertEqual(list(copied), ["checker-notes.txt"])
+        self.assertNotEqual(copied["checker-notes.txt"][0], attachments_of("problem", public_id)["checker-notes.txt"][0])
+        self.assertEqual(copied["checker-notes.txt"][2], uoj.sha256(b"notes"))
+        uoj.wait_data_version(copy_id)
+        number = uoj.pid(copy_id)
+        self.assertEqual(teacher.get("/d/p6-attachments/problem/%d/manage/attachments" % number).status_code, 200)
+        self.assertEqual(teacher.get("/attachment/%d" % copied["checker-notes.txt"][0]).content, b"notes")
+        # a problem of a domain keeps its files in the domain
+        self.assertEqual(reader.get("/attachment/%d" % copied["checker-notes.txt"][0]).status_code, 404)
+
+        # ---- taking a file away
+        self.assertNotEqual(reader.form(manage, "delete_attachment", attachment_id=str(tool_id)), "")
+        # not through a problem it does not belong to
+        self.assertNotEqual(self.admin.form("/problem/%d/manage/attachments" % public_id, "delete_attachment", attachment_id=str(tool_id)), "")
+        self.assertEqual(setter.form(manage, "delete_attachment", attachment_id=str(tool_id)), "")
+        self.assertNotIn("本地测试 工具.py", attachments_of("problem", problem_id))
+        self.assertEqual(setter.get("/attachment/%d" % tool_id).status_code, 404)
+        self.assertEqual(uoj.docker_exec(uoj.WEB, "ls /var/uoj_data/attachments/%d 2>/dev/null || echo gone" % tool_id).strip(), "gone")
+        self.assertEqual(attachments_of("problem", copy_id), copied)
+        log = [row[0] for row in db("select action from audit_logs where resource_type = 'problem' and resource_id = '%d' and action like 'attachment.%%' order by id" % problem_id)]
+        self.assertEqual(log, ["attachment.add"] * 4 + ["attachment.delete"])
+
+    def test_files_of_a_contest_are_for_the_people_inside_it(self):
+        admin, reader, outsider = self.admin, self.reader, self.outsider
+        hidden_id = admin.new_problem()
+        self.assertEqual(attach(admin, "/problem/%d/manage/attachments" % hidden_id, [("tool.py", self.TOOL)]), "")
+        tool_id = attachments_of("problem", hidden_id)["tool.py"][0]
+        # a contest is made with its files
+        fields = {"form": "create", "name": "p6 带附件的比赛", "start_time": uoj.web_time(3600), "last_min": "60", "rule": "ICPC",
+                  "join_mode": "open", "problems": str(hidden_id)}  # fmt: skip
+        r = admin.post("/contest/new", fields, [("attachments[]", ("statements.pdf", self.PDF, "application/pdf"))])
+        self.assertEqual(r.status_code, 302, uoj.text_of(r.text)[-300:])
+        contest_id = int(db_value("select max(id) from contests"))
+        here, manage = "/contest/%d" % contest_id, "/contest/%d/manage" % contest_id
+        pdf_id, size, digest = attachments_of("contest", contest_id)["statements.pdf"]
+        self.assertEqual((size, digest), (len(self.PDF), uoj.sha256(self.PDF)))
+        # and more are added on the page that manages it, by who runs it
+        self.assertNotEqual(attach(reader, manage, [("x.txt", b"x")], tab="attachments"), "")
+        self.assertEqual(attach(admin, manage, [("clarifications.txt", b"none yet")], tab="attachments"), "")
+        notes_id = attachments_of("contest", contest_id)["clarifications.txt"][0]
+        self.assertIn('href="/attachment/%d"' % notes_id, admin.get(manage).text)
+
+        # ---- before it begins nobody but its staff reads them
+        reader.register_for_contest(contest_id)
+        self.assertEqual(admin.get("/attachment/%d" % pdf_id).content, self.PDF)
+        for client in (reader, outsider):
+            for attachment_id in (pdf_id, notes_id, tool_id):
+                self.assertEqual(client.get("/attachment/%d" % attachment_id).status_code, 404)
+
+        # ---- while it runs: the contestants, also the files of its problems that are hidden
+        uoj.move_contest(contest_id, -60, 600)
+        page = reader.get(here).text
+        self.assertIn('href="/attachment/%d"' % pdf_id, page)
+        self.assertIn("statements.pdf", page)
+        for attachment_id, content in ((pdf_id, self.PDF), (notes_id, b"none yet"), (tool_id, self.TOOL)):
+            self.assertEqual(reader.get("/attachment/%d" % attachment_id).content, content)
+            self.assertEqual(outsider.get("/attachment/%d" % attachment_id).status_code, 404)
+        self.assertIn('href="/attachment/%d"' % tool_id, reader.get("%s/problem/%d" % (here, hidden_id)).text)
+
+        # ---- when it is over: whoever may get inside
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(outsider.get("/attachment/%d" % pdf_id).content, self.PDF)
+        self.assertIn('href="/attachment/%d"' % pdf_id, outsider.get(here).text)
+        self.assertEqual(admin.form(manage, "delete_attachment", attachment_id=str(notes_id), tab="attachments"), "")
+        self.assertEqual(sorted(attachments_of("contest", contest_id)), ["statements.pdf"])
+        self.assertEqual(outsider.get("/attachment/%d" % notes_id).status_code, 404)
+
+
 class BlogSwitchTest(unittest.TestCase):
     """blogs are closed unless the system administrator opens them; announcements stay"""
 

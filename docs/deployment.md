@@ -312,6 +312,15 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 如果所有文件都在同一个文件夹里（打包时选的是文件夹而不是里面的文件），会自动去掉这层文件夹。
 被拒绝的上传会写进审计日志。
 
+题目和比赛的附件（给读者下载的文件，见 [contests.md](contests.md) 的“附件”一节）有自己的上限，写在 `attachments` 下：
+
+| 键 | 默认 | 含义 | 改了意味着什么 |
+|---|---|---|---|
+| `attachments.max-file-mb` | `100` | 单个附件最多多少 MB | 还受 `web/.htaccess` 里 `upload_max_filesize`、`post_max_size`（1000M）的限制 |
+| `attachments.max-files` | `50` | 一道题或一场比赛最多多少个附件 | — |
+
+附件保存在 `/var/uoj_data/attachments/`（即宿主机的 `uoj_data/web/data/attachments/`），和题目数据一起备份。
+
 ### 4.8 `user`：用户
 
 | 键 | 默认 | 含义 | 改了意味着什么 |

@@ -24,8 +24,10 @@
 				return $err;
 			}
 			$contest_id = contestCreateWithSettings($checked, $problems, $myUser, $domain);
-			domainFlash('比赛已创建。' . ($problems ? '' : '还没有试题，可以在“试题”页里添加。'));
-			redirectTo("/contest/$contest_id/manage" . ($problems ? '' : '#tab-problems'));
+			// the files that were sent along: one that is refused does not undo the contest
+			list($added, $refused) = attachmentsAddUploaded('contest', $contest_id, 'attachments', $myUser);
+			domainFlash('比赛已创建。' . ($problems ? '' : '还没有试题，可以在“试题”页里添加。') . ($refused ? '有附件没有添加：' . join('；', $refused) : ''), $refused ? 'warning' : 'success');
+			redirectTo("/contest/$contest_id/manage" . ($refused ? '#tab-attachments' : ($problems ? '' : '#tab-problems')));
 		}
 	));
 	// a form that was refused is shown again with what was typed into it
@@ -46,7 +48,7 @@
 <?php endif ?>
 <h2 class="mb-3">新建比赛</h2>
 <?php echoDomainError($error) ?>
-<form method="post" id="form-new-contest" class="text-left" style="max-width:52em">
+<form method="post" enctype="multipart/form-data" id="form-new-contest" class="text-left" style="max-width:52em">
 	<?= HTML::hiddenToken() ?>
 	<input type="hidden" name="form" value="create" />
 	<?php uojIncludeView('contest-settings-form', array('settings' => $settings, 'may_rate' => $may_rate, 'in_domain' => $domain !== null, 'has_password' => false)) ?>
@@ -57,6 +59,11 @@
 			<?= $domain ? '填本域的题号' : '填题号' ?>，用空格或逗号分开，按这里的顺序编为 A、B、C……只能加入你管理的题目。可以先留空，创建之后在“试题”页里添加、调整顺序。
 			<?php if ($domain): ?>要用主站的题目，先在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页把它复制到本域。<?php endif ?>
 		</small>
+	</div>
+	<div class="form-group">
+		<label for="input-contest-attachments">附件 <small class="text-muted">（可选）</small></label>
+		<input type="file" class="form-control-file" id="input-contest-attachments" name="attachments[]" multiple="multiple" />
+		<small class="form-text text-muted">整场比赛的附加文件，比如 PDF 题面，可以一次选几个。它们显示在比赛主页上，比赛开始之后能进入比赛的人才能下载。</small>
 	</div>
 	<button type="submit" class="btn btn-primary" id="button-create-contest">创建比赛</button>
 	<a class="btn btn-link" href="<?= $domain ? domainUrl($domain, '/contests') : '/contests' ?>">取消</a>

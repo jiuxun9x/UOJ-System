@@ -97,6 +97,12 @@ return [
 			'max-ratio' => 0
 		]
 	],
+	// The files that come with a problem or a contest for its readers to download: how
+	// large one may be, and how many a problem or a contest may have.
+	'attachments' => [
+		'max-file-mb' => 100,
+		'max-files' => 50
+	],
 	'switch' => [
 		// 请在 page-header.php 中修改统计代码后再启用
 		'web-analytics' => false,

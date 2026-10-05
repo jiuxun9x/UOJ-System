@@ -352,6 +352,7 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 <div class="tab-content">
 	<div class="tab-pane active" id="tab-statement">
 		<article class="top-buffer-md"><?= $problem_content['statement'] ?></article>
+		<?php echoAttachments(attachmentsOf('problem', $problem['id'])) ?>
 	</div>
 	<div class="tab-pane" id="tab-submit-answer">
 		<div class="top-buffer-sm"></div>

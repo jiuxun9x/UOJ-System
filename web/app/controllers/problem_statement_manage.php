@@ -53,11 +53,6 @@
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - 编辑 - 题目管理') ?>
 <h1 class="page-header" align="center">#<?= problemNumber($problem) ?> : <?=$problem['title']?> 管理</h1>
-<ul class="nav nav-tabs" role="tablist">
-	<li class="nav-item"><a class="nav-link active" href="<?= problemUrl($problem, '/manage/statement') ?>" role="tab">编辑</a></li>
-	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/managers') ?>" role="tab">管理者</a></li>
-	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/data') ?>" role="tab">数据</a></li>
-	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem) ?>" role="tab">返回</a></li>
-</ul>
+<?php echoProblemManageTabs($problem, 'statement') ?>
 <?php $problem_editor->printHTML() ?>
 <?php echoUOJPageFooter() ?>

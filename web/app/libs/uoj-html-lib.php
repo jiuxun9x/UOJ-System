@@ -87,6 +87,22 @@ function getUserLink($username, $rating = null) {
 	}
 }
 
+// the tabs of the pages that manage a problem
+function echoProblemManageTabs($problem, $active) {
+	$tabs = array(
+		'statement' => '题面',
+		'data' => '数据与评测',
+		'attachments' => '附件',
+		'managers' => '管理者'
+	);
+	echo '<ul class="nav nav-tabs mb-3" role="tablist" id="problem-manage-tabs">';
+	foreach ($tabs as $tab => $label) {
+		echo '<li class="nav-item"><a class="nav-link', $tab === $active ? ' active' : '', '" href="', problemUrl($problem, "/manage/$tab"), '" role="tab">', $label, '</a></li>';
+	}
+	echo '<li class="nav-item"><a class="nav-link" href="', problemUrl($problem), '" role="tab">返回题目</a></li>';
+	echo '</ul>';
+}
+
 function getProblemLink($problem, $problem_title = '!title_only') {
 	if ($problem_title == '!title_only') {
 		$problem_title = $problem['title'];

@@ -535,6 +535,7 @@ function domainCopyProblem($source, $domain, $actor) {
 		DB::insert("insert into problems_tags (problem_id, tag) values ($id, '".DB::escape($tag)."')");
 	}
 	dataNewProblem($id);
+	attachmentsCopy('problem', $source['id'], $id, $actor);
 	auditLog('problem.copy', 'problem', $id, null, array('domain_id' => (int)$domain['id'], 'source_problem_id' => (int)$source['id'], 'source_data_version' => (int)$source_version['version']), $actor);
 	exec("cp -a ".escapeshellarg("/var/uoj_data/upload/{$source['id']}/.")." ".escapeshellarg("/var/uoj_data/upload/$id/"), $output, $status);
 	$err = $status === 0 ? dataSyncProblemData(queryProblemBrief($id), $actor, array('reason' => 'copy')) : '复制数据文件失败';
@@ -543,6 +544,9 @@ function domainCopyProblem($source, $domain, $actor) {
 		DB::delete("delete from problems where id = $id");
 		DB::delete("delete from problems_contents where id = $id");
 		DB::delete("delete from problems_tags where problem_id = $id");
+		foreach (attachmentsOf('problem', $id) as $attachment) {
+			attachmentDelete($attachment, $actor);
+		}
 		exec("rm -rf ".escapeshellarg("/var/uoj_data/upload/$id")." ".escapeshellarg("/var/uoj_data/$id")." ".escapeshellarg("/var/uoj_data/$id.zip"));
 		auditLog('problem.copy_failed', 'problem', $id, null, array('reason' => strip_tags($err)), $actor);
 		return array(null, "复制题目 " . problemLabel($source) . " 失败：" . strip_tags($err));

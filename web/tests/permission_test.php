@@ -75,8 +75,16 @@ class FakePermissionFacts {
 	public function problemIsInRunningContest($problem_id) {
 		return in_array($problem_id, $this->problems_in_running_contests);
 	}
+	public $contests_of_problems = array();
+	public $homeworks_of_problems = array();
+	public function contestIdsOfProblem($problem_id) {
+		return isset($this->contests_of_problems[$problem_id]) ? $this->contests_of_problems[$problem_id] : array();
+	}
+	public function homeworkIdsOfProblem($problem_id) {
+		return isset($this->homeworks_of_problems[$problem_id]) ? $this->homeworks_of_problems[$problem_id] : array();
+	}
 	public function problem($problem_id) {
-		return $this->problems[$problem_id];
+		return isset($this->problems[$problem_id]) ? $this->problems[$problem_id] : null;
 	}
 	public function contest($contest_id) {
 		return $contest_id ? $this->contests[$contest_id] : null;
@@ -662,4 +670,40 @@ foreach (array(
 	check_same(true, contestSettingsFromForm($wrong + $form, $defaults, true)[1] !== '', 'refused in the form of a contest: ' . json_encode($wrong));
 }
 check_same(array('name' => '期中上机', 'password_changed' => true), array_intersect_key(contestSettingsForAudit($checked), array('name' => 0, 'password_changed' => 0, 'join_password' => 0)), 'the password is not written down where changes are');
+
+// ---- reading a problem where one gets to read it, and the files that come with it
+$facts->contests_of_problems = array(2 => array(10, 13));
+check_ability('problem.read', $facts->problems[1], array('nobody' => true, 'alice' => true, 'bob' => true), 'a public problem');
+check_ability('problem.read', $facts->problems[2], array('nobody' => false, 'bob' => false, 'alice' => true, 'helper' => true, 'owner' => true, 'setter' => true, 'root' => true),
+	'a hidden problem of a contest that runs: the contestants and the staff');
+$facts->contests_of_problems = array(2 => array(13));
+check_ability('problem.read', $facts->problems[2], array('alice' => false, 'bob' => false, 'setter' => true), 'a hidden problem of a contest that has not begun');
+$facts->contests_of_problems = array(2 => array(11));
+check_ability('problem.read', $facts->problems[2], array('nobody' => false, 'alice' => true, 'bob' => true), 'a hidden problem of a contest that is over: whoever is logged in');
+$facts->contests_of_problems = array(2 => array(10));
+
+$of_problem = array('id' => 5, 'owner_type' => 'problem', 'owner_id' => 2, 'name' => 'tool.py');
+check_ability('attachment.view', $of_problem, array('nobody' => false, 'bob' => false, 'alice' => true, 'helper' => true, 'setter' => true), 'a file of a hidden problem goes with the problem');
+check_ability('attachment.manage', $of_problem, array('nobody' => false, 'alice' => false, 'helper' => false, 'owner' => false, 'setter' => true, 'ojadmin' => true), 'and is managed by who manages the problem');
+check_ability('attachment.view', array('owner_id' => 1) + $of_problem, array('nobody' => true, 'bob' => true), 'a file of a public problem');
+check_ability('attachment.view', array('owner_id' => 99) + $of_problem, array('root' => false, 'alice' => false), 'a file of a problem that is gone');
+
+$of_contest = array('id' => 6, 'owner_type' => 'contest', 'owner_id' => 10, 'name' => 'statements.pdf');
+check_ability('attachment.view', $of_contest, array('nobody' => false, 'bob' => false, 'alice' => true, 'helper' => true, 'owner' => true, 'root' => true), 'a file of a contest that runs: the people inside it');
+check_ability('attachment.manage', $of_contest, array('alice' => false, 'helper' => false, 'setter' => false, 'owner' => true, 'ojadmin' => true), 'managed by who runs the contest');
+check_ability('attachment.view', array('owner_id' => 13) + $of_contest, array('nobody' => false, 'alice' => false, 'bob' => false, 'root' => true), 'nobody reads the files of a contest before it begins');
+check_ability('attachment.view', array('owner_id' => 11) + $of_contest, array('nobody' => true, 'alice' => true, 'bob' => true), 'and everybody when it is over');
+check_ability('contest.read', $facts->contests[10], array('nobody' => false, 'bob' => false, 'alice' => true, 'helper' => true), 'being inside a contest that runs');
+$facts->contests_of_problems = array();
+
+// what an attachment may be called
+require_once __DIR__ . '/../app/libs/uoj-attachment-lib.php';
+foreach (array('tool.py', '题面 第 1 场.pdf', 'a-b_c.tar.gz', str_repeat('a', 200)) as $good) {
+	check_same('', attachmentNameError($good), 'a name for an attachment: ' . $good);
+}
+foreach (array('', '.htaccess', '../x', 'a/b.txt', 'a\\b.txt', "a\nb", ' a.txt', 'a.txt ', str_repeat('a', 201), "\xff\xfe.txt", array('a')) as $bad) {
+	check_same(true, attachmentNameError($bad) !== '', 'refused as the name of an attachment: ' . json_encode($bad, JSON_PARTIAL_OUTPUT_ON_ERROR));
+}
+check_same(array('0 B', '1023 B', '1 KB', '1.5 KB', '2 MB'), array(attachmentSizeText(0), attachmentSizeText(1023), attachmentSizeText(1024), attachmentSizeText(1536), attachmentSizeText(2097152)), 'the size of a file for people');
+check_same(array(true, true, false, false), array(attachmentIsShownInline('a.pdf'), attachmentIsShownInline('A.PDF'), attachmentIsShownInline('a.html'), attachmentIsShownInline('pdf')), 'only a PDF is shown in the browser');
 

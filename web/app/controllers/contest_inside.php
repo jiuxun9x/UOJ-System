@@ -356,6 +356,8 @@ EOD;
 		
 		uojIncludeView('contest-dashboard', [
 			'contest' => $contest,
+			// what comes with the contest, for the people who are inside it
+			'attachments' => can(Auth::user(), 'contest.read', $contest) ? attachmentsOf('contest', $contest['id']) : array(),
 			'contest_notice' => $contest_notice,
 			'contest_problems' => $contest_problems,
 			'post_question' => $post_question,

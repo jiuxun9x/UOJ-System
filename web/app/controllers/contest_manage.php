@@ -28,7 +28,9 @@
 		redirectTo("$manage#tab-$tab");
 	};
 
-	$error = domainHandleForms(array(
+	$error = domainHandleForms(attachmentForms('contest', $contest['id'], function($message, $type) use ($done) {
+		$done('attachments', $message, $type);
+	}) + array(
 		// ---- what the contest is
 		'settings' => function() use ($contest, $settings, $may_rate, $done) {
 			global $myUser;
@@ -132,7 +134,7 @@
 	$flash = domainTakeFlash();
 
 	// a form that was refused is shown again on its tab, with what was typed into it
-	$tabs = array('settings' => '设置', 'problems' => '试题', 'access' => '名单', 'managers' => '管理者');
+	$tabs = array('settings' => '设置', 'problems' => '试题', 'attachments' => '附件', 'access' => '名单', 'managers' => '管理者');
 	$active_tab = isset($_POST['tab']) && is_string($_POST['tab']) && isset($tabs[$_POST['tab']]) ? $_POST['tab'] : 'settings';
 	if ($error !== '' && $active_tab === 'settings') {
 		foreach (array('name', 'start_time', 'last_min', 'rule', 'freeze_minutes', 'standings_version', 'rating_k', 'join_mode') as $field) {
@@ -155,6 +157,7 @@
 	}
 	$managers = DB::selectAll("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
 	$allowed_users = contestAllowedUsers($contest);
+	$attachments = attachmentsOf('contest', $contest['id']);
 	$has_begun = $contest['cur_progress'] > CONTEST_NOT_STARTED;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 比赛管理') ?>
@@ -166,7 +169,7 @@
 <?php echoDomainError($error) ?>
 <ul class="nav nav-tabs mb-3" role="tablist" id="contest-manage-tabs">
 	<?php foreach ($tabs as $tab => $label): ?>
-	<li class="nav-item"><a class="nav-link<?= $tab === $active_tab ? ' active' : '' ?>" href="#tab-<?= $tab ?>" role="tab" data-toggle="tab"><?= $label ?><?php if ($tab === 'problems'): ?> <span class="badge badge-secondary"><?= count($problems) ?></span><?php endif ?></a></li>
+	<li class="nav-item"><a class="nav-link<?= $tab === $active_tab ? ' active' : '' ?>" href="#tab-<?= $tab ?>" role="tab" data-toggle="tab"><?= $label ?><?php if ($tab === 'problems'): ?> <span class="badge badge-secondary"><?= count($problems) ?></span><?php elseif ($tab === 'attachments' && $attachments): ?> <span class="badge badge-secondary"><?= count($attachments) ?></span><?php endif ?></a></li>
 	<?php endforeach ?>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?= $contest['id'] ?>" role="tab">返回比赛</a></li>
 </ul>
@@ -265,6 +268,11 @@
 		</small>
 	</div>
 
+	<div class="tab-pane<?= $active_tab === 'attachments' ? ' active' : '' ?>" id="tab-attachments">
+		<p class="text-muted">比赛附件显示在比赛主页上，比如整场比赛的 PDF 题面。比赛开始之前只有工作人员能看到；开始之后，能进入比赛的人都能下载。单独一道题的附件在那道题的管理页里加。</p>
+		<?php echoAttachmentsManager($attachments, 'attachments') ?>
+	</div>
+	
 	<div class="tab-pane<?= $active_tab === 'access' ? ' active' : '' ?>" id="tab-access">
 		<p>
 			当前的参加方式：<strong id="contest-join-mode"><?= HTML::escape(explode('：', contestJoinModes()[$contest['join_mode']])[0]) ?></strong>。

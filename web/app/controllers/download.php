@@ -7,26 +7,8 @@
 				become404Page();
 			}
 			
-			$visible = can($myUser, 'problem.view', $problem);
-			if (!$visible && $myUser != null) {
-				$result = DB::query("select contest_id from contests_problems where problem_id = {$_GET['id']}");
-				while (list($contest_id) = DB::fetch($result, MYSQLI_NUM)) {
-					$contest = queryContest($contest_id);
-					genMoreContestInfo($contest);
-					if ($contest['cur_progress'] != CONTEST_NOT_STARTED && hasRegistered($myUser, $contest) && queryContestProblemRank($contest, $problem)) {
-						$visible = true;
-					}
-				}
-			}
-			if (!$visible && $myUser != null) {
-				foreach (DB::selectAll("select homework_id from homework_problems where problem_id = {$problem['id']}") as $row) {
-					$homework = queryHomework($row['homework_id']);
-					if ($homework && can($myUser, 'homework.solve', $homework)) {
-						$visible = true;
-					}
-				}
-			}
-			if (!$visible) {
+			// whoever reads the problem, on its page or in a contest or a homework
+			if (!can($myUser, 'problem.read', $problem)) {
 				become404Page();
 			}
 

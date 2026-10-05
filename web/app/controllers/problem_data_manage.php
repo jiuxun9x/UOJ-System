@@ -625,12 +625,7 @@ EOD
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - 数据 - 题目管理') ?>
 <h1 class="page-header" align="center">#<?= problemNumber($problem) ?> : <?=$problem['title']?> 管理</h1>
-<ul class="nav nav-tabs" role="tablist">
-	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/statement') ?>" role="tab">编辑</a></li>
-	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem, '/manage/managers') ?>" role="tab">管理者</a></li>
-	<li class="nav-item"><a class="nav-link active" href="<?= problemUrl($problem, '/manage/data') ?>" role="tab">数据</a></li>
-	<li class="nav-item"><a class="nav-link" href="<?= problemUrl($problem) ?>" role="tab">返回</a></li>
-</ul>
+<?php echoProblemManageTabs($problem, 'data') ?>
 
 <?php
 	$data_versions = DB::selectAll("select version, status, sha256, size, created_at, created_by, reason, message, judger_name from problem_data_versions where problem_id = {$problem['id']} order by version desc limit 20");

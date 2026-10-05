@@ -61,6 +61,7 @@ function usernameColumns() {
 		'hacks' => array('hacker', 'owner'),
 		'pastes' => array('creator'),
 		'approved_judger_fingerprints' => array('approved_by'),
+		'attachments' => array('uploaded_by'),
 		'problem_data_versions' => array('created_by'),
 		'problems' => array('imported_by'),
 		'problems_permissions' => array('username'),
