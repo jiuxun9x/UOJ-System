@@ -43,6 +43,26 @@ uojLocaleData = {
 	"editor::upload from local": {
 		"en": "Upload from local",
 		"zh-cn": "从本地文件上传"
+	},
+	"sample::input": {
+		"en": "Input",
+		"zh-cn": "输入"
+	},
+	"sample::output": {
+		"en": "Output",
+		"zh-cn": "输出"
+	},
+	"sample::copy": {
+		"en": "Copy",
+		"zh-cn": "复制"
+	},
+	"sample::copied": {
+		"en": "Copied",
+		"zh-cn": "已复制"
+	},
+	"sample::not copied": {
+		"en": "Select it and copy",
+		"zh-cn": "请选中后复制"
 	}
 };
 
@@ -468,7 +488,86 @@ $.fn.uoj_highlight = function() {
 	});
 };
 
+// Put a text where the reader pastes from, and say whether it got there. A page that is not
+// reached over https is not given the clipboard of the browser, so the old way is kept.
+function uojCopyText(text, done) {
+	var old_way = function() {
+		var field = $('<textarea readonly="readonly"></textarea>').val(text)
+			.css({position: 'fixed', top: 0, left: 0, width: '1px', height: '1px', opacity: 0});
+		$('body').append(field);
+		field[0].select();
+		field[0].setSelectionRange(0, text.length);
+		var ok = false;
+		try {
+			ok = document.execCommand('copy');
+		} catch (e) {
+		}
+		field.remove();
+		done(ok);
+	};
+	if (navigator.clipboard && window.isSecureContext) {
+		navigator.clipboard.writeText(text).then(function() {
+			done(true);
+		}, old_way);
+	} else {
+		old_way();
+	}
+}
+
+// The samples of a statement. A statement written for Hydro names them where its blocks of
+// code name their language:
+//     ```input1        ```output1
+// Such a block is a sample, not a program in a language called input1: it is shown under what
+// it is, with a button that copies it, and an input stands beside its output where the page
+// is wide enough for both.
+$.fn.uoj_samples = function() {
+	var kind_of = function(code) {
+		var m = /(?:^|\s)(?:language|lang)-(input|output)(\d*)(?:\s|$)/i.exec(code.className || '');
+		return m ? {kind: m[1].toLowerCase(), number: m[2]} : null;
+	};
+	var box_of = function(pre, what) {
+		var code = pre.children('code');
+		var button = $('<button type="button" class="btn btn-link btn-sm uoj-sample-copy"></button>').text(uojLocale('sample::copy'));
+		button.click(function() {
+			var text = code.text();
+			uojCopyText(/\n$/.test(text) ? text : text + '\n', function(ok) {
+				button.text(uojLocale(ok ? 'sample::copied' : 'sample::not copied'));
+				setTimeout(function() {
+					button.text(uojLocale('sample::copy'));
+				}, 1500);
+			});
+		});
+		var title = $('<div class="uoj-sample-title"></div>')
+			.append($('<span></span>').text(uojLocale('sample::' + what.kind) + (what.number === '' ? '' : ' #' + what.number)))
+			.append(button);
+		// it is a text, whatever a highlighter would make of it
+		code.attr('class', 'nohighlight').text(code.text());
+		return $('<div class="uoj-sample"></div>').attr('data-kind', what.kind).attr('data-number', what.number).append(title);
+	};
+	return $(this).each(function() {
+		$(this).find('pre > code').each(function() {
+			var what = kind_of(this);
+			var pre = $(this).parent();
+			if (!what || pre.parent().hasClass('uoj-sample') || pre.children().length !== 1) {
+				return;
+			}
+			var row = $('<div class="uoj-samples"></div>');
+			var box = box_of(pre, what);
+			pre.before(row);
+			row.append(box.append(pre));
+			// the output of this input, when it is what comes next
+			var next = row.next('pre');
+			var next_code = next.children('code');
+			var next_what = next_code.length === 1 && next.children().length === 1 ? kind_of(next_code[0]) : null;
+			if (what.kind === 'input' && next_what && next_what.kind === 'output' && next_what.number === what.number) {
+				row.append(box_of(next, next_what).append(next));
+			}
+		});
+	});
+};
+
 $(document).ready(function() {
+	$('body').uoj_samples();
 	$('body').uoj_highlight();
 	$('.uoj-problem-picker').uoj_problem_picker();
 });

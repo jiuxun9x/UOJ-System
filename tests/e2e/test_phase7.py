@@ -399,3 +399,22 @@ class StatementTest(unittest.TestCase):
         plugin = re.search(r"'([^']*/js/reveal/plugin/math/math\.js[^']*)'", slides.text).group(1)
         self.assertIn("'HTML-CSS': { availableFonts: ['TeX'], preferredFont: 'TeX', webFont: 'TeX', imageFont: null }",
                       admin.get(plugin[plugin.index("/js/"):]).text)  # fmt: skip
+
+    def test_statement_written_for_another_judge_keeps_what_it_says(self):
+        admin = uoj.admin()
+        problem_id = admin.new_problem(statement_md=self.HYDRO)
+        stored = bytes.fromhex(db_value("select hex(statement) from problems_contents where id = %d" % problem_id)).decode()
+        # the blocks keep the names they were given: the page makes samples of the ones named so
+        self.assertIn('<pre><code class="language-input1">5\n2 7 8 1 4</code></pre>', stored)
+        self.assertIn('<pre><code class="language-output1">4 7 8 8 8</code></pre>', stored)
+        self.assertEqual(re.findall(r"<h2>(.*?)</h2>", stored),
+                         ["<strong>%s</strong>" % title for title in ("题目描述", "输入格式", "样例", "样例说明")])  # fmt: skip
+        self.assertIn("<li><code>Backspace</code>：删除第一个元素；</li>", stored)
+        page = admin.get("/problem/%d" % problem_id).text
+        self.assertIn(stored, page)
+        # the script that makes the samples, and the styles of a text, are the ones of today
+        script = re.search(r'<script[^>]*src="([^"]*/js/uoj\.js\?v=[^"]+)"', page).group(1)
+        self.assertIn("$.fn.uoj_samples", admin.get(script[script.index("/js/"):]).text)
+        sheets = [admin.get(href[href.index("/css/"):]).text for href in re.findall(r'<link[^>]*href="([^"]*/css/uoj-[a-z]+\.css\?v=[^"]+)"', page)]
+        self.assertEqual(len(sheets), 2)
+        self.assertIn(".uoj-samples {", "".join(sheets))

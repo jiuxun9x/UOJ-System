@@ -389,3 +389,39 @@
 	color: #6c757d;
 	white-space: normal;
 }
+
+/* ---- the samples of a statement: each under what it is, an input beside its output */
+.uoj-samples {
+	display: flex;
+	flex-wrap: wrap;
+	margin: 0 -0.5rem;
+}
+.uoj-sample {
+	flex: 1 1 20rem;
+	min-width: 0;
+	padding: 0 0.5rem;
+	margin-bottom: 1rem;
+}
+.uoj-sample-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.2rem 0.7rem;
+	border: 1px solid #ccc;
+	border-bottom: 0;
+	border-radius: 4px 4px 0 0;
+	background: #e9ecef;
+	font-weight: 600;
+	line-height: 1.5;
+}
+.uoj-sample-copy {
+	padding: 0 0.25rem;
+	line-height: 1.5;
+	font-size: inherit;
+}
+.uoj-sample pre {
+	margin: 0;
+	max-height: 32em;
+	overflow: auto;
+	border-radius: 0 0 4px 4px;
+}

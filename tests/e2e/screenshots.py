@@ -29,6 +29,46 @@ STUDENTS = [("CS26010001", "陈一鸣"), ("CS26010002", "林晓雨"), ("CS260100
             ("CS26010005", "刘欣怡"), ("CS26010006", "黄浩然")]  # fmt: skip
 
 
+STATEMENT = r"""## **题目描述**
+
+给定 $n$ 个整数 $a_1, a_2, \dots, a_n$，求下面的值对 $10^9+7$ 取模的结果：
+
+$$\sum_{i=1}^{n} a_i^2 + \left\lfloor \frac{n}{2} \right\rfloor$$
+
+> 中间结果会超过 32 位整数，要用 `long long`。
+
+## **输入格式**
+
+第一行一个整数 $n$ $(1\le n\le 10^5)$；第二行 $n$ 个整数 $a_1,a_2,\ldots,a_n$ $(|a_i|\le 10^9)$。
+
+## **样例**
+
+```input1
+5
+2 7 8 1 4
+```
+
+```output1
+136
+```
+
+```input2
+1
+1000000000
+```
+
+```output2
+49
+```
+## **数据范围**
+
+| 子任务 | $n \le$ | 分值 |
+|:-:|:-:|:-:|
+| 1 | $10^3$ | 30 |
+| 2 | $10^5$ | 70 |
+"""
+
+
 def picture(width=360, height=140):
     """a picture large enough to be seen: bands of colour"""
     rows = b""
@@ -79,18 +119,13 @@ def seed():
     teacher.form(members, "invite", label="周二班", hours="168", max_uses="60")
 
     # a problem of the domain, a homework that is over and settled, one that runs, and a draft
-    teacher.new_problem_form(SLUG)
+    # A statement as it is written for Hydro, to see what a reader of it sees: sections under
+    # "##" in bold, formulas, and samples in blocks of code named input1 and output1.
+    teacher.new_problem_form(SLUG, statement_md=STATEMENT)
     own_id = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
     teacher.upload_data(own_id, ab_problem_files())
     teacher.sync(own_id)
     db("update problems set title = '链表的中间结点', is_hidden = 0 where id = %d" % own_id)
-    # a statement with formulas, to see that they are typeset without anything from elsewhere
-    statement = (
-        r"<h3>题目描述</h3><p>给定 $n$ 个整数 $a_1, a_2, \dots, a_n$，求下面的值对 $10^9+7$ 取模的结果：</p>"
-        r"<p>$$\sum_{i=1}^{n} a_i^2 + \left\lfloor \frac{n}{2} \right\rfloor$$</p>"
-        r"<h3>数据范围</h3><p>$1 \le n \le 10^5$，$|a_i| \le 10^9$。</p>"
-    )
-    db("update problems_contents set statement = '%s' where id = %d" % (statement.replace("\\", "\\\\"), own_id))
     public_id = admin.create_problem(ab_problem_files())
     db("update problems set title = 'A + B Problem' where id = %d" % public_id)
     copy_id = teacher.copy_problem(SLUG, public_id)
@@ -326,6 +361,60 @@ def board_names_problems_by_letter(page, seeded):
     assert links == [here + "A A", here + "B B"], links
 
 
+def statement_is_read_as_it_was_written(page, seeded):
+    """a statement written for Hydro: its formulas are set in the fonts of the site, also on a
+    machine that has fonts MathJax would rather take, and its samples are samples"""
+    formulas = "document.querySelectorAll('article script[type^=\"math/tex\"]').length"
+    page.wait_for_function("%s > 0 && document.querySelectorAll('article .MathJax').length === %s" % (formulas, formulas))
+    seen = page.evaluate(
+        """() => {
+            const width = font => {
+                const pen = document.createElement('canvas').getContext('2d');
+                pen.font = '40px ' + font;
+                return pen.measureText('() {} []').width;
+            };
+            const jax = MathJax.OutputJax['HTML-CSS'];
+            const style = selector => getComputedStyle(document.querySelector(selector));
+            return {
+                stix: width('STIXSizeOneSym, monospace') !== width('monospace'),
+                font: jax.fontInUse,
+                web: !!jax.webFonts,
+                letter: style('article .MathJax .mi').fontFamily,
+                heading: parseFloat(style('article h2').fontSize),
+                text: parseFloat(style('article p').fontSize),
+                indent: style('article p').textIndent,
+                samples: [...document.querySelectorAll('article .uoj-samples')].map(
+                    row => [...row.querySelectorAll('.uoj-sample-title span')].map(title => title.textContent).join(' + ')),
+                left: document.querySelectorAll('article pre > code[class*="language-input"], article pre > code[class*="language-output"]').length,
+                wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+            };
+        }"""
+    )
+    # A Mac has the STIX fonts, and MathJax left to itself takes them: the machine that takes
+    # these pictures is given them too, or this would show nothing of what a Mac shows.
+    assert seen["stix"], "this browser has no STIX fonts (the package fonts-stix): %r" % seen
+    assert seen["font"] == "TeX" and seen["web"], seen
+    assert "MathJax_Math" in seen["letter"], seen
+    assert seen["samples"] == ["输入 #1 + 输出 #1", "输入 #2 + 输出 #2"] and seen["left"] == 0, seen
+    assert not seen["wide"], seen
+    # ---- the button of a sample copies it, with the end of its last line
+    page.evaluate(
+        """() => {
+            window.copied = [];
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText = text => { window.copied.push(text); return Promise.resolve(); };
+            }
+            document.execCommand = () => { window.copied.push(document.activeElement.value); return true; };
+        }"""
+    )
+    button = "article .uoj-samples >> nth=0 >> .uoj-sample[data-kind=input] .uoj-sample-copy"
+    assert page.inner_text(button) == "复制", page.inner_text(button)
+    page.click(button)
+    page.wait_for_function("window.copied.length > 0")
+    assert page.evaluate("window.copied") == ["5\n2 7 8 1 4\n"], page.evaluate("window.copied")
+    assert page.inner_text(button) == "已复制", page.inner_text(button)
+
+
 def pages(seeded):
     """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
@@ -347,7 +436,7 @@ def pages(seeded):
         ("icpc-standings-staff", "admin", "/contest/%d/standings" % seeded["icpc"]),
         ("icpc-submissions", "student", "/contest/%d/submissions" % seeded["icpc"]),
         ("grades", "teacher", d + "/grades"),
-        ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"])),
+        ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
         ("monitor", "admin", "/super-manage/monitor"),
         ("judgers", "admin", "/super-manage/judger"),
