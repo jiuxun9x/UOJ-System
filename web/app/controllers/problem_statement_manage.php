@@ -1,5 +1,6 @@
 <?php
 	requirePHPLib('form');
+	requirePHPLib('problem');
 	
 	// the number in the address is the number of the problem where the address is: on the
 	// site, or in a domain
@@ -34,7 +35,10 @@
 			array('title' => $problem['title'], 'is_hidden' => (int)$problem['is_hidden'], 'tags' => $problem_tags, 'statement_sha256' => hash('sha256', $problem_content['statement_md'])),
 			array('title' => $data['title'], 'is_hidden' => (int)$data['is_hidden'], 'tags' => $data['tags'], 'statement_sha256' => hash('sha256', $data['content_md'])));
 		DB::update("update problems set title = '".DB::escape($data['title'])."' where id = {$problem['id']}");
-		DB::update("update problems_contents set statement = '".DB::escape($data['content'])."', statement_md = '".DB::escape($data['content_md'])."' where id = {$problem['id']}");
+		if (!problemSaveStatement($problem['id'], $data['content'], $data['content_md'])) {
+			// whoever saved is told, and does not walk away from a statement that is not kept
+			return array('extra' => '题面没有保存下来：数据库拒绝了这次写入。请把内容复制到别处留底，然后再试一次。');
+		}
 		
 		if ($data['tags'] !== $problem_tags) {
 			DB::delete("delete from problems_tags where problem_id = {$problem['id']}");

@@ -89,3 +89,24 @@ class StatementIsKeptTest(unittest.TestCase):
         for gone in ("script", "javascript", "onclick", "onerror", "alert"):
             self.assertNotIn(gone, shown)
         self.assertIn('<img src="/a.png"', shown)
+
+    def test_problem_and_its_statement_are_made_together_and_a_lost_one_comes_back(self):
+        admin = uoj.admin()
+        # ---- a row that was left behind under the number the next problem gets is not what
+        # the new problem says
+        next_id = 1 + int(db_value("select max(id) from problems where owner_domain_id is null"))
+        db("insert into problems_contents (id, statement, statement_md) values (%d, '<p>left behind</p>', 'left behind')" % next_id)
+        problem_id = admin.new_problem(statement_md="新的题面，$n$ 个数。")
+        self.assertEqual(problem_id, next_id)
+        self.assertEqual(stored_statement(problem_id), ("<p>新的题面，$n$ 个数。</p>", "新的题面，$n$ 个数。"))
+
+        # ---- a problem that has no row for its statement gets one when a statement is saved:
+        # an update of the row that is not there changed nothing, and said that it was saved
+        db("delete from problems_contents where id = %d" % problem_id)
+        self.assertIsNone(stored_statement(problem_id))
+        self.assertEqual(admin.get("/problem/%d/manage/statement" % problem_id).status_code, 200)
+        self.assertEqual(admin.get("/problem/%d" % problem_id).status_code, 200)
+        answer = save_statement(admin, problem_id, "又写了一遍，$m$ 行。")
+        self.assertNotIn("extra", answer)
+        self.assertEqual(stored_statement(problem_id), ("<p>又写了一遍，$m$ 行。</p>", "又写了一遍，$m$ 行。"))
+        self.assertIn("<p>又写了一遍，$m$ 行。</p>", admin.get("/problem/%d" % problem_id).text)

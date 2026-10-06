@@ -960,6 +960,16 @@ function problemBasicsFromForm($input) {
 	}
 	return array(array('title' => $title, 'statement_md' => $statement_md, 'tags' => $tags, 'is_hidden' => isset($input['public']) ? 0 : 1), '');
 }
+// Writes the statement of a problem down: as it is shown, and as it was written. Whether the
+// problem had one before does not matter: a problem that lost its row gets it back with the
+// first statement that is saved, where an update would have changed nothing and said nothing.
+// Returns whether it is written.
+function problemSaveStatement($id, $statement, $statement_md) {
+	$id = (int)$id;
+	return (bool)DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '".DB::escape($statement)."', '".DB::escape($statement_md)."')"
+		." on duplicate key update statement = values(statement), statement_md = values(statement_md)");
+}
+
 // Makes a problem with its statement, on the site or in a domain, and returns its id or null.
 // On the site it is managed by who makes it; in a domain by the people who teach there.
 function problemCreateWithBasics($basics, $actor, $domain = null) {
@@ -967,6 +977,9 @@ function problemCreateWithBasics($basics, $actor, $domain = null) {
 	requirePHPLib('data');
 	// a title is kept the way the pages print it
 	$title = HTML::escape($basics['title']);
+	// The statement is made into a page before there is a problem: whatever goes wrong with
+	// it goes wrong while there is nothing to leave behind half made.
+	$statement = HTML::pruifier()->purify(HTML::parsedown()->text($basics['statement_md']));
 	$id = problemCreate(array(
 		'title' => "'".DB::escape($title)."'",
 		'is_hidden' => (int)$basics['is_hidden'],
@@ -975,8 +988,11 @@ function problemCreateWithBasics($basics, $actor, $domain = null) {
 	if ($id === null) {
 		return null;
 	}
-	$statement = HTML::pruifier()->purify(HTML::parsedown()->text($basics['statement_md']));
-	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '".DB::escape($statement)."', '".DB::escape($basics['statement_md'])."')");
+	if (!problemSaveStatement($id, $statement, $basics['statement_md'])) {
+		// a problem is not made without its statement
+		DB::delete("delete from problems where id = $id");
+		return null;
+	}
 	foreach ($basics['tags'] as $tag) {
 		DB::insert("insert into problems_tags (problem_id, tag) values ($id, '".DB::escape($tag)."')");
 	}
