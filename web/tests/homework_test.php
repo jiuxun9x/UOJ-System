@@ -270,6 +270,24 @@ check_same('ended', virtualPhase($virtual, $at('2026-10-10 17:00:00')), 'it last
 check_same(array(0, 1800, 10800), array(virtualElapsed($virtual, $at('2026-10-10 13:00:00')), virtualElapsed($virtual, $at('2026-10-10 14:30:00')), virtualElapsed($virtual, $at('2026-10-11 09:00:00'))), 'how much of it has gone by');
 check_same(array('0:00:00', '0:05:09', '2:59:59', '26:00:00'), array(virtualClock(0), virtualClock(309), virtualClock(10799), virtualClock(93600)), 'a clock for people');
 
+// the time that the field for a reservation offers: the next minute that ends in 0 or 5
+foreach (array(
+	'2026-10-10 10:33:00' => '2026-10-10T10:35',
+	'2026-10-10 10:37:59' => '2026-10-10T10:40',
+	'2026-10-10 10:34:59' => '2026-10-10T10:35',
+	// the minute the page is opened in is over by the time the form is sent
+	'2026-10-10 10:35:00' => '2026-10-10T10:40',
+	'2026-10-10 10:39:01' => '2026-10-10T10:40',
+	'2026-10-10 10:58:30' => '2026-10-10T11:00',
+	// the date is the date of that minute
+	'2026-10-10 23:57:10' => '2026-10-11T00:00',
+	'2026-12-31 23:55:00' => '2027-01-01T00:00',
+) as $opened => $offered) {
+	check_same($offered, virtualDefaultStart($at($opened)), "the time offered for a reservation at $opened");
+	// and it is a time that can be reserved as it stands
+	check_same('', virtualStartError(str_replace('T', ' ', $offered) . ':00', $at($opened)), "reserving the time offered at $opened");
+}
+
 $now = $at('2026-10-10 12:00:00');
 check_same('', virtualStartError('', $now), 'starting now');
 check_same('', virtualStartError('2026-10-10 19:30:00', $now), 'reserving this evening');

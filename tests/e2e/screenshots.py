@@ -10,6 +10,7 @@ of a desktop and of a phone.
 
 import json
 import os
+import re
 import struct
 import sys
 import zlib
@@ -481,6 +482,21 @@ def new_problem_is_kept(page, seeded):
     assert page.is_visible("#draft-note")
 
 
+def reservation_is_filled_in(page, seeded):
+    """the field for the time of a virtual participation offers the next minute that ends in 0
+    or 5, with its date, and has room for both"""
+    field = "#input-start_time"
+    offered = page.input_value(field)
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d[05]", offered), offered
+    # not more than five minutes from now, and not past, by the clock of the server
+    now = uoj.web_time()[:16].replace(" ", "T")
+    assert now < offered, (now, offered)
+    shown = page.evaluate("document.querySelector('#input-start_time').getBoundingClientRect().width")
+    assert shown >= 220, shown
+    # the browser takes it for a time it can send
+    assert page.evaluate("document.querySelector('#form-virtual-reserve').checkValidity()")
+
+
 def pages(seeded):
     """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
@@ -517,6 +533,7 @@ def pages(seeded):
         ("contest-standings", "student", "/contest/%d/standings" % seeded["contest"], board_names_problems_by_letter),
         ("contest-access", "admin", "/contest/%d/manage#tab-access" % seeded["contest"]),
         ("virtual", "sitter", "/contest/%d/virtual" % seeded["contest"]),
+        ("virtual-reserve", "student", "/contest/%d/virtual" % seeded["contest"], reservation_is_filled_in),
         ("virtual-standings", "sitter", "/contest/%d/virtual?tab=standings" % seeded["contest"]),
         ("trainings-student", "student", d + "/trainings"),
         ("trainings-teacher", "teacher", d + "/trainings"),

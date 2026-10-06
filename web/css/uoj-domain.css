@@ -489,3 +489,9 @@ article blockquote > :last-child {
 	font-weight: normal;
 	color: #555;
 }
+
+/* ---- the time of a virtual participation: wide enough for a date and a time side by side */
+.form-inline .uoj-virtual-start {
+	width: 17em;
+	max-width: 100%;
+}

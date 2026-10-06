@@ -9,6 +9,7 @@ import json
 import re
 import unittest
 import zipfile
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 import mock_smtp
@@ -549,6 +550,22 @@ class VirtualTest(unittest.TestCase):
         self.assertIn('id="link-virtual"', sitter.get(here).text)
         self.assertEqual(uoj.Client().get(virtual).status_code, 302)
         self.assertIn('id="button-virtual-start"', sitter.get(virtual).text)
+
+        # The field for the time of a reservation is filled in already, with the next minute
+        # that ends in 0 or 5 and its date: a time is changed, not typed from nothing.
+        def offered_at(now):
+            opened = datetime.strptime(now, "%Y-%m-%d %H:%M:%S").replace(second=0)
+            return (opened + timedelta(minutes=5 - opened.minute % 5)).strftime("%Y-%m-%dT%H:%M")
+
+        before = uoj.web_time()
+        page = sitter.get(virtual).text
+        offered = re.search(r'id="input-start_time" name="start_time" value="([^"]*)"', page).group(1)
+        self.assertIn(offered, (offered_at(before), offered_at(uoj.web_time())))
+        self.assertRegex(page, r'id="input-start_time" name="start_time" value="[^"]+" min="%s[^"]+" max="\d{4}-\d\d-\d\dT\d\d:\d\d" required' % before[:10])
+        # it can be reserved as it stands
+        self.assertEqual(sitter.form(virtual, "reserve", start_time=offered), "")
+        self.assertEqual(db_value("select start_time from contest_virtuals where contest_id = %d and username = 'p5_vp_sitter'" % contest_id), offered.replace("T", " ") + ":00")
+        self.assertEqual(sitter.form(virtual, "cancel"), "")
 
         # at a time that was reserved, which can be given up
         for wrong in (uoj.web_time(-3600), uoj.web_time(40 * 86400), "next week", ""):

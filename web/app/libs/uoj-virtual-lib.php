@@ -23,6 +23,16 @@ function virtualPhase($virtual, $now) {
 function virtualElapsed($virtual, $now) {
 	return max(0, min($virtual['last_min'] * 60, $now - strtotime($virtual['start_time'])));
 }
+// The time that the field for a reservation offers: the next minute that ends in 0 or 5,
+// with its date, so that a time need not be typed from nothing. $now is a timestamp; the
+// time is given the way a field for a date and a time wants it, as '2026-10-12T19:05'.
+// (10:33 gives 10:35, 10:37 gives 10:40, and a minute that ends in 5 gives the next one:
+// by the time the form is sent, the minute it was opened in is over.)
+function virtualDefaultStart($now) {
+	$minute = (int)date('i', $now);
+	$next = $now - (int)date('s', $now) + (5 - $minute % 5) * 60;
+	return date('Y-m-d\TH:i', $next);
+}
 // Returns '' when a virtual participation may start at $start, or why not. An empty $start
 // is now.
 function virtualStartError($start, $now) {

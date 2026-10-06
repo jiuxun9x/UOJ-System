@@ -109,9 +109,35 @@
 				<?= HTML::hiddenToken() ?>
 				<input type="hidden" name="form" value="reserve" />
 				<label class="mr-2" for="input-start_time">或者预约在</label>
-				<input type="datetime-local" class="form-control mr-2" id="input-start_time" name="start_time" required="required" />
+				<?php // filled in already with the next minute that ends in 0 or 5: it is changed, not typed from nothing ?>
+				<input type="datetime-local" class="form-control mr-2 uoj-virtual-start" id="input-start_time" name="start_time" value="<?= virtualDefaultStart($now) ?>" min="<?= date('Y-m-d\TH:i', $now) ?>" max="<?= date('Y-m-d\TH:i', $now + 30 * 86400) ?>" required="required" />
 				<button type="submit" class="btn btn-outline-primary">预约</button>
 			</form>
+			<script type="text/javascript">
+			// The page may stay open: the time that is offered moves on with the clock, for as
+			// long as nobody has put a time of their own into the field. The clock is the
+			// server's, which is the one the reservation is kept by.
+			$(function() {
+				var field = $('#input-start_time');
+				var offered = field.val();
+				var opened = new Date().getTime();
+				var two = function(n) {
+					return (n < 10 ? '0' : '') + n;
+				};
+				// what the server's clock shows, read as if it were this machine's
+				var server = new Date(<?= date('Y', $now) ?>, <?= date('n', $now) - 1 ?>, <?= date('j', $now) ?>, <?= (int)date('G', $now) ?>, <?= (int)date('i', $now) ?>, <?= (int)date('s', $now) ?>).getTime();
+				setInterval(function() {
+					if (field.val() !== offered) {
+						return;
+					}
+					var now = new Date(server + new Date().getTime() - opened);
+					now.setSeconds(0, 0);
+					now.setMinutes(now.getMinutes() + 5 - now.getMinutes() % 5);
+					offered = now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()) + 'T' + two(now.getHours()) + ':' + two(now.getMinutes());
+					field.val(offered);
+				}, 15000);
+			});
+			</script>
 		</div>
 		<?php endif ?>
 	</div>
