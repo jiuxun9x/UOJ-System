@@ -110,3 +110,24 @@ class StatementIsKeptTest(unittest.TestCase):
         self.assertNotIn("extra", answer)
         self.assertEqual(stored_statement(problem_id), ("<p>又写了一遍，$m$ 行。</p>", "又写了一遍，$m$ 行。"))
         self.assertIn("<p>又写了一遍，$m$ 行。</p>", admin.get("/problem/%d" % problem_id).text)
+
+
+class PassedMarkTest(unittest.TestCase):
+    """a submission that passed is seen to have passed without reading its score"""
+
+    MARK = '<span class="glyphicon glyphicon-ok uoj-passed-mark"'
+
+    def test_full_score_has_the_mark_and_nothing_else_has(self):
+        admin = uoj.admin()
+        solver = p3.account("p8_mark_solver")
+        problem_id = admin.create_problem(ab_problem_files())
+        right, wrong = solver.submit(problem_id, AB), solver.submit(problem_id, AB_WRONG)
+        self.assertEqual(uoj.wait_submission(right).score, 100)
+        self.assertLess(uoj.wait_submission(wrong).score, 100)
+        for page in (solver.get("/submissions?problem_id=%d" % problem_id).text, uoj.Client().get("/submissions?problem_id=%d" % problem_id).text):
+            self.assertRegex(page, r'href="/submission/%d" class="uoj-score">100 %s' % (right, re.escape(self.MARK)))
+            self.assertRegex(page, r'href="/submission/%d" class="uoj-score">\d+</a>' % wrong)
+            self.assertEqual(page.count(self.MARK), 1)
+        # on the page of the submission itself as well
+        self.assertEqual(solver.get("/submission/%d" % right).text.count(self.MARK), 1)
+        self.assertNotIn(self.MARK, solver.get("/submission/%d" % wrong).text)

@@ -370,6 +370,12 @@ function submissionVerdict($submission) {
 	return submissionVerdictOf($submission['score'], is_array($result) && isset($result['details']) ? $result['details'] : '');
 }
 
+// what stands beside a full score, or a verdict that says the same: it is seen in a list
+// without reading the numbers
+function passedMark() {
+	return ' <span class="glyphicon glyphicon-ok uoj-passed-mark" title="通过"></span>';
+}
+
 function echoSubmission($submission, $config, $user) {
 	$problem = queryProblemBrief($submission['problem_id']);
 	$submitterLink = getUserLink($submission['submitter']);
@@ -409,9 +415,9 @@ function echoSubmission($submission, $config, $user) {
 			} elseif (!empty($submission['contest_id']) && submissionContestRule($submission['contest_id']) === 'ICPC') {
 				// under the ICPC rule a submission passed or did not, and is said to
 				$verdict = submissionVerdict($submission);
-				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '"><strong>', HTML::escape($verdict), '</strong></a>';
+				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '"><strong>', HTML::escape($verdict), '</strong>', $verdict === 'Accepted' ? passedMark() : '', '</a>';
 			} else {
-				echo '<a href="/submission/', $submission['id'], '" class="uoj-score">', $submission['score'], '</a>';
+				echo '<a href="/submission/', $submission['id'], '" class="uoj-score">', $submission['score'], $submission['score'] == 100 ? passedMark() : '', '</a>';
 			}
 		} else {
 			echo '<a href="/submission/', $submission['id'], '" class="small">', $status, '</a>';

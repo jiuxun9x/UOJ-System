@@ -476,3 +476,9 @@ article blockquote {
 article blockquote > :last-child {
 	margin-bottom: 0;
 }
+
+/* ---- the mark beside a full score */
+.uoj-passed-mark {
+	font-size: 0.85em;
+	margin-left: 0.15em;
+}

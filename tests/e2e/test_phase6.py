@@ -584,6 +584,9 @@ class IcpcTest(unittest.TestCase):
         listing = ann.get(here + "/submissions").text
         self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success"><strong>Accepted' % ann_right)
         self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger"><strong>Wrong Answer' % ann_wrong)
+        # what passed has a mark beside it, and what did not has none
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success"><strong>Accepted</strong> <span class="glyphicon glyphicon-ok uoj-passed-mark"' % ann_right)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger"><strong>Wrong Answer</strong></a>' % ann_wrong)
         page = ann.get("/submission/%d" % ann_wrong).text
         self.assertIn('id="details-after-contest"', page)
         self.assertNotIn("Test #", page)
