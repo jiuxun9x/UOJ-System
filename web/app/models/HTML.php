@@ -56,7 +56,9 @@ class HTML {
 	public static function div_vtextarea($name, $label_text, $default_value) {
 		return '<div id="'."div-$name".'">'
 			. '<label for="'."input-$name".'" class="control-label">'.$label_text.'</label>'
-			. '<textarea class="form-control" name="'.$name.'" id="'."input-$name".'">'.HTML::escape($default_value).'</textarea>'
+			// (a line break right after the tag is not part of the text: with one put there, a
+			// text that begins with a line break of its own keeps it)
+			. '<textarea class="form-control" name="'.$name.'" id="'."input-$name".'">'."\n".HTML::escape($default_value).'</textarea>'
 			. '<span class="help-block" id="'."help-$name".'"></span>'
 			. '</div>';
 	}

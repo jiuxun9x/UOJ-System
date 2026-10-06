@@ -31,5 +31,5 @@ $('#<?= "input-{$editor->name}_is_hidden" ?>').bootstrapSwitch({
 	labelText: <?= json_encode($editor->label_text['blog visibility']) ?>,
 	handleWidth: 100
 });
-blog_editor_init("<?= $editor->name ?>", <?= json_encode(array('type' => $editor->type)) ?>);
+blog_editor_init("<?= $editor->name ?>", <?= json_encode(array('type' => $editor->type, 'autosave' => (bool)$editor->autosave, 'draft_key' => $editor->draft_key)) ?>);
 </script>

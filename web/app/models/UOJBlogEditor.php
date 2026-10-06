@@ -7,6 +7,10 @@ class UOJBlogEditor {
 	public $save;
 	public $cur_data = array();
 	public $post_data = array();
+	// whether the page saves by itself a moment after the typing stops, and the name under
+	// which the browser keeps what is not saved yet (see blog-editor.js)
+	public $autosave = false;
+	public $draft_key = null;
 	
 	public $label_text = array(
 		'title' => '标题',
@@ -87,7 +91,10 @@ class UOJBlogEditor {
 		if ($errors) {
 			die(json_encode($errors));
 		}
-		crsf_defend();
+		if (!crsf_check()) {
+			// the page is told in the words it reads: it has the text, and says what to do with it
+			die(json_encode(array('expired' => true)));
+		}
 		
 		$this->post_data['is_hidden'] = isset($_POST["{$this->name}_is_hidden"]) ? 1 : 0;
 		

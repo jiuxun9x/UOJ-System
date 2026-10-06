@@ -417,6 +417,46 @@ def statement_is_read_as_it_was_written(page, seeded):
     assert page.inner_text(button) == "已复制", page.inner_text(button)
 
 
+def statement_saves_itself(page, seeded):
+    """the page that edits a statement saves what is typed by itself and says that it did; what
+    it could not save stays in the browser and is put back when the page is opened again"""
+    problem_id = seeded["second_public"]
+    kept = lambda: bytes.fromhex(db_value("select hex(statement_md) from problems_contents where id = %d" % problem_id)).decode()
+    draft = "window.localStorage.getItem('uoj-draft:statement-%d')" % problem_id
+    status = "document.querySelector('#status-problem').textContent"
+    write = "text => { const editor = document.querySelector('.CodeMirror').CodeMirror; editor.replaceRange((editor.getValue() === '' ? '' : '\\n\\n') + text, {line: editor.lastLine(), ch: 99999}); }"
+    width = page.viewport_size["width"]
+    page.wait_for_selector(".CodeMirror")
+    assert page.evaluate(status) == "", page.evaluate(status)
+
+    first = "这一行是页面自己保存的（宽 %d）。" % width
+    page.evaluate(write, first)
+    assert page.evaluate(status) == "有还没保存的修改…", page.evaluate(status)
+    page.wait_for_function(status + ".indexOf('已自动保存 ') === 0", timeout=20000)
+    assert kept().endswith(first), kept()[-80:]
+    assert page.evaluate(draft) is None
+    assert "btn-success" in page.get_attribute(".blog-content-md-editor-toolbar .btn >> nth=0", "class")
+
+    # ---- the server can not be reached: it is said, and the text stays in this browser
+    page.route("**/manage/statement", lambda route: route.abort() if route.request.method == "POST" else route.continue_())
+    page.evaluate("() => { navigator.sendBeacon = () => false; }")
+    second = "这一行没有保存上（宽 %d）。" % width
+    page.evaluate(write, second)
+    page.wait_for_function(status + ".indexOf('没有保存下来：连不上服务器。') === 0", timeout=20000)
+    assert not kept().endswith(second)
+    assert second in page.evaluate(draft), page.evaluate(draft)
+    assert "text-danger" in page.get_attribute("#status-problem", "class")
+    # ---- the page is opened again: the text is put back, and saved now that the server answers
+    page.unroute("**/manage/statement")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#draft-note-problem")
+    assert "已恢复" in page.inner_text("#draft-note-problem"), page.inner_text("#draft-note-problem")
+    assert page.evaluate("document.querySelector('.CodeMirror').CodeMirror.getValue()").endswith(second)
+    page.wait_for_function(status + ".indexOf('已自动保存 ') === 0", timeout=20000)
+    assert kept().endswith(second), kept()[-80:]
+    assert page.evaluate(draft) is None
+
+
 def new_problem_is_kept(page, seeded):
     """what is typed into the form that makes a problem is there again when the page is opened
     again, and is thrown away when its writer says so"""
@@ -448,6 +488,7 @@ def pages(seeded):
     training = d + "/training/%d" % seeded["training"]
     return [
         ("problem-new", "teacher", d + "/problem/new", new_problem_is_kept),
+        ("statement-edit", "admin", "/problem/%d/manage/statement" % seeded["second_public"], statement_saves_itself),
         ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_follows_the_form),
         ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
         ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),

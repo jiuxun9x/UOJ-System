@@ -410,3 +410,54 @@ class StatementIsNotLostTest(unittest.TestCase):
         r = admin.post("/d/%s/problem/new" % slug, fields)
         self.assertEqual(r.status_code, 302)
         self.assertRegex(r.headers.get("Set-Cookie", ""), r"uoj_draft_done=new-problem-d-%s;.*path=/" % slug)
+
+    def test_page_that_edits_a_statement_saves_by_itself(self):
+        admin = uoj.admin()
+        problem_id = admin.new_problem(title="p8 自动保存", statement_md="最初的题面。")
+        page = admin.get("/problem/%d/manage/statement" % problem_id).text
+        self.assertIn('"autosave":true,"draft_key":"statement-%d"' % problem_id, page)
+        sha = lambda text: uoj.sha256(text.encode())
+        title = "p8 自动保存"
+
+        # ---- what the page saves by itself is what the problem says, at once
+        for text in ("写了一句。", "写了一句。又写了一句。", "写了一句。又写了一句。$n$ 个数。"):
+            self.assertEqual(save_statement(admin, problem_id, text, title=title, autosave="on"), {})
+            self.assertEqual(stored_statement(problem_id), ("<p>%s</p>" % text, text))
+        self.assertIn("<p>写了一句。又写了一句。$n$ 个数。</p>", admin.get("/problem/%d" % problem_id).text)
+        # ... and one change in what is written down of it, not one for every pause in the typing:
+        # from what it was before the writing began to where the writing has got to
+        changes = statement_changes(problem_id)
+        self.assertEqual(len(changes), 1)
+        who, before, after = changes[0]
+        self.assertEqual((who, before["statement_sha256"], after["statement_sha256"], after.get("autosave")),
+                         (uoj.ADMIN[0], sha("最初的题面。"), sha("写了一句。又写了一句。$n$ 个数。"), True))  # fmt: skip
+
+        # ---- saving with the button is written down by itself
+        self.assertEqual(save_statement(admin, problem_id, "按了保存。", title=title, tags="p8标签"), {})
+        self.assertEqual(stored_statement(problem_id)[1], "按了保存。")
+        changes = statement_changes(problem_id)
+        self.assertEqual(len(changes), 2)
+        self.assertEqual((changes[1][2]["tags"], changes[1][2].get("autosave")), (["p8标签"], None))
+        # saving what is saved already changes nothing and writes nothing down
+        self.assertEqual(save_statement(admin, problem_id, "按了保存。", title=title, tags="p8标签"), {})
+        self.assertEqual(save_statement(admin, problem_id, "按了保存。", title=title, tags="p8标签", autosave="on"), {})
+        self.assertEqual(len(statement_changes(problem_id)), 2)
+        # the writing that goes on after it is a change of its own
+        self.assertEqual(save_statement(admin, problem_id, "按了保存。接着写。", title=title, tags="p8标签", autosave="on"), {})
+        self.assertEqual(save_statement(admin, problem_id, "按了保存。接着写完了。", title=title, tags="p8标签", autosave="on"), {})
+        changes = statement_changes(problem_id)
+        self.assertEqual(len(changes), 3)
+        self.assertEqual((changes[2][1]["statement_sha256"], changes[2][2]["statement_sha256"]), (sha("按了保存。"), sha("按了保存。接着写完了。")))
+
+        # ---- what is wrong with it is said in the words the page reads, and nothing is saved
+        self.assertEqual(save_statement(admin, problem_id, "没有标题。", title="", autosave="on").get("title"), "标题不能为空")
+        r = admin.post("/problem/%d/manage/statement" % problem_id,
+                       {"problem_title": title, "problem_tags": "", "problem_content_md": "没有令牌。", "save-problem": "", "autosave": "on"}, token=False)  # fmt: skip
+        self.assertEqual(json.loads(r.text), {"expired": True})
+        self.assertEqual(stored_statement(problem_id)[1], "按了保存。接着写完了。")
+        # nobody else saves it
+        stranger = p3.account("p8_autosave_stranger")
+        r = stranger.post("/problem/%d/manage/statement" % problem_id,
+                          {"problem_title": title, "problem_tags": "", "problem_content_md": "不该保存。", "save-problem": "", "autosave": "on"})  # fmt: skip
+        self.assertIn(r.status_code, (403, 404))
+        self.assertEqual(stored_statement(problem_id)[1], "按了保存。接着写完了。")
