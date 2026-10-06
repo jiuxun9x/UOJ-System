@@ -16,6 +16,15 @@ function queryUser($username) {
 function queryProblemContent($id) {
 	return DB::selectFirst("select * from problems_contents where id = $id", MYSQLI_ASSOC);
 }
+// Shows a problem or hides it, together with what was submitted to it: the lists of the
+// submissions and of the hacks leave out what belongs to a hidden problem.
+function problemSetHidden($problem_id, $hidden) {
+	$problem_id = (int)$problem_id;
+	$hidden = $hidden ? 1 : 0;
+	DB::update("update problems set is_hidden = $hidden where id = $problem_id");
+	DB::update("update submissions set is_hidden = $hidden where problem_id = $problem_id");
+	DB::update("update hacks set is_hidden = $hidden where problem_id = $problem_id");
+}
 function queryProblemBrief($id) {
 	return DB::selectFirst("select * from problems where id = $id", MYSQLI_ASSOC);
 }

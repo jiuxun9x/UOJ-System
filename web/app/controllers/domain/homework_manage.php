@@ -173,7 +173,7 @@
 	} else {
 		$last = DB::selectFirst("select * from homeworks where domain_id = {$domain['id']} order by id desc limit 1", MYSQLI_ASSOC);
 		$begin = strtotime(date('Y-m-d 08:00:00', $now + 86400));
-		$form = array('title' => '', 'description_md' => '', 'begin_at' => date('Y-m-d H:i:s', $begin), 'penalty_since' => date('Y-m-d 23:59:00', $begin + 6 * 86400), 'end_at' => date('Y-m-d 23:59:00', $begin + 8 * 86400), 'claim_end_at' => null, 'allow_withdraw' => 1);
+		$form = array('title' => '', 'description_md' => '', 'begin_at' => date('Y-m-d H:i:s', $begin), 'penalty_since' => date('Y-m-d 23:59:00', $begin + 6 * 86400), 'end_at' => date('Y-m-d 23:59:00', $begin + 8 * 86400), 'claim_end_at' => null, 'allow_withdraw' => 1, 'reveal_problems' => $last ? (int)$last['reveal_problems'] : 0);
 		$rule_rows = $last ? homeworkPenaltyRuleRows(homeworkPenaltyRules($last)) : array(array('after' => '0', 'unit' => 'hour', 'percent' => '80'), array('after' => '1', 'unit' => 'day', 'percent' => '60'));
 		if ($last && $last['penalty_since'] === null) {
 			$form['penalty_since'] = null;
@@ -185,6 +185,7 @@
 		}
 		$form['penalty_since'] = isset($_POST['allow_late']) ? (isset($_POST['penalty_since']) ? str_replace('T', ' ', $_POST['penalty_since']) : '') : null;
 		$form['allow_withdraw'] = isset($_POST['allow_withdraw']) ? 1 : 0;
+		$form['reveal_problems'] = isset($_POST['reveal_problems']) ? 1 : 0;
 		$rule_rows = array();
 		if (isset($_POST['penalty_after']) && is_array($_POST['penalty_after'])) {
 			foreach ($_POST['penalty_after'] as $index => $after) {
@@ -304,6 +305,15 @@
 	<div class="custom-control custom-checkbox mb-3">
 		<input type="checkbox" class="custom-control-input" id="input-allow_withdraw" name="allow_withdraw"<?= $form['allow_withdraw'] ? ' checked="checked"' : '' ?> />
 		<label class="custom-control-label" for="input-allow_withdraw">作业开始之前，允许学生取消认领</label>
+	</div>
+	<div class="custom-control custom-checkbox mb-3">
+		<input type="checkbox" class="custom-control-input" id="input-reveal_problems" name="reveal_problems"<?= !empty($form['reveal_problems']) ? ' checked="checked"' : '' ?> />
+		<label class="custom-control-label" for="input-reveal_problems">作业截止后，自动公开题目</label>
+		<small class="form-text text-muted">
+			勾选后，作业一截止，其中隐藏的题目就自动对本域的成员公开，出现在“题目”页里，不用再逐题去改。不勾选则题目保持隐藏，学生仍然可以从作业里打开它们订正。
+			同时还在别的没结束的作业或比赛里的题目，等那边也结束了才公开。
+			<?php if ($homework && !empty($homework['problems_revealed_at'])): ?><span id="homework-problems-revealed">这次作业的题目已于 <?= $homework['problems_revealed_at'] ?> 公开。</span><?php endif ?>
+		</small>
 	</div>
 	<button type="submit" class="btn btn-primary" id="button-save-homework"><?= $homework ? '保存' : '创建' ?></button>
 	<?php if (!$homework): ?>

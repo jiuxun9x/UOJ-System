@@ -74,16 +74,19 @@ $handlers = [
 	// homework they show; this is for the ones nobody looks at. Run it every minute.
 	'homework:tick' => function () {
 		$advanced = homeworkAdvanceDue();
-		die("advanced $advanced homeworks\n");
+		$shown = homeworksRevealDue();
+		die("advanced $advanced homeworks, showed $shown problems\n");
 	},
 	// What the site does by itself every minute: what homework:tick does, and looking after
 	// the judgers and the queue. The container of the web server runs it in a loop; without
 	// containers it belongs in a crontab.
 	'site:tick' => function () {
 		$advanced = homeworkAdvanceDue();
+		// the contests and the homeworks that are over and were told to show their problems
+		$shown = contestsRevealDue() + homeworksRevealDue();
 		$backup = backupTick() ? ', started a backup' : '';
 		list($opened, $resolved) = monitorTick();
-		die("advanced $advanced homeworks, opened $opened alerts, resolved $resolved alerts$backup\n");
+		die("advanced $advanced homeworks, showed $shown problems, opened $opened alerts, resolved $resolved alerts$backup\n");
 	},
 	// Makes a backup of the database, the data of the problems and the submissions now.
 	'backup:run' => function ($reason = 'manual') {

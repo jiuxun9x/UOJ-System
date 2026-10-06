@@ -93,6 +93,17 @@
 		<?php if ($in_domain): ?>这场比赛属于一个域，无论哪种方式，都只有域的成员能参加。<?php endif ?>
 	</small>
 </div>
+<div class="form-group">
+	<label>比赛结束后</label>
+	<div class="custom-control custom-checkbox">
+		<input type="checkbox" class="custom-control-input" id="input-contest-reveal_problems" name="reveal_problems"<?= $settings['reveal_problems'] ? ' checked="checked"' : '' ?> />
+		<label class="custom-control-label" for="input-contest-reveal_problems">自动公开题目</label>
+	</div>
+	<small class="form-text text-muted">
+		勾选后，比赛到了结束时间，其中隐藏的题目就自动<?= $in_domain ? '对本域的成员' : '' ?>公开，不用再逐题去改；封榜的比赛等公布成绩之后再公开。
+		不勾选则题目保持隐藏。同时还在别的没结束的比赛或作业里的题目，等那边也结束了才公开。
+	</small>
+</div>
 <script type="text/javascript">
 // the fields that belong to a choice are there when the choice is made
 $(document).ready(function() {

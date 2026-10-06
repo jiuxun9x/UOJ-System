@@ -5,6 +5,9 @@
 		become404Page();
 	}
 	genMoreContestInfo($contest);
+	// a contest that is over shows its problems, if it was told to: also where nothing runs
+	// by itself every minute
+	contestRevealProblems($contest);
 	// a contest of a domain exists for the members of the domain
 	if (!can($myUser, 'contest.view', $contest)) {
 		if ($myUser == null) {
@@ -187,6 +190,10 @@ EOD;
 				}
 				DB::query("update contests set status = 'finished' where id = {$contest['id']}");
 				auditLog('contest.publish_results', 'contest', $contest['id'], null, array('rated' => $rated, 'participants' => count($standings)));
+				// a contest whose board froze shows its problems now, if it was told to show them
+				$finished = queryContest($contest['id']);
+				genMoreContestInfo($finished);
+				contestRevealProblems($finished);
 			};
 			$publish_result_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
 			$publish_result_form->submit_button_config['smart_confirm'] = '';

@@ -399,7 +399,8 @@ function contestDefaultSettings() {
 		'rated' => false,
 		'rating_k' => 400,
 		'join_mode' => 'open',
-		'join_password' => ''
+		'join_password' => '',
+		'reveal_problems' => false
 	);
 }
 // the settings a contest has: $contest as genMoreContestInfo() leaves it
@@ -414,7 +415,8 @@ function contestSettings($contest) {
 		'rated' => contestIsRated($contest),
 		'rating_k' => isset($contest['extra_config']['rating_k']) ? (int)$contest['extra_config']['rating_k'] : 400,
 		'join_mode' => $contest['join_mode'],
-		'join_password' => ''
+		'join_password' => '',
+		'reveal_problems' => !empty($contest['reveal_problems'])
 	);
 }
 // What a form says, checked: array(the settings, '') or array(null, why not).
@@ -481,6 +483,7 @@ function contestSettingsFromForm($input, $current, $may_rate, $has_password = fa
 		}
 		$settings['join_password'] = $password;
 	}
+	$settings['reveal_problems'] = isset($input['reveal_problems']);
 	return array($settings, '');
 }
 // what the settings are in the columns of a contest, as SQL
@@ -499,6 +502,7 @@ function contestSettingsSql($settings, $extra_config) {
 		'last_min' => (int)$settings['last_min'],
 		'freeze_minutes' => (int)$settings['freeze_minutes'],
 		'join_mode' => "'".DB::escape($settings['join_mode'])."'",
+		'reveal_problems' => $settings['reveal_problems'] ? 1 : 0,
 		'extra_config' => "'".DB::escape(json_encode($extra_config))."'"
 	);
 	if ($settings['join_password'] !== '') {
@@ -539,6 +543,89 @@ function contestSaveSettings($contest, $settings, $actor) {
 	}
 	DB::update("update contests set ".join(', ', $set)." where id = {$contest['id']}");
 	auditLog('contest.edit', 'contest', $contest['id'], contestSettingsForAudit(contestSettings($contest)), contestSettingsForAudit($settings), $actor);
+}
+
+// ---- problems that are shown when what hid them is over
+//
+// The problems of a contest or of a homework are hidden so that nobody sees them before it
+// begins. When it is over they stay hidden until somebody shows them, one by one, unless the
+// contest or the homework was told to show them: then they are shown by themselves, once.
+//
+// A contest shows them when what was submitted to it is no longer kept from everybody: when
+// it ends, or, where its board freezes, when its results are published. A homework shows
+// them when it ends. A problem that is also in something that is not over yet waits for that.
+
+// Of these problems, the ones that something which is not over yet still needs hidden:
+// another contest that has not ended or still keeps its results, another homework that is
+// published and has not ended. Returns array(id of the problem => what holds it).
+function problemsHeldHidden($problem_ids, $but_contest = null, $but_homework = null) {
+	$held = array();
+	if (!$problem_ids) {
+		return $held;
+	}
+	$ids = join(', ', array_map('intval', $problem_ids));
+	foreach (DB::selectAll("select contests_problems.problem_id, contests.* from contests_problems join contests on contests.id = contests_problems.contest_id where contests_problems.problem_id in ($ids)".($but_contest === null ? '' : ' and contests.id != '.(int)$but_contest)) as $contest) {
+		genMoreContestInfo($contest);
+		if (contestKeepsResults($contest)) {
+			$held[(int)$contest['problem_id']] = "contest {$contest['id']}";
+		}
+	}
+	$now = DB::escape(UOJTime::$time_now_str);
+	foreach (DB::selectAll("select homework_problems.problem_id, homeworks.id from homework_problems join homeworks on homeworks.id = homework_problems.homework_id where homework_problems.problem_id in ($ids) and homeworks.status in ('publishing', 'published') and homeworks.end_at > '$now'".($but_homework === null ? '' : ' and homeworks.id != '.(int)$but_homework)) as $homework) {
+		$held[(int)$homework['problem_id']] = "homework {$homework['id']}";
+	}
+	return $held;
+}
+// Shows the hidden ones among these problems, but for the ones that are held hidden.
+// Returns array(the ids that were shown, the ids that wait).
+function problemsReveal($problem_ids, $but_contest = null, $but_homework = null) {
+	$shown = array();
+	$waiting = array();
+	if (!$problem_ids) {
+		return array($shown, $waiting);
+	}
+	$held = problemsHeldHidden($problem_ids, $but_contest, $but_homework);
+	foreach (DB::selectAll("select id from problems where is_hidden = 1 and id in (".join(', ', array_map('intval', $problem_ids)).") order by id") as $problem) {
+		if (isset($held[(int)$problem['id']])) {
+			$waiting[] = (int)$problem['id'];
+		} else {
+			problemSetHidden($problem['id'], false);
+			$shown[] = (int)$problem['id'];
+		}
+	}
+	return array($shown, $waiting);
+}
+// whether a contest has problems to show now: $contest as genMoreContestInfo() leaves it
+function contestRevealIsDue($contest) {
+	return !empty($contest['reveal_problems']) && $contest['problems_revealed_at'] === null
+		&& $contest['cur_progress'] > CONTEST_IN_PROGRESS && !contestKeepsResults($contest);
+}
+// Shows the problems of a contest that is over and was told to show them. It is done with
+// the contest when none of its problems waits for something else any more.
+function contestRevealProblems($contest) {
+	if (!contestRevealIsDue($contest)) {
+		return array();
+	}
+	list($shown, $waiting) = problemsReveal(contestProblemIds($contest['id']), $contest['id']);
+	if (!$waiting) {
+		DB::update("update contests set problems_revealed_at = now() where id = {$contest['id']} and problems_revealed_at is null");
+	}
+	if ($shown) {
+		// nobody did this: the contest was told to, by whoever set it up
+		auditLog('contest.reveal_problems', 'contest', $contest['id'], null, array('problems' => $shown, 'waiting' => $waiting), false);
+	}
+	return $shown;
+}
+// What the tick calls: every contest that may have problems to show. Returns how many
+// problems were shown.
+function contestsRevealDue() {
+	$now = DB::escape(UOJTime::$time_now_str);
+	$n = 0;
+	foreach (DB::selectAll("select * from contests where reveal_problems = 1 and problems_revealed_at is null and date_add(start_time, interval last_min minute) <= '$now'") as $contest) {
+		genMoreContestInfo($contest);
+		$n += count(contestRevealProblems($contest));
+	}
+	return $n;
 }
 
 // ---- who may take part in a contest

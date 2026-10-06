@@ -463,7 +463,7 @@ function homeworkSave($domain, $homework, $input, $actor) {
 	$time = function($value) {
 		return $value === '' ? 'null' : "'".date('Y-m-d H:i:s', strtotime($value))."'";
 	};
-	$set = "title = '".DB::escape($settings['title'])."', description_md = '".DB::escape($description_md)."', description = '".DB::escape(domainRenderMarkdown($description_md))."', begin_at = ".$time($settings['begin_at']).", end_at = ".$time($settings['end_at']).", penalty_since = ".$time($settings['penalty_since']).", penalty_rules = '".DB::escape(json_encode($rules))."', claim_end_at = ".$time($settings['claim_end_at']).", allow_withdraw = ".(!empty($input['allow_withdraw']) ? 1 : 0).", updated_at = now()";
+	$set = "title = '".DB::escape($settings['title'])."', description_md = '".DB::escape($description_md)."', description = '".DB::escape(domainRenderMarkdown($description_md))."', begin_at = ".$time($settings['begin_at']).", end_at = ".$time($settings['end_at']).", penalty_since = ".$time($settings['penalty_since']).", penalty_rules = '".DB::escape(json_encode($rules))."', claim_end_at = ".$time($settings['claim_end_at']).", allow_withdraw = ".(!empty($input['allow_withdraw']) ? 1 : 0).", reveal_problems = ".(!empty($input['reveal_problems']) ? 1 : 0).", updated_at = now()";
 	$after = array('title' => $settings['title'], 'begin_at' => $settings['begin_at'], 'penalty_since' => $settings['penalty_since'], 'end_at' => $settings['end_at'], 'penalty_rules' => $rules);
 	if ($homework === null) {
 		DB::insert("insert into homeworks set domain_id = {$domain['id']}, created_by = '".DB::escape($actor['username'])."', created_at = now(), $set");
@@ -601,7 +601,49 @@ function homeworkTouch($homework) {
 		homeworkAdvance($homework['id']);
 		$homework = queryHomework($homework['id']);
 	}
+	if (homeworkRevealIsDue($homework)) {
+		homeworkRevealProblems($homework);
+		$homework = queryHomework($homework['id']);
+	}
 	return $homework;
+}
+
+// ---- problems that are shown when the homework is over (see problemsReveal())
+
+// whether a homework has problems to show now
+function homeworkRevealIsDue($homework) {
+	return !empty($homework['reveal_problems']) && $homework['problems_revealed_at'] === null
+		&& $homework['status'] === 'published' && homeworkNow() >= strtotime($homework['end_at']);
+}
+// Shows the problems of a homework that has ended and was told to show them: to the members
+// of its domain, which is where its problems are. It is done with the homework when none of
+// its problems waits for something else any more.
+function homeworkRevealProblems($homework) {
+	if (!homeworkRevealIsDue($homework)) {
+		return array();
+	}
+	$ids = array();
+	foreach (homeworkProblems($homework) as $row) {
+		$ids[] = (int)$row['problem_id'];
+	}
+	list($shown, $waiting) = problemsReveal($ids, null, $homework['id']);
+	if (!$waiting) {
+		DB::update("update homeworks set problems_revealed_at = now() where id = {$homework['id']} and problems_revealed_at is null");
+	}
+	if ($shown) {
+		auditLog('homework.reveal_problems', 'homework', $homework['id'], null, array('problems' => $shown, 'waiting' => $waiting), false);
+	}
+	return $shown;
+}
+// What the tick calls: every homework that may have problems to show. Returns how many
+// problems were shown.
+function homeworksRevealDue() {
+	$now = DB::escape(UOJTime::$time_now_str);
+	$n = 0;
+	foreach (DB::selectAll("select * from homeworks where reveal_problems = 1 and problems_revealed_at is null and status = 'published' and end_at <= '$now'", MYSQLI_ASSOC) as $homework) {
+		$n += count(homeworkRevealProblems($homework));
+	}
+	return $n;
 }
 // What the tick of the command line calls: every homework that may have something to do.
 function homeworkAdvanceDue() {
@@ -924,7 +966,7 @@ function homeworkSetMaintainer($homework, $target, $is_maintainer, $actor) {
 // A copy of a homework for the next class or the next term: its text, problems, points and
 // penalty rules, as a draft. Who took part, what they submitted and the scores stay behind.
 function homeworkClone($homework, $actor) {
-	DB::insert("insert into homeworks (domain_id, title, description_md, description, status, begin_at, penalty_since, end_at, penalty_rules, claim_end_at, allow_withdraw, created_by, created_at, updated_at) select domain_id, concat(title, '（副本）'), description_md, description, 'draft', begin_at, penalty_since, end_at, penalty_rules, claim_end_at, allow_withdraw, '".DB::escape($actor['username'])."', now(), now() from homeworks where id = {$homework['id']}");
+	DB::insert("insert into homeworks (domain_id, title, description_md, description, status, begin_at, penalty_since, end_at, penalty_rules, claim_end_at, allow_withdraw, reveal_problems, created_by, created_at, updated_at) select domain_id, concat(title, '（副本）'), description_md, description, 'draft', begin_at, penalty_since, end_at, penalty_rules, claim_end_at, allow_withdraw, reveal_problems, '".DB::escape($actor['username'])."', now(), now() from homeworks where id = {$homework['id']}");
 	$id = DB::insert_id();
 	DB::insert("insert into homework_problems (homework_id, problem_id, source_problem_id, source_data_version, position, score, required) select $id, problem_id, source_problem_id, source_data_version, position, score, required from homework_problems where homework_id = {$homework['id']}");
 	auditLog('homework.clone', 'homework', $id, null, array('from' => (int)$homework['id']), $actor);

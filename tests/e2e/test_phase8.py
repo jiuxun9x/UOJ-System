@@ -193,3 +193,163 @@ class TagSearchTest(unittest.TestCase):
         self.assertEqual(len(numbers(student.get(here).text)), 2)
         picked = teacher.get("/problems/pick", params={"scope": slug, "q": "p8树形"}).json()["problems"]
         self.assertEqual([(row["number"], row["tags"]) for row in picked], [(hidden, ["p8树形DP"]), (shown, ["p8树形DP"])])
+
+
+def site_tick():
+    """what the web server does every minute"""
+    return uoj.docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php site:tick")
+
+
+def hidden(*problem_ids):
+    """whether each of these problems is hidden"""
+    return [db_value("select is_hidden from problems where id = %d" % problem_id) == "1" for problem_id in problem_ids]
+
+
+class RevealProblemsTest(unittest.TestCase):
+    """a contest or a homework that was told to shows its problems when it is over, by itself"""
+
+    def test_contest_shows_its_problems_when_it_is_over(self):
+        admin, visitor = uoj.admin(), uoj.Client()
+        first, second, third, fourth = (admin.create_problem(ab_problem_files()) for _ in range(4))
+        for problem_id in (first, second, third, fourth):
+            db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        kept = admin.submit(first, AB)
+        self.assertEqual(db_value("select is_hidden from submissions where id = %d" % kept), "1")
+
+        # the form asks, and the answer is no unless somebody says yes
+        self.assertRegex(admin.get("/contest/new").text, r'id="input-contest-reveal_problems" name="reveal_problems" />')
+        told = admin.new_contest("p8 结束后公开", problems="%d, %d" % (first, second), reveal_problems="on")
+        untold = admin.new_contest("p8 结束后不公开", problems=str(third))
+        later = admin.new_contest("p8 以后的比赛", starts_in=86400, problems=str(second))
+        frozen = admin.new_contest("p8 封榜的比赛", minutes=120, rule="ICPC", freeze_minutes="30", problems=str(fourth), reveal_problems="on")
+        told_to = lambda contest_id: db("select reveal_problems, ifnull(problems_revealed_at, 'not yet') from contests where id = %d" % contest_id)[0]
+        self.assertEqual([told_to(c)[0] for c in (told, untold, later, frozen)], ["1", "0", "0", "1"])
+        self.assertRegex(admin.get("/contest/%d/manage" % told).text, r'name="reveal_problems" checked="checked"')
+        self.assertRegex(admin.get("/contest/%d/manage" % untold).text, r'name="reveal_problems" />')
+
+        # ---- while the contest runs nothing is shown
+        uoj.move_contest(told, -600, 60)
+        site_tick()
+        admin.get("/contest/%d" % told)
+        self.assertEqual(hidden(first, second, third, fourth), [True] * 4)
+
+        # ---- it is over: what it hid is shown, to whoever looks at the contest first or to the
+        # minute, but for the problem that a contest which is still to come needs hidden
+        uoj.move_contest(told, -7200, 60)
+        uoj.move_contest(untold, -7200, 60)
+        self.assertEqual(visitor.get("/problem/%d" % first).status_code, 404)
+        admin.get("/contest/%d" % told)
+        self.assertEqual(hidden(first, second, third, fourth), [False, True, True, True])
+        self.assertEqual(told_to(told), ["1", "not yet"])
+        self.assertEqual(visitor.get("/problem/%d" % first).status_code, 200)
+        self.assertIn('<a href="/problem/%d">' % first, visitor.get("/problems", params={"search": str(first)}).text)
+        # what was submitted to it is shown with it
+        self.assertEqual(db_value("select is_hidden from submissions where id = %d" % kept), "0")
+        self.assertEqual(
+            db("select actor_type, after_json from audit_logs where action = 'contest.reveal_problems' and resource_id = '%d'" % told),
+            [["system", json.dumps({"problems": [first], "waiting": [second]}, separators=(",", ":"))]],
+        )
+        # the minute does nothing more to it while the other contest is not over
+        site_tick()
+        self.assertEqual(hidden(first, second, third), [False, True, True])
+
+        # ---- the other contest is over: its problem was waiting to be shown
+        uoj.move_contest(later, -7200, 60)
+        site_tick()
+        self.assertEqual(hidden(first, second, third), [False, False, True])
+        self.assertNotEqual(told_to(told)[1], "not yet")
+
+        # ---- shown once: somebody who hides a problem afterwards is not overruled
+        db("update problems set is_hidden = 1 where id = %d" % first)
+        site_tick()
+        admin.get("/contest/%d" % told)
+        self.assertEqual(hidden(first), [True])
+
+        # ---- a contest that was not told keeps its problems hidden, until it is told
+        self.assertEqual(hidden(third), [True])
+        self.assertEqual(admin.contest_settings(untold, reveal_problems="on"), "")
+        site_tick()
+        self.assertEqual(hidden(third), [False])
+        # saving the settings without the box takes the choice back
+        self.assertEqual(admin.contest_settings(untold), "")
+        self.assertEqual(told_to(untold)[0], "0")
+
+        # ---- a contest whose board froze shows them when its results are published
+        uoj.move_contest(frozen, -3 * 3600, 120)
+        site_tick()
+        admin.get("/contest/%d" % frozen)
+        self.assertEqual(hidden(fourth), [True])
+        self.assertEqual(admin.submit_form("/contest/%d" % frozen, "publish_result"), "")
+        self.assertEqual(hidden(fourth), [False])
+        self.assertNotEqual(told_to(frozen)[1], "not yet")
+
+    def test_homework_shows_its_problems_when_it_is_over(self):
+        import test_phase4 as p4
+
+        admin = uoj.admin()
+        teacher, student = p3.account("p8_reveal_teacher"), p3.account("p8_reveal_student")
+        self.assertEqual(admin.change_user("p8_reveal_teacher", "grant:teacher"), "")
+        slug = "p8-reveal"
+        if db_value("select count(*) from domains where slug = '%s'" % slug) == "0":
+            teacher.new_domain(slug)
+        self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username="p8_reveal_student", role="member"), "")
+        problems = []
+        for title in ("p8 作业题一", "p8 作业题二", "p8 作业题三"):
+            problem_id = teacher.new_problem(slug, title=title)
+            self.assertIn("上传成功", teacher.upload_data(problem_id, ab_problem_files()).text)
+            self.assertEqual(teacher.sync(problem_id), "")
+            problems.append(problem_id)
+        first, second, third = problems
+        self.assertEqual(hidden(first, second, third), [True] * 3)
+
+        def homework(title, of, **settings):
+            homework_id = p4.new_homework(teacher, slug, title=title, **settings)
+            for problem_id in of:
+                self.assertEqual(p4.homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(uoj.pid(problem_id)), score="100"), "")
+            self.assertEqual(p4.homework_form(teacher, slug, homework_id, "publish"), "")
+            uoj.wait_until("homework #%d is published" % homework_id,
+                           lambda: p4.tick() and p4.homework_row(homework_id, "status")[0] != "publishing", timeout=300)  # fmt: skip
+            self.assertEqual(p4.homework_row(homework_id, "status"), ["published"])
+            return homework_id
+
+        end = lambda homework_id: db("update homeworks set begin_at = '%s', penalty_since = null, end_at = '%s' where id = %d"
+                                     % (uoj.web_time(-20 * 86400), uoj.web_time(-3600), homework_id))  # fmt: skip
+        # the form asks, and the answer is no unless somebody says yes
+        self.assertRegex(teacher.get("/d/%s/homework/new" % slug).text, r'id="input-reveal_problems" name="reveal_problems" />')
+        told = homework("p8 截止后公开", (first, second), reveal_problems="on")
+        untold = homework("p8 截止后不公开", (third,))
+        running = homework("p8 还在做的作业", (second,))
+        self.assertEqual([p4.homework_row(h, "reveal_problems")[0] for h in (told, untold, running)], ["1", "0", "0"])
+        # the next homework is offered what the last one chose; a copy of a homework chooses as it does
+        self.assertRegex(teacher.get("/d/%s/homework/new" % slug).text, r'name="reveal_problems" />')
+        self.assertRegex(teacher.get("/d/%s/homework/%d/manage" % (slug, told)).text, r'name="reveal_problems" checked="checked"')
+
+        listed = lambda client: [int(n) for n in re.findall(r'<a href="/d/%s/problem/(\d+)">' % slug, client.get("/d/%s/problems" % slug).text)]
+        # ---- while it runs nothing is shown
+        p4.tick()
+        self.assertEqual(hidden(first, second, third), [True] * 3)
+        self.assertEqual(listed(student), [])
+
+        # ---- it is over: its problems are shown to the members of the domain, but for the one
+        # that a homework which is still running needs hidden
+        end(told)
+        end(untold)
+        p4.tick()
+        self.assertEqual(hidden(first, second, third), [False, True, True])
+        self.assertEqual(listed(student), [uoj.pid(first)])
+        self.assertEqual(student.get("/d/%s/problem/%d" % (slug, uoj.pid(first))).status_code, 200)
+        self.assertEqual(p4.homework_row(told, "ifnull(problems_revealed_at, 'not yet')"), ["not yet"])
+        self.assertEqual(
+            db("select actor_type, after_json from audit_logs where action = 'homework.reveal_problems' and resource_id = '%d'" % told),
+            [["system", json.dumps({"problems": [first], "waiting": [second]}, separators=(",", ":"))]],
+        )
+        # ---- the other homework is over as well
+        end(running)
+        teacher.get("/d/%s/homework/%d" % (slug, told))
+        self.assertEqual(hidden(first, second, third), [False, False, True])
+        self.assertIn('id="homework-problems-revealed"', teacher.get("/d/%s/homework/%d/manage" % (slug, told)).text)
+        # ---- shown once, and a homework that was not told keeps its problems hidden
+        db("update problems set is_hidden = 1 where id = %d" % first)
+        p4.tick()
+        site_tick()
+        self.assertEqual(hidden(first, second, third), [True, False, True])

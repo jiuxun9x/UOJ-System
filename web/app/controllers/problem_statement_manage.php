@@ -47,9 +47,7 @@
 			}
 		}
 		if ($data['is_hidden'] != $problem['is_hidden'] ) {
-			DB::update("update problems set is_hidden = {$data['is_hidden']} where id = {$problem['id']}");
-			DB::update("update submissions set is_hidden = {$data['is_hidden']} where problem_id = {$problem['id']}");
-			DB::update("update hacks set is_hidden = {$data['is_hidden']} where problem_id = {$problem['id']}");
+			problemSetHidden($problem['id'], $data['is_hidden']);
 		}
 	};
 	
