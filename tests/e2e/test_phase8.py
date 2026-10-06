@@ -65,3 +65,12 @@ class StatementIsKeptTest(unittest.TestCase):
             self.assertIn(there, shown)
         self.assertEqual(shown.count("<td"), 2)
         self.assertNotIn("UOJFORMULA", shown)
+
+    def test_punctuation_stays_when_a_character_is_cleaned_away(self):
+        # A character that a page may not have (they come along out of a PDF) is taken out of
+        # the text. With it went every full-width comma, question mark and bracket of the text.
+        admin = uoj.admin()
+        for what, stray in (("a control character", "\x0c"), ("a character of the C1 block", "\u0085"), ("a noncharacter", "\uffff")):
+            problem_id = admin.new_problem(statement_md="前文%s，后文？（完）！：；\n\n第二段，也在。" % stray)
+            shown, kept = stored_statement(problem_id)
+            self.assertEqual(shown, "<p>前文，后文？（完）！：；</p>\n<p>第二段，也在。</p>", what)

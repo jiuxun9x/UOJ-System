@@ -255,6 +255,10 @@ class HTMLPurifier_Encoder
                                 // 7F-9F is not strictly prohibited by XML,
                                 // but it is non-SGML, and thus we don't allow it
                                 (0xA0 <= $mUcs4 && 0xD7FF >= $mUcs4) ||
+                                // (UOJ) the characters the fast path above lets through as
+                                // well: without this line, a text that has one character
+                                // to clean lost all of its full-width punctuation with it
+                                (0xE000 <= $mUcs4 && 0xFFFD >= $mUcs4) ||
                                 (0x10000 <= $mUcs4 && 0x10FFFF >= $mUcs4)
                             )
                         ) {
