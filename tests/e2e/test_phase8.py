@@ -74,3 +74,18 @@ class StatementIsKeptTest(unittest.TestCase):
             problem_id = admin.new_problem(statement_md="前文%s，后文？（完）！：；\n\n第二段，也在。" % stray)
             shown, kept = stored_statement(problem_id)
             self.assertEqual(shown, "<p>前文，后文？（完）！：；</p>\n<p>第二段，也在。</p>", what)
+
+    def test_statement_does_not_end_at_a_closing_tag_too_many(self):
+        # as it is copied out of the page of another judge, with one "</div>" more than "<div>"
+        admin = uoj.admin()
+        written = '<div class="statement"><p>第一段</p></div></div><div class="input"><p>输入一行</p></div>\n\n## 输出格式\n\n一行，还在。\n'
+        problem_id = admin.new_problem(statement_md=written)
+        shown, kept = stored_statement(problem_id)
+        for there in ("<p>第一段</p>", "<p>输入一行</p>", "<h2>输出格式</h2>", "<p>一行，还在。</p>"):
+            self.assertIn(there, shown)
+        # and what a page must not have is still taken out
+        problem_id = admin.new_problem(statement_md='正文<script>alert(1)</script> <a href="javascript:alert(1)" onclick="x()">链</a> <img src="/a.png" onerror="x()">')
+        shown, kept = stored_statement(problem_id)
+        for gone in ("script", "javascript", "onclick", "onerror", "alert"):
+            self.assertNotIn(gone, shown)
+        self.assertIn('<img src="/a.png"', shown)

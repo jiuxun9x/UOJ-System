@@ -174,6 +174,10 @@ class HTML {
 		$config = HTMLPurifier_Config::createDefault();
 		//$config->set('HTML.Doctype', 'HTML 4.01 Transitional');
 		$config->set('Cache.DefinitionImpl', null);
+		// The text is read tag by tag, not handed to libxml to build a document of: what
+		// libxml makes of a "</div>" too many, or of a "<" in the middle of a text, is a
+		// document that ends there, and the rest of the text was dropped without a word.
+		$config->set('Core.LexerImpl', 'DirectLex');
 		$def = $config->getHTMLDefinition(true);
 		$def->addAttribute('span', 'data-rating', 'Number');
 		
