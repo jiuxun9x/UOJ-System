@@ -21,7 +21,9 @@
 				echo ' <span class="text-danger">[隐藏]</span> ';
 			}
 			echo '<a href="/problem/', $problem['id'], '">', $problem['title'], '</a>';
-			if (isset($_COOKIE['show_tags_mode'])) {
+			global $search;
+			// what was looked for may have been found in the tags: they are shown then
+			if (isset($_COOKIE['show_tags_mode']) || $search !== '') {
 				foreach (queryProblemTags($problem['id']) as $tag) {
 					echo '<a class="uoj-problem-tag">', '<span class="badge badge-pill badge-secondary">', HTML::escape($tag), '</span>', '</a>';
 				}
@@ -58,8 +60,10 @@ EOD;
 	if ($search_tag) {
 		$cond[] = "'".DB::escape($search_tag)."' in (select tag from problems_tags where problems_tags.problem_id = problems.id)";
 	}
-	if (isset($_GET["search"])) {
-		$cond[]="(title like '%".DB::escape($_GET["search"])."%' or id like '%".DB::escape($_GET["search"])."%')";
+	// what is typed into the search field is looked for in the numbers, the titles and the tags
+	$search = isset($_GET['search']) && is_string($_GET['search']) ? trim(mb_substr($_GET['search'], 0, 50, 'UTF-8')) : '';
+	if ($search !== '') {
+		$cond[] = problemSearchCond($search);
 	}
 	
 	// the problems of a domain are listed in the domain
@@ -137,6 +141,9 @@ EOD;
 	</div>
 </div>
 <div class="top-buffer-sm"></div>
+<?php if ($search !== ''): ?>
+<p class="text-muted mb-2" id="problem-search-note">题号、标题或标签里有“<?= HTML::escape($search) ?>”的题目。<a href="/problems">显示全部</a></p>
+<?php endif ?>
 <script type="text/javascript">
 $('#input-show_tags_mode').click(function() {
 	if (this.checked) {

@@ -131,3 +131,65 @@ class PassedMarkTest(unittest.TestCase):
         # on the page of the submission itself as well
         self.assertEqual(solver.get("/submission/%d" % right).text.count(self.MARK), 1)
         self.assertNotIn(self.MARK, solver.get("/submission/%d" % wrong).text)
+
+
+class TagSearchTest(unittest.TestCase):
+    """a problem is found by a tag it has, where problems are looked for"""
+
+    def test_problems_are_found_by_their_tags(self):
+        admin, visitor = uoj.admin(), uoj.Client()
+        paths = admin.new_problem(title="p8 回家的路", tags="图论, p8最短路径", public="on")
+        flows = admin.new_problem(title="p8最短路练习", tags="p8网络流", public="on")
+        other = admin.new_problem(title="p8 排队", tags="贪心", public="on")
+        listed = lambda page: [int(n) for n in re.findall(r'<a href="/problem/(\d+)">', page)]
+
+        # ---- the list of the problems of the site: the field in the navigation looks here
+        page = visitor.get("/problems", params={"search": "p8最短路径"}).text
+        self.assertEqual(listed(page), [paths])
+        # the tags are shown, so that it is seen why a problem was found
+        self.assertIn('<span class="badge badge-pill badge-secondary">p8最短路径</span>', page)
+        self.assertIn('id="problem-search-note"', page)
+        # a piece of a tag is enough, and titles and numbers are looked at as before
+        self.assertEqual(listed(visitor.get("/problems", params={"search": "8最短路径"}).text), [paths])
+        self.assertEqual(listed(visitor.get("/problems", params={"search": "p8最短路"}).text), [paths, flows])
+        self.assertEqual(listed(visitor.get("/problems", params={"search": "p8 排队"}).text), [other])
+        self.assertIn(other, listed(visitor.get("/problems", params={"search": str(other)}).text))
+        self.assertEqual(listed(visitor.get("/problems", params={"search": "p8没有这个"}).text), [])
+        # what is typed is looked for as it is, not as a pattern
+        self.assertEqual(listed(visitor.get("/problems", params={"search": "p8%路径"}).text), [])
+        self.assertEqual(listed(visitor.get("/problems", params={"search": "p8_短路径"}).text), [])
+        # without a search the list is as it was
+        self.assertNotIn('id="problem-search-note"', visitor.get("/problems").text)
+
+        # ---- the field that picks problems: by title first, then by tag
+        picked = admin.get("/problems/pick", params={"scope": "site", "q": "p8最短路"}).json()["problems"]
+        self.assertEqual([(row["number"], row.get("tags")) for row in picked], [(flows, None), (paths, ["p8最短路径"])])
+        picked = admin.get("/problems/pick", params={"scope": "site", "q": "p8网络"}).json()["problems"]
+        self.assertEqual([(row["number"], row.get("tags")) for row in picked], [(flows, ["p8网络流"])])
+        self.assertEqual(admin.get("/problems/pick", params={"scope": "site", "q": "p8%路径"}).json()["problems"], [])
+
+        # ---- the problems of a domain
+        teacher, student = p3.account("p8_tag_teacher"), p3.account("p8_tag_student")
+        self.assertEqual(admin.change_user("p8_tag_teacher", "grant:teacher"), "")
+        slug = "p8-tags"
+        if db_value("select count(*) from domains where slug = '%s'" % slug) == "0":
+            teacher.new_domain(slug)
+        self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username="p8_tag_student", role="member"), "")
+        shown = uoj.pid(teacher.new_problem(slug, title="p8 域里的树", tags="p8树形DP, 图论", public="on"))
+        hidden = uoj.pid(teacher.new_problem(slug, title="p8 域里的藏题", tags="p8树形DP"))
+        uoj.pid(teacher.new_problem(slug, title="p8 域里的别的", tags="模拟", public="on"))
+        here = "/d/%s/problems" % slug
+        numbers = lambda page: [int(n) for n in re.findall(r'<a href="/d/%s/problem/(\d+)">' % slug, page)]
+        page = teacher.get(here, params={"q": "p8树形"}).text
+        self.assertEqual(numbers(page), [shown, hidden])
+        self.assertIn('id="form-search-domain-problems"', page)
+        self.assertRegex(page, r'class="badge badge-pill badge-light border uoj-domain-problem-tag" href="/d/%s/problems\?q=[^"]+">p8树形DP</a>' % slug)
+        # somebody who does not teach there finds what they may see
+        self.assertEqual(numbers(student.get(here, params={"q": "p8树形"}).text), [shown])
+        self.assertEqual(numbers(student.get(here, params={"q": "域里的树"}).text), [shown])
+        self.assertEqual(numbers(student.get(here, params={"q": str(shown)}).text), [shown])
+        self.assertEqual(numbers(student.get(here, params={"q": "p8没有这个"}).text), [])
+        self.assertIn("没有题号、标题或标签里有", student.get(here, params={"q": "p8没有这个"}).text)
+        self.assertEqual(len(numbers(student.get(here).text)), 2)
+        picked = teacher.get("/problems/pick", params={"scope": slug, "q": "p8树形"}).json()["problems"]
+        self.assertEqual([(row["number"], row["tags"]) for row in picked], [(hidden, ["p8树形DP"]), (shown, ["p8树形DP"])])

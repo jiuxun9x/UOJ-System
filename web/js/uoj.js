@@ -683,6 +683,10 @@ $.fn.uoj_problem_picker = function() {
 				if (problem.hidden) {
 					item.append(' <span class="badge badge-secondary">隐藏</span>');
 				}
+				// the tags that have what was typed in them
+				$.each(problem.tags || [], function(j, tag) {
+					item.append(' ').append($('<span class="badge badge-pill badge-light border uoj-picker-tag"></span>').text(tag));
+				});
 				if (isChosen(problem.number) >= 0) {
 					item.append(' <span class="glyphicon glyphicon-ok text-success"></span>');
 				}

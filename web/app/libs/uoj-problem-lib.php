@@ -1162,13 +1162,22 @@ function problemPick($actor, $scope, $purpose, $query, $limit = 20) {
 		if ($digits !== '' && preg_match('/^[0-9]{1,10}$/D', $digits)) {
 			$match = "($match or problems.$column like '$digits%')";
 		}
+		// a tag that has what was typed in it
+		$tag_like = "problems_tags.tag like '%" . DB::escape(addcslashes($query, '\\%_')) . "%'";
+		$match = "($match or exists (select 1 from problems_tags where problems_tags.problem_id = problems.id and $tag_like))";
 		$cond .= " and $match";
 	}
+	$tags = $query === '' ? 'null' : "(select group_concat(problems_tags.tag order by problems_tags.id separator '\n') from problems_tags where problems_tags.problem_id = problems.id and $tag_like)";
 	$found = array();
-	foreach (DB::selectAll("select problems.id, problems.$column as number, problems.title, problems.is_hidden from problems where $cond order by problems.$column desc limit 500") as $row) {
+	foreach (DB::selectAll("select problems.id, problems.$column as number, problems.title, problems.is_hidden, $tags as tags from problems where $cond order by problems.$column desc limit 500") as $row) {
 		$rank = problemPickRank($query, $row['number'], $row['title']);
+		// found by a tag when neither the number nor the title has what was typed: after the others
+		if ($rank === null && $row['tags'] !== null) {
+			$rank = 4;
+		}
 		if ($rank !== null) {
-			$found[] = array('rank' => $rank, 'number' => (int)$row['number'], 'title' => problemPlainTitle($row['title']), 'hidden' => (bool)$row['is_hidden']);
+			$found[] = array('rank' => $rank, 'number' => (int)$row['number'], 'title' => problemPlainTitle($row['title']), 'hidden' => (bool)$row['is_hidden'])
+				+ ($row['tags'] === null ? array() : array('tags' => explode("\n", $row['tags'])));
 		}
 	}
 	// the newest first among answers that are as good as each other, as in the list that

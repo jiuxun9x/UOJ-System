@@ -482,3 +482,10 @@ article blockquote > :last-child {
 	font-size: 0.85em;
 	margin-left: 0.15em;
 }
+
+/* ---- the tags of the problems of a domain, in their list */
+.uoj-domain-problem-tag {
+	margin-left: 0.25rem;
+	font-weight: normal;
+	color: #555;
+}

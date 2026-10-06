@@ -132,6 +132,16 @@ function problemCreate($fields, $domain_id = null) {
 	}
 }
 
+// What a search for problems looks at: the number of the problem, its title and its tags.
+// SQL for a "where"; $number_column is the column of the numbers people call the problems by.
+function problemSearchCond($query, $number_column = 'id') {
+	$like = "'%" . DB::escape(addcslashes($query, '\\%_')) . "%'";
+	// a title is kept the way the pages print it
+	$title_like = "'%" . DB::escape(addcslashes(HTML::escape($query), '\\%_')) . "%'";
+	return "(problems.title like $title_like or problems.$number_column like $like"
+		. " or exists (select 1 from problems_tags where problems_tags.problem_id = problems.id and problems_tags.tag like $like))";
+}
+
 function queryProblemTags($id) {
 	$tags = array();
 	$result = DB::query("select tag from problems_tags where problem_id = $id order by id");

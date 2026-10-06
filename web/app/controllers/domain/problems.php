@@ -43,7 +43,21 @@
 	}
 
 	$esc_username = Auth::check() ? DB::escape(Auth::id()) : '';
-	$problems = DB::selectAll("select problems.*, best_ac_submissions.submission_id as accepted_submission_id from problems left join best_ac_submissions on best_ac_submissions.problem_id = problems.id and best_ac_submissions.submitter = '$esc_username' where problems.owner_domain_id = {$domain['id']}".($can_teach ? '' : ' and problems.is_hidden = 0')." order by problems.domain_pid, problems.id");
+	// what is typed into the search field is looked for in the numbers, the titles and the tags
+	$search = isset($_GET['q']) && is_string($_GET['q']) ? trim(mb_substr($_GET['q'], 0, 50, 'UTF-8')) : '';
+	$n_problems = DB::selectCount("select count(*) from problems where problems.owner_domain_id = {$domain['id']}".($can_teach ? '' : ' and problems.is_hidden = 0'));
+	$problems = DB::selectAll("select problems.*, best_ac_submissions.submission_id as accepted_submission_id from problems left join best_ac_submissions on best_ac_submissions.problem_id = problems.id and best_ac_submissions.submitter = '$esc_username' where problems.owner_domain_id = {$domain['id']}".($can_teach ? '' : ' and problems.is_hidden = 0').($search === '' ? '' : ' and '.problemSearchCond($search, 'domain_pid'))." order by problems.domain_pid, problems.id");
+	// the tags of the problems that are listed: array(id of the problem => its tags)
+	$tags_of = array();
+	if ($problems) {
+		$ids = array();
+		foreach ($problems as $problem) {
+			$ids[] = (int)$problem['id'];
+		}
+		foreach (DB::selectAll("select problem_id, tag from problems_tags where problem_id in (".join(', ', $ids).") order by id") as $row) {
+			$tags_of[(int)$row['problem_id']][] = $row['tag'];
+		}
+	}
 ?>
 <?php echoDomainPageHeader($domain, 'problems', '题目') ?>
 <?php echoDomainError($error) ?>
@@ -85,8 +99,21 @@
 </div>
 <?php endif ?>
 
+<?php if ($n_problems > 0): ?>
+<form method="get" class="form-inline mb-3" id="form-search-domain-problems">
+	<div class="input-group" style="max-width:24em">
+		<input type="text" class="form-control" name="q" id="input-search-domain-problems" value="<?= HTML::escape($search) ?>" placeholder="题号、标题或标签" maxlength="50" />
+		<div class="input-group-append">
+			<button type="submit" class="btn btn-outline-primary"><span class="glyphicon glyphicon-search"></span> 搜索</button>
+		</div>
+	</div>
+	<?php if ($search !== ''): ?>
+	<span class="text-muted ml-3">找到 <?= count($problems) ?> 道。<a href="<?= domainUrl($domain, '/problems') ?>">显示全部</a></span>
+	<?php endif ?>
+</form>
+<?php endif ?>
 <?php if (!$problems): ?>
-<div class="uoj-domain-empty">这个域还没有<?= $can_teach ? '' : '公开的' ?>题目。</div>
+<div class="uoj-domain-empty"><?= $search !== '' ? '没有题号、标题或标签里有“' . HTML::escape($search) . '”的题目。' : '这个域还没有' . ($can_teach ? '' : '公开的') . '题目。' ?></div>
 <?php else: ?>
 <div class="table-responsive">
 	<table class="table table-hover" id="table-domain-problems">
@@ -113,6 +140,9 @@
 					<?php if ($problem['is_hidden']): ?>
 					<span class="badge badge-secondary">隐藏</span>
 					<?php endif ?>
+					<?php foreach (isset($tags_of[(int)$problem['id']]) ? $tags_of[(int)$problem['id']] : array() as $tag): ?>
+					<a class="badge badge-pill badge-light border uoj-domain-problem-tag" href="<?= domainUrl($domain, '/problems') ?>?q=<?= rawurlencode($tag) ?>"><?= HTML::escape($tag) ?></a>
+					<?php endforeach ?>
 					<?php if ($data_state[0] === 'pending' || $data_state[0] === 'preparing'): ?>
 					<span class="badge badge-info">数据准备中</span>
 					<?php elseif ($data_state[0] === 'failed'): ?>
