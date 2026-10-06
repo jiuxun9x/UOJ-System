@@ -11,9 +11,11 @@
 		become403Page();
 	}
 	$settings = problemDefaultSettings();
+	// what is typed is kept in the browser under this name until the problem is made
+	$draft_key = 'new-problem-' . ($domain ? 'd-' . $domain['slug'] : 'site');
 
 	$error = domainHandleForms(array(
-		'create' => function() use ($domain) {
+		'create' => function() use ($domain, $draft_key) {
 			global $myUser;
 			list($basics, $err) = problemBasicsFromForm($_POST);
 			if ($err !== '') {
@@ -62,6 +64,8 @@
 			} elseif ($uploaded !== 'refused') {
 				$notes[] = '还没有测试数据：在这一页上传数据包后才能评测';
 			}
+			// the problem is made: the next page throws away what the browser kept of the form
+			setcookie('uoj_draft_done', $draft_key, 0, '/');
 			domainFlash('题目 #' . problemNumber($problem) . ' 已创建' . ($basics['is_hidden'] ? '，现在是隐藏的' : '') . '。' . join('。', $notes) . '。', $all_well ? 'success' : 'warning');
 			redirectTo(problemUrl($problem, '/manage/data'));
 		}
@@ -94,6 +98,7 @@
 <?php if ($error !== ''): ?>
 <div class="alert alert-warning py-2">上面的问题改好后再提交。数据包和附件需要重新选择。</div>
 <?php endif ?>
+<div class="alert alert-info py-2" id="draft-note" style="display:none; max-width:60em"></div>
 <form method="post" enctype="multipart/form-data" id="form-new-problem" class="text-left" style="max-width:60em">
 	<?= HTML::hiddenToken() ?>
 	<input type="hidden" name="form" value="create" />
@@ -108,7 +113,7 @@
 			<div class="form-group">
 				<label for="input-problem-statement">题面 <small class="text-muted">（Markdown，公式用 $…$）</small></label>
 				<textarea class="form-control" id="input-problem-statement" name="statement_md" rows="12" style="font-family:monospace" placeholder="### 题目描述&#10;&#10;### 输入格式&#10;&#10;### 输出格式&#10;&#10;### 样例&#10;&#10;### 数据范围"><?= HTML::escape($typed('statement_md')) ?></textarea>
-				<small class="form-text text-muted">可以先留空。创建之后在“题面”页里用带预览的编辑器修改。</small>
+				<small class="form-text text-muted">可以先留空。创建之后在“题面”页里用带预览的编辑器修改。这里写的内容会自动留在这个浏览器里，直到题目创建成功。</small>
 			</div>
 			<div class="form-row">
 				<div class="form-group col-md-7">
@@ -167,4 +172,9 @@
 	<a class="btn btn-link" href="<?= $domain ? domainUrl($domain, '/problems') : '/problems' ?>">取消</a>
 	<small class="form-text text-muted">创建之后这些都还能改。<?= $domain ? '本域的教师都能管理这道题。' : '你是这道题的管理者，可以在“管理者”页里添加别人。' ?></small>
 </form>
+<script type="text/javascript">
+// What is typed here is kept in this browser until the problem is made: a page that is left
+// or closed, or a login that ran out, does not take a statement with it.
+$('#form-new-problem').uoj_form_draft(<?= json_encode($draft_key) ?>, ['title', 'statement_md', 'tags'], $('#draft-note'));
+</script>
 <?php echoUOJPageFooter() ?>

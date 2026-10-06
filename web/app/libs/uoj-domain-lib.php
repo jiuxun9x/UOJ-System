@@ -272,7 +272,11 @@ function domainHandleForms($forms, $redirect = null) {
 	if (!isset($_POST['form']) || !is_string($_POST['form']) || !isset($forms[$_POST['form']])) {
 		return '';
 	}
-	crsf_defend();
+	if (!crsf_check()) {
+		// The page was open while its user logged in anew somewhere else. Nothing is done, and
+		// the page is shown again: a form that shows what was typed into it has it still.
+		return '这个页面打开之后你重新登录过，这次提交没有生效。请再提交一次。';
+	}
 	$err = $forms[$_POST['form']]();
 	if ($err === '') {
 		redirectTo($redirect !== null ? $redirect : UOJContext::requestPath());

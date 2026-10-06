@@ -417,13 +417,37 @@ def statement_is_read_as_it_was_written(page, seeded):
     assert page.inner_text(button) == "已复制", page.inner_text(button)
 
 
+def new_problem_is_kept(page, seeded):
+    """what is typed into the form that makes a problem is there again when the page is opened
+    again, and is thrown away when its writer says so"""
+    draft = "window.localStorage.getItem('uoj-draft:new-problem-d-%s')" % SLUG
+    written = "## 题目描述\n\n写到一半的题面，$n$ 个数。"
+    assert not page.is_visible("#draft-note")
+    page.fill("#input-problem-title", "写到一半的题")
+    page.fill("#input-problem-statement", written)
+    page.wait_for_function(draft + " !== null")
+    page.reload(wait_until="networkidle")
+    assert page.input_value("#input-problem-title") == "写到一半的题", page.input_value("#input-problem-title")
+    assert page.input_value("#input-problem-statement") == written, page.input_value("#input-problem-statement")
+    assert "已恢复" in page.inner_text("#draft-note"), page.inner_text("#draft-note")
+    page.click("#draft-discard")
+    assert page.input_value("#input-problem-statement") == "" and not page.is_visible("#draft-note")
+    assert page.evaluate(draft) is None
+    # the picture is taken of the form with what was put back
+    page.fill("#input-problem-title", "链表的倒数第 k 个结点")
+    page.fill("#input-problem-statement", written)
+    page.wait_for_function(draft + " !== null")
+    page.reload(wait_until="networkidle")
+    assert page.is_visible("#draft-note")
+
+
 def pages(seeded):
     """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
     past, current = d + "/homework/%d" % seeded["past"], d + "/homework/%d" % seeded["current"]
     training = d + "/training/%d" % seeded["training"]
     return [
-        ("problem-new", "teacher", d + "/problem/new"),
+        ("problem-new", "teacher", d + "/problem/new", new_problem_is_kept),
         ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_follows_the_form),
         ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
         ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),

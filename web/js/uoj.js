@@ -566,6 +566,116 @@ $.fn.uoj_samples = function() {
 	});
 };
 
+// ---- what is typed is kept in the browser until it is taken
+//
+// A long text is typed into a form, and then the page is left, the tab is closed or the
+// login has run out: the text is kept in this browser under a name, and is there again when
+// the form is opened again. It is thrown away when the server says that the form was taken.
+
+var uojDraft = {
+	name: function(key) {
+		return 'uoj-draft:' + key;
+	},
+	// null where there is none, and where the browser keeps nothing
+	read: function(key) {
+		try {
+			var draft = JSON.parse(window.localStorage.getItem(uojDraft.name(key)));
+			return draft && typeof draft === 'object' && draft.values ? draft : null;
+		} catch (e) {
+			return null;
+		}
+	},
+	write: function(key, values) {
+		try {
+			window.localStorage.setItem(uojDraft.name(key), JSON.stringify({saved: new Date().getTime(), values: values}));
+			return true;
+		} catch (e) {
+			return false;
+		}
+	},
+	remove: function(key) {
+		try {
+			window.localStorage.removeItem(uojDraft.name(key));
+		} catch (e) {
+		}
+	},
+	// "10:32", or "10月5日 10:32" when it was not today
+	when: function(draft) {
+		var at = new Date(draft.saved);
+		var two = function(n) {
+			return (n < 10 ? '0' : '') + n;
+		};
+		var time = two(at.getHours()) + ':' + two(at.getMinutes());
+		return at.toDateString() === new Date().toDateString() ? time : (at.getMonth() + 1) + '月' + at.getDate() + '日 ' + time;
+	}
+};
+
+// Keeps the fields with these names of a form. $note is where it is said that something was
+// put back, with the way to throw it away.
+$.fn.uoj_form_draft = function(key, names, $note) {
+	var form = $(this);
+	var field = function(name) {
+		return form.find('[name="' + name + '"]');
+	};
+	var values = function() {
+		var now = {};
+		var any = false;
+		$.each(names, function(i, name) {
+			now[name] = field(name).val() || '';
+			any = any || $.trim(now[name]) !== '';
+		});
+		return any ? now : null;
+	};
+	var keep = function() {
+		var now = values();
+		if (now) {
+			uojDraft.write(key, now);
+		} else {
+			uojDraft.remove(key);
+		}
+	};
+	// What the server filled in is newer than what the browser kept: the form was sent and
+	// came back. The browser's copy is put back only into a form that is empty.
+	var draft = uojDraft.read(key);
+	if (draft && !values()) {
+		$.each(names, function(i, name) {
+			if (typeof draft.values[name] === 'string') {
+				field(name).val(draft.values[name]).trigger('autosize.resize');
+			}
+		});
+		if ($note) {
+			$note.empty().append($('<span></span>').text('已恢复 ' + uojDraft.when(draft) + ' 写到一半、还没有提交的内容。'))
+				.append($('<a href="#" class="alert-link ml-2" id="draft-discard">清空，重新写</a>').click(function(e) {
+					e.preventDefault();
+					$.each(names, function(i, name) {
+						field(name).val('').trigger('autosize.resize');
+					});
+					uojDraft.remove(key);
+					$note.hide();
+				})).show();
+		}
+	}
+	var timer = null;
+	form.on('input change', function() {
+		clearTimeout(timer);
+		timer = setTimeout(keep, 400);
+	});
+	// what was typed in the last moment, and what is being sent now
+	form.on('submit', keep);
+	$(window).on('pagehide beforeunload', keep);
+	return form;
+};
+
+// A form was taken: what the browser kept of it is of no use any more. The server says so
+// with a cookie, and it is seen to before any form of the page looks for what was kept.
+(function() {
+	var done = $.cookie('uoj_draft_done');
+	if (done) {
+		uojDraft.remove(done);
+		$.removeCookie('uoj_draft_done', {path: '/'});
+	}
+})();
+
 $(document).ready(function() {
 	$('body').uoj_samples();
 	$('body').uoj_highlight();

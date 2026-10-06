@@ -35,7 +35,9 @@ def save_statement(client, problem_id, statement_md, title="p8 statement", tags=
     fields.update(more)
     r = client.post("/problem/%d/manage/statement" % problem_id, fields)
     assert r.status_code == 200, "HTTP %d: %s" % (r.status_code, uoj.text_of(r.text)[:300])
-    return json.loads(r.text)
+    # nothing to say is said as an empty list
+    answer = json.loads(r.text)
+    return answer if isinstance(answer, dict) else {}
 
 
 class StatementIsKeptTest(unittest.TestCase):
@@ -106,8 +108,7 @@ class StatementIsKeptTest(unittest.TestCase):
         self.assertIsNone(stored_statement(problem_id))
         self.assertEqual(admin.get("/problem/%d/manage/statement" % problem_id).status_code, 200)
         self.assertEqual(admin.get("/problem/%d" % problem_id).status_code, 200)
-        answer = save_statement(admin, problem_id, "又写了一遍，$m$ 行。")
-        self.assertNotIn("extra", answer)
+        self.assertEqual(save_statement(admin, problem_id, "又写了一遍，$m$ 行。"), {})
         self.assertEqual(stored_statement(problem_id), ("<p>又写了一遍，$m$ 行。</p>", "又写了一遍，$m$ 行。"))
         self.assertIn("<p>又写了一遍，$m$ 行。</p>", admin.get("/problem/%d" % problem_id).text)
 
@@ -353,3 +354,59 @@ class RevealProblemsTest(unittest.TestCase):
         p4.tick()
         site_tick()
         self.assertEqual(hidden(first, second, third), [True, False, True])
+
+
+def statement_changes(problem_id):
+    """what is written down of the changes of a statement: (who, what it was, what it became)"""
+    return [
+        (row[0], json.loads(row[1]), json.loads(row[2]))
+        for row in db("select actor, before_json, after_json from audit_logs where action = 'problem.edit_statement'"
+                      " and resource_id = '%d' order by id" % problem_id)  # fmt: skip
+    ]
+
+
+class StatementIsNotLostTest(unittest.TestCase):
+    """a statement is not lost because a button was not pressed or a page was left: the page
+    that edits it saves by itself, and the form that makes a problem keeps what is typed.
+    What the pages do in a browser is looked at in screenshots.py; here is the server's side."""
+
+    def test_form_that_makes_a_problem_does_not_throw_away_what_was_typed(self):
+        admin = uoj.admin()
+        page = admin.get("/problem/new").text
+        self.assertIn("uoj_form_draft(\"new-problem-site\", ['title', 'statement_md', 'tags']", page)
+        self.assertIn('id="draft-note"', page)
+        written = "## 题目描述\n\n写了很久的题面，$n$ 个数 <不能丢>。"
+        fields = {"form": "create", "title": "p8 写了很久", "statement_md": written, "tags": "p8草稿", "type": "traditional",
+                  "time_limit": "1", "memory_limit": "256", "checker": "wcmp", "scoring": "per_test"}  # fmt: skip
+        before = db_value("select count(*) from problems")
+
+        # ---- the page was open while its user logged in anew: nothing is made, and the form is
+        # there again with what was typed into it, to be sent again
+        r = admin.post("/problem/new", fields, token=False)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(db_value("select count(*) from problems"), before)
+        self.assertIn("这次提交没有生效", r.text)
+        self.assertIn('value="p8 写了很久"', r.text)
+        self.assertIn("写了很久的题面，$n$ 个数 &lt;不能丢&gt;。</textarea>", r.text)
+        self.assertIn('value="p8草稿"', r.text)
+        # ---- so is a form with something wrong in it
+        r = admin.post("/problem/new", dict(fields, time_limit="很快"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(db_value("select count(*) from problems"), before)
+        self.assertIn("写了很久的题面，$n$ 个数 &lt;不能丢&gt;。</textarea>", r.text)
+
+        # ---- the problem is made: the browser is told that it need not keep the form any more
+        r = admin.post("/problem/new", fields)
+        self.assertEqual(r.status_code, 302)
+        self.assertRegex(r.headers.get("Set-Cookie", ""), r"uoj_draft_done=new-problem-site;.*path=/")
+        problem_id = int(db_value("select max(id) from problems where owner_domain_id is null"))
+        self.assertEqual(stored_statement(problem_id)[1], written)
+        self.assertIn("<p>写了很久的题面，$n$ 个数 &lt;不能丢&gt;。</p>", stored_statement(problem_id)[0])
+        # in a domain the form is kept under the name of the domain
+        slug = "p8-draft"
+        if db_value("select count(*) from domains where slug = '%s'" % slug) == "0":
+            admin.new_domain(slug)
+        self.assertIn('uoj_form_draft("new-problem-d-%s"' % slug, admin.get("/d/%s/problem/new" % slug).text)
+        r = admin.post("/d/%s/problem/new" % slug, fields)
+        self.assertEqual(r.status_code, 302)
+        self.assertRegex(r.headers.get("Set-Cookie", ""), r"uoj_draft_done=new-problem-d-%s;.*path=/" % slug)
