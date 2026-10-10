@@ -888,6 +888,9 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(uoj.wait_submission(waiting).score, 100)
         wait_for_calm("the alerts are over")
         self.assertEqual(told(), told_before + 4)
+        # (the mail about an alert that is over goes out after the alert is closed: the one who
+        # closed it may be the site itself, looking at its state every minute, and still at it)
+        uoj.wait_until("the mails about the recovery have arrived", lambda: len(mails()[mails_before:]) >= 4, 60)
         sent = mails()[mails_before:]
         self.assertEqual(len(sent), 4)
         self.assertTrue(all("已恢复" in mail.subject for mail in sent[2:]), [mail.subject for mail in sent])

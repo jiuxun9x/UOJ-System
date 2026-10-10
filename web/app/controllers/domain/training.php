@@ -140,7 +140,7 @@
 					<?php if ($score === null): ?>
 					<span class="text-muted">未提交</span>
 					<?php elseif ($score >= 100): ?>
-					<span class="text-success font-weight-bold">已通过<?= passedMark() ?></span>
+					<span class="text-success font-weight-bold">已通过<?= passedMark('') ?></span>
 					<?php else: ?>
 					<span class="uoj-score" data-max="100"><?= $score ?></span> 分
 					<?php endif ?>
@@ -186,7 +186,7 @@
 				<?php $score = isset($best[$username][$id]) ? $best[$username][$id] : null; ?>
 				<td class="<?= $score === null ? '' : ($score >= 100 ? 'uoj-score-full' : ($score > 0 ? 'uoj-score-part' : 'uoj-score-zero')) ?>" data-problem="<?= $id ?>"><?= $score === null ? '<span class="text-muted">—</span>' : $score ?></td>
 				<?php endforeach ?>
-				<td><strong><?= $progress['solved'] ?></strong> / <?= $progress['total'] ?><?php if ($progress['done']): ?><span class="text-success" title="已完成"><?= passedMark() ?></span><?php endif ?></td>
+				<td><strong><?= $progress['solved'] ?></strong> / <?= $progress['total'] ?><?php if ($progress['done']): ?><span class="text-success"><?= passedMark('已完成') ?></span><?php endif ?></td>
 			</tr>
 			<?php endforeach ?>
 		</tbody>

@@ -374,9 +374,12 @@ function submissionVerdict($submission) {
 
 // what stands beside a full score, or a verdict that says the same: it is seen in a list
 // without reading the numbers
-function passedMark() {
+// $says is what the tick stands for, for who points at it or has the page read to them; a
+// tick beside words that say it already says nothing ('').
+function passedMark($says = '通过') {
 	// drawn, not taken from a font: a thin tick that looks the same on every machine
-	return ' <svg class="uoj-passed-mark" viewBox="0 0 16 16" role="img" aria-label="通过"><title>通过</title><path d="M3 8.6l3.3 3.3L13 4.9"/></svg>';
+	$label = $says === '' ? ' aria-hidden="true">' : ' role="img" aria-label="' . $says . '"><title>' . $says . '</title>';
+	return ' <svg class="uoj-passed-mark" viewBox="0 0 16 16"' . $label . '<path d="M3 8.6l3.3 3.3L13 4.9"/></svg>';
 }
 
 function echoSubmission($submission, $config, $user) {

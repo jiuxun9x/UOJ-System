@@ -279,7 +279,7 @@
 							<input type="hidden" name="username" value="<?= $balloon['username'] ?>" />
 							<input type="hidden" name="problem_id" value="<?= $balloon['problem_id'] ?>" />
 							<?php if ($is_done): ?>
-							<span class="text-success mr-1" title="<?= HTML::escape($balloon['done_by']) ?> 在 <?= $balloon['done_at'] ?> 记下的">已送<?= passedMark() ?> <small class="text-muted"><?= HTML::escape($balloon['done_by']) ?> <?= substr($balloon['done_at'], 11, 5) ?></small></span>
+							<span class="text-success mr-1" title="<?= HTML::escape($balloon['done_by']) ?> 在 <?= $balloon['done_at'] ?> 记下的">已送<?= passedMark('') ?> <small class="text-muted"><?= HTML::escape($balloon['done_by']) ?> <?= substr($balloon['done_at'], 11, 5) ?></small></span>
 							<button type="submit" class="btn btn-link btn-sm p-0" title="其实还没送到">撤销</button>
 							<?php else: ?>
 							<button type="submit" class="btn btn-primary btn-sm">送到了</button>
