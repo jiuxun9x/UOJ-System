@@ -146,6 +146,8 @@ function echoProblemManageTabs($problem, $active) {
 		echo '<li class="nav-item"><a class="nav-link', $tab === $active ? ' active' : '', '" href="', problemUrl($problem, "/manage/$tab"), '" role="tab">', $label, '</a></li>';
 	}
 	echo '<li class="nav-item"><a class="nav-link" href="', problemUrl($problem), '" role="tab">返回题目</a></li>';
+	// apart from the others, where nobody goes by mistake
+	echo '<li class="nav-item ml-auto"><a class="nav-link text-danger', $active === 'delete' ? ' active' : '', '" href="', problemUrl($problem, '/manage/delete'), '" role="tab" id="tab-link-delete-problem">删除</a></li>';
 	echo '</ul>';
 }
 

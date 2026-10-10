@@ -1022,6 +1022,101 @@ function problemCreateWithBasics($basics, $actor, $domain = null) {
 	return $id;
 }
 
+// ---- deleting a problem
+//
+// A problem is deleted with everything that is the problem's: its statement, its data, the
+// files that come with it, and what was ever submitted to it. That can not be taken back, so
+// a problem that something still needs is not deleted: it is taken out of the contests, the
+// homeworks and the trainings it is in first, by somebody who then knows what they did.
+
+// what a problem is in: lines for people, none when nothing needs it
+function problemUses($problem) {
+	$id = (int)$problem['id'];
+	$uses = array();
+	foreach (DB::selectAll("select contests.id, contests.name from contests_problems join contests on contests.id = contests_problems.contest_id where contests_problems.problem_id = $id order by contests.id") as $row) {
+		$uses[] = '比赛“' . strip_tags($row['name']) . '”';
+	}
+	foreach (DB::selectAll("select homeworks.title from homework_problems join homeworks on homeworks.id = homework_problems.homework_id where homework_problems.problem_id = $id order by homeworks.id") as $row) {
+		$uses[] = '作业“' . $row['title'] . '”';
+	}
+	foreach (DB::selectAll("select trainings.title from training_problems join trainings on trainings.id = training_problems.training_id where training_problems.problem_id = $id order by trainings.id") as $row) {
+		$uses[] = '训练“' . $row['title'] . '”';
+	}
+	return $uses;
+}
+// what goes with a problem when it is deleted: how much of what
+function problemDeletionFacts($problem) {
+	$id = (int)$problem['id'];
+	return array(
+		'submissions' => (int)DB::selectCount("select count(*) from submissions where problem_id = $id"),
+		'submitters' => (int)DB::selectCount("select count(distinct submitter) from submissions where problem_id = $id"),
+		'hacks' => (int)DB::selectCount("select count(*) from hacks where problem_id = $id"),
+		'attachments' => count(attachmentsOf('problem', $id)),
+		'data_files' => count(problemDataFiles($problem))
+	);
+}
+// what has to be typed to delete a problem: its title, as it reads
+function problemDeletionWord($problem) {
+	return trim(problemPlainTitle($problem['title']));
+}
+// Deletes a problem. Returns '' or why it was not deleted.
+function problemDelete($problem, $actor) {
+	requirePHPLib('judger');
+	requirePHPLib('data');
+	$id = (int)$problem['id'];
+	$uses = problemUses($problem);
+	if ($uses) {
+		return '这道题还在 ' . join('、', array_slice($uses, 0, 5)) . (count($uses) > 5 ? ' 等 ' . count($uses) . ' 处' : '') . ' 里。先把它从那里移出，再删除';
+	}
+	set_time_limit(0);
+	ignore_user_abort(true);
+	$facts = problemDeletionFacts($problem);
+	// its number is not given to another problem, whatever becomes of the rest of this
+	DB::insert("insert ignore into problems_deleted (id, owner_domain_id, domain_pid, deleted_at) values ($id, ".($problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : 'null').", ".($problem['owner_domain_id'] ? (int)$problem['domain_pid'] : 'null').", now())");
+	// from here on there is no such problem; what follows clears away what was its own
+	DB::delete("delete from problems where id = $id");
+	auditLog('problem.delete', 'problem', $id, array('title' => $problem['title'], 'is_hidden' => (int)$problem['is_hidden'], 'owner_domain_id' => $problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : null) + $facts, null, $actor);
+
+	// the files of what was submitted, then the rows
+	$storage = UOJContext::storagePath();
+	$unlink = function($name) use ($storage) {
+		if (is_string($name) && $name !== '' && strpos($name, '..') === false && is_file($storage . $name)) {
+			@unlink($storage . $name);
+		}
+	};
+	foreach (array('submissions', 'custom_test_submissions') as $table) {
+		$result = DB::query("select content from $table where problem_id = $id");
+		while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
+			$content = json_decode($row['content'], true);
+			if (is_array($content) && isset($content['file_name'])) {
+				$unlink($content['file_name']);
+			}
+		}
+	}
+	$result = DB::query("select input from hacks where problem_id = $id");
+	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
+		$unlink($row['input']);
+	}
+	$solvers = DB::selectAll("select submitter from best_ac_submissions where problem_id = $id");
+	DB::delete("delete from submission_judgements where problem_id = $id");
+	foreach (array('submissions', 'custom_test_submissions', 'hacks', 'best_ac_submissions', 'problems_tags', 'problems_permissions', 'problem_data_versions') as $table) {
+		DB::delete("delete from $table where problem_id = $id");
+	}
+	DB::delete("delete from problems_contents where id = $id");
+	DB::delete("delete from click_zans where type = 'P' and target_id = $id");
+	// who had solved it has solved one problem less
+	foreach ($solvers as $row) {
+		$esc_username = DB::escape($row['submitter']);
+		DB::update("update user_info set ac_num = (select count(*) from best_ac_submissions where submitter = '$esc_username') where username = '$esc_username'");
+	}
+	foreach (attachmentsOf('problem', $id) as $attachment) {
+		attachmentDelete($attachment, $actor);
+	}
+	exec("rm -rf " . escapeshellarg("/var/uoj_data/$id") . " " . escapeshellarg("/var/uoj_data/upload/$id") . " " . escapeshellarg("/var/uoj_data/$id.zip")
+		. " " . escapeshellarg(dataStageDir($id)) . " " . escapeshellarg("/var/uoj_data/archive/$id"));
+	return '';
+}
+
 // ---- the data that is uploaded
 
 // Takes the archive a form sent as the data of a problem and unpacks it into the folder of

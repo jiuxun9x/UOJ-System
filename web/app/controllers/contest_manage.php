@@ -100,6 +100,19 @@
 			$done('access', '已从名单里移除。');
 		},
 
+		// ---- the end of it
+		'delete_contest' => function() use ($contest) {
+			global $myUser;
+			$typed = isset($_POST['confirm']) && is_string($_POST['confirm']) ? trim($_POST['confirm']) : '';
+			if ($typed !== contestDeletionWord($contest)) {
+				return '输入的比赛名称和这场比赛的不一样，比赛没有删除';
+			}
+			contestDelete($contest, $myUser);
+			domainFlash('比赛“' . contestDeletionWord($contest) . '”已删除。它的题目和提交还在。');
+			$domain = empty($contest['domain_id']) ? null : queryDomain($contest['domain_id']);
+			redirectTo($domain ? domainUrl($domain, '/contests') : '/contests');
+		},
+
 		// ---- the contestants: put in and taken out at any time, also while the contest runs
 		'add_contestants' => function() use ($contest, $done) {
 			global $myUser;
@@ -157,7 +170,7 @@
 	$flash = domainTakeFlash();
 
 	// a form that was refused is shown again on its tab, with what was typed into it
-	$tabs = array('settings' => '设置', 'problems' => '试题', 'attachments' => '附件', 'contestants' => '选手', 'access' => '名单', 'managers' => '管理者');
+	$tabs = array('settings' => '设置', 'problems' => '试题', 'attachments' => '附件', 'contestants' => '选手', 'access' => '名单', 'managers' => '管理者', 'delete' => '删除');
 	$active_tab = isset($_POST['tab']) && is_string($_POST['tab']) && isset($tabs[$_POST['tab']]) ? $_POST['tab'] : 'settings';
 	if ($error !== '' && $active_tab === 'settings') {
 		foreach (array('name', 'start_time', 'last_min', 'rule', 'freeze_minutes', 'standings_version', 'rating_k', 'join_mode') as $field) {
@@ -181,6 +194,7 @@
 	$managers = DB::selectAll("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
 	$allowed_users = contestAllowedUsers($contest);
 	$contestants = contestRegistrants($contest);
+	$deletion_facts = contestDeletionFacts($contest);
 	$contestant_identities = rosterIdentities(array_column($contestants, 'username'));
 	$attachments = attachmentsOf('contest', $contest['id']);
 	$has_begun = $contest['cur_progress'] > CONTEST_NOT_STARTED;
@@ -194,7 +208,7 @@
 <?php echoDomainError($error) ?>
 <ul class="nav nav-tabs mb-3" role="tablist" id="contest-manage-tabs">
 	<?php foreach ($tabs as $tab => $label): ?>
-	<li class="nav-item"><a class="nav-link<?= $tab === $active_tab ? ' active' : '' ?>" href="#tab-<?= $tab ?>" role="tab" data-toggle="tab"><?= $label ?><?php if ($tab === 'problems'): ?> <span class="badge badge-secondary"><?= count($problems) ?></span><?php elseif ($tab === 'attachments' && $attachments): ?> <span class="badge badge-secondary"><?= count($attachments) ?></span><?php endif ?></a></li>
+	<li class="nav-item"><a class="nav-link<?= $tab === $active_tab ? ' active' : '' ?><?= $tab === 'delete' ? ' text-danger' : '' ?>" href="#tab-<?= $tab ?>" role="tab" data-toggle="tab"><?= $label ?><?php if ($tab === 'problems'): ?> <span class="badge badge-secondary"><?= count($problems) ?></span><?php elseif ($tab === 'attachments' && $attachments): ?> <span class="badge badge-secondary"><?= count($attachments) ?></span><?php endif ?></a></li>
 	<?php endforeach ?>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?= $contest['id'] ?>" role="tab">返回比赛</a></li>
 </ul>
@@ -300,6 +314,31 @@
 		<?php echoAttachmentsManager($attachments, 'attachments') ?>
 	</div>
 	
+	<div class="tab-pane<?= $active_tab === 'delete' ? ' active' : '' ?>" id="tab-delete">
+		<div class="card border-danger" id="card-delete-contest" style="max-width:48em">
+			<div class="card-header bg-danger text-white">删除这场比赛</div>
+			<div class="card-body">
+				<p class="mb-2">删除之后<strong>不能恢复</strong>。</p>
+				<ul id="contest-deletion-facts">
+					<li><strong>会删除</strong>：<?= $deletion_facts['contestants'] ?> 位选手的报名和名次、榜单、公告、<?= $deletion_facts['questions'] ?> 条提问、名单和管理者<?= $deletion_facts['attachments'] > 0 ? '、' . $deletion_facts['attachments'] . ' 个附件' : '' ?>，以及在这场比赛上的虚拟参赛记录。</li>
+					<li><strong>会留下</strong>：比赛里的 <?= $deletion_facts['problems'] ?> 道题目（是否公开保持现在的样子），和 <?= $deletion_facts['submissions'] ?> 份提交——它们变成这些题目的普通提交。</li>
+					<?php if ($has_begun && $contest['cur_progress'] <= CONTEST_IN_PROGRESS): ?><li class="text-danger">这场比赛<strong>正在进行</strong>，删除后选手会立刻看不到它。</li><?php endif ?>
+				</ul>
+				<p class="text-muted small">已经计入的 Rating 不会退回。站点每天的自动备份里还留着删除之前的样子。</p>
+				<form method="post" id="form-delete-contest">
+					<?= HTML::hiddenToken() ?>
+					<input type="hidden" name="form" value="delete_contest" />
+					<input type="hidden" name="tab" value="delete" />
+					<div class="form-group">
+						<label for="input-confirm-delete-contest">请输入这场比赛的名称 <strong><?= HTML::escape(contestDeletionWord($contest)) ?></strong> 确认</label>
+						<input type="text" class="form-control" id="input-confirm-delete-contest" name="confirm" autocomplete="off" required="required" />
+					</div>
+					<button type="submit" class="btn btn-danger" id="button-delete-contest">删除这场比赛</button>
+				</form>
+			</div>
+		</div>
+	</div>
+
 	<div class="tab-pane<?= $active_tab === 'contestants' ? ' active' : '' ?>" id="tab-contestants">
 		<p class="text-muted">
 			报名了的人就是选手。选手可以自己报名：比赛开始前，以及<strong>比赛进行中</strong>都可以（密码限制、名单限制照常生效）；比赛结束后不能再报名。

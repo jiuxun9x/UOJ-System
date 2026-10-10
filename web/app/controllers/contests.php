@@ -55,6 +55,10 @@ EOD;
 	}
 ?>
 <?php echoUOJPageHeader(UOJLocale::get('contests')) ?>
+<?php $flash = domainTakeFlash(); ?>
+<?php if ($flash): ?>
+<div class="alert alert-<?= $flash[0] ?>" role="alert" id="contests-flash"><?= HTML::escape($flash[1]) ?></div>
+<?php endif ?>
 <h4><?= UOJLocale::get('contests::current or upcoming contests') ?></h4>
 <?php
 	$table_header = '';

@@ -117,7 +117,9 @@ function problemCreate($fields, $domain_id = null) {
 	}
 	try {
 		if ($domain_id === null) {
-			$id = 1 + (int)DB::selectFirst("select ifnull(max(id), 0) from problems where owner_domain_id is null", MYSQLI_NUM)[0];
+			// (a number that a deleted problem had is not given out again)
+			$id = 1 + max((int)DB::selectFirst("select ifnull(max(id), 0) from problems where owner_domain_id is null", MYSQLI_NUM)[0],
+				(int)DB::selectFirst("select ifnull(max(id), 0) from problems_deleted where owner_domain_id is null", MYSQLI_NUM)[0]);
 			// the ids that problems of domains were given before they had a range of their own
 			while (DB::selectFirst("select 1 from problems where id = $id")) {
 				$id++;
@@ -127,9 +129,11 @@ function problemCreate($fields, $domain_id = null) {
 			}
 		} else {
 			$domain_id = (int)$domain_id;
-			$id = 1 + (int)DB::selectFirst("select ifnull(max(id), ".UOJ_DOMAIN_PROBLEM_ID_BASE.") from problems where id > ".UOJ_DOMAIN_PROBLEM_ID_BASE, MYSQLI_NUM)[0];
+			$id = 1 + max((int)DB::selectFirst("select ifnull(max(id), ".UOJ_DOMAIN_PROBLEM_ID_BASE.") from problems where id > ".UOJ_DOMAIN_PROBLEM_ID_BASE, MYSQLI_NUM)[0],
+				(int)DB::selectFirst("select ifnull(max(id), 0) from problems_deleted where id > ".UOJ_DOMAIN_PROBLEM_ID_BASE, MYSQLI_NUM)[0]);
 			$fields['owner_domain_id'] = $domain_id;
-			$fields['domain_pid'] = 1 + (int)DB::selectFirst("select ifnull(max(domain_pid), 0) from problems where owner_domain_id = $domain_id", MYSQLI_NUM)[0];
+			$fields['domain_pid'] = 1 + max((int)DB::selectFirst("select ifnull(max(domain_pid), 0) from problems where owner_domain_id = $domain_id", MYSQLI_NUM)[0],
+				(int)DB::selectFirst("select ifnull(max(domain_pid), 0) from problems_deleted where owner_domain_id = $domain_id", MYSQLI_NUM)[0]);
 		}
 		$fields['id'] = $id;
 		if (!DB::insert("insert into problems (".join(', ', array_keys($fields)).") values (".join(', ', $fields).")")) {

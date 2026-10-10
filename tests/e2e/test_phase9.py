@@ -304,3 +304,155 @@ class RegistrationTest(unittest.TestCase):
                 self.assertEqual(nobody.post(manage, dict(fields, form=form, tab="contestants")).status_code, 403, form)
         self.assertEqual(seats()["p9_staff_bob"], "B-2")
         self.assertEqual(db_value("select count(*) from audit_logs where action = 'contest.add_contestants' and resource_id = '%d'" % contest_id), "4")
+
+
+def exists(path):
+    return uoj.docker_exec(uoj.WEB, "test -e %s && echo there; true" % path).strip() == "there"
+
+
+class DeletionTest(unittest.TestCase):
+    """a problem is deleted with what is its own, when nothing needs it any more; a contest is
+    deleted and leaves its problems and what was submitted to them"""
+
+    STORAGE = "/var/www/uoj/app/storage"
+
+    def word(self, client, page_path, field):
+        """the name a page asks for before it deletes"""
+        return re.search(r'(?s)<label for="%s">.*?<strong>(.*?)</strong>' % field, client.get(page_path).text).group(1)
+
+    def test_problem_is_deleted_with_everything_that_is_its_own(self):
+        import html
+
+        admin = uoj.admin()
+        solver, stranger = p3.account("p9_del_solver"), p3.account("p9_del_stranger")
+        problem_id = admin.create_problem(ab_problem_files())
+        db("update problems set title = 'p9 要删的题 &amp; 它的数据' where id = %d" % problem_id)
+        right, wrong = solver.submit(problem_id, AB), solver.submit(problem_id, AB_WRONG)
+        self.assertEqual(uoj.wait_submission(right).score, 100)
+        uoj.wait_submission(wrong)
+        solved_before = int(db_value("select ac_num from user_info where username = 'p9_del_solver'"))
+        files = [json.loads(db_value("select content from submissions where id = %d" % s))["file_name"] for s in (right, wrong)]
+        for name in files:
+            self.assertTrue(exists(self.STORAGE + name), name)
+        contest_id = admin.new_contest("p9 用着这道题的比赛", problems=str(problem_id))
+        page_path = "/problem/%d/manage/delete" % problem_id
+
+        # ---- the way there is on the pages that manage the problem, for who manages it
+        self.assertIn('href="%s"' % page_path, admin.get("/problem/%d/manage/statement" % problem_id).text)
+        for nobody in (solver, stranger):
+            self.assertEqual(nobody.get(page_path).status_code, 403)
+            self.assertEqual(nobody.post(page_path, {"form": "delete_problem", "confirm": "p9 要删的题 & 它的数据"}).status_code, 403)
+
+        # ---- a problem that a contest has is not deleted: the page says where it is, and has no form
+        page = admin.get(page_path).text
+        self.assertIn('id="problem-in-use"', page)
+        self.assertIn("p9 用着这道题的比赛", page)
+        self.assertNotIn('id="form-delete-problem"', page)
+        self.assertIn("先把它从那里移出", admin.form(page_path, "delete_problem", confirm="p9 要删的题 & 它的数据"))
+        self.assertEqual(db_value("select count(*) from problems where id = %d" % problem_id), "1")
+        self.assertEqual(admin.form("/contest/%d/manage" % contest_id, "remove_problem", tab="problems", problem_id=str(problem_id)), "")
+
+        # ---- it says what goes with the problem, and asks for its name
+        page = admin.get(page_path).text
+        told = uoj.text_of(re.search(r'(?s)<ul id="problem-deletion-facts">(.*?)</ul>', page).group(1))
+        self.assertRegex(told, r"2\s*份提交（来自 1 个人）")
+        name = html.unescape(self.word(admin, page_path, "input-confirm-delete"))
+        self.assertEqual(name, "p9 要删的题 & 它的数据")
+        for not_it in ("", "p9 要删的题", "#%d" % problem_id):
+            self.assertIn("题目没有删除", admin.form(page_path, "delete_problem", confirm=not_it))
+        self.assertEqual(db_value("select count(*) from problems where id = %d" % problem_id), "1")
+
+        # ---- with its name it is gone, with what was its own
+        r = admin.post(page_path, {"form": "delete_problem", "confirm": " " + name + " "})
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/problems"))
+        page = admin.get("/problems").text
+        self.assertIn('id="problems-flash"', page)
+        self.assertIn("已删除", page)
+        for table, column in (("problems", "id"), ("problems_contents", "id"), ("submissions", "problem_id"), ("best_ac_submissions", "problem_id"),
+                              ("problem_data_versions", "problem_id"), ("problems_tags", "problem_id"), ("problems_permissions", "problem_id"),
+                              ("submission_judgements", "problem_id")):  # fmt: skip
+            self.assertEqual(db_value("select count(*) from %s where %s = %d" % (table, column, problem_id)), "0", table)
+        for path in ["/var/uoj_data/%d" % problem_id, "/var/uoj_data/upload/%d" % problem_id, "/var/uoj_data/%d.zip" % problem_id] + [self.STORAGE + name for name in files]:
+            self.assertFalse(exists(path), path)
+        self.assertEqual(int(db_value("select ac_num from user_info where username = 'p9_del_solver'")), solved_before - 1)
+        for path in ("/problem/%d" % problem_id, page_path, "/submission/%d" % right):
+            self.assertEqual(admin.get(path).status_code, 404, path)
+        self.assertEqual(solver.get("/submissions?submitter=p9_del_solver").status_code, 200)
+        logged = json.loads(db_value("select before_json from audit_logs where action = 'problem.delete' and resource_id = '%d'" % problem_id))
+        self.assertEqual((logged["submissions"], logged["submitters"]), (2, 1))
+        # its number is not given to the next problem
+        self.assertGreater(admin.new_problem(title="p9 之后的题"), problem_id)
+
+    def test_problem_of_a_domain_is_deleted_by_who_teaches_there(self):
+        admin = uoj.admin()
+        teacher, member = p3.account("p9_del_teacher"), p3.account("p9_del_member")
+        self.assertEqual(admin.change_user("p9_del_teacher", "grant:teacher"), "")
+        slug = "p9-delete"
+        if db_value("select count(*) from domains where slug = '%s'" % slug) == "0":
+            teacher.new_domain(slug)
+        self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username="p9_del_member", role="member"), "")
+        kept = teacher.new_problem(slug, title="p9 留下的题", public="on")
+        gone = teacher.new_problem(slug, title="p9 域里要删的题", public="on")
+        number = uoj.pid(gone)
+        page_path = "/d/%s/problem/%d/manage/delete" % (slug, number)
+        self.assertEqual(member.get(page_path).status_code, 403)
+        # in a training: not deleted
+        self.assertEqual(teacher.form("/d/%s/training/new" % slug, "save", title="p9 训练", description_md="", status="draft"), "")
+        training_id = int(db_value("select max(id) from trainings"))
+        self.assertEqual(teacher.form("/d/%s/training/%d/manage" % (slug, training_id), "add_problem", problem_id=str(number)), "")
+        self.assertIn("训练“p9 训练”", teacher.get(page_path).text)
+        self.assertNotEqual(teacher.form(page_path, "delete_problem", confirm="p9 域里要删的题"), "")
+        self.assertEqual(teacher.form("/d/%s/training/%d/manage" % (slug, training_id), "remove_problem", problem_id=str(gone)), "")
+        # deleted: back in the list of the problems of the domain, which says so
+        r = teacher.post(page_path, {"form": "delete_problem", "confirm": "p9 域里要删的题"})
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/d/%s/problems" % slug))
+        page = teacher.get("/d/%s/problems" % slug).text
+        self.assertIn("已删除", page)
+        self.assertIn("p9 留下的题", page)
+        self.assertNotIn("p9 域里要删的题</a>", page)
+        self.assertEqual(db_value("select count(*) from problems where id = %d" % gone), "0")
+        # the number it had in the domain is not the number of the next problem
+        self.assertEqual(uoj.pid(teacher.new_problem(slug, title="p9 域里之后的题")), number + 1)
+        self.assertEqual(uoj.pid(kept), number - 1)
+
+    def test_contest_is_deleted_and_its_problems_and_submissions_stay(self):
+        admin = uoj.admin()
+        ann, helper = p3.account("p9_delc_ann"), p3.account("p9_delc_helper")
+        problem_id = admin.create_problem(ab_problem_files())
+        db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        contest_id = admin.new_contest("p9 要删的比赛", minutes=120, rule="IOI", problems=str(problem_id))
+        here, manage = "/contest/%d" % contest_id, "/contest/%d/manage" % contest_id
+        self.assertEqual(admin.form(manage, "add_manager", tab="managers", username="p9_delc_helper", role="assistant"), "")
+        ann.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -600, 120)
+        submission_id = ann.submit_in_contest(contest_id, problem_id, AB)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        self.assertEqual(db_value("select contest_id from submissions where id = %d" % submission_id), str(contest_id))
+
+        # ---- the page says what goes and what stays, also that the contest runs
+        page = admin.get(manage).text
+        told = uoj.text_of(re.search(r'(?s)<ul id="contest-deletion-facts">(.*?)</ul>', page).group(1))
+        for fact in ("1 位选手的报名", "1 道题目", "1 份提交", "正在进行"):
+            self.assertIn(fact, told)
+        # ---- who helps with a contest does not delete it, and its name has to be right
+        self.assertEqual(helper.post(manage, {"form": "delete_contest", "tab": "delete", "confirm": "p9 要删的比赛"}).status_code, 403)
+        self.assertIn("比赛没有删除", admin.form(manage, "delete_contest", tab="delete", confirm="p9"))
+        self.assertEqual(db_value("select count(*) from contests where id = %d" % contest_id), "1")
+
+        # ---- deleted: the contest is gone with who was in it, and nothing of the problem is
+        r = admin.post(manage, {"form": "delete_contest", "tab": "delete", "confirm": "p9 要删的比赛"})
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, "/contests"))
+        page = admin.get("/contests").text
+        self.assertIn('id="contests-flash"', page)
+        self.assertNotIn(">p9 要删的比赛</a>", page)
+        for table in ("contests_registrants", "contests_permissions", "contests_problems", "contests_submissions", "contest_allowed_users"):
+            self.assertEqual(db_value("select count(*) from %s where contest_id = %d" % (table, contest_id)), "0", table)
+        self.assertEqual(db_value("select count(*) from contests where id = %d" % contest_id), "0")
+        for path in (here, manage, here + "/standings"):
+            self.assertEqual(admin.get(path).status_code, 404, path)
+        # what was submitted to it is a submission to its problem, which is as hidden as it was
+        self.assertEqual(db("select ifnull(contest_id, 'none'), problem_id, score from submissions where id = %d" % submission_id), [["none", str(problem_id), "100"]])
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % problem_id), "1")
+        self.assertEqual(admin.get("/submission/%d" % submission_id).status_code, 200)
+        self.assertEqual(admin.get("/problem/%d" % problem_id).status_code, 200)
+        self.assertEqual(db_value("select count(*) from audit_logs where action = 'contest.delete' and resource_id = '%d'" % contest_id), "1")

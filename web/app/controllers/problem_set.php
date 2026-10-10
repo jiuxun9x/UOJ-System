@@ -128,6 +128,10 @@ EOD;
 	$table_classes = array('table', 'table-bordered', 'table-hover', 'table-striped');
 ?>
 <?php echoUOJPageHeader(UOJLocale::get('problems')) ?>
+<?php $flash = domainTakeFlash(); ?>
+<?php if ($flash): ?>
+<div class="alert alert-<?= $flash[0] ?>" role="alert" id="problems-flash"><?= HTML::escape($flash[1]) ?></div>
+<?php endif ?>
 <div class="row">
 	<div class="col-sm-4">
 		<?= HTML::tablist($tabs_info, $cur_tab, 'nav-pills') ?>

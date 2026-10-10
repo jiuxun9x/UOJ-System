@@ -722,6 +722,47 @@ function genMoreContestInfo(&$contest) {
 	}
 }
 
+// ---- deleting a contest
+//
+// A contest is deleted with what is the contest's: who registered and who ran it, its
+// notices and questions, its board, its files, the virtual participations in it. Its problems
+// are problems of their own and stay. What was submitted to it stays as well, as what was
+// submitted to its problems: it is somebody's work, and the contest was only where it was
+// handed in.
+
+// what goes with a contest when it is deleted, and what stays
+function contestDeletionFacts($contest) {
+	$id = (int)$contest['id'];
+	return array(
+		'contestants' => (int)DB::selectCount("select count(*) from contests_registrants where contest_id = $id"),
+		'problems' => count(contestProblemIds($id)),
+		'submissions' => (int)DB::selectCount("select count(*) from submissions where contest_id = $id"),
+		'questions' => (int)DB::selectCount("select count(*) from contests_asks where contest_id = $id"),
+		'attachments' => count(attachmentsOf('contest', $id))
+	);
+}
+// what has to be typed to delete a contest: its name, as it reads
+function contestDeletionWord($contest) {
+	return trim(html_entity_decode(strip_tags((string)$contest['name']), ENT_QUOTES, 'UTF-8'));
+}
+function contestDelete($contest, $actor) {
+	$id = (int)$contest['id'];
+	$facts = contestDeletionFacts($contest);
+	auditLog('contest.delete', 'contest', $id, array('name' => $contest['name'], 'domain_id' => empty($contest['domain_id']) ? null : (int)$contest['domain_id'], 'problem_ids' => contestProblemIds($id)) + $facts, null, $actor);
+	DB::delete("delete from contests where id = $id");
+	// what was submitted to it is what was submitted to its problems
+	DB::update("update submissions set contest_id = null where contest_id = $id");
+	DB::update("update hacks set contest_id = null where contest_id = $id");
+	foreach (array('contests_registrants', 'contests_permissions', 'contests_problems', 'contests_submissions', 'contests_notice', 'contests_asks', 'contest_allowed_users', 'contest_virtuals') as $table) {
+		DB::delete("delete from $table where contest_id = $id");
+	}
+	DB::delete("delete from click_zans where type = 'C' and target_id = $id");
+	foreach (attachmentsOf('contest', $id) as $attachment) {
+		attachmentDelete($attachment, $actor);
+	}
+	return '';
+}
+
 // ---- the contestants of a contest, as the people who run it see to them
 //
 // Somebody registers for a contest by themselves, before it begins or while it runs. The
