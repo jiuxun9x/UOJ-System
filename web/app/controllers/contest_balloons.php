@@ -219,7 +219,7 @@
 		<span class="mr-3">待送 <strong class="<?= $n_pending > 0 ? 'text-danger' : '' ?>" id="balloons-pending" style="font-size:1.3rem"><?= $n_pending ?></strong></span>
 		<span class="mr-3 text-muted">已送 <span id="balloons-done"><?= $n_done ?></span></span>
 		<?php if ($frozen && balloonsHeldFrom($contest) !== null): ?>
-		<span class="badge badge-info mr-3" id="balloons-held-back">已封榜：封榜后通过的<?= $queue['held_back'] > 0 ? ' ' . $queue['held_back'] . ' 个' : '' ?>气球先不发，公布成绩后出现在这里</span>
+		<span class="badge badge-info text-wrap text-left mr-3" id="balloons-held-back">已封榜：封榜后通过的<?= $queue['held_back'] > 0 ? ' ' . $queue['held_back'] . ' 个' : '' ?>气球先不发，公布成绩后出现在这里</span>
 		<?php elseif ($frozen): ?>
 		<span class="badge badge-warning mr-3" id="balloons-after-freeze">已封榜，按设置继续发气球</span>
 		<?php endif ?>

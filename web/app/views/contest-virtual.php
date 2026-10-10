@@ -36,7 +36,7 @@
 			<div class="mr-auto text-left">
 				<?php if ($phase === 'running'): ?>
 				<h5 class="card-title mb-1"><span class="badge badge-success">虚拟参赛</span> 进行中</h5>
-				<span class="text-muted">已进行 <?= virtualClock($elapsed) ?>，剩余 <strong id="virtual-countdown"></strong>。在这场比赛的页面里做题、交题就行，和正式比赛一样。</span>
+				<span class="text-muted">已进行 <?= virtualClock($elapsed) ?>，剩余 <strong id="virtual-countdown"><?= virtualClock($duration - $elapsed) ?></strong>。在这场比赛的页面里做题、交题就行，和正式比赛一样。</span>
 				<?php else: ?>
 				<h5 class="card-title mb-1"><span class="badge badge-secondary">虚拟参赛</span> 已结束</h5>
 				<span class="text-muted"><?= $virtual['start_time'] ?> 开始，时长 <?= $virtual['last_min'] ?> 分钟</span>
@@ -58,9 +58,22 @@
 </div>
 <?php if ($phase === 'running'): ?>
 <script type="text/javascript">
-$('#virtual-countdown').countdown(<?= $duration - $elapsed ?>, function() {
-	window.location.reload();
-});
+// the time that is left, in the words of the sentence it stands in: the clock beside the
+// page is the one that is looked at
+(function() {
+	var rest = <?= $duration - $elapsed ?>;
+	var two = function(n) {
+		return (n < 10 ? '0' : '') + n;
+	};
+	setInterval(function() {
+		rest--;
+		if (rest <= 0) {
+			window.location.reload();
+			return;
+		}
+		$('#virtual-countdown').text(Math.floor(rest / 3600) + ':' + two(Math.floor(rest / 60) % 60) + ':' + two(rest % 60));
+	}, 1000);
+})();
 </script>
 <?php endif ?>
 

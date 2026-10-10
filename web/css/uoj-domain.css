@@ -588,6 +588,43 @@ tr.uoj-standings-virtual > td:nth-child(-n+3) {
 .uoj-balloon-seat {
 	font-size: 1.15rem;
 	font-weight: bold;
+	white-space: nowrap;
+}
+/* On a telephone, which is what the list is carried through the room on, a balloon is two
+   lines: what it is, where it goes and the button; under them, who it is for. */
+@media (max-width: 575.98px) {
+	.uoj-balloons, .uoj-balloons > tbody {
+		display: block;
+	}
+	.uoj-balloons > thead {
+		display: none;
+	}
+	.uoj-balloons > tbody > tr {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		padding: 0.5rem 0;
+		border-top: 1px solid #dee2e6;
+	}
+	.uoj-balloons > tbody > tr > td {
+		padding: 0.1rem 0.5rem;
+		border: 0;
+	}
+	.uoj-balloons > tbody > tr > td:nth-child(2) {
+		flex: 1 1 auto;
+	}
+	.uoj-balloons > tbody > tr > td:last-child {
+		order: 1;
+		margin-left: auto;
+	}
+	.uoj-balloons > tbody > tr > td:nth-child(3) {
+		order: 2;
+		flex: 0 0 100%;
+	}
+	.uoj-balloons > tbody > tr > td#balloons-none {
+		flex: 0 0 100%;
+		margin: 0;
+	}
 }
 .uoj-balloons tr.uoj-balloon-done > td:not(:last-child) {
 	opacity: 0.5;
