@@ -245,6 +245,11 @@
 					$is_done = $balloon['done_at'] !== null;
 					$problem = $letter_color[$balloon['letter']];
 					$identity = isset($identities[$balloon['username']]) ? $identities[$balloon['username']] : null;
+					// the problems the contestant has a balloon for with this one, by their letters
+					$has_letters = '';
+					foreach ($balloon['has'] as $pos) {
+						$has_letters .= chr(ord('A') + $pos % 26);
+					}
 				?>
 				<tr class="<?= $is_done ? 'uoj-balloon-done' : 'uoj-balloon-pending' ?>" data-balloon="<?= $balloon['username'] ?>/<?= $balloon['letter'] ?>" data-username="<?= $balloon['username'] ?>" data-problem="<?= $balloon['letter'] ?>" data-done="<?= $is_done ? 1 : 0 ?>" data-submission="<?= $balloon['submission'] ?>">
 					<td class="text-nowrap"><?= $balloon_mark($problem) ?> <span class="uoj-balloon-name"><?= HTML::escape($problem['name']) ?></span></td>
@@ -263,7 +268,7 @@
 						<?php if ($balloon['first_for_problem']): ?>
 						<span class="badge badge-success" data-award="problem">本题第一个</span>
 						<?php endif ?>
-						<span class="text-muted small text-nowrap" data-has="<?= join('', array_map(function($pos) { return chr(ord('A') + $pos % 26); }, $balloon['has'])) ?>">
+						<span class="text-muted small text-nowrap" data-has="<?= $has_letters ?>">
 							他的第 <?= $balloon['nth'] ?> 个<?php if ($balloon['nth'] > 1): ?>：<?php foreach ($balloon['has'] as $pos): ?><?= $balloon_mark($letter_color[chr(ord('A') + $pos % 26)], true) ?><?php endforeach ?><?php endif ?>
 						</span>
 					</td>
