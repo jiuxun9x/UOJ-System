@@ -108,13 +108,23 @@
 	<input type="number" class="form-control" id="input-problem-n_samples" name="n_samples" min="0" placeholder="全部额外测试点" value="<?= $settings['n_samples'] === null ? '' : (int)$settings['n_samples'] ?>" />
 	<small class="form-text text-muted">文件名以 sample 或 ex_ 开头的测试点是“额外测试点”：不计分，但不通过就不算满分。其中前几个是样例，选手可以下载，OI 赛制的比赛中只测它们。不填就是全部。</small>
 </div>
-<?php if ($hackable && $files !== null): ?>
-<div class="form-row" id="group-problem-hack">
-	<div class="form-group col-md-6">
-		<?php $program_field('std_file', 'Hack 用的标准程序', true) ?>
+<?php if ($files !== null): ?>
+<div id="group-problem-hack">
+	<?php // The validator of the inputs. It is off unless somebody turns it on here, and what is turned on here is seen here: no problem.conf keeps it on behind the form. ?>
+	<div class="custom-control custom-checkbox mb-2">
+		<input type="checkbox" class="custom-control-input" id="input-problem-validate_input" name="validate_input"<?= !empty($settings['validate_input']) ? ' checked="checked"' : '' ?> />
+		<label class="custom-control-label" for="input-problem-validate_input">评测前先校验每个测试点的输入 <small class="text-muted">（一般不用开）</small></label>
+		<small class="form-text text-muted">打开后，每个测试点在运行选手程序之前先把输入交给数据校验器；校验器不通过，这个测试点就是 Invalid Input。需要在下面选一个数据校验器文件，否则数据发布不了。</small>
 	</div>
-	<div class="form-group col-md-6">
-		<?php $program_field('val_file', 'Hack 用的数据校验器', true) ?>
+	<div class="form-row">
+		<?php if ($hackable): ?>
+		<div class="form-group col-md-6">
+			<?php $program_field('std_file', 'Hack 用的标准程序', true) ?>
+		</div>
+		<?php endif ?>
+		<div class="form-group col-md-6" id="group-problem-val_file">
+			<?php $program_field('val_file', $hackable ? 'Hack 和校验输入用的数据校验器' : '数据校验器', true) ?>
+		</div>
 	</div>
 </div>
 <?php endif ?>
@@ -132,9 +142,10 @@ $(document).ready(function() {
 		$('#group-problem-checker_file').toggle(kind === 'multi_pass' || (kind !== 'interactive' && $('#input-problem-checker').val() === 'custom'));
 		$('#group-problem-interactor_file').toggle(kind === 'interactive');
 		$('#group-problem-samples, #group-problem-hack').toggle(kind !== 'submit_answer');
+		$('#group-problem-val_file').toggle(<?= $hackable ? 'true' : 'false' ?> || $('#input-problem-validate_input').prop('checked'));
 		$('#group-problem-subtasks').toggle($('input[name=scoring]:checked').val() === 'subtasks');
 	};
-	$('input[name=type], input[name=scoring], #input-problem-checker').on('change', refresh);
+	$('input[name=type], input[name=scoring], #input-problem-checker, #input-problem-validate_input').on('change', refresh);
 	refresh();
 
 	// The subtasks are written into a table, a row for each; the field they are sent in holds

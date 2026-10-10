@@ -582,6 +582,13 @@
 								throw new UOJFileNotFoundException('val.*');
 							}
 							$this->need_compile('val', array('need_include_header' => true));
+						} elseif ($this->check_conf_on('validate_input_before_test')) {
+							// The inputs are run past the validator before every test. Without
+							// one, every submission would fail at it: the data is not published.
+							if (!$this->copy_program_source('val')) {
+								throw new UOJProblemConfException("validate_input_before_test is on, but the problem has no validator (val): choose one in the settings, or turn the validation of the inputs off");
+							}
+							$this->need_compile('val', array('need_include_header' => true));
 						}
 
 						if ($this->check_conf_on('interaction_mode')) {

@@ -76,7 +76,10 @@ function problemDefaultSettings() {
 		'checker_file' => '',
 		'interactor_file' => '',
 		'std_file' => '',
-		'val_file' => ''
+		'val_file' => '',
+		// whether the input of every test is run past the validator of the problem before the
+		// program is run on it: off unless somebody turns it on
+		'validate_input' => false
 	);
 }
 // the programs of a problem that the form chooses a file for: field of the form => the
@@ -171,6 +174,7 @@ function problemSettingsFromForm($input) {
 			$settings[$field] = $get($field);
 		}
 	}
+	$settings['validate_input'] = isset($input['validate_input']) && $settings['type'] !== 'submit_answer';
 	return array($settings, '');
 }
 
@@ -224,6 +228,7 @@ function problemSettingsOfConf($conf) {
 			$settings[$field] = $conf["{$kind}_source"];
 		}
 	}
+	$settings['validate_input'] = $on('validate_input_before_test');
 	return $settings;
 }
 
@@ -421,7 +426,10 @@ function problemConfIsManagedKey($key) {
 	static $managed = array(
 		'use_builtin_judger', 'use_builtin_checker', 'n_tests', 'n_ex_tests', 'n_sample_tests', 'input_pre', 'input_suf',
 		'output_pre', 'output_suf', 'time_limit', 'memory_limit', 'interaction_mode', 'multi_pass', 'submit_answer',
-		'with_implementer', 'n_subtasks', 'chk_source', 'interactor_source', 'std_source', 'val_source'
+		'with_implementer', 'n_subtasks', 'chk_source', 'interactor_source', 'std_source', 'val_source',
+		// A problem.conf that came from somewhere with this line in it had every submission
+		// fail at a validator nobody had chosen, and the form had no way to say otherwise.
+		'validate_input_before_test'
 	);
 	return in_array($key, $managed, true) || preg_match('/^subtask_(end|score)_[0-9]+$/D', $key) === 1;
 }
@@ -466,8 +474,13 @@ function problemConfFromSettings($settings, $found, $old_conf = array(), $names 
 	} elseif ($type === 'multi_pass' || $settings['checker'] === 'custom') {
 		$programs['checker_file'] = true;
 	}
+	$validates = !empty($settings['validate_input']) && $type !== 'submit_answer';
+	if ($validates) {
+		$conf['validate_input_before_test'] = 'on';
+	}
 	if ($type !== 'submit_answer') {
-		$programs += array('std_file' => false, 'val_file' => false);
+		// the validator is looked for by its name only where the inputs are to be validated
+		$programs += array('std_file' => false, 'val_file' => $validates);
 	}
 	foreach ($programs as $field => $guessed) {
 		$kind = problemProgramFields()[$field];
@@ -588,6 +601,11 @@ function problemPlanSettings($problem, $settings) {
 				? dataProgramKinds()[$kind] . '是 ' . $conf["{$kind}_source"]
 				: '还没有' . dataProgramKinds()[$kind] . '：上传它的源文件后在评测设置里选上';
 		}
+	}
+	if (isset($conf['validate_input_before_test'])) {
+		$notes[] = isset($conf['val_source'])
+			? '评测前先用 ' . $conf['val_source'] . ' 校验每个测试点的输入'
+			: '已选择评测前校验输入，但还没有数据校验器：上传它的源文件后在评测设置里选上，否则数据发布不了';
 	}
 	return array(array('conf' => $conf, 'found' => $found, 'old_conf' => $old_conf, 'notes' => $notes), '');
 }

@@ -366,6 +366,9 @@ function uploadPreflight($files, $conf, $hackable) {
 			$need_source('std');
 			$need_source('val');
 			$report['facts'][] = "可以 Hack：标程 {$sources['std']}，数据校验器 {$sources['val']}";
+		} elseif ($on('validate_input_before_test')) {
+			$need_source('val');
+			$report['facts'][] = "评测前校验输入：数据校验器 {$sources['val']}";
 		}
 		if ($on('interaction_mode')) {
 			$need_source('interactor');

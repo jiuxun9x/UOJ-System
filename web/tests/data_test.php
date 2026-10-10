@@ -389,6 +389,25 @@ $interactive = $conf_with(array('type' => 'interactive', 'interactor_file' => 'j
 check_same(array('judge.cpp', false), array($interactive['interactor_source'], isset($interactive['chk_source'])), 'an interactive problem has an interactor and no checker');
 check_same(false, isset($conf_with(array('type' => 'interactive'), $uploaded)[0]['interactor_source']), 'an interactor nobody chose, where no file looks like one');
 // the solution and the validator of a problem that can be hacked are named when they were chosen
+// The inputs are validated before a test only where somebody said so. A problem.conf that
+// came with the line in it loses it when the settings are saved without the box, whatever
+// kind of problem it is: every submission failed at a validator that nobody had chosen.
+foreach (array('traditional', 'multi_pass', 'interactive', 'grader') as $type) {
+	$kept = problemConfFromSettings(array('type' => $type) + $settings, $ten, array('validate_input_before_test' => 'on', 'my_key' => '7'), array_merge($uploaded, array('interactor.cpp')));
+	check_same(array('', false, '7'), array($kept[1], isset($kept[0]['validate_input_before_test']), $kept[0]['my_key']), "the validation of the inputs is off unless it is chosen: $type");
+}
+check_same(false, problemSettingsOfConf(array('n_tests' => 3))['validate_input'], 'a problem.conf that does not say so validates nothing');
+check_same(true, problemSettingsOfConf(array('validate_input_before_test' => 'on'))['validate_input'], 'one that says so shows the box ticked');
+check_same(false, problemSettingsOfConf(array('validate_input_before_test' => 'off'))['validate_input'], 'and "off" is off');
+$validated = $conf_with(array('type' => 'multi_pass', 'validate_input' => true, 'val_file' => 'judge.cpp'), $uploaded)[0];
+check_same(array('on', 'judge.cpp'), array($validated['validate_input_before_test'], $validated['val_source']), 'the validator that was chosen');
+$validated = $conf_with(array('validate_input' => true), array_merge($uploaded, array('validator.cpp')))[0];
+check_same(array('on', 'validator.cpp'), array($validated['validate_input_before_test'], $validated['val_source']), 'the validator that was not chosen is looked for by its name');
+$validated = $conf_with(array('validate_input' => true), $uploaded)[0];
+check_same(array('on', false), array($validated['validate_input_before_test'], isset($validated['val_source'])), 'and not named when there is none: the data is then not published');
+check_same(false, isset($conf_with(array('type' => 'submit_answer', 'validate_input' => true), $uploaded)[0]['validate_input_before_test']), 'answers that are handed in are not validated');
+check_same(false, problemSettingsFromForm(array('type' => 'traditional', 'time_limit' => '1', 'memory_limit' => '256', 'checker' => 'wcmp', 'scoring' => 'per_test'))[0]['validate_input'], 'the form says no unless the box is ticked');
+check_same(true, problemSettingsFromForm(array('type' => 'multi_pass', 'time_limit' => '1', 'memory_limit' => '256', 'checker' => 'wcmp', 'scoring' => 'per_test', 'validate_input' => 'on'))[0]['validate_input'], 'and yes when it is');
 $hack = $conf_with(array('std_file' => 'solution.cpp', 'val_file' => 'judge.cpp'), $uploaded)[0];
 check_same(array('solution.cpp', 'judge.cpp'), array($hack['std_source'], $hack['val_source']), 'the programs for hacks that were chosen');
 check_same(array(false, false), array(isset($conf_with(array(), $uploaded)[0]['std_source']), isset($conf_with(array(), $uploaded)[0]['val_source'])), 'and none that were not');
