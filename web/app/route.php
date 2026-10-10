@@ -20,6 +20,7 @@ Route::group([
 		Route::any('/problems', '/problem_set.php');
 		Route::any('/problems/template', '/problem_set.php?tab=template');
 		Route::any('/problems/pick', '/problem_pick.php');
+		Route::any('/problems/import', '/problem_import.php');
 		Route::any('/problem/new', '/problem_new.php');
 		Route::any('/problem/{id}', '/problem.php');
 		Route::any('/problem/{id}/statistics', '/problem_statistics.php');
@@ -54,6 +55,7 @@ Route::group([
 		Route::any('/d/{slug}/members', '/domain/members.php');
 		Route::any('/d/{slug}/announcements', '/domain/announcements.php');
 		Route::any('/d/{slug}/problems', '/domain/problems.php');
+		Route::any('/d/{slug}/problems/import', '/problem_import.php');
 		Route::any('/d/{slug}/contests', '/domain/contests.php');
 		Route::any('/d/{slug}/contest/new', '/add_contest.php');
 		Route::any('/d/{slug}/grades', '/domain/grades.php');

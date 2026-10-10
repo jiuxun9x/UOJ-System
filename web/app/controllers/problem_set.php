@@ -4,7 +4,8 @@
 	requirePHPLib('data');
 	
 	// where a problem is made: one form for everything it needs
-	$new_problem_link = '<div class="text-right"><a class="btn btn-primary" id="button-new-problem" href="/problem/new"><span class="glyphicon glyphicon-plus"></span> ' . UOJLocale::get('problems::add new') . '</a></div>';
+	$new_problem_link = '<div class="text-right"><a class="btn btn-light border mr-2" id="button-import-problems" href="/problems/import"><span class="glyphicon glyphicon-import"></span> 导入题目</a>'
+		. '<a class="btn btn-primary" id="button-new-problem" href="/problem/new"><span class="glyphicon glyphicon-plus"></span> ' . UOJLocale::get('problems::add new') . '</a></div>';
 	
 	function echoProblem($problem) {
 		global $myUser;

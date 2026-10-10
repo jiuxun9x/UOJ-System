@@ -506,3 +506,174 @@ class CopySeveralTest(unittest.TestCase):
             self.assertEqual(teacher.sync(problem_id), "")
         self.assertEqual(teacher.form(here, "copy", problem_id="%s#%d %s#%d" % (other, there[0], other, there[1])), "")
         self.assertEqual([row[2] for row in copies()][3:], ["p9 那边的题 1", "p9 那边的题 2"])
+
+
+def import_files(client, path, files, **fields):
+    """send files to the page that imports problems: (the ids of the problems it made, the page)"""
+    fields["form"] = "import"
+    r = client.post(path, fields, [("packages[]", (name, content if isinstance(content, bytes) else content.encode(), "application/octet-stream"))
+                                   for name, content in files])  # fmt: skip
+    assert r.status_code == 200, "HTTP %d: %s" % (r.status_code, uoj.text_of(r.text)[:300])
+    return [int(n) for n in re.findall(r'data-imported="(\d+)"', r.text)], r.text
+
+
+class ImportTest(unittest.TestCase):
+    """problems come in whole: as a template that was filled in, or as a package laid out the
+    way Hydro lays its problems out"""
+
+    TEMPLATE = (
+        "---\n# 说明可以留着\ntitle: p9 模板导入的题\ntime_limit: 2.5   # 秒\nmemory_limit: 128\ntags: [p9模板, 入门]\npublic: %s\n---\n\n"
+        "## 题目描述\n\n求 $a_1 + a_2$，价格 \\$5。\n\n## 样例\n\n```input1\n1 2\n```\n\n```output1\n3\n```\n"
+    )
+
+    def test_template_that_was_filled_in_is_a_problem(self):
+        admin, student = uoj.admin(), p3.account("p9_imp_student")
+        # ---- the template is handed out where problems are imported, to who makes problems
+        self.assertIn('id="button-import-problems" href="/problems/import"', admin.get("/problems").text)
+        self.assertEqual(student.get("/problems/import").status_code, 403)
+        r = admin.get("/problems/import?template=1")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/markdown", r.headers["Content-Type"])
+        self.assertIn("attachment", r.headers["Content-Disposition"])
+        template = r.content.decode()
+        for part in ("---\n", "title:", "time_limit:", "memory_limit:", "## 题目描述", "```input1"):
+            self.assertIn(part, template)
+
+        # ---- the template as it is handed out, and one that was filled in and says it is public
+        made, page = import_files(admin, "/problems/import", [("题目模板.md", template), ("我的题.md", self.TEMPLATE % "true"), ("没有开头.md", "## 题目描述\n\n只有题面。\n")])
+        self.assertEqual(len(made), 3)
+        rows = {int(row[0]): row[1:] for row in db("select id, title, is_hidden from problems where id in (%s)" % ", ".join(map(str, made)))}
+        self.assertEqual([rows[i] for i in made], [["这里写题目名称", "1"], ["p9 模板导入的题", "0"], ["没有开头", "1"]])
+        filled = made[1]
+        shown, kept = (bytes.fromhex(c).decode() for c in db("select hex(statement), hex(statement_md) from problems_contents where id = %d" % filled)[0])
+        self.assertTrue(kept.startswith("## 题目描述\n\n求 $a_1 + a_2$"), kept[:60])
+        self.assertNotIn("title:", kept)
+        self.assertIn("<p>求 $a_1 + a_2$，价格 \\$5。</p>", shown)
+        self.assertIn('<pre><code class="language-input1">1 2</code></pre>', shown)
+        self.assertEqual(sorted(row[0] for row in db("select tag from problems_tags where problem_id = %d" % filled)), ["p9模板", "入门"])
+        conf = dict(line.split(None, 1) for line in uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/problem.conf" % filled).splitlines() if line.strip())
+        self.assertEqual((conf["time_limit"], conf["memory_limit"], conf["n_tests"]), ("2.5", "128", "0"))
+        # it says what it made, and what is still to do
+        told = uoj.text_of(page)
+        for said in ("p9 模板导入的题", "没有测试数据", "文件开头没有两条 --- 之间的那几行"):
+            self.assertIn(said, told)
+        # the box of the form decides for the ones that do not say
+        made, page = import_files(admin, "/problems/import", [("a.md", "## 题目描述\n\n公开的。\n"), ("b.md", self.TEMPLATE % "false")], public="on")
+        self.assertEqual([db_value("select is_hidden from problems where id = %d" % i) for i in made], ["0", "1"])
+        # ---- what is no template and no package is refused, and says so
+        before = db_value("select count(*) from problems")
+        made, page = import_files(admin, "/problems/import", [("a.exe", b"MZ"), ("data.zip", uoj.make_zip({"1.in": "1 2\n", "1.out": "3\n"})), ("broken.zip", b"not a zip")])
+        self.assertEqual(made, [])
+        told = uoj.text_of(page)
+        for said in ("只能导入填好的模板", "压缩包里没有找到题目", "不是一个完好的 zip 文件"):
+            self.assertIn(said, told)
+        self.assertEqual(db_value("select count(*) from problems"), before)
+        self.assertEqual(student.post("/problems/import", {"form": "import"}).status_code, 403)
+
+    def hydro_package(self):
+        config = (
+            "type: default\ntime: 2s\nmemory: 128m\nsubtasks:\n"
+            "  - score: 40\n    cases:\n      - input: a1.in\n        output: a1.out\n      - input: a2.in\n        output: a2.out\n"
+            "  - score: 60\n    type: min\n    cases:\n      - input: b1.in\n        output: b1.out\n"
+        )
+        picture = picture_bytes()
+        return uoj.make_zip({
+            "A/problem.yaml": "pid: P1001\nowner: 2\ntitle: p9 Hydro 来的题\ntag:\n  - p9包\n  - 图论\nnSubmit: 12\nnAccept: 3\n",
+            "A/problem_zh.md": "## 题目描述\n\n看图：![图](file://pic.png)，求 $a+b$。\n\n下载 [工具](file://tool.py)。\n",
+            "A/problem_en.md": "## Statement\n\nEnglish.\n",
+            "A/testdata/config.yaml": config,
+            "A/testdata/a1.in": "1 2\n", "A/testdata/a1.out": "3\n", "A/testdata/a2.in": "10 20\n", "A/testdata/a2.out": "30\n",
+            "A/testdata/b1.in": "7 8\n", "A/testdata/b1.out": "15\n", "A/testdata/unused9.in": "0 0\n",
+            "A/additional_file/pic.png": picture, "A/additional_file/tool.py": "print(1)\n",
+            "B/problem.yaml": "title: p9 没有 config 的题\n",
+            "B/problem.md": "---\ntime_limit: 3\n---\n\n## 题目描述\n\n按文件名找测试点。\n",
+            "B/testdata/1.in": "1 1\n", "B/testdata/1.out": "2\n", "B/testdata/2.in": "2 2\n", "B/testdata/2.out": "4\n",
+            "D/problem.yaml": "title: p9 带校验器的题\n",
+            "D/problem_zh.md": "## 题目描述\n\n校验器是 chk.cc。\n",
+            "D/testdata/config.yaml": "time: 1000ms\nmemory: 64mb\nchecker_type: testlib\nchecker: chk.cc\nfilename: sum\n",
+            "D/testdata/chk.cc": AB_LENIENT_CHECKER, "D/testdata/1.in": "1 2\n", "D/testdata/1.ans": "3\n",
+            "C/problem.yaml": "title: p9 本站格式的题\n",
+            "C/problem_zh.md": "## 题目描述\n\n带着 problem.conf。\n",
+            **{"C/testdata/" + name: content for name, content in ab_problem_files(time_limit=4).items()},
+            "__MACOSX/A/._problem.yaml": "junk",
+        })  # fmt: skip
+
+    def test_package_of_hydro_is_its_problems_with_their_data(self):
+        admin, solver = uoj.admin(), p3.account("p9_imp_solver")
+        made, page = import_files(admin, "/problems/import", [("contest.zip", self.hydro_package())], public="on")
+        self.assertEqual(len(made), 4, uoj.text_of(page)[-600:])
+        a, b, c, d = made
+        self.assertEqual([db_value("select title from problems where id = %d" % i) for i in made], ["p9 Hydro 来的题", "p9 没有 config 的题", "p9 本站格式的题", "p9 带校验器的题"])
+        for problem_id in made:
+            self.assertEqual(uoj.wait_data_version(problem_id), "", problem_id)
+
+        # ---- A: what Hydro's config.yaml says, as the settings of this site
+        conf = published_conf(a)
+        self.assertEqual((conf["time_limit"], conf["memory_limit"], conf["n_tests"], conf["n_subtasks"]), ("2", "128", "3", "2"))
+        self.assertEqual((conf["subtask_end_1"], conf["subtask_score_1"], conf["subtask_score_2"]), ("2", "40", "60"))
+        self.assertEqual(sorted(row[0] for row in db("select tag from problems_tags where problem_id = %d" % a)), ["p9包", "图论"])
+        # a file that looks like a test and is none of the tests the config names did not come along
+        self.assertIn("unused9.in", uoj.text_of(page))
+        # the files that come with it, and the places of the statement that speak of them
+        files = dict(db("select name, id from attachments where owner_type = 'problem' and owner_id = %d" % a))
+        self.assertEqual(sorted(files), ["pic.png", "tool.py"])
+        shown, kept = (bytes.fromhex(col).decode() for col in db("select hex(statement), hex(statement_md) from problems_contents where id = %d" % a)[0])
+        self.assertIn('<img src="/attachment/%s" alt="图"' % files["pic.png"], shown)
+        self.assertIn('<a href="/attachment/%s">工具</a>' % files["tool.py"], shown)
+        self.assertNotIn("file://", kept)
+        self.assertNotIn("English", kept)
+        picture = solver.get("/attachment/%s" % files["pic.png"])
+        self.assertEqual((picture.status_code, picture.headers["Content-Type"]), (200, "image/png"))
+        self.assertEqual(uoj.wait_submission(solver.submit(a, AB)).score, 100)
+        self.assertLess(uoj.wait_submission(solver.submit(a, AB_WRONG)).score, 100)
+
+        # ---- B: no config.yaml: the tests are found by their names, and the lines at the top of the statement count
+        conf = published_conf(b)
+        self.assertEqual((conf["n_tests"], conf["time_limit"]), ("2", "3"))
+        self.assertNotIn("time_limit", bytes.fromhex(db_value("select hex(statement_md) from problems_contents where id = %d" % b)).decode())
+        self.assertEqual(uoj.wait_submission(solver.submit(b, AB)).score, 100)
+        # ---- C: a problem.conf of this site says everything
+        conf = published_conf(c)
+        self.assertEqual((conf["time_limit"], conf["use_builtin_checker"], conf["n_tests"]), ("4", "ncmp", "3"))
+        self.assertEqual(uoj.wait_submission(solver.submit(c, AB)).score, 100)
+        self.assertIn("数据里带有 problem.conf", uoj.text_of(page))
+        # ---- D: a checker written with testlib, in a file called the way Hydro calls C++
+        conf = published_conf(d)
+        self.assertEqual((conf["chk_source"], conf["time_limit"], conf["memory_limit"], conf["n_tests"]), ("chk.cpp", "1", "64", "1"))
+        self.assertNotIn("use_builtin_checker", conf)
+        # the checker of the problem lets a sum that is one too large pass, which no builtin way of comparing does
+        self.assertEqual(uoj.wait_submission(solver.submit(d, AB_WRONG)).score, 100)
+        # what this site does not do is said: the problem reads a file on Hydro
+        self.assertIn("文件输入输出（sum.in / .out）", uoj.text_of(page))
+
+    def test_problems_are_imported_into_a_domain_by_who_teaches_there(self):
+        admin = uoj.admin()
+        teacher, member = p3.account("p9_imp_teacher"), p3.account("p9_imp_member")
+        self.assertEqual(admin.change_user("p9_imp_teacher", "grant:teacher"), "")
+        slug = "p9-import"
+        if db_value("select count(*) from domains where slug = '%s'" % slug) == "0":
+            teacher.new_domain(slug)
+        self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username="p9_imp_member", role="member"), "")
+        here = "/d/%s/problems/import" % slug
+        self.assertIn('href="%s"' % here, teacher.get("/d/%s/problems" % slug).text)
+        self.assertEqual(member.get(here).status_code, 403)
+        self.assertEqual(member.post(here, {"form": "import"}).status_code, 403)
+        self.assertIn("title:", teacher.get(here + "?template=1").text)
+        made, page = import_files(teacher, here, [("one.md", self.TEMPLATE % "true"), ("pack.zip", self.hydro_package())])
+        self.assertEqual(len(made), 5)
+        self.assertEqual(db("select domain_pid, title, is_hidden from problems where owner_domain_id = (select id from domains where slug = '%s') order by domain_pid" % slug),
+                         [["1", "p9 模板导入的题", "0"], ["2", "p9 Hydro 来的题", "1"], ["3", "p9 没有 config 的题", "1"], ["4", "p9 本站格式的题", "1"],
+                          ["5", "p9 带校验器的题", "1"]])  # fmt: skip
+        self.assertIn('href="/d/%s/problem/2"' % slug, page)
+        self.assertEqual(uoj.wait_data_version(made[1]), "")
+        self.assertEqual(uoj.wait_submission(teacher.submit(made[1], AB, path="/d/%s/problem/2" % slug)).score, 100)
+
+
+def picture_bytes(width=40, height=20):
+    """a small picture that is a picture"""
+    import struct
+    import zlib
+
+    rows = b"".join(b"\x00" + bytes((60, 110, 200)) * width for _ in range(height))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")

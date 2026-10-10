@@ -89,6 +89,7 @@
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="copy" />
 			<a class="btn btn-primary" id="button-new-domain-problem" href="<?= domainUrl($domain, '/problem/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建题目</a>
+			<a class="btn btn-light border" id="button-import-domain-problems" href="<?= domainUrl($domain, '/problems/import') ?>" title="填好的模板，或 Hydro 格式的题目包"><span class="glyphicon glyphicon-import"></span> 导入</a>
 			<span class="uoj-copy-divider"></span>
 			<?php if ($copy_sources): ?>
 			<select class="form-control" id="select-copy-source" title="从哪里复制" aria-label="从哪里复制">
