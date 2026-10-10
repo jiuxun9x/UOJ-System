@@ -819,6 +819,11 @@ function contestAddRegistrants($contest, $text, $actor) {
 		DB::insert("insert ignore into contests_registrants (username, user_rating, contest_id, has_participated, seat) values ('$esc_username', ".(int)$user['rating'].", {$contest['id']}, 0, '".DB::escape((string)$seat)."')");
 		if (DB::affected_rows() == 1) {
 			$added++;
+			// Somebody who was in the contest before, was taken out and is put back has
+			// taken part in it: what they submitted in it is there, and so are they on its
+			// board. Anybody else is on the board once they open a problem, as always.
+			DB::update("update contests_registrants set has_participated = 1 where contest_id = {$contest['id']} and username = '$esc_username'"
+				." and exists (select 1 from submissions where submissions.contest_id = {$contest['id']} and submissions.submitter = '$esc_username')");
 		} elseif ($seat !== null) {
 			DB::update("update contests_registrants set seat = '".DB::escape($seat)."' where contest_id = {$contest['id']} and username = '$esc_username' and seat != '".DB::escape($seat)."'");
 			$seated += DB::affected_rows() == 1 ? 1 : 0;

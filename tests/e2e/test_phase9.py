@@ -169,8 +169,15 @@ class FrozenBoardTest(unittest.TestCase):
         rows, mine, page = icpc_board(dan, contest_id)
         self.assertEqual((mine[:3], mine[3]), (("p9_frz_dan", 1, "?"), {"A": ("solved", "+1 0:20")}))
         self.assertNotIn("p9_frz_eve", page[page.index('id="standings-mine"'):page.index('id="table-icpc-standings"')])
+        # Somebody who registered and has not opened a problem has not taken part: they are not
+        # on the board, and have no row. From the moment they open one they have, with nothing.
+        rows, mine, page = icpc_board(fay, contest_id)
+        self.assertIsNone(mine)
+        self.assertNotIn("p9_frz_fay", rows)
+        self.assertEqual(fay.get("/contest/%d/problem/B" % contest_id).status_code, 200)
         rows, mine, page = icpc_board(fay, contest_id)
         self.assertEqual((mine[:3], mine[3]), (("p9_frz_fay", 0, "?"), {}))
+        self.assertEqual(rows["p9_frz_fay"], (2, 0, {}))
         # ---- the staff sees how it is, and has no row of its own
         rows, mine, page = icpc_board(admin, contest_id)
         self.assertIsNone(mine)
@@ -456,8 +463,10 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p9_staff_cat C-1"), "")
         self.assertEqual(cat.get(here).status_code, 200)
         self.assertEqual(uoj.wait_submission(cat.submit_in_contest(contest_id, problem_id, AB)).score, 100)
-        rows, mine, page = icpc_board(admin, contest_id)
-        self.assertEqual(sorted(rows), ["p9_staff_ann", "p9_staff_bob", "p9_staff_cat"])
+        # the board is of who has opened a problem of the contest: cat, and ann once she has
+        self.assertEqual(sorted(icpc_board(admin, contest_id)[0]), ["p9_staff_cat"])
+        self.assertEqual(ann.get(here + "/problem/A").status_code, 200)
+        self.assertEqual(sorted(icpc_board(admin, contest_id)[0]), ["p9_staff_ann", "p9_staff_cat"])
         # ---- somebody is taken out: off the board, with what they submitted kept, and back with it
         self.assertEqual(admin.form(manage, "remove_contestant", tab="contestants", username="p9_staff_cat"), "")
         self.assertEqual(sorted(seats()), ["p9_staff_ann", "p9_staff_bob"])

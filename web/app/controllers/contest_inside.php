@@ -528,7 +528,8 @@ EOD;
 			calcStandings($contest, $contest_data, $true_score, $true_standings);
 			foreach ($true_standings as $row) {
 				if ($row[2][0] === Auth::id()) {
-					$mine = array('row' => $row, 'cells' => $true_score[Auth::id()]);
+					// who has submitted nothing yet has a row, and no cells
+					$mine = array('row' => $row, 'cells' => isset($true_score[Auth::id()]) ? $true_score[Auth::id()] : array());
 				}
 			}
 		}
