@@ -468,12 +468,25 @@ EOD;
 			EOD;
 		}
 		
+		// A contestant who looks at the frozen board is shown, above it, how it really stands
+		// with them: one row, which is theirs alone.
+		$mine = null;
+		if ($frozen && !$is_staff && Auth::check()) {
+			calcStandings($contest, $contest_data, $true_score, $true_standings);
+			foreach ($true_standings as $row) {
+				if ($row[2][0] === Auth::id()) {
+					$mine = array('row' => $row, 'cells' => $true_score[Auth::id()]);
+				}
+			}
+		}
+		
 		uojIncludeView(contestRule($contest) === 'ICPC' ? 'contest-standings-icpc' : 'contest-standings', [
 			'contest' => $contest,
 			'standings' => $standings,
 			'score' => $score,
 			'contest_data' => $contest_data,
-			'frozen' => $frozen
+			'frozen' => $frozen,
+			'mine' => $mine
 		]);
 	}
 	

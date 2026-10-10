@@ -296,7 +296,25 @@ $frozen = contestCells('ICPC', 2, $icpc, 650);
 check_same(array(100, 3000, 3, 2, 0), $frozen['ann'][0], 'what was solved before the board froze stays solved, whatever came after');
 check_same(array(0, 0, 5, 0, 2), $frozen['ann'][1], 'attempts after the board froze are counted and not told');
 check_same(array(0, 0, 6, 0, 1), $frozen['bob'][0], 'also the ones that solved the problem');
-check_same(array(0, 0, 1, 1, 3), contestCells('ICPC', 2, $icpc, 100)['ann'][0], 'attempts before and after the board froze');
+check_same(array(0, 0, 1, 1, 2), contestCells('ICPC', 2, $icpc, 100)['ann'][0], 'attempts before and after the board froze: up to the one that solved it, which nobody is told');
+// The way DOMjudge counts. What was solved before the board froze stays solved when more is
+// submitted to it afterwards, with or without attempts in vain before it.
+$solved_early = array(array(1, 100, 'cat', 0, 0), array(2, 200, 'cat', 0, 100), array(3, 9000, 'cat', 0, 0), array(4, 9100, 'cat', 0, 100), array(5, 300, 'dan', 0, 100), array(6, 9200, 'dan', 0, 0));
+foreach (array(null, 7200) as $freeze) {
+	$board = contestCells('ICPC', 2, $solved_early, $freeze);
+	check_same(array(array('+1', '0:03', 'uoj-icpc-solved'), array('+', '0:05', 'uoj-icpc-solved')), array(contestIcpcCell($board['cat'][0]), contestIcpcCell($board['dan'][0])),
+		'a problem that was solved before the board froze says so, whatever is submitted to it later' . ($freeze === null ? '' : ' (on the frozen board)'));
+}
+// what was not solved before the board froze: an attempt in vain before it, the solution after it
+$solved_late = array(array(1, 100, 'eve', 0, 0), array(2, 9000, 'eve', 0, 100), array(3, 9100, 'eve', 0, 0));
+check_same(array('?', '1 + 1', 'uoj-icpc-pending'), contestIcpcCell(contestCells('ICPC', 2, $solved_late, 7200)['eve'][0]), 'on the frozen board it is one attempt that failed and one that nobody is told about');
+check_same(array('+1', '2:30', 'uoj-icpc-solved'), contestIcpcCell(contestCells('ICPC', 2, $solved_late)['eve'][0]), 'and in truth it is solved, which its own contestant and the staff see');
+// a submission that waits to be judged is an attempt whose outcome nobody knows, on every board
+$waiting = array(array(1, 100, 'fay', 0, 0), array(2, 200, 'fay', 0, null), array(3, 300, 'fay', 1, null), array(4, 400, 'fay', 1, 100), array(5, 500, 'fay', 2, 100), array(6, 600, 'fay', 2, null));
+$board = contestCells('ICPC', 2, $waiting);
+check_same(array(array('?', '1 + 1', 'uoj-icpc-pending'), array('+', '0:06', 'uoj-icpc-solved'), array('+', '0:08', 'uoj-icpc-solved')),
+	array(contestIcpcCell($board['fay'][0]), contestIcpcCell($board['fay'][1]), contestIcpcCell($board['fay'][2])), 'what waits to be judged, before and after what solved a problem');
+check_same(array(0, 0, 1, 1, 1), $board['fay'][0], 'it costs nothing while nobody knows');
 check_same(array('0:00', '0:06', '2:31', '17:02'), array(contestClock(59), contestClock(6 * 60), contestClock(151 * 60 + 59), contestClock(1022 * 60)), 'the time of a contest as hours and minutes');
 check_same(array(array('+2', '0:10', 'uoj-icpc-solved'), array('+', '0:15', 'uoj-icpc-solved'), array('-2', '', 'uoj-icpc-failed'), array('?', '0 + 2', 'uoj-icpc-pending'), array('', '', '')),
 	array(contestIcpcCell($cells['ann'][0]), contestIcpcCell($cells['bob'][0]), contestIcpcCell($cells['ann'][1]), contestIcpcCell($frozen['ann'][1]), contestIcpcCell(null)), 'how the cells of an ICPC board read');

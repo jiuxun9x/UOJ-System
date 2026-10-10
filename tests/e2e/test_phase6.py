@@ -322,7 +322,7 @@ def board(client, contest_id, query=""):
     assert page.status_code == 200, page.status_code
     rows = {}
     for name, rank, solved, penalty, cells in re.findall(
-        r'(?s)<tr data-username="([^"]+)" data-rank="(\d+)" data-solved="(\d+)" data-penalty="(\d+)">(.*?)</tr>', page.text
+        r'(?s)<tr(?: class="uoj-scoreboard-me")? data-username="([^"]+)" data-rank="(\d+)" data-solved="(\d+)" data-penalty="(\d+)">(.*?)</tr>', page.text
     ):
         rows[name] = (int(rank), int(solved), int(penalty), dict(
             (letter, kind) for kind, letter in re.findall(r'<td class="uoj-icpc-(\w+)" data-problem="(\w)"', cells)

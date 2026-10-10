@@ -24,7 +24,52 @@
 			}
 		}
 	}
+	// a cell of the board: how it went for somebody on a problem
+	$print_cell = function($cell, $pos, $is_first) {
+		list($says, $under, $class) = contestIcpcCell($cell);
+		if ($class === 'uoj-icpc-solved' && $is_first) {
+			$class = 'uoj-icpc-first';
+		}
+		echo '<td class="', $class, '" data-problem="', chr(ord('A') + $pos % 26), '">';
+		if ($says !== '') {
+			echo $class === 'uoj-icpc-pending' ? $says : '<a href="/submission/' . $cell[2] . '">' . $says . '</a>';
+			if ($under !== '') {
+				echo '<div class="uoj-icpc-under">', $under, '</div>';
+			}
+		}
+		echo '</td>';
+	};
+	$me = Auth::check() ? Auth::id() : null;
+	$mine = isset($mine) ? $mine : null;
 ?>
+<?php if ($mine): ?>
+<?php // While the board is frozen a contestant is shown how it really stands with them, as DOMjudge does: they were told the outcome of every one of their submissions. Where that puts them among the others nobody knows yet. ?>
+<div class="table-responsive" id="standings-mine">
+	<table class="table table-bordered uoj-scoreboard uoj-icpc-board mb-1">
+		<thead>
+			<tr>
+				<th style="width:4em">#</th>
+				<th class="uoj-scoreboard-name">我的实际成绩</th>
+				<th style="width:6em">通过<div class="uoj-icpc-under">罚时</div></th>
+				<?php foreach ($problems as $pos => $problem): ?>
+				<th style="width:5.5em"><?= chr(ord('A') + $pos % 26) ?></th>
+				<?php endforeach ?>
+			</tr>
+		</thead>
+		<tbody>
+			<tr class="uoj-scoreboard-me" data-username="<?= $me ?>" data-solved="<?= $mine['row'][0] / 100 ?>" data-penalty="<?= $mine['row'][1] ?>">
+				<td title="封榜期间不显示名次">?</td>
+				<td class="uoj-scoreboard-name"><?= getUserLink($me) ?></td>
+				<td><span class="<?= $mine['row'][0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $mine['row'][0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($mine['row'][1]) ?></div></td>
+				<?php foreach ($problems as $pos => $problem): ?>
+				<?php $print_cell(isset($mine['cells'][$pos]) ? $mine['cells'][$pos] : null, $pos, false) ?>
+				<?php endforeach ?>
+			</tr>
+		</tbody>
+	</table>
+</div>
+<p class="text-muted small mb-3">上面一行是你自己的实际成绩，只有你能看到；下面的榜单是封榜时的样子，你在榜上的那一行也一样。</p>
+<?php endif ?>
 <div class="table-responsive">
 	<table class="table table-bordered table-striped uoj-scoreboard uoj-icpc-board" id="table-icpc-standings"<?= $frozen ? ' data-frozen="1"' : '' ?>>
 		<thead>
@@ -43,28 +88,12 @@
 		<tbody>
 			<?php foreach ($standings as $row): ?>
 			<?php $username = (string)$row[2][0]; ?>
-			<tr data-username="<?= $username ?>" data-rank="<?= $row[3] ?>" data-solved="<?= $row[0] / 100 ?>" data-penalty="<?= $row[1] ?>">
+			<tr<?= $username === $me ? ' class="uoj-scoreboard-me"' : '' ?> data-username="<?= $username ?>" data-rank="<?= $row[3] ?>" data-solved="<?= $row[0] / 100 ?>" data-penalty="<?= $row[1] ?>">
 				<td><?= $row[3] ?></td>
 				<td class="uoj-scoreboard-name"><span class="uoj-username" data-rating="<?= (int)$row[2][1] ?>"<?= isset($row[2][2]) && $row[2][2] !== '' ? ' data-alias="' . HTML::escape($row[2][2]) . '"' : '' ?>><?= $username ?></span></td>
 				<td><span class="<?= $row[0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $row[0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($row[1]) ?></div></td>
 				<?php foreach ($problems as $pos => $problem): ?>
-				<?php
-					$cell = isset($score[$username][$pos]) ? $score[$username][$pos] : null;
-					list($says, $under, $class) = contestIcpcCell($cell);
-					if ($class === 'uoj-icpc-solved' && isset($first[$pos]) && $first[$pos][1] === $username) {
-						$class = 'uoj-icpc-first';
-					}
-				?>
-				<td class="<?= $class ?>" data-problem="<?= chr(ord('A') + $pos % 26) ?>">
-					<?php if ($says !== ''): ?>
-					<?php if ($class === 'uoj-icpc-pending'): ?>
-					<?= $says ?>
-					<?php else: ?>
-					<a href="/submission/<?= $cell[2] ?>"><?= $says ?></a>
-					<?php endif ?>
-					<?php if ($under !== ''): ?><div class="uoj-icpc-under"><?= $under ?></div><?php endif ?>
-					<?php endif ?>
-				</td>
+				<?php $print_cell(isset($score[$username][$pos]) ? $score[$username][$pos] : null, $pos, isset($first[$pos]) && $first[$pos][1] === $username) ?>
 				<?php endforeach ?>
 			</tr>
 			<?php endforeach ?>
@@ -76,6 +105,6 @@
 	<small class="mr-3"><strong class="text-success">+2</strong> 通过，此前 2 次未通过；下面是通过的时间</small>
 	<small class="mr-3"><strong class="text-danger">-3</strong> 交了 3 次都没通过</small>
 	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 最先通过</small>
-	<?php if ($frozen): ?><small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-pending px-2">?</span></span> 封榜后有提交：“1 + 2”是封榜前 1 次未通过、封榜后交了 2 次</small><?php endif ?>
+	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-pending px-2">?</span></span> 有还不知道结果的提交<?= $frozen ? '（封榜后交的，或正在评测）' : '（正在评测）' ?>：“1 + 2”是 1 次未通过、2 次结果未知</small>
 	<?= UOJLocale::get('contests::n participants', count($standings)) ?>
 </div>

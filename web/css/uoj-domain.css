@@ -495,3 +495,14 @@ article blockquote > :last-child {
 	width: 17em;
 	max-width: 100%;
 }
+
+/* ---- the row of whoever looks at a board */
+.uoj-scoreboard tr.uoj-scoreboard-me > td {
+	box-shadow: inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
+}
+.uoj-scoreboard tr.uoj-scoreboard-me > td:first-child {
+	box-shadow: inset 2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
+}
+.uoj-scoreboard tr.uoj-scoreboard-me > td:last-child {
+	box-shadow: inset -2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
+}

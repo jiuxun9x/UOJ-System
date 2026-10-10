@@ -273,16 +273,29 @@ function contestKeepsResults($contest) {
 }
 
 // What the standings of a contest count of what was submitted to it.
-//   $rows           what was submitted and judged, the oldest first: rows of the id of the
-//                   submission, seconds since the start of the contest, username, position
-//                   of the problem, score
+//   $rows           what was submitted, the oldest first: rows of the id of the submission,
+//                   seconds since the start of the contest, username, position of the
+//                   problem, score. Under the ICPC rule a submission that waits to be judged
+//                   is among them, with null for its score.
 //   $freeze_offset  under the ICPC rule: from how many seconds into the contest on
 //                   submissions are counted without being judged, or null
 // Returns username => position of the problem => array(score, penalty in seconds, id of the
-// submission that counts, failed attempts, attempts that are not judged). The last two are
-// there under the ICPC rule only.
+// submission that counts, failed attempts, attempts whose outcome is not told). The last two
+// are there under the ICPC rule only.
+//
+// The ICPC rule is counted the way DOMjudge counts it:
+// - a problem is solved by the first submission that passes, and nothing that is submitted
+//   to it after that one is looked at any more, on any board;
+// - what was submitted before it and did not pass costs twenty minutes each, and costs
+//   nothing while the problem is not solved; a submission that does not compile is not
+//   among the rows at all;
+// - a submission that is not judged yet is an attempt whose outcome nobody knows;
+// - on the frozen board, so is every submission made since the board froze, whatever became
+//   of it. What was solved before the board froze stays solved.
 function contestCells($rule, $standings_version, $rows, $freeze_offset = null) {
 	$cells = array();
+	// username => position => true: solved in truth, whether the board says so or not
+	$closed = array();
 	foreach ($rows as $row) {
 		list($id, $offset, $name, $pos, $score) = $row;
 		if ($rule !== 'ICPC') {
@@ -290,15 +303,20 @@ function contestCells($rule, $standings_version, $rows, $freeze_offset = null) {
 			$cells[$name][$pos] = array((int)$score, $score == 0 && $standings_version >= 2 ? 0 : (int)$offset, (int)$id);
 			continue;
 		}
-		$cell = isset($cells[$name][$pos]) ? $cells[$name][$pos] : array(0, 0, (int)$id, 0, 0);
-		if ($cell[0] == 100) {
-			// solved: what comes afterwards changes nothing
+		if (isset($closed[$name][$pos])) {
 			continue;
 		}
-		if ($freeze_offset !== null && $offset >= $freeze_offset) {
+		$cell = isset($cells[$name][$pos]) ? $cells[$name][$pos] : array(0, 0, (int)$id, 0, 0);
+		if ($score === null) {
 			$cell[4]++;
+		} elseif ($freeze_offset !== null && $offset >= $freeze_offset) {
+			$cell[4]++;
+			if ($score == 100) {
+				$closed[$name][$pos] = true;
+			}
 		} elseif ($score == 100) {
-			$cell = array(100, (int)$offset + CONTEST_ICPC_PENALTY * $cell[3], (int)$id, $cell[3], 0);
+			$cell = array(100, (int)$offset + CONTEST_ICPC_PENALTY * $cell[3], (int)$id, $cell[3], $cell[4]);
+			$closed[$name][$pos] = true;
 		} else {
 			$cell[2] = (int)$id;
 			$cell[3]++;
@@ -341,6 +359,7 @@ function contestIcpcCell($cell) {
 		return array('+' . ($failed > 0 ? $failed : ''), contestClock($cell[1] - CONTEST_ICPC_PENALTY * $failed), 'uoj-icpc-solved');
 	}
 	if ($pending > 0) {
+		// "1 + 2": one attempt that is known to have failed, two whose outcome is not told
 		return array('?', $failed . ' + ' . $pending, 'uoj-icpc-pending');
 	}
 	return $failed > 0 ? array('-' . $failed, '', 'uoj-icpc-failed') : array('', '', '');
@@ -738,8 +757,12 @@ function queryContestData($contest, $config = array()) {
 		}
 	} else {
 		if ($contest['cur_progress'] < CONTEST_FINISHED) {
+			// Under the ICPC rule what waits to be judged is counted as well: it stands on the
+			// board as an attempt whose outcome nobody knows. (What did not compile has no
+			// score and is judged: it is not counted.)
+			$unjudged = contestRule($contest) === 'ICPC' ? " or status not like 'Judged%'" : '';
 			$result = DB::query("select id, submit_time, submitter, problem_id, score from submissions"
-				." where contest_id = {$contest['id']} and score is not null order by id");
+				." where contest_id = {$contest['id']} and (score is not null$unjudged) order by id");
 		} else {
 			$result = DB::query("select submission_id, date_add('{$contest['start_time_str']}', interval penalty second),"
 				." submitter, problem_id, score, attempts from contests_submissions where contest_id = {$contest['id']}");
@@ -747,7 +770,7 @@ function queryContestData($contest, $config = array()) {
 		while ($row = DB::fetch($result, MYSQLI_NUM)) {
 			$row[0] = (int)$row[0];
 			$row[3] = $prob_pos[$row[3]];
-			$row[4] = (int)$row[4];
+			$row[4] = $row[4] === null ? null : (int)$row[4];
 			$data[] = $row;
 		}
 	}

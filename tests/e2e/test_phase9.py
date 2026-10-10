@@ -95,3 +95,95 @@ class InputValidationTest(unittest.TestCase):
         self.assertEqual((conf["validate_input_before_test"], conf["val_source"]), ("on", "val.cpp"))
         solver = p3.account("p9_val_solver")
         self.assertEqual(uoj.wait_submission(solver.submit(problem_id, AB)).score, 100)
+
+
+def icpc_board(client, contest_id, query=""):
+    """the board of an ICPC contest as somebody sees it: (username => (rank, solved, what each
+    cell says), the row above the board that is the viewer's own or None, the page)"""
+    page = client.get("/contest/%d/standings%s" % (contest_id, query))
+    assert page.status_code == 200, page.status_code
+
+    def cells_of(row):
+        said = {}
+        for kind, letter, inside in re.findall(r'(?s)<td class="uoj-icpc-(\w+)" data-problem="(\w)">(.*?)</td>', row):
+            words = [w for w in re.sub(r"<[^>]+>", " ", inside).split() if w]
+            said[letter] = (kind, " ".join(words))
+        return said
+
+    rows = {}
+    for name, rank, solved, cells in re.findall(
+        r'(?s)<tr(?: class="uoj-scoreboard-me")? data-username="([^"]+)" data-rank="(\d+)" data-solved="(\d+)" data-penalty="\d+">(.*?)</tr>', page.text
+    ):
+        rows[name] = (int(rank), int(solved), cells_of(cells))
+    mine = re.search(r'(?s)<div class="table-responsive" id="standings-mine">.*?<tbody>\s*<tr class="uoj-scoreboard-me" data-username="([^"]+)" data-solved="(\d+)"[^>]*>\s*<td[^>]*>([^<]*)</td>(.*?)</tr>', page.text)
+    return rows, (mine.group(1), int(mine.group(2)), mine.group(3), cells_of(mine.group(4))) if mine else None, page.text
+
+
+class FrozenBoardTest(unittest.TestCase):
+    """the frozen board of an ICPC contest counts the way DOMjudge counts"""
+
+    def test_board_freezes_the_way_domjudge_freezes_it(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p9 封榜", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d, %d" % (first, second))
+        dan, eve, fay = (p3.account("p9_frz_" + name) for name in ("dan", "eve", "fay"))
+        for client in (dan, eve, fay):
+            client.register_for_contest(contest_id)
+        # two hundred and fifty minutes into its three hundred: the last sixty are frozen
+        uoj.move_contest(contest_id, -250 * 60, 300)
+
+        def at(minutes, submission_id):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
+               " where id = %d" % (contest_id, minutes, submission_id))  # fmt: skip
+            return submission_id
+
+        # dan solved A before the board froze, after one attempt in vain, and goes on submitting
+        # to it afterwards: a wrong program, and a right one
+        at(10, dan.submit_in_contest(contest_id, first, AB_WRONG))
+        at(20, dan.submit_in_contest(contest_id, first, AB))
+        dan.submit_in_contest(contest_id, first, AB_WRONG)
+        dan.submit_in_contest(contest_id, first, AB)
+        # eve failed A before the board froze, solved it afterwards, and fails it once more
+        at(30, eve.submit_in_contest(contest_id, first, AB_WRONG))
+        uoj.wait_idle()
+        eve_right = eve.submit_in_contest(contest_id, first, AB)
+        uoj.wait_idle()
+        eve.submit_in_contest(contest_id, first, AB_WRONG)
+        uoj.wait_idle()
+
+        # ---- what everybody is shown who does not run the contest
+        for client in (dan, eve, fay):
+            rows, mine, page = icpc_board(client, contest_id)
+            self.assertIn('data-frozen="1"', page)
+            # what was solved before the board froze stays solved, whatever came after it
+            self.assertEqual(rows["p9_frz_dan"], (1, 1, {"A": ("first", "+1 0:20")}), client.username)
+            # one attempt that failed, and one whose outcome is not told: what was submitted
+            # after the one that solved the problem is not counted, as nothing after it counts
+            self.assertEqual(rows["p9_frz_eve"], (2, 0, {"A": ("pending", "? 1 + 1")}), client.username)
+            self.assertNotIn("/submission/%d" % eve_right, page if client is not eve else "")
+        # ---- and what each of them is shown about themselves, above the board: the truth, and no rank
+        rows, mine, page = icpc_board(eve, contest_id)
+        self.assertEqual(mine[:3], ("p9_frz_eve", 1, "?"))
+        self.assertEqual(mine[3]["A"][0], "solved")
+        self.assertRegex(mine[3]["A"][1], r"^\+1 4:1\d$")
+        rows, mine, page = icpc_board(dan, contest_id)
+        self.assertEqual((mine[:3], mine[3]), (("p9_frz_dan", 1, "?"), {"A": ("solved", "+1 0:20")}))
+        self.assertNotIn("p9_frz_eve", page[page.index('id="standings-mine"'):page.index('id="table-icpc-standings"')])
+        rows, mine, page = icpc_board(fay, contest_id)
+        self.assertEqual((mine[:3], mine[3]), (("p9_frz_fay", 0, "?"), {}))
+        # ---- the staff sees how it is, and has no row of its own
+        rows, mine, page = icpc_board(admin, contest_id)
+        self.assertIsNone(mine)
+        self.assertEqual((rows["p9_frz_dan"][:2], rows["p9_frz_eve"][:2], rows["p9_frz_eve"][2]["A"][0]), ((1, 1), (2, 1), "solved"))
+        rows, mine, page = icpc_board(admin, contest_id, "?frozen=1")
+        self.assertEqual(rows["p9_frz_eve"], (2, 0, {"A": ("pending", "? 1 + 1")}))
+
+        # ---- what waits to be judged is an attempt whose outcome nobody knows, on every board
+        with uoj.judgers_paused():
+            fay.submit_in_contest(contest_id, second, AB)
+            for client in (fay, admin):
+                rows, mine, page = icpc_board(client, contest_id)
+                self.assertEqual(rows["p9_frz_fay"][1:], (0, {"B": ("pending", "? 0 + 1")}), client.username)
+        uoj.wait_idle()
+        rows, mine, page = icpc_board(admin, contest_id)
+        self.assertEqual(rows["p9_frz_fay"][2]["B"][0], "first")
