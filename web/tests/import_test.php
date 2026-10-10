@@ -4,6 +4,7 @@
 // settings of this site.
 
 require_once __DIR__ . '/../app/libs/uoj-problem-lib.php';
+require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-import-lib.php';
 
 // ---- the template that is handed out reads as what it is
@@ -65,3 +66,15 @@ check_same(array(array('A', 'B/inner'), array('C.md')), importFindProblems(array
 check_same(array(array(''), array()), importFindProblems(array('problem.yaml', 'problem_zh.md', 'testdata/config.yaml', 'notes.md')), 'a package that is one problem');
 check_same(array(array(), array('a.md', 'sub/b.md')), importFindProblems(array('sub/b.md', 'a.md', 'pic.png')), 'a package of templates');
 check_same(array(array(), array()), importFindProblems(array('1.in', '1.out', 'problem.conf')), 'the data of one problem is no package of problems');
+
+// ---- the names of files are taken apart the same under every locale of the server
+$locale = setlocale(LC_CTYPE, '0');
+setlocale(LC_CTYPE, 'C');
+check_same(array('没有开头', 'md'), array(importStem('没有开头.md'), importEnding('没有开头.md')), 'a name that is not ASCII, under the locale servers have');
+check_same(array('第一题', '题面'), array(importFolder('包/第一题/题面.MD') === '包/第一题' ? '第一题' : importFolder('包/第一题/题面.MD'), importStem('包/第一题/题面.MD')), 'a file in folders');
+check_same(array('md', 'zip', '', 'gz'), array(importEnding('a/题面.MD'), importEnding('data.ZIP'), importEnding('README'), importEnding('a.tar.gz')), 'endings');
+check_same(array('', 'a'), array(importFolder('problem.yaml'), importFolder('a/problem.yaml')), 'the folder of a file');
+check_same(array(array('第一题', '第二题/内层'), array('说明.md')),
+	importFindProblems(array('第一题/problem.yaml', '第一题/testdata/1.in', '第二题/内层/problem_zh.md', '说明.md', 'README.md')), 'a package whose folders are named in Chinese');
+check_same('没有开头', importReadTemplate("## 题目描述\n\n只有题面。\n", importStem('没有开头.md'))['title'], 'a template without a title is named by its file');
+setlocale(LC_CTYPE, $locale);

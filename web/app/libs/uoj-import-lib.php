@@ -432,6 +432,21 @@ function importUnpack($zip_path, $dir, $limits) {
 	$zip->close();
 	return '';
 }
+// The folder a file of a package is in ('' for none), the name of a file without its
+// ending, and its ending in small letters. Names are taken apart with uojFileBaseName():
+// basename() and pathinfo() ask the locale of the server what a character is, and under the
+// locale that servers have they drop the characters of a name that are not ASCII.
+// "没有开头.md" came out as ".md", and a problem named by its file had no name.
+function importFolder($path) {
+	$slash = strrpos((string)$path, '/');
+	return $slash === false ? '' : substr($path, 0, $slash);
+}
+function importStem($path) {
+	return uojFileNameParts(uojFileBaseName($path))[0];
+}
+function importEnding($path) {
+	return strtolower(uojFileNameParts(uojFileBaseName($path))[1]);
+}
 // the files below a folder, as paths from it with "/" between
 function importFilesBelow($dir, $prefix = '') {
 	$files = array();
@@ -452,17 +467,16 @@ function importFilesBelow($dir, $prefix = '') {
 function importFindProblems($files) {
 	$roots = array();
 	foreach ($files as $file) {
-		$base = basename($file);
+		$base = uojFileBaseName($file);
 		if ($base === 'problem.yaml' || $base === 'problem.yml' || preg_match('/^problem(_[A-Za-z_]+)?\.md$/D', $base)) {
-			$root = dirname($file) === '.' ? '' : dirname($file);
-			$roots[$root] = true;
+			$roots[importFolder($file)] = true;
 		}
 	}
 	$roots = array_keys($roots);
 	sort($roots);
 	$templates = array();
 	foreach ($files as $file) {
-		if (strtolower(substr($file, -3)) !== '.md' || strtolower(basename($file)) === 'readme.md') {
+		if (strtolower(substr($file, -3)) !== '.md' || strtolower(uojFileBaseName($file)) === 'readme.md') {
 			continue;
 		}
 		$inside = false;
@@ -529,7 +543,7 @@ function importReadPackage($dir, $root, $files) {
 			}
 		}
 	}
-	$package = importReadTemplate($statement_file === null ? '' : $read($statement_file), $root === '' ? '导入的题目' : basename($root));
+	$package = importReadTemplate($statement_file === null ? '' : $read($statement_file), $root === '' ? '导入的题目' : uojFileBaseName($root));
 	// the first note is about the lines of a template, which a statement of Hydro does not have
 	$package['notes'] = array_values(array_filter($package['notes'], function($note) {
 		return strpos($note, '两条 ---') === false;
@@ -737,7 +751,7 @@ function importUploaded($field, $actor, $domain, $public) {
 		$results[] = array('from' => $from, 'problem' => $problem, 'notes' => $notes, 'error' => $err);
 	};
 	foreach ($sources as $source) {
-		$base = basename($source['name']);
+		$base = uojFileBaseName($source['name']);
 		$refuse = function($why) use (&$results, $base) {
 			$results[] = array('from' => $base, 'problem' => null, 'notes' => array(), 'error' => $why);
 		};
@@ -745,13 +759,13 @@ function importUploaded($field, $actor, $domain, $public) {
 			$refuse('文件没有传完（错误 ' . $source['error'] . '），可能是太大了');
 			continue;
 		}
-		$ending = strtolower(pathinfo($base, PATHINFO_EXTENSION));
+		$ending = importEnding($base);
 		if ($ending === 'md' || $ending === 'markdown' || $ending === 'txt') {
 			if (filesize($source['path']) > 1000000) {
 				$refuse('题面文件太大了');
 				continue;
 			}
-			$make(importReadTemplate(file_get_contents($source['path']), pathinfo($base, PATHINFO_FILENAME)), $base);
+			$make(importReadTemplate(file_get_contents($source['path']), importStem($base)), $base);
 			continue;
 		}
 		if ($ending !== 'zip') {
@@ -774,7 +788,7 @@ function importUploaded($field, $actor, $domain, $public) {
 				$make(importReadPackage($dir, $root, $files), $base . ($root === '' ? '' : " / $root"));
 			}
 			foreach ($templates as $template) {
-				$make(importReadTemplate(file_get_contents("$dir/$template"), pathinfo($template, PATHINFO_FILENAME)), "$base / $template");
+				$make(importReadTemplate(file_get_contents("$dir/$template"), importStem($template)), "$base / $template");
 			}
 		}
 		exec('rm -rf ' . escapeshellarg($dir));
