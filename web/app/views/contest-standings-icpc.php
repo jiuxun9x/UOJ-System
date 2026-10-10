@@ -45,6 +45,8 @@
 	};
 	$me = Auth::check() ? Auth::id() : null;
 	$mine = isset($mine) ? $mine : null;
+	// where there are balloons, a problem is headed by the colour of its balloon
+	$balloon_colors = balloonsEnabled($contest) ? balloonColors($contest) : array();
 ?>
 <?php if ($mine): ?>
 <?php // While the board is frozen a contestant is shown how it really stands with them, as DOMjudge does: they were told the outcome of every one of their submissions. Where that puts them among the others nobody knows yet. ?>
@@ -82,7 +84,8 @@
 				<th class="uoj-scoreboard-name"><?= UOJLocale::get('username') ?></th>
 				<th style="width:6em">通过<div class="uoj-icpc-under">罚时</div></th>
 				<?php foreach ($problems as $pos => $problem): ?>
-				<th style="width:5.5em"<?= isset($solved_by[$pos]) ? ' class="uoj-icpc-solved-by"' : '' ?> title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?>">
+				<?php $balloon = $problem && isset($balloon_colors[(int)$problem['id']]) ? $balloon_colors[(int)$problem['id']] : null; ?>
+				<th style="width:5.5em<?= $balloon ? ';box-shadow:inset 0 5px 0 ' . $balloon['color'] : '' ?>"<?= $balloon ? ' data-balloon="' . $balloon['color'] . '"' : '' ?><?= isset($solved_by[$pos]) ? ' class="uoj-icpc-solved-by"' : '' ?> title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?><?= $balloon && $balloon['name'] !== '' ? '（气球：' . HTML::escape($balloon['name']) . '）' : '' ?>">
 					<a href="/contest/<?= $contest['id'] ?>/problem/<?= chr(ord('A') + $pos % 26) ?>"><?= chr(ord('A') + $pos % 26) ?></a>
 					<div class="uoj-icpc-under" data-solved-by="<?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>"><?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>/<?= isset($tried_by[$pos]) ? $tried_by[$pos] : 0 ?></div>
 				</th>

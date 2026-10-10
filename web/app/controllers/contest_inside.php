@@ -51,6 +51,20 @@
 			'submissions' => virtualSubmissions($my_virtual, $virtual_problems), 'standings' => virtualStandingsNow($contest, $my_virtual, $virtual_problems));
 	}
 	
+	// A contest that gives balloons is told by its contestants where they sit, if they want
+	// to tell: whoever brings a balloon has to find them. The people who run the contest can
+	// write the seats down as well, and theirs is the same field.
+	$may_say_seat = balloonsEnabled($contest) && $contest['cur_progress'] <= CONTEST_IN_PROGRESS && $myUser != null && hasRegistered($myUser, $contest);
+	$my_seat_error = domainHandleForms(array(
+		'my_seat' => function() use ($contest, $may_say_seat) {
+			global $myUser;
+			if (!$may_say_seat) {
+				return '现在不能填写座位';
+			}
+			return contestSetSeat($contest, $myUser['username'], isset($_POST['seat']) && is_string($_POST['seat']) ? $_POST['seat'] : '', $myUser);
+		}
+	));
+	
 	$tabs_info = array(
 		'dashboard' => array(
 			'name' => UOJLocale::get('contests::contest dashboard'),
@@ -388,6 +402,8 @@ EOD;
 			'attachments' => can(Auth::user(), 'contest.read', $contest) ? attachmentsOf('contest', $contest['id']) : array(),
 			'contest_notice' => $contest_notice,
 			'contest_problems' => $contest_problems,
+			// the colour of the balloon that a problem is worth, where there are balloons
+			'balloon_colors' => balloonsEnabled($contest) ? balloonColors($contest) : array(),
 			'post_question' => $post_question,
 			'my_questions_pag' => $my_questions_pag,
 			'others_questions_pag' => $others_questions_pag
@@ -675,7 +691,28 @@ EOD;
 		</ul>
 	</div>
 	
+		<?php if ($may_say_seat): ?>
+		<?php $my_seat = DB::selectFirst("select seat from contests_registrants where contest_id = {$contest['id']} and username = '".DB::escape($myUser['username'])."'", MYSQLI_ASSOC); ?>
+		<form method="post" class="card mb-2 text-left" id="form-my-seat">
+			<div class="card-body py-2 px-3">
+				<?= HTML::hiddenToken() ?>
+				<input type="hidden" name="form" value="my_seat" />
+				<label for="input-my-seat" class="mb-1"><strong>我的座位</strong> <small class="text-muted">过题后气球送到这里</small></label>
+				<?php if ($my_seat_error !== ''): ?>
+				<div class="text-danger small mb-1" id="my-seat-error"><?= HTML::escape($my_seat_error) ?></div>
+				<?php endif ?>
+				<div class="input-group input-group-sm">
+					<input type="text" class="form-control" id="input-my-seat" name="seat" value="<?= HTML::escape($my_seat ? $my_seat['seat'] : '') ?>" maxlength="20" placeholder="例如 A-12" />
+					<div class="input-group-append"><button type="submit" class="btn btn-outline-primary">保存</button></div>
+				</div>
+			</div>
+		</form>
+		<?php endif ?>
 		<a href="/contest/<?=$contest['id']?>/registrants" class="btn btn-info btn-block"><?= UOJLocale::get('contests::contest registrants') ?></a>
+		<?php if (can($myUser, 'contest.assist', $contest) && balloonsEnabled($contest)): ?>
+		<?php $balloons_pending = balloonPendingCount($contest); ?>
+		<a href="/contest/<?= $contest['id'] ?>/balloons" class="btn btn-warning btn-block" id="link-balloons">气球<?= $balloons_pending > 0 ? ' <span class="badge badge-light" id="balloons-waiting">' . $balloons_pending . '</span>' : '' ?></a>
+		<?php endif ?>
 		<?php if (can($myUser, 'contest.manage', $contest)): ?>
 		<a href="/contest/<?=$contest['id']?>/manage" class="btn btn-primary btn-block">管理</a>
 		<?php if (isset($start_test_form)): ?>

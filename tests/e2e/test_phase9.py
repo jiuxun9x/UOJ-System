@@ -366,6 +366,187 @@ class VirtualInContestTest(unittest.TestCase):
         self.check("ICPC", "p9_vi_")
 
 
+def balloon_list(client, contest_id, query=""):
+    """the list of the balloons of a contest as somebody is shown it: rows of (who, the letter of
+    the problem, where they sit, whether it was brought, what is special about it, the problems
+    they have a balloon for with it) in the order of the list, and the page"""
+    r = client.get("/contest/%d/balloons%s" % (contest_id, query))
+    assert r.status_code == 200, r.status_code
+    rows = []
+    for attrs, body in re.findall(r'(?s)<tr class="uoj-balloon-(?:pending|done)"([^>]*)>(.*?)</tr>', r.text):
+        said = lambda name: re.search(r'data-%s="([^"]*)"' % name, attrs).group(1)
+        seat = uoj.text_of(re.search(r'(?s)<td class="uoj-balloon-seat">(.*?)</td>', body).group(1))
+        rows.append((said("username"), said("problem"), seat, said("done") == "1", tuple(re.findall(r'data-award="(\w+)"', body)), re.search(r'data-has="(\w*)"', body).group(1)))
+    return rows, r.text
+
+
+class BalloonTest(unittest.TestCase):
+    """whoever solves a problem of a contest that is held in a room is brought a balloon, the way
+    DOMjudge has it: a list of the balloons to bring, with where to, that is ticked off"""
+
+    def test_balloons_from_the_list_to_the_desk(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p9 气球赛", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d, %d" % (first, second))
+        here, manage, balloons = "/contest/%d" % contest_id, "/contest/%d/manage" % contest_id, "/contest/%d/balloons" % contest_id
+        ann, bob, cat, runner, outsider = (p3.account("p9_bal_" + name) for name in ("ann", "bob", "cat", "runner", "outsider"))
+        self.assertEqual(admin.form(manage, "add_manager", tab="managers", username="p9_bal_runner", role="assistant"), "")
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p9_bal_ann A-12\np9_bal_bob B-3\np9_bal_cat"), "")
+        seat_of = lambda name: db_value("select seat from contests_registrants where contest_id = %d and username = '%s'" % (contest_id, name))
+        marks = lambda: db("select username, problem_id, done_by from contest_balloons where contest_id = %d order by username, problem_id" % contest_id)
+        legend = lambda page: re.findall(r'data-problem="(\w)" data-color="(#\w+)"', page[page.index('id="balloon-legend"'):page.index('id="form-balloon-filter"')])
+        # a hundred minutes into its three hundred; the last sixty are frozen
+        uoj.move_contest(contest_id, -100 * 60, 300)
+
+        def at(minutes, submission_id):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
+               " where id = %d" % (contest_id, minutes, submission_id))  # fmt: skip
+            return submission_id
+
+        # ---- the list is for the people who run the contest
+        self.assertEqual(uoj.Client().get(balloons).status_code, 302)
+        for client in (ann, outsider):
+            self.assertEqual(client.get(balloons).status_code, 403)
+        # A contest gives no balloons until somebody who decides about it says so: the page
+        # says what balloons are, and an assistant is told who to ask.
+        page = runner.get(balloons).text
+        self.assertIn('id="balloons-off"', page)
+        self.assertNotIn('id="button-enable-balloons"', page)
+        self.assertEqual(runner.post(balloons, {"form": "settings", "balloons": "on"}).status_code, 403)
+        self.assertEqual(db_value("select balloons from contests where id = %d" % contest_id), "0")
+        self.assertNotIn('id="link-balloons"', admin.get(here).text)
+        self.assertNotIn('id="form-my-seat"', ann.get(here).text)
+        self.assertIn('id="link-manage-balloons"', admin.get(manage).text)
+        self.assertIn('id="button-enable-balloons"', admin.get(balloons).text)
+        self.assertEqual(admin.form(balloons, "settings", balloons="on"), "")
+        self.assertEqual(db("select balloons, balloons_after_freeze from contests where id = %d" % contest_id), [["1", "0"]])
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual(rows, [])
+        self.assertIn('id="balloons-none"', page)
+        self.assertNotIn('id="balloon-settings"', page)
+        # the problems have colours without anybody choosing them
+        self.assertEqual(legend(page), [("A", "#e53935"), ("B", "#fb8c00")])
+        self.assertIn("有 1 位选手没填座位", uoj.text_of(page))
+
+        # ---- one balloon for a problem of a contestant, when they solve it for the first time
+        at(10, ann.submit_in_contest(contest_id, first, AB_WRONG))
+        at(20, ann.submit_in_contest(contest_id, first, AB))
+        at(30, bob.submit_in_contest(contest_id, first, AB))
+        at(40, bob.submit_in_contest(contest_id, second, AB))
+        at(50, ann.submit_in_contest(contest_id, first, AB))
+        uoj.wait_idle()
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual(rows, [
+            ("p9_bal_ann", "A", "A-12", False, ("contest", "problem"), "A"),
+            ("p9_bal_bob", "A", "B-3", False, (), "A"),
+            ("p9_bal_bob", "B", "B-3", False, ("problem",), "AB"),
+        ])  # fmt: skip
+        self.assertRegex(page, r'id="balloon-board" data-pending="3" data-done="0"')
+        # the people who run the contest see on its page how many wait
+        self.assertRegex(admin.get(here).text, r'id="link-balloons">气球 <span class="badge badge-light" id="balloons-waiting">3</span>')
+        self.assertIn('id="link-balloons"', runner.get(here).text)
+        self.assertNotIn('id="link-balloons"', ann.get(here).text)
+
+        # ---- a balloon that was brought is ticked off, by whoever brought it
+        self.assertEqual(runner.form(balloons, "done", username="p9_bal_bob", problem_id=str(first)), "")
+        self.assertEqual(marks(), [["p9_bal_bob", str(first), "p9_bal_runner"]])
+        # the ones that wait come first
+        rows, page = balloon_list(admin, contest_id)
+        self.assertEqual([(row[0], row[1], row[3]) for row in rows], [("p9_bal_ann", "A", False), ("p9_bal_bob", "B", False), ("p9_bal_bob", "A", True)])
+        self.assertRegex(page, r'id="balloon-board" data-pending="2" data-done="1"')
+        self.assertRegex(uoj.text_of(page), r"已送 p9_bal_runner \d\d:\d\d")
+        # said twice it was brought once, by who said so first
+        self.assertEqual(admin.form(balloons, "done", username="p9_bal_bob", problem_id=str(first)), "")
+        self.assertEqual(marks(), [["p9_bal_bob", str(first), "p9_bal_runner"]])
+        # a balloon that nobody earned is not brought
+        for name, problem_id in (("p9_bal_cat", first), ("p9_bal_ann", second), ("p9_bal_nobody", first), ("p9_bal_ann", 0)):
+            self.assertIn("没有这个气球", runner.form(balloons, "done", username=name, problem_id=str(problem_id)))
+        self.assertEqual(len(marks()), 1)
+        # the list is asked for what waits, for what was brought, and for a part of the room
+        for query, expected in (("?show=pending", [("p9_bal_ann", "A"), ("p9_bal_bob", "B")]), ("?show=done", [("p9_bal_bob", "A")]),
+                                ("?seat=b-", [("p9_bal_bob", "B"), ("p9_bal_bob", "A")]), ("?show=pending&seat=A-1", [("p9_bal_ann", "A")]),
+                                ("?seat=Z", [])):  # fmt: skip
+            self.assertEqual([row[:2] for row in balloon_list(runner, contest_id, query)[0]], expected, query)
+        # and stays what it was asked for when something on it is ticked: here, taken back
+        r = runner.post(balloons + "?show=done&seat=B", {"form": "undo", "username": "p9_bal_bob", "problem_id": str(first)})
+        self.assertEqual((r.status_code, r.headers["Location"]), (302, balloons + "?show=done&seat=B"))
+        self.assertEqual(marks(), [])
+
+        # ---- the colours are chosen by who decides about the contest
+        chosen = {"color_%d" % first: "#e53935", "name_%d" % first: "红色", "color_%d" % second: "#00FF00", "name_%d" % second: "荧光绿"}
+        self.assertEqual(runner.post(balloons, dict(chosen, form="colors")).status_code, 403)
+        self.assertIn("B 题：颜色要写成", admin.form(balloons, "colors", **dict(chosen, **{"color_%d" % second: "green"})))
+        self.assertEqual(db_value("select count(*) from contest_balloon_colors where contest_id = %d" % contest_id), "0")
+        self.assertEqual(admin.form(balloons, "colors", **chosen), "")
+        # a problem that keeps the colour it had has no colour of its own
+        self.assertEqual(db("select problem_id, color, name from contest_balloon_colors where contest_id = %d" % contest_id), [[str(second), "#00ff00", "荧光绿"]])
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual(legend(page), [("A", "#e53935"), ("B", "#00ff00")])
+        self.assertRegex(page, r'(?s)data-balloon="p9_bal_bob/B".*?background-color:#00ff00;color:#000000.*?荧光绿')
+        self.assertIn('id="balloon-settings"', admin.get(balloons).text)
+        # the contestants see what a problem is worth, on the page of the contest and on its board
+        self.assertRegex(ann.get(here).text, r'class="uoj-balloon-dot" style="background-color:#00ff00" title="气球：荧光绿"')
+        self.assertIn('data-balloon="#00ff00"', ann.get(here + "/standings").text)
+
+        # ---- a contestant says where they sit, and nobody else does it for them
+        self.assertIn('id="form-my-seat"', cat.get(here).text)
+        self.assertNotIn('id="form-my-seat"', admin.get(here).text)
+        self.assertEqual(cat.form(here, "my_seat", seat="C 区 7"), "")
+        self.assertEqual(seat_of("p9_bal_cat"), "C 区 7")
+        self.assertIn("座位最多 20 个字符", cat.form(here, "my_seat", seat="<b>x</b>"))
+        self.assertEqual((seat_of("p9_bal_cat"), seat_of("p9_bal_ann")), ("C 区 7", "A-12"))
+        self.assertRegex(cat.get(here).text, r'id="input-my-seat" name="seat" value="C 区 7"')
+
+        # ---- the board freezes: what is solved from then on is held back, as the board holds it back
+        uoj.move_contest(contest_id, -250 * 60, 300)
+        uoj.wait_submission(cat.submit_in_contest(contest_id, first, AB))
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual([row[:2] for row in rows], [("p9_bal_ann", "A"), ("p9_bal_bob", "A"), ("p9_bal_bob", "B")])
+        self.assertIn('id="balloons-held-back"', page)
+        self.assertIn("封榜后通过的 1 个气球先不发", uoj.text_of(page))
+        self.assertIn("没有这个气球", runner.form(balloons, "done", username="p9_bal_cat", problem_id=str(first)))
+        # unless the contest says that it goes on
+        self.assertEqual(admin.form(balloons, "settings", balloons="on", after_freeze="on"), "")
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual(rows[-1], ("p9_bal_cat", "A", "C 区 7", False, (), "A"))
+        self.assertIn('id="balloons-after-freeze"', page)
+        self.assertNotIn('id="balloons-held-back"', page)
+        self.assertEqual(admin.form(balloons, "settings", balloons="on"), "")
+        self.assertEqual(len(balloon_list(runner, contest_id)[0]), 3)
+        # and when the results are published everything is on the list
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        self.assertEqual(admin.submit_form(here, "publish_result"), "")
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual(rows[-1][:3], ("p9_bal_cat", "A", "C 区 7"))
+        self.assertNotIn('id="balloons-held-back"', page)
+        # a contest that is over is not told where anybody sits any more
+        self.assertNotIn('id="form-my-seat"', cat.get(here).text)
+
+        # ---- somebody who is taken out of the contest is brought nothing
+        self.assertEqual(runner.form(balloons, "done", username="p9_bal_ann", problem_id=str(first)), "")
+        self.assertEqual(admin.form(manage, "remove_contestant", tab="contestants", username="p9_bal_bob"), "")
+        rows, page = balloon_list(runner, contest_id)
+        self.assertEqual([(row[0], row[1], row[3]) for row in rows], [("p9_bal_cat", "A", False), ("p9_bal_ann", "A", True)])
+        # ---- a contest that stops giving balloons keeps what was written down
+        self.assertEqual(admin.form(balloons, "settings"), "")
+        self.assertIn('id="balloons-off"', runner.get(balloons).text)
+        self.assertNotIn('id="link-balloons"', admin.get(here).text)
+        self.assertIn("没有启用气球", runner.form(balloons, "done", username="p9_bal_cat", problem_id=str(first)))
+        self.assertEqual(admin.form(balloons, "settings", balloons="on"), "")
+        self.assertEqual([(row[0], row[3]) for row in balloon_list(runner, contest_id)[0]], [("p9_bal_cat", False), ("p9_bal_ann", True)])
+
+        # ---- under the OI rule nobody knows during the contest what was solved: no balloons
+        oi = admin.new_contest("p9 气球 OI", problems=str(first))
+        self.assertIn('id="balloons-not-for-rule"', admin.get("/contest/%d/balloons" % oi).text)
+        self.assertIn("没有气球可发", admin.form("/contest/%d/balloons" % oi, "settings", balloons="on"))
+        self.assertEqual(db_value("select balloons from contests where id = %d" % oi), "0")
+
+        # ---- a contest that is deleted takes its balloons with it
+        self.assertEqual(admin.form(manage, "delete_contest", tab="delete", confirm="p9 气球赛"), "")
+        self.assertEqual(db_value("select (select count(*) from contest_balloons where contest_id = %d) + (select count(*) from contest_balloon_colors where contest_id = %d)"
+                                  % (contest_id, contest_id)), "0")  # fmt: skip
+
+
 def registered(contest_id):
     return [row[0] for row in db("select username from contests_registrants where contest_id = %d order by username" % contest_id)]
 

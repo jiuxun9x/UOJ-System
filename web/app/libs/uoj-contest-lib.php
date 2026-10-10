@@ -753,7 +753,7 @@ function contestDelete($contest, $actor) {
 	// what was submitted to it is what was submitted to its problems
 	DB::update("update submissions set contest_id = null where contest_id = $id");
 	DB::update("update hacks set contest_id = null where contest_id = $id");
-	foreach (array('contests_registrants', 'contests_permissions', 'contests_problems', 'contests_submissions', 'contests_notice', 'contests_asks', 'contest_allowed_users', 'contest_virtuals') as $table) {
+	foreach (array('contests_registrants', 'contests_permissions', 'contests_problems', 'contests_submissions', 'contests_notice', 'contests_asks', 'contest_allowed_users', 'contest_virtuals', 'contest_balloons', 'contest_balloon_colors') as $table) {
 		DB::delete("delete from $table where contest_id = $id");
 	}
 	DB::delete("delete from click_zans where type = 'C' and target_id = $id");

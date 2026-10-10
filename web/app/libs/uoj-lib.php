@@ -29,6 +29,7 @@
 	requirePHPLib('backup');
 	requirePHPLib('upload');
 	requirePHPLib('virtual');
+	requirePHPLib('balloon');
 	requirePHPLib('attachment');
 	requirePHPLib('notice');
 	requirePHPLib('html');

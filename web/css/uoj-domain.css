@@ -513,6 +513,63 @@ tr.uoj-standings-virtual > td:nth-child(-n+3) {
 	background-color: #eef6fb !important;
 }
 
+/* ---- balloons: a balloon is its colour with the letter of its problem on it */
+.uoj-balloon {
+	display: inline-block;
+	min-width: 2.3em;
+	padding: 0.3em 0.55em;
+	border: 1px solid rgba(0, 0, 0, 0.3);
+	border-radius: 50% 50% 50% 50% / 45% 45% 55% 55%;
+	font-weight: bold;
+	line-height: 1.4;
+	text-align: center;
+}
+.uoj-balloon-sm {
+	min-width: 1.6em;
+	padding: 0 0.3em;
+	margin-left: 2px;
+	font-size: 80%;
+}
+.uoj-balloon-dot {
+	display: inline-block;
+	width: 0.8em;
+	height: 0.8em;
+	border: 1px solid rgba(0, 0, 0, 0.3);
+	border-radius: 50%;
+	vertical-align: baseline;
+}
+.uoj-balloons > tbody > tr > td {
+	vertical-align: middle;
+}
+.uoj-balloon-seat {
+	font-size: 1.15rem;
+	font-weight: bold;
+}
+.uoj-balloons tr.uoj-balloon-done > td:not(:last-child) {
+	opacity: 0.5;
+}
+.uoj-balloons tr.uoj-balloon-new > td {
+	animation: uoj-balloon-new 4s ease-out;
+}
+@keyframes uoj-balloon-new {
+	from {
+		background-color: #ffe9a8;
+	}
+	to {
+		background-color: transparent;
+	}
+}
+.uoj-balloon-colors td {
+	vertical-align: middle;
+}
+.uoj-balloon-colors input[type=color] {
+	width: 3em;
+	height: calc(1.5em + 0.5rem + 2px);
+}
+#balloon-settings > summary {
+	cursor: pointer;
+}
+
 /* ---- the row that makes or copies problems of a domain: a button, where from, what, a button */
 .uoj-copy-row {
 	display: flex;

@@ -13,6 +13,11 @@
 					<?php
 						echo $contest_problems[$i]['submission_id'] ? '<td class="success">' : '<td>';
 						echo chr(ord('A') + $i);
+						// where there are balloons, the colour of the one this problem is worth
+						$balloon = isset($balloon_colors[(int)$contest_problems[$i]['problem_id']]) ? $balloon_colors[(int)$contest_problems[$i]['problem_id']] : null;
+						if ($balloon) {
+							echo ' <span class="uoj-balloon-dot" style="background-color:', $balloon['color'], '" title="气球：', HTML::escape($balloon['name'] !== '' ? $balloon['name'] : $balloon['color']), '"></span>';
+						}
 						echo '</td>';
 					?>
 					<td><?= getContestProblemLink($contest_problems[$i]['problem'], $contest['id']) ?></td>

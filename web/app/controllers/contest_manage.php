@@ -210,6 +210,7 @@
 	<?php foreach ($tabs as $tab => $label): ?>
 	<li class="nav-item"><a class="nav-link<?= $tab === $active_tab ? ' active' : '' ?><?= $tab === 'delete' ? ' text-danger' : '' ?>" href="#tab-<?= $tab ?>" role="tab" data-toggle="tab"><?= $label ?><?php if ($tab === 'problems'): ?> <span class="badge badge-secondary"><?= count($problems) ?></span><?php elseif ($tab === 'attachments' && $attachments): ?> <span class="badge badge-secondary"><?= count($attachments) ?></span><?php endif ?></a></li>
 	<?php endforeach ?>
+	<li class="nav-item"><a class="nav-link" href="/contest/<?= $contest['id'] ?>/balloons" id="link-manage-balloons">气球</a></li>
 	<li class="nav-item"><a class="nav-link" href="/contest/<?= $contest['id'] ?>" role="tab">返回比赛</a></li>
 </ul>
 <div class="tab-content text-left">

@@ -235,6 +235,12 @@ def seed():
             db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
                % (icpc, minute, submission_id))  # fmt: skip
     uoj.wait_idle()
+    # the contest gives balloons: two contestants sit somewhere, a colour was chosen, one balloon was brought
+    balloons = "/contest/%d/balloons" % icpc
+    admin.form(balloons, "settings", balloons="on")
+    admin.form("/contest/%d/manage" % icpc, "add_contestants", tab="contestants", names="%s A-12\n%s B-03" % (students[0].username, students[1].username))
+    admin.form(balloons, "colors", **{"color_%d" % second_public: "#00c853", "name_%d" % second_public: "荧光绿"})
+    admin.form(balloons, "done", username=students[1].username, problem_id=str(public_id))
     # an announcement of the site with a picture in it, and a judging account nobody uses yet
     admin.post("/announcement/new", {"form": "save", "title": "2026 秋季学期上机安排", "level": "1",
                                      "content_md": "第 3 周起，每周三晚 **19:00** 在实验楼 305 上机。\n\n- 带校园卡\n- 提前 10 分钟到"},
@@ -385,6 +391,36 @@ def board_marks_who_sat_it_afterwards(page, seeded):
     ranks = page.eval_on_selector_all("#standings tbody tr:not(.uoj-standings-virtual)", "rows => rows.map(row => row.cells[0].textContent.trim())")
     assert ranks == ["1", "2"], ranks
     assert "共 2 名参赛者" in page.inner_text("#standings"), page.inner_text("#standings")
+
+
+def balloon_is_ticked_without_loading_the_page(page, seeded):
+    """a balloon is ticked off, and taken back, without the page being loaded anew; the title of
+    the page says how many wait"""
+    page.wait_for_function("document.querySelector('#balloons-refreshed').textContent !== ''")
+    page.evaluate("window.stayed = true")
+    board = "document.querySelector('#balloon-board').getAttribute('data-pending')"
+    pending = int(page.evaluate(board))
+    assert pending >= 1 and page.title().startswith("(%d) " % pending), (pending, page.title())
+    first = page.get_attribute("#table-balloons tr.uoj-balloon-pending", "data-balloon")
+    row = '#table-balloons tr[data-balloon="%s"]' % first
+    page.click(row + " button[type=submit]")
+    page.wait_for_function("%s === '%d'" % (board, pending - 1))
+    assert page.get_attribute(row, "data-done") == "1"
+    assert page.title().startswith("(%d) " % (pending - 1)) if pending > 1 else not page.title().startswith("("), page.title()
+    page.click(row + " button[type=submit]")
+    page.wait_for_function("%s === '%d'" % (board, pending))
+    assert page.get_attribute(row, "data-done") == "0"
+    assert page.evaluate("window.stayed") is True
+
+
+def balloon_settings_are_opened(page, seeded):
+    """the settings of the balloons: a colour that is ready fills in the colour and its name"""
+    page.click("#balloon-settings > summary")
+    row = "#table-balloon-colors tr[data-problem=A] "
+    page.select_option(row + "select", label="紫色")
+    assert page.input_value(row + "input[type=color]") == "#8e24aa", page.input_value(row + "input[type=color]")
+    assert page.input_value(row + "input[type=text]") == "紫色"
+    page.locator("#balloon-settings").scroll_into_view_if_needed()
 
 
 def statement_is_read_as_it_was_written(page, seeded):
@@ -568,6 +604,8 @@ def pages(seeded):
         ("icpc-standings-frozen", "student", "/contest/%d/standings" % seeded["icpc"]),
         ("icpc-standings-staff", "admin", "/contest/%d/standings" % seeded["icpc"]),
         ("icpc-submissions", "student", "/contest/%d/submissions" % seeded["icpc"]),
+        ("balloons", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_is_ticked_without_loading_the_page),
+        ("balloons-settings", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_settings_are_opened),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),
         ("profile", "teacher", "/user/profile/" + STUDENTS[0][0]),
