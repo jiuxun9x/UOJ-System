@@ -31,12 +31,12 @@
 				}
 				// a problem that may not be copied is refused like one that does not exist
 				if (!$source || !can($myUser, 'problem.copy', $source)) {
-					$failed[] = "$one：题目不存在，或者你没有权限复制它";
+					$failed[] = "{$one}：题目不存在，或者你没有权限复制它";
 					continue;
 				}
 				list($id, $err) = domainCopyProblem($source, $domain, $myUser);
 				if ($err !== '') {
-					$failed[] = "$one：$err";
+					$failed[] = "{$one}：{$err}";
 					continue;
 				}
 				$copied[] = ($source['owner_domain_id'] ? '' : '主站 ') . problemLabel($source) . ' → 本域 #' . problemNumber(queryProblemBrief($id));
