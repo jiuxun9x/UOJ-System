@@ -456,3 +456,53 @@ class DeletionTest(unittest.TestCase):
         self.assertEqual(admin.get("/submission/%d" % submission_id).status_code, 200)
         self.assertEqual(admin.get("/problem/%d" % problem_id).status_code, 200)
         self.assertEqual(db_value("select count(*) from audit_logs where action = 'contest.delete' and resource_id = '%d'" % contest_id), "1")
+
+
+class CopySeveralTest(unittest.TestCase):
+    """problems are copied into a domain several at once"""
+
+    def test_several_problems_are_copied_at_once(self):
+        admin = uoj.admin()
+        teacher = p3.account("p9_copy_teacher")
+        self.assertEqual(admin.change_user("p9_copy_teacher", "grant:teacher"), "")
+        first, second, third = (admin.create_problem(ab_problem_files()) for _ in range(3))
+        for problem_id, title in ((first, "p9 复制一"), (second, "p9 复制二"), (third, "p9 复制三")):
+            db("update problems set title = '%s' where id = %d" % (title, problem_id))
+        hidden = admin.new_problem(title="p9 看不到的题")
+        slug, other = "p9-copy", "p9-copy-from"
+        for name in (slug, other):
+            if db_value("select count(*) from domains where slug = '%s'" % name) == "0":
+                teacher.new_domain(name)
+        here = "/d/%s/problems" % slug
+        copies = lambda: db("select source_problem_id, domain_pid, title, is_hidden from problems where owner_domain_id = (select id from domains where slug = '%s') order by domain_pid" % slug)
+        flash = lambda: uoj.text_of(re.search(r'(?s)<div class="alert alert-\w+[^"]*"[^>]*>(.*?)</div>', teacher.get(here).text).group(1))
+
+        # ---- the form: one row, and a field that takes several problems
+        page = teacher.get(here).text
+        self.assertRegex(page, r'(?s)<form method="post" class="uoj-copy-row" id="form-copy-problem">.*?id="button-new-domain-problem".*?id="input-copy-problem-id"[^>]*data-multiple=""[^>]*/>\s*<button type="submit"')
+
+        # ---- several at once, as the field sends them or as somebody types them; what can not
+        # be copied is said, and does not keep the others from being copied
+        self.assertEqual(teacher.form(here, "copy", problem_id="%d %d, %d 99999999 %d" % (first, second, hidden, first)), "")
+        self.assertEqual(copies(), [[str(first), "1", "p9 复制一", "1"], [str(second), "2", "p9 复制二", "1"]])
+        said = flash()
+        for told in ("已复制 2 道题", "主站 #%d → 本域 #1" % first, "主站 #%d → 本域 #2" % second, "%d：题目不存在，或者你没有权限复制它" % hidden, "99999999：题目不存在"):
+            self.assertIn(told, said)
+        for copy_id in db("select id from problems where owner_domain_id = (select id from domains where slug = '%s')" % slug):
+            self.assertEqual(uoj.wait_data_version(int(copy_id[0])), "")
+        # one, as before
+        self.assertEqual(teacher.form(here, "copy", problem_id=str(third)), "")
+        self.assertEqual(len(copies()), 3)
+        # ---- nothing that can be copied: nothing is copied, and the form says why
+        for nothing in ("", "  ", "99999999", "%d 99999999" % hidden, "no-such-domain#1"):
+            self.assertNotEqual(teacher.form(here, "copy", problem_id=nothing), "", nothing)
+        self.assertEqual(len(copies()), 3)
+
+        # ---- from another domain one teaches in, several as well
+        there = [uoj.pid(teacher.new_problem(other, title="p9 那边的题 %d" % n)) for n in (1, 2)]
+        for number in there:
+            problem_id = int(db_value("select id from problems where owner_domain_id = (select id from domains where slug = '%s') and domain_pid = %d" % (other, number)))
+            self.assertIn("上传成功", teacher.upload_data(problem_id, ab_problem_files()).text)
+            self.assertEqual(teacher.sync(problem_id), "")
+        self.assertEqual(teacher.form(here, "copy", problem_id="%s#%d %s#%d" % (other, there[0], other, there[1])), "")
+        self.assertEqual([row[2] for row in copies()][3:], ["p9 那边的题 1", "p9 那边的题 2"])

@@ -497,6 +497,31 @@ def reservation_is_filled_in(page, seeded):
     assert page.evaluate("document.querySelector('#form-virtual-reserve').checkValidity()")
 
 
+def copy_row_is_one_row(page, seeded):
+    """the row that makes and copies problems: on a desktop everything of it stands side by
+    side, and the field that takes the problems has the room that is left"""
+    page.wait_for_selector("#input-copy-problem-id-picker")
+    seen = page.evaluate(
+        """() => {
+            const box = selector => document.querySelector(selector).getBoundingClientRect();
+            const parts = ['#button-new-domain-problem', '#input-copy-problem-id-picker', '#form-copy-problem button[type=submit]'].map(box);
+            return {tops: parts.map(part => Math.round(part.top + part.height / 2)), field: Math.round(parts[1].width), row: Math.round(box('#form-copy-problem').width)};
+        }"""
+    )
+    if page.viewport_size["width"] >= 992:
+        assert max(seen["tops"]) - min(seen["tops"]) <= 4, seen
+        assert seen["field"] >= 0.45 * seen["row"], seen
+    # several problems are picked, each a tag of its own
+    page.click("#input-copy-problem-id-search")
+    for word in ("A + B", "括号"):
+        page.fill("#input-copy-problem-id-search", word)
+        page.wait_for_selector("#input-copy-problem-id-picker .uoj-picker-menu.show .dropdown-item.active")
+        page.keyboard.press("Enter")
+    page.wait_for_function("document.querySelectorAll('#input-copy-problem-id-picker .uoj-picker-chip').length === 2")
+    sent = page.input_value("#input-copy-problem-id")
+    assert sent.split() == [str(seeded["public"]), str(seeded["second_public"])], sent
+
+
 def pages(seeded):
     """name of the picture, who looks, address, and what is done there before the picture"""
     d = "/d/" + SLUG
@@ -550,7 +575,7 @@ def pages(seeded):
         ("homework-manage-participants", "teacher", current + "/manage?tab=participants"),
         ("homework-manage-scores", "teacher", past + "/manage?tab=scores"),
         ("homework-scoreboard", "teacher", past + "/scoreboard"),
-        ("problems-teacher", "teacher", d + "/problems"),
+        ("problems-teacher", "teacher", d + "/problems", copy_row_is_one_row),
         ("contests-teacher", "teacher", d + "/contests"),
         ("domains-teacher", "teacher", "/domains"),
         ("domains-outsider", "outsider", "/domains"),

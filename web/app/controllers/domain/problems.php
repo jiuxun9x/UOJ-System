@@ -8,27 +8,46 @@
 			if (!$can_teach) {
 				return '没有权限';
 			}
-			// "12" is problem 12 of the site, "cs101#3" is problem 3 of the domain cs101
-			$source = null;
-			$wanted = isset($_POST['problem_id']) && is_string($_POST['problem_id']) ? trim($_POST['problem_id']) : '';
-			if (validateUInt($wanted)) {
-				$source = queryProblemBrief($wanted);
-				if ($source && $source['owner_domain_id']) {
-					$source = null;
+			// Several problems at once: what was picked, or typed with blanks or commas between.
+			// "12" is problem 12 of the site, "cs101#3" is problem 3 of the domain cs101.
+			$typed = isset($_POST['problem_id']) && is_string($_POST['problem_id']) ? $_POST['problem_id'] : '';
+			$wanted = array_slice(array_values(array_unique(preg_split('/[\s,，;；]+/u', trim($typed), -1, PREG_SPLIT_NO_EMPTY))), 0, 50);
+			if (!$wanted) {
+				return '请填写要复制的题目';
+			}
+			set_time_limit(0);
+			$copied = array();
+			$failed = array();
+			foreach ($wanted as $one) {
+				$source = null;
+				if (validateUInt($one)) {
+					$source = queryProblemBrief($one);
+					if ($source && $source['owner_domain_id']) {
+						$source = null;
+					}
+				} elseif (preg_match('/^([a-z0-9][a-z0-9-]{1,30})[#\/]([1-9][0-9]{0,8})$/D', $one, $matches)) {
+					$from = queryDomainBySlug($matches[1]);
+					$source = $from ? queryDomainProblem($from['id'], $matches[2]) : null;
 				}
-			} elseif (preg_match('/^([a-z0-9][a-z0-9-]{1,30})[#\/]([1-9][0-9]{0,8})$/D', $wanted, $matches)) {
-				$from = queryDomainBySlug($matches[1]);
-				$source = $from ? queryDomainProblem($from['id'], $matches[2]) : null;
+				// a problem that may not be copied is refused like one that does not exist
+				if (!$source || !can($myUser, 'problem.copy', $source)) {
+					$failed[] = "$one：题目不存在，或者你没有权限复制它";
+					continue;
+				}
+				list($id, $err) = domainCopyProblem($source, $domain, $myUser);
+				if ($err !== '') {
+					$failed[] = "$one：$err";
+					continue;
+				}
+				$copied[] = ($source['owner_domain_id'] ? '' : '主站 ') . problemLabel($source) . ' → 本域 #' . problemNumber(queryProblemBrief($id));
 			}
-			// a problem that may not be copied is refused like one that does not exist
-			if (!$source || !can($myUser, 'problem.copy', $source)) {
-				return '题目不存在，或者你没有权限复制它';
+			if (!$copied) {
+				// nothing was copied: the form says why, with what was typed still in it
+				return count($failed) == 1 ? preg_replace('/^[^：]*：/u', '', $failed[0]) : '一道也没有复制成：' . join('；', $failed);
 			}
-			list($id, $err) = domainCopyProblem($source, $domain, $myUser);
-			if ($err === '') {
-				domainFlash("已把" . ($source['owner_domain_id'] ? '' : '主站的') . "题目 " . problemLabel($source) . " 复制为本域的题目 #" . problemNumber(queryProblemBrief($id)) . "。它现在是隐藏的，数据就绪后可以在题目管理里公开。");
-			}
-			return $err;
+			domainFlash('已复制 ' . count($copied) . ' 道题：' . join('，', $copied) . '。它们现在是隐藏的，数据同步完成后就可以使用。'
+				. ($failed ? '没有复制的：' . join('；', $failed) . '。' : ''), $failed ? 'warning' : 'success');
+			return '';
 		}
 	));
 	
@@ -64,24 +83,25 @@
 
 <?php if ($can_teach): ?>
 <div class="card mb-3">
-	<div class="card-body d-flex flex-wrap align-items-center">
-		<a class="btn btn-primary mr-3 mb-2" id="button-new-domain-problem" href="<?= domainUrl($domain, '/problem/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建题目</a>
-		<form method="post" class="form-inline mb-2" id="form-copy-problem">
+	<div class="card-body">
+		<?php // one row: the way to a new problem, then where a copy comes from, what is copied, and the button that copies it ?>
+		<form method="post" class="uoj-copy-row" id="form-copy-problem">
 			<?= HTML::hiddenToken() ?>
 			<input type="hidden" name="form" value="copy" />
+			<a class="btn btn-primary" id="button-new-domain-problem" href="<?= domainUrl($domain, '/problem/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建题目</a>
+			<span class="uoj-copy-divider"></span>
 			<?php if ($copy_sources): ?>
-			<label class="mr-2" for="select-copy-source">复制</label>
-			<select class="form-control mr-2" id="select-copy-source" title="从哪里复制">
-				<option value="site">主站的题目</option>
+			<select class="form-control" id="select-copy-source" title="从哪里复制" aria-label="从哪里复制">
+				<option value="site">从主站复制</option>
 				<?php foreach ($copy_sources as $other): ?>
-				<option value="<?= $other['slug'] ?>"><?= HTML::escape($other['name']) ?> 的题目</option>
+				<option value="<?= $other['slug'] ?>">从 <?= HTML::escape($other['name']) ?> 复制</option>
 				<?php endforeach ?>
 			</select>
 			<?php else: ?>
-			<label class="mr-2" for="input-copy-problem-id">从主站复制</label>
+			<label class="mb-0" for="input-copy-problem-id-search">从主站复制</label>
 			<?php endif ?>
-			<input type="text" class="form-control mr-2 uoj-problem-picker" id="input-copy-problem-id" name="problem_id" required="required" placeholder="题号或标题的一部分" data-scope="site" style="width:18em" />
-			<button type="submit" class="btn btn-outline-primary ml-2">复制到本域</button>
+			<input type="text" class="form-control uoj-problem-picker" id="input-copy-problem-id" name="problem_id" required="required" placeholder="题号或标题的一部分，可以选好几道" data-scope="site" data-multiple="" />
+			<button type="submit" class="btn btn-outline-primary">复制到本域</button>
 		</form>
 		<?php if ($copy_sources): ?>
 		<script type="text/javascript">

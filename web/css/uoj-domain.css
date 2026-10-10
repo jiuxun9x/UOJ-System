@@ -506,3 +506,38 @@ article blockquote > :last-child {
 .uoj-scoreboard tr.uoj-scoreboard-me > td:last-child {
 	box-shadow: inset -2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
 }
+
+/* ---- the row that makes or copies problems of a domain: a button, where from, what, a button */
+.uoj-copy-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+.uoj-copy-row > .btn, .uoj-copy-row > label, .uoj-copy-row > select {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+.uoj-copy-row > select {
+	width: auto;
+	max-width: 14em;
+}
+/* the field takes the room that is left */
+.uoj-copy-row > .uoj-picker {
+	flex: 1 1 20em;
+	min-width: 12em;
+}
+.uoj-copy-divider {
+	align-self: stretch;
+	border-left: 1px solid #dee2e6;
+}
+@media (max-width: 767.98px) {
+	.uoj-copy-row {
+		flex-wrap: wrap;
+	}
+	.uoj-copy-divider {
+		display: none;
+	}
+	.uoj-copy-row > .uoj-picker {
+		flex-basis: 100%;
+	}
+}
