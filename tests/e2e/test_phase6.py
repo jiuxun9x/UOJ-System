@@ -707,9 +707,10 @@ class IcpcTest(unittest.TestCase):
         db("update contest_virtuals set start_time = '%s' where contest_id = %d" % (uoj.web_time(-25 * 60), contest_id))
         db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5 * 60), wrong))
         db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-60), right))
-        page = sitter.get(here + "/virtual?tab=standings").text
-        self.assertIn("通过 / 罚时", page)
-        mine = re.search(r'(?s)<tr class="table-info" id="virtual-my-row"[^>]*data-rank="(\d+)">(.*?)</tr>', page)
+        # while it runs, the board of the contest is the board replayed to where the sitter is
+        page = sitter.get(here + "/standings").text
+        self.assertIn('id="table-virtual-standings"', page)
+        mine = re.search(r'(?s)<tr class="uoj-scoreboard-me" id="virtual-my-row"[^>]*data-rank="(\d+)">(.*?)</tr>', page)
         self.assertEqual(mine.group(1), "2")
         self.assertIn('class="uoj-icpc-solved"', mine.group(2))
         self.assertIn(">+1<", mine.group(2))

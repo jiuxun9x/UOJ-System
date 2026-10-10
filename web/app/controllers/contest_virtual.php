@@ -57,7 +57,8 @@
 	// While it runs, the pages of the contest are its pages: the problems, what was submitted
 	// and the board, as during the contest. This page is where one starts, reserves, and
 	// looks back at one that is over.
-	if ($phase === 'running') {
+	// (A form that was refused is answered here, with why: starting again while it runs is.)
+	if ($phase === 'running' && $error === '') {
 		redirectTo("/contest/{$contest['id']}");
 	}
 	$problems = virtualProblems($contest);
@@ -162,6 +163,13 @@ $('#virtual-countdown').countdown(<?= strtotime($virtual['start_time']) - $now ?
 	window.location.reload();
 });
 </script>
+<?php elseif ($phase === 'running'): ?>
+<div class="card mb-3 border-success" id="virtual-running-elsewhere">
+	<div class="card-body">
+		<p>你的虚拟参赛正在进行中，它在这场比赛自己的页面里：题目、提交记录和榜单都在那里。</p>
+		<a class="btn btn-primary" href="/contest/<?= $contest['id'] ?>">回到比赛</a>
+	</div>
+</div>
 <?php else: ?>
 <?php uojIncludeView('contest-virtual', $pieces + array('part' => 'status')) ?>
 <div class="d-flex flex-wrap mb-3">
