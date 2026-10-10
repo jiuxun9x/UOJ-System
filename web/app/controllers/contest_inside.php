@@ -40,6 +40,16 @@
 	} else {
 		$cur_tab = 'dashboard';
 	}
+
+	// Somebody who sits this contest virtually right now is in it as its contestants were:
+	// these pages show them the problems, what they submitted and the board, replayed to
+	// where they are in it. $virtual_pieces is what the view of a virtual participation needs.
+	$virtual_pieces = null;
+	if ($contest['cur_progress'] == CONTEST_FINISHED && can($myUser, 'contest.virtual', $contest) && ($my_virtual = runningVirtual($contest['id'], $myUser))) {
+		$virtual_problems = virtualProblems($contest);
+		$virtual_pieces = array('contest' => $contest, 'virtual' => $my_virtual, 'phase' => 'running', 'problems' => $virtual_problems,
+			'submissions' => virtualSubmissions($my_virtual, $virtual_problems), 'standings' => virtualStandingsNow($contest, $my_virtual, $virtual_problems));
+	}
 	
 	$tabs_info = array(
 		'dashboard' => array(
@@ -338,6 +348,12 @@ EOD;
 	}
 	
 	function echoDashboard() {
+		global $virtual_pieces;
+		if ($virtual_pieces) {
+			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'status'));
+			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'problems'));
+			return;
+		}
 		global $contest, $post_notice, $post_question, $reply_question;
 		
 		$myname = Auth::id();
@@ -413,6 +429,12 @@ EOD;
 	}
 	
 	function echoMySubmissions() {
+		global $virtual_pieces;
+		if ($virtual_pieces) {
+			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'status'));
+			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'submissions'));
+			return;
+		}
 		global $contest, $myUser;
 
 		// Whose submissions: one's own, or everybody's. The people who run the contest have
@@ -441,7 +463,12 @@ EOD;
 	}
 	
 	function echoStandings() {
-		global $contest;
+		global $contest, $virtual_pieces;
+		if ($virtual_pieces) {
+			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'status'));
+			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'standings'));
+			return;
+		}
 		
 		// While the board is frozen everybody sees it as it was when it froze. The staff sees
 		// everything, and can ask for what the others see.
@@ -471,6 +498,27 @@ EOD;
 					<a class="btn btn-info" href="/contest/{$contest['id']}/export_standings">下载排名</a>
 				</div>
 			EOD;
+		}
+		
+		// Who sat the contest virtually afterwards can be shown among its contestants: each
+		// where they would have stood. Whoever has done so sees it without asking.
+		if ($contest['cur_progress'] == CONTEST_FINISHED) {
+			$virtual_rows = virtualFinalRows($contest);
+			$mine_too = false;
+			foreach ($virtual_rows as $row) {
+				$mine_too = $mine_too || (Auth::check() && $row['username'] === Auth::id());
+			}
+			$with_virtual = isset($_GET['virtual']) ? $_GET['virtual'] === '1' : $mine_too;
+			if ($virtual_rows) {
+				echo '<div class="text-right mb-2" id="standings-virtual-switch"><span class="text-muted mr-2">有 ', count($virtual_rows), ' 人赛后虚拟参赛。</span>';
+				echo $with_virtual
+					? '<a class="btn btn-light btn-sm border" href="/contest/' . $contest['id'] . '/standings?virtual=0">只看正式选手</a>'
+					: '<a class="btn btn-light btn-sm border" href="/contest/' . $contest['id'] . '/standings?virtual=1">把他们也显示在榜上</a>';
+				echo '</div>';
+				if ($with_virtual) {
+					virtualJoinStandings($standings, $score, $virtual_rows);
+				}
+			}
 		}
 		
 		// A contestant who looks at the frozen board is shown, above it, how it really stands
@@ -539,6 +587,15 @@ EOD;
 EOD;
 	}
 	
+	// beside the pages of somebody who sits the contest virtually: how long they have left
+	function echoVirtualRunning() {
+		global $virtual_pieces;
+		$virtual = $virtual_pieces['virtual'];
+		$rest = max(0, $virtual['last_min'] * 60 - virtualElapsed($virtual, UOJTime::$time_now->getTimestamp()));
+		echo '<div class="card border-success" id="virtual-clock"><div class="card-header bg-success text-white"><h3 class="card-title">虚拟参赛剩余时间</h3></div>';
+		echo '<div class="card-body text-center countdown" data-rest="', $rest, '"></div></div>';
+	}
+	
 	function echoContestFinished() {
 		global $contest, $myUser;
 		$title = UOJLocale::get('contests::contest ended');
@@ -593,7 +650,9 @@ EOD;
 
 	<div class="col-sm-3">
 		<?php
-			if ($contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
+			if ($virtual_pieces) {
+				echoVirtualRunning();
+			} elseif ($contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
 				echoContestCountdown();
 			} elseif ($contest['cur_progress'] <= CONTEST_TESTING) {
 				echoContestJudgeProgress();

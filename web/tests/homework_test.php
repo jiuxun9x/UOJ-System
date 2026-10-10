@@ -333,6 +333,45 @@ check_same('20260101', virtualStandings($people, $final, $me, array(), 0, false)
 $again = virtualStandings($people, $final, array('username' => 'ann', 'nickname' => '', 'rating' => 1500), array(array(31, 100, 0, 100)), 600, false);
 check_same(array('ann', true, 'ann', false), array($again[0]['username'], $again[0]['virtual'], $again[1]['username'], $again[1]['virtual']), 'a contestant who sits the contest again');
 
+// ---- who sat a contest afterwards is put on its board, and the board is what it was
+// the board as calcStandings() leaves it: score, penalty, who, rank
+$board = array(
+	array(200, 900, array('ann', 1600, ''), 1),
+	array(100, 300, array('bob', 1500, '小波'), 2),
+	array(100, 300, array('cat', 1500, ''), 2),
+	array(0, 0, array('dan', 1500, ''), 4)
+);
+$cells = array('ann' => array(0 => array(100, 300, 1), 1 => array(100, 600, 2)), 'bob' => array(0 => array(100, 300, 3)), 'cat' => array(0 => array(100, 300, 4)));
+$sat = function($username, $score, $penalty) {
+	return array('username' => $username, 'rating' => 1500, 'nickname' => '', 'cells' => $score > 0 ? array(0 => array($score, $penalty, 9)) : array(), 'score' => $score, 'penalty' => $penalty);
+};
+$joined = function($rows) use ($board, $cells) {
+	$standings = $board;
+	$score = $cells;
+	virtualJoinStandings($standings, $score, $rows);
+	$lines = array();
+	foreach ($standings as $row) {
+		$lines[] = (isset($row[2][3]) && $row[2][3] === 'v' ? '(' . $row[3] . ')' : $row[3]) . ' ' . $row[2][0];
+	}
+	return array(join(', ', $lines), $standings, $score);
+};
+check_same('1 ann, 2 bob, 2 cat, 4 dan', $joined(array())[0], 'a board nobody sat afterwards is the board');
+check_same('(1) eve, 1 ann, 2 bob, 2 cat, 4 dan', $joined(array($sat('eve', 300, 0)))[0], 'better than everybody: before everybody, and nobody moves down');
+check_same('1 ann, (2) eve, 2 bob, 2 cat, 4 dan', $joined(array($sat('eve', 100, 200)))[0], 'between two contestants: with the rank of the one it comes before');
+check_same('1 ann, (2) eve, 2 bob, 2 cat, 4 dan', $joined(array($sat('eve', 100, 300)))[0], 'level with contestants: with their rank, before them');
+check_same('1 ann, 2 bob, 2 cat, (4) eve, 4 dan', $joined(array($sat('eve', 100, 301)))[0], 'behind two who are level: the rank after both');
+check_same('1 ann, 2 bob, 2 cat, (4) eve, 4 dan', $joined(array($sat('eve', 0, 0)))[0], 'with nothing: level with who has nothing');
+check_same('1 ann, 2 bob, 2 cat, 4 dan, (5) eve', $joined(array($sat('eve', -5, 0)))[0], 'worse than everybody: after everybody');
+check_same('(1) fay, 1 ann, (2) eve, (2) gus, 2 bob, 2 cat, 4 dan', $joined(array($sat('gus', 100, 250), $sat('eve', 100, 200), $sat('fay', 300, 0)))[0],
+	'several of them: each where it would have stood alone, level ones by their names');
+list($line, $with_ann, $with_score) = $joined(array($sat('ann', 100, 100)));
+check_same('1 ann, (2) ann, 2 bob, 2 cat, 4 dan', $line, 'a contestant who sat it again is there twice');
+check_same(array(array('ann', 1500, '', 'v'), 2), array($with_ann[1][2], $with_ann[1][3]), 'a row that is virtual says so of its person');
+check_same(array(array(0 => array(100, 100, 9)), 2), array($with_score['v/ann'], count($with_score['ann'])), 'and its cells are kept beside the ones of the contestant');
+check_same($board, array_values(array_filter($with_ann, function($row) {
+	return !isset($row[2][3]);
+})), 'the rows of the contestants are untouched');
+
 // under the ICPC rule the replay shows a solved problem from the moment it was solved, though
 // its penalty says more, and counts the participation as the contest would
 $icpc_final = array(array('ann', 0, 100, 300 + 2 * 1200, 11, 2), array('bob', 0, 100, 1800, 13, 0), array('bob', 1, 0, 0, 14, 3));

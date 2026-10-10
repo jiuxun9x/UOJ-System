@@ -25,5 +25,8 @@ return [
 	'contest pending final test' => 'Pending final test',
 	'contest final testing' => 'Final testing',
 	'contest ended' => 'Contest Ended',
-	'contest registrants' => 'Registrants'
+	'contest registrants' => 'Registrants',
+	'n participants' => function($n) {
+		return "$n participant" . ($n <= 1 ? '' : 's');
+	}
 ];

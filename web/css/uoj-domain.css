@@ -507,6 +507,12 @@ article blockquote > :last-child {
 	box-shadow: inset -2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
 }
 
+/* ---- a row of somebody who sat the contest afterwards: it is on the board, and not of it */
+.uoj-scoreboard tr[data-virtual] > td:nth-child(-n+3),
+tr.uoj-standings-virtual > td:nth-child(-n+3) {
+	background-color: #eef6fb !important;
+}
+
 /* ---- the row that makes or copies problems of a domain: a button, where from, what, a button */
 .uoj-copy-row {
 	display: flex;

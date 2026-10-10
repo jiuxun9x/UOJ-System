@@ -202,6 +202,73 @@ function virtualStandingsNow($contest, $virtual, $problems) {
 		virtualElapsed($virtual, $now), virtualPhase($virtual, $now) === 'ended', $contest['extra_config']['standings_version'], contestRule($contest));
 }
 
+// The virtual participations in a contest that are over, as rows of its board: for each,
+// array('username', 'rating', 'nickname', 'cells' => position of the problem => what
+// contestCells() says of it, 'score', 'penalty').
+function virtualFinalRows($contest, $limit = 500) {
+	$problems = virtualProblems($contest);
+	$rule = contestRule($contest);
+	$now = DB::escape(UOJTime::$time_now_str);
+	$rows = array();
+	foreach (DB::selectAll("select contest_virtuals.*, user_info.rating, ifnull(user_info.nickname, '') as nickname from contest_virtuals left join user_info on user_info.username = contest_virtuals.username"
+			." where contest_id = {$contest['id']} and date_add(start_time, interval last_min minute) <= '$now' order by contest_virtuals.id limit ".(int)$limit, MYSQLI_ASSOC) as $virtual) {
+		$happened = array();
+		foreach (virtualSubmissions($virtual, $problems) as $submission) {
+			if ($submission['score'] !== null) {
+				$happened[] = array($submission['id'], $submission['offset'], 'v', $submission['pos'], $submission['score']);
+			}
+		}
+		$counted = contestCells($rule, $contest['extra_config']['standings_version'], $happened);
+		$row = array('username' => $virtual['username'], 'rating' => (int)$virtual['rating'], 'nickname' => $virtual['nickname'], 'cells' => isset($counted['v']) ? $counted['v'] : array(), 'score' => 0, 'penalty' => 0);
+		foreach ($row['cells'] as $cell) {
+			$row['score'] += $cell[0];
+			$row['penalty'] += $cell[1];
+		}
+		$rows[] = $row;
+	}
+	return $rows;
+}
+// Puts them among the standings of the contest, as calcStandings() left them. Each stands
+// where it would have stood, with the rank it would have had; nobody who took part moves,
+// and nobody's rank changes. A row that is virtual has 'v' as the fourth thing said of its
+// person, and its cells are in $score under "v/" and the username: somebody who took part
+// and sat the contest again afterwards is there twice.
+function virtualJoinStandings(&$standings, &$score, $rows) {
+	$better = function($row, $than) {
+		return $row[0] > $than['score'] || ($row[0] == $than['score'] && $row[1] < $than['penalty']);
+	};
+	foreach ($rows as &$row) {
+		$row['rank'] = 1;
+		foreach ($standings as $real) {
+			$row['rank'] += $better($real, $row) ? 1 : 0;
+		}
+	}
+	unset($row);
+	usort($rows, function($lhs, $rhs) {
+		if ($lhs['rank'] != $rhs['rank']) {
+			return $lhs['rank'] - $rhs['rank'];
+		}
+		return strcmp($lhs['username'], $rhs['username']);
+	});
+	$joined = array();
+	$next = 0;
+	foreach (array_values($standings) as $index => $real) {
+		// before the first of the contestants it is not worse than
+		while ($next < count($rows) && $rows[$next]['rank'] <= $index + 1) {
+			$joined[] = array($rows[$next]['score'], $rows[$next]['penalty'], array($rows[$next]['username'], $rows[$next]['rating'], $rows[$next]['nickname'], 'v'), $rows[$next]['rank']);
+			$next++;
+		}
+		$joined[] = $real;
+	}
+	for (; $next < count($rows); $next++) {
+		$joined[] = array($rows[$next]['score'], $rows[$next]['penalty'], array($rows[$next]['username'], $rows[$next]['rating'], $rows[$next]['nickname'], 'v'), $rows[$next]['rank']);
+	}
+	foreach ($rows as $row) {
+		$score['v/' . $row['username']] = $row['cells'];
+	}
+	$standings = $joined;
+}
+
 // ---- changes; each returns '' or why it was refused
 
 // Starts a virtual participation now, or reserves one for $start ('Y-m-d H:i:s'). One that

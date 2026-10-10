@@ -211,7 +211,8 @@
 	if ($is_in_contest) {
 		$after_submitting = "/contest/{$contest['id']}/submissions";
 	} elseif ($running_virtual) {
-		$after_submitting = "/contest/{$contest['id']}/virtual";
+		// as in the contest: its list of what one submitted, which is theirs while they sit it
+		$after_submitting = "/contest/{$contest['id']}/submissions";
 	} elseif ($homework) {
 		$after_submitting = '/submissions?homework_id=' . $homework['id'] . (Auth::check() ? '&submitter=' . Auth::id() : '');
 	} elseif ($domain && Auth::check()) {
@@ -330,7 +331,7 @@ $('#contest-countdown').countdown(<?= $contest['end_time']->getTimestamp() - UOJ
 <?php elseif ($running_virtual): ?>
 <div class="alert alert-success py-2 clearfix" id="virtual-banner">
 	虚拟参赛进行中，这道题的提交会计入你的虚拟成绩。
-	<a class="alert-link" href="/contest/<?= $contest['id'] ?>/virtual">回到虚拟参赛</a>
+	<a class="alert-link" href="/contest/<?= $contest['id'] ?>">回到比赛主页</a>
 </div>
 <script type="text/javascript">
 $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) + $running_virtual['last_min'] * 60 - UOJTime::$time_now->getTimestamp() ?>);

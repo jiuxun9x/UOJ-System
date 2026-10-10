@@ -1593,13 +1593,18 @@ function showStandings() {
 			}).join('') +
 		'</tr>',
 		function(row) {
-			var col_tr = '<tr>';
-			col_tr += '<td>' + row[3] + '</td>';
-			col_tr += '<td>' + getUserLink(row[2][0], row[2][1], undefined, row[2][2]) + '</td>';
+			// Somebody who sat the contest virtually afterwards stands where they would have
+			// stood, with the rank they would have had: their cells are kept under "v/" and
+			// their name, since they may have taken part as well.
+			var virtual = row[2][3] === 'v';
+			var cells = score[(virtual ? 'v/' : '') + row[2][0]] || {};
+			var col_tr = virtual ? '<tr class="uoj-standings-virtual" data-virtual="' + row[2][0] + '">' : '<tr>';
+			col_tr += '<td>' + (virtual ? '<span class="text-muted" title="赛后虚拟参赛：放在正式比赛里是第 ' + row[3] + ' 名">(' + row[3] + ')</span>' : row[3]) + '</td>';
+			col_tr += '<td>' + getUserLink(row[2][0], row[2][1], undefined, row[2][2]) + (virtual ? ' <span class="badge badge-info">虚拟</span>' : '') + '</td>';
 			col_tr += '<td>' + '<div><span class="uoj-score" data-max="' + problems.length * 100 + '" style="color:' + getColOfScore(row[0] / problems.length) + '">' + row[0] + '</span></div>' + '<div>' + getPenaltyTimeStr(row[1]) + '</div></td>';
 			for (var i = 0; i < problems.length; i++) {
 				col_tr += '<td>';
-				col = score[row[2][0]][i];
+				col = cells[i];
 				if (col != undefined) {
 					col_tr += '<div><a href="/submission/' + col[2] + '" class="uoj-score" style="color:' + getColOfScore(col[0]) + '">' + col[0] + '</a></div>';
 					if (standings_version < 2) {
@@ -1618,7 +1623,10 @@ function showStandings() {
 			table_classes: ['table', 'table-bordered', 'table-striped', 'table-text-center', 'table-vertical-middle', 'table-condensed'],
 			page_len: 100,
 			print_after_table: function() {
-				return '<div class="text-right text-muted">' + uojLocale("contests::n participants", standings.length) + '</div>';
+				var contestants = $.grep(standings, function(row) {
+					return row[2][3] !== 'v';
+				}).length;
+				return '<div class="text-right text-muted">' + uojLocale("contests::n participants", contestants) + '</div>';
 			}
 		}
 	);

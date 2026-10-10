@@ -12,6 +12,10 @@
 	$solved_by = array();
 	$tried_by = array();
 	foreach ($score as $username => $cells) {
+		// who sat the contest virtually afterwards solved nothing first, and is not counted
+		if (strncmp((string)$username, 'v/', 2) === 0) {
+			continue;
+		}
 		foreach ($cells as $pos => $cell) {
 			$tried_by[$pos] = isset($tried_by[$pos]) ? $tried_by[$pos] + 1 : 1;
 			if ($cell[0] != 100) {
@@ -88,12 +92,14 @@
 		<tbody>
 			<?php foreach ($standings as $row): ?>
 			<?php $username = (string)$row[2][0]; ?>
-			<tr<?= $username === $me ? ' class="uoj-scoreboard-me"' : '' ?> data-username="<?= $username ?>" data-rank="<?= $row[3] ?>" data-solved="<?= $row[0] / 100 ?>" data-penalty="<?= $row[1] ?>">
-				<td><?= $row[3] ?></td>
-				<td class="uoj-scoreboard-name"><span class="uoj-username" data-rating="<?= (int)$row[2][1] ?>"<?= isset($row[2][2]) && $row[2][2] !== '' ? ' data-alias="' . HTML::escape($row[2][2]) . '"' : '' ?>><?= $username ?></span></td>
+			<?php $is_virtual = isset($row[2][3]) && $row[2][3] === 'v'; ?>
+			<?php $cells_key = $is_virtual ? 'v/' . $username : $username; ?>
+			<tr<?= $username === $me ? ' class="uoj-scoreboard-me"' : '' ?> data-username="<?= $username ?>"<?= $is_virtual ? ' data-virtual="1"' : '' ?> data-rank="<?= $row[3] ?>" data-solved="<?= $row[0] / 100 ?>" data-penalty="<?= $row[1] ?>">
+				<td><?= $is_virtual ? '<span class="text-muted" title="赛后虚拟参赛：放在正式比赛里是第 ' . $row[3] . ' 名">(' . $row[3] . ')</span>' : $row[3] ?></td>
+				<td class="uoj-scoreboard-name"><span class="uoj-username" data-rating="<?= (int)$row[2][1] ?>"<?= isset($row[2][2]) && $row[2][2] !== '' ? ' data-alias="' . HTML::escape($row[2][2]) . '"' : '' ?>><?= $username ?></span><?= $is_virtual ? ' <span class="badge badge-info">虚拟</span>' : '' ?></td>
 				<td><span class="<?= $row[0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $row[0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($row[1]) ?></div></td>
 				<?php foreach ($problems as $pos => $problem): ?>
-				<?php $print_cell(isset($score[$username][$pos]) ? $score[$username][$pos] : null, $pos, isset($first[$pos]) && $first[$pos][1] === $username) ?>
+				<?php $print_cell(isset($score[$cells_key][$pos]) ? $score[$cells_key][$pos] : null, $pos, !$is_virtual && isset($first[$pos]) && $first[$pos][1] === $username) ?>
 				<?php endforeach ?>
 			</tr>
 			<?php endforeach ?>
@@ -106,5 +112,11 @@
 	<small class="mr-3"><strong class="text-danger">-3</strong> 交了 3 次都没通过</small>
 	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 最先通过</small>
 	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-pending px-2">?</span></span> 有还不知道结果的提交<?= $frozen ? '（封榜后交的，或正在评测）' : '（正在评测）' ?>：“1 + 2”是 1 次未通过、2 次结果未知</small>
-	<?= UOJLocale::get('contests::n participants', count($standings)) ?>
+	<?php
+		$n_contestants = 0;
+		foreach ($standings as $row) {
+			$n_contestants += isset($row[2][3]) && $row[2][3] === 'v' ? 0 : 1;
+		}
+	?>
+	<?= UOJLocale::get('contests::n participants', $n_contestants) ?>
 </div>

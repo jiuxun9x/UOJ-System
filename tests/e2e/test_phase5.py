@@ -512,8 +512,12 @@ class VirtualTest(unittest.TestCase):
     """sitting a contest that is over, alone and against the clock"""
 
     def standings(self, client, contest_id):
-        """the replayed standings as a page shows them: rows of username, rank, score, whether it is the virtual row"""
-        page = client.get("/contest/%d/virtual?tab=standings" % contest_id).text
+        """the replayed standings as a page shows them: rows of username, rank, score, whether it
+        is the virtual row. While a participation runs they are the board of the contest itself;
+        of one that is over, a tab of the page it was started on."""
+        page = client.get("/contest/%d/standings" % contest_id).text
+        if 'id="table-virtual-standings"' not in page:
+            page = client.get("/contest/%d/virtual?tab=standings" % contest_id).text
         rows = re.findall(r'(?s)<tr([^>]*) data-username="([^"]+)" data-rank="(\d+)">(.*?)</tr>', page)
         return [(name, int(rank), int(re.search(r"<strong>(-?\d+)</strong>", body).group(1)), "virtual-my-row" in attrs) for attrs, name, rank, body in rows]
 
@@ -589,7 +593,9 @@ class VirtualTest(unittest.TestCase):
         self.assertEqual(sitter.form(virtual, "start"), "")
         self.assertNotEqual(sitter.form(virtual, "start"), "")
         self.assertEqual(db_value("select last_min from contest_virtuals where contest_id = %d and username = 'p5_vp_sitter'" % contest_id), "60")
-        self.assertIn('id="virtual-running"', sitter.get(virtual).text)
+        # it is sat in the pages of the contest itself, and the page it was started on leads there
+        self.assertEqual((sitter.get(virtual).status_code, sitter.get(virtual).headers["Location"]), (302, here))
+        self.assertIn('id="virtual-running"', sitter.get(here).text)
 
         # the test moves the start of the participation back to let its time go by, and what
         # was submitted in it with it
@@ -635,7 +641,7 @@ class VirtualTest(unittest.TestCase):
         submit(second_id, AB, 2400)
         rows = at(2500)
         self.assertEqual([row[:3] for row in rows], [("p5_vp_sitter", 1, 200), ("p5_vp_early", 2, 100), ("p5_vp_late", 3, 100)])
-        page = sitter.get(virtual).text
+        page = sitter.get(here).text
         self.assertRegex(page, r'id="virtual-score">200 ')
         self.assertRegex(uoj.text_of(page), r"此刻排在第\s*1\s*名")
 

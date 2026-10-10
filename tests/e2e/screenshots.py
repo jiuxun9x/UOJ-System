@@ -206,6 +206,13 @@ def seed():
     # an hour and a half into it
     db("update contest_virtuals set start_time = '%s' where contest_id = %d" % (uoj.web_time(-5400), contest_id))
     db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-5400 + 2100), virtual_one))
+    # and one who has sat it to its end: they are on its board, for whoever wants to see them
+    sat = students[3]
+    sat.form("/contest/%d/virtual" % contest_id, "start")
+    virtual_two = sat.submit(public_id, AB, path="/contest/%d/problem/%d" % (contest_id, public_id))
+    uoj.wait_submission(virtual_two)
+    db("update contest_virtuals set start_time = '%s' where contest_id = %d and username = '%s'" % (uoj.web_time(-4 * 3600), contest_id, sat.username))
+    db("update submissions set submit_time = '%s' where id = %d" % (uoj.web_time(-4 * 3600 + 2400), virtual_two))
     uoj.wait_idle()
 
     # a file that comes with a problem, and an ICPC contest that runs with its board frozen
@@ -236,7 +243,7 @@ def seed():
     admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "lab305", "judger_adder_note": "实验楼 305 的机器"})
     return {"announcement": announcement, "teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
             "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
-            "sitter": sitter, "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
+            "sitter": sitter, "sat": sat, "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
 
 
 # ---- what is done on a page before its picture is taken. Each of these also checks that the
@@ -360,6 +367,24 @@ def board_names_problems_by_letter(page, seeded):
     links = page.eval_on_selector_all("#standings thead a", "links => links.map(a => a.getAttribute('href') + ' ' + a.textContent)")
     here = "/contest/%d/problem/" % seeded["contest"]
     assert links == [here + "A A", here + "B B"], links
+
+
+def virtual_is_sat_in_the_contest(page, seeded):
+    """the page of a contest, to somebody who sits it virtually: the problems, and a clock that runs"""
+    page.wait_for_selector("#table-virtual-problems")
+    page.wait_for_function("document.querySelector('#virtual-clock .countdown').textContent.trim() !== ''")
+    page.wait_for_function("document.querySelector('#virtual-countdown').textContent.trim() !== ''")
+
+
+def board_marks_who_sat_it_afterwards(page, seeded):
+    """the board the browser draws, with somebody on it who sat the contest afterwards: their
+    row is marked, their rank is in brackets, and the contestants are counted without them"""
+    page.wait_for_selector("#standings tr.uoj-standings-virtual")
+    row = page.eval_on_selector("#standings tr.uoj-standings-virtual", "row => [row.cells[0].textContent.trim(), row.cells[1].textContent]")
+    assert re.fullmatch(r"\(\d+\)", row[0]) and "虚拟" in row[1], row
+    ranks = page.eval_on_selector_all("#standings tbody tr:not(.uoj-standings-virtual)", "rows => rows.map(row => row.cells[0].textContent.trim())")
+    assert ranks == ["1", "2"], ranks
+    assert "共 2 名参赛者" in page.inner_text("#standings"), page.inner_text("#standings")
 
 
 def statement_is_read_as_it_was_written(page, seeded):
@@ -557,9 +582,13 @@ def pages(seeded):
         ("contest-submissions", "admin", "/contest/%d/submissions" % seeded["contest"]),
         ("contest-standings", "student", "/contest/%d/standings" % seeded["contest"], board_names_problems_by_letter),
         ("contest-access", "admin", "/contest/%d/manage#tab-access" % seeded["contest"]),
-        ("virtual", "sitter", "/contest/%d/virtual" % seeded["contest"]),
+        # a contest that is sat again is sat in its own pages
+        ("virtual", "sitter", "/contest/%d" % seeded["contest"], virtual_is_sat_in_the_contest),
+        ("virtual-submissions", "sitter", "/contest/%d/submissions" % seeded["contest"]),
+        ("virtual-standings", "sitter", "/contest/%d/standings" % seeded["contest"]),
         ("virtual-reserve", "student", "/contest/%d/virtual" % seeded["contest"], reservation_is_filled_in),
-        ("virtual-standings", "sitter", "/contest/%d/virtual?tab=standings" % seeded["contest"]),
+        ("virtual-ended", "sat", "/contest/%d/virtual" % seeded["contest"]),
+        ("contest-standings-virtual", "sat", "/contest/%d/standings" % seeded["contest"], board_marks_who_sat_it_afterwards),
         ("trainings-student", "student", d + "/trainings"),
         ("trainings-teacher", "teacher", d + "/trainings"),
         ("training-student", "student", training),
