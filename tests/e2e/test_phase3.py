@@ -333,7 +333,7 @@ class IdentityTest(unittest.TestCase):
         names = "'username', 'submitter', 'poster', 'hacker', 'owner', 'sender', 'receiver', 'creator'"
         names += ", 'created_by', 'granted_by', 'renamed_by', 'old_username', 'new_username'"
         names += ", 'owner_username', 'added_by', 'imported_by', 'approved_by', 'publish_requested_by', 'updated_by'"
-        names += ", 'uploaded_by'"
+        names += ", 'uploaded_by', 'done_by'"
         found = {
             (table, column)
             for table, column in db(
