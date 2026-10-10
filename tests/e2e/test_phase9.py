@@ -547,6 +547,34 @@ class BalloonTest(unittest.TestCase):
                                   % (contest_id, contest_id)), "0")  # fmt: skip
 
 
+class VerdictLettersTest(unittest.TestCase):
+    """a verdict is written by its letters, AC or TLE, and says what they stand for"""
+
+    def test_lists_and_details_say_ac_and_wa(self):
+        admin = uoj.admin()
+        solver = p3.account("p9_letters_solver")
+        problem_id = admin.create_problem(ab_problem_files())
+        right, wrong, broken = (solver.submit(problem_id, code) for code in (AB, AB_WRONG, AB_COMPILE_ERROR))
+        for submission_id in (right, wrong, broken):
+            uoj.wait_submission(submission_id)
+        # ---- the tests of a submission
+        page = solver.get("/submission/%d" % right).text
+        self.assertIn('<abbr class="uoj-verdict-short" title="Accepted">AC</abbr>', page)
+        self.assertNotIn(">Accepted<", page)
+        page = solver.get("/submission/%d" % wrong).text
+        self.assertIn('<abbr class="uoj-verdict-short" title="Wrong Answer">WA</abbr>', page)
+        self.assertNotIn(">Wrong Answer<", page)
+        # ---- a list: a program that does not compile is CE, and a score is a score
+        listing = solver.get("/submissions?problem_id=%d" % problem_id).text
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger" title="Compile Error"><strong>CE</strong></a>' % broken)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-score">100 <svg class="uoj-passed-mark"' % right)
+        self.assertNotIn("Compile Error<", listing)
+        # ---- what the letters stand for is in the help
+        told = uoj.text_of(admin.get("/faq").text)
+        for letters in ("AC （Accepted）", "TLE （Time Limit Exceeded）", "CE （Compile Error）"):
+            self.assertIn(letters, told)
+
+
 def registered(contest_id):
     return [row[0] for row in db("select username from contests_registrants where contest_id = %d order by username" % contest_id)]
 

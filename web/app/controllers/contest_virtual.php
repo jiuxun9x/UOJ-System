@@ -96,19 +96,25 @@
 		<?php if (!$can_virtual): ?>
 		<p class="text-danger mb-0" id="virtual-not-yet">这场比赛还没有公布最终成绩，公布之后才能虚拟参赛。</p>
 		<?php else: ?>
-		<div class="d-flex flex-wrap align-items-end">
-			<form method="post" class="mr-4 mb-2">
+		<?php // two ways to begin, side by side: each says what happens, and has its one button ?>
+		<div class="uoj-virtual-choices">
+			<form method="post" class="uoj-virtual-choice">
 				<?= HTML::hiddenToken() ?>
 				<input type="hidden" name="form" value="start" />
+				<h5>现在开始</h5>
+				<p class="text-muted">点下去就开始计时，共 <?= $contest['last_min'] ?> 分钟，中途不能暂停。</p>
 				<button type="submit" class="btn btn-primary" id="button-virtual-start">现在开始</button>
 			</form>
-			<form method="post" class="form-inline mb-2" id="form-virtual-reserve">
+			<form method="post" class="uoj-virtual-choice" id="form-virtual-reserve">
 				<?= HTML::hiddenToken() ?>
 				<input type="hidden" name="form" value="reserve" />
-				<label class="mr-2" for="input-start_time">或者预约在</label>
-				<?php // filled in already with the next minute that ends in 0 or 5: it is changed, not typed from nothing ?>
-				<input type="datetime-local" class="form-control mr-2 uoj-virtual-start" id="input-start_time" name="start_time" value="<?= virtualDefaultStart($now) ?>" min="<?= date('Y-m-d\TH:i', $now) ?>" max="<?= date('Y-m-d\TH:i', $now + 30 * 86400) ?>" required="required" />
-				<button type="submit" class="btn btn-outline-primary">预约</button>
+				<h5><label class="mb-0" for="input-start_time">预约一个时间</label></h5>
+				<p class="text-muted">到时间自己开始计时，不会等人；开始之前可以取消。</p>
+				<div class="d-flex flex-wrap">
+					<?php // filled in already with the next minute that ends in 0 or 5: it is changed, not typed from nothing ?>
+					<input type="datetime-local" class="form-control mr-2 mb-2 uoj-virtual-start" id="input-start_time" name="start_time" value="<?= virtualDefaultStart($now) ?>" min="<?= date('Y-m-d\TH:i', $now) ?>" max="<?= date('Y-m-d\TH:i', $now + 30 * 86400) ?>" required="required" />
+					<button type="submit" class="btn btn-outline-primary mb-2">预约</button>
+				</div>
 			</form>
 			<script type="text/javascript">
 			// The page may stay open: the time that is offered moves on with the clock, for as

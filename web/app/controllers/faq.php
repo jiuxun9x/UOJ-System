@@ -67,14 +67,16 @@
 			<div id="collapseFour" class="collapse">
 				<div class="card-body">
 					<ul>
-						<li>Accepted：答案正确。恭喜大佬，您通过了这道题。</li>
-						<li>Wrong Answer：答案错误。仅仅通过样例数据的测试并不一定是正确答案，一定还有你没想到的地方。</li>
-						<li>Runtime Error：运行时错误。像非法的内存访问、数组越界、指针漂移、调用禁用的系统函数都可能出现这类问题，请点击评测详情获得输出。</li>
-						<li>Time Limit Exceeded：时间超限。请检查程序是否有死循环，或者应该有更快的计算方法。</li>
-						<li>Memory Limit Exceeded：内存超限。数据可能需要压缩，或者您数组开太大了，请检查是否有内存泄漏。</li>
-						<li>Output Limit Exceeded：输出超限。你的输出居然比正确答案长了两倍！</li>
-						<li>Dangerous Syscalls：危险系统调用，你是不是带了文件，或者使用了某些有意思的 system 函数？</li>
-						<li>Judgement Failed：评测失败。可能是评测机抽风了，也可能是服务器正在睡觉；反正不一定是你的锅啦！</li>
+						<li><strong>AC</strong>（Accepted）：答案正确。恭喜大佬，您通过了这道题。</li>
+						<li><strong>WA</strong>（Wrong Answer）：答案错误。仅仅通过样例数据的测试并不一定是正确答案，一定还有你没想到的地方。</li>
+						<li><strong>RE</strong>（Runtime Error）：运行时错误。像非法的内存访问、数组越界、指针漂移、调用禁用的系统函数都可能出现这类问题，请点击评测详情获得输出。</li>
+						<li><strong>TLE</strong>（Time Limit Exceeded）：时间超限。请检查程序是否有死循环，或者应该有更快的计算方法。</li>
+						<li><strong>MLE</strong>（Memory Limit Exceeded）：内存超限。数据可能需要压缩，或者您数组开太大了，请检查是否有内存泄漏。</li>
+						<li><strong>OLE</strong>（Output Limit Exceeded）：输出超限。你的输出居然比正确答案长了两倍！</li>
+						<li><strong>DS</strong>（Dangerous Syscalls）：危险系统调用，你是不是带了文件，或者使用了某些有意思的 system 函数？</li>
+						<li><strong>UKE</strong>（Judgement Failed）：评测失败。可能是评测机抽风了，也可能是服务器正在睡觉；反正不一定是你的锅啦！</li>
+						<li><strong>CE</strong>（Compile Error）：编译错误。程序没能编译，点开提交可以看到编译器说了什么。</li>
+						<li><strong>PC</strong>（Acceptable Answer）：部分正确。这个测试点拿到了一部分分数。</li>
 						<li>No Comment：没有详情。评测机对您的程序无话可说，那么我们也不知道到底发生了什么……</li>
 					</ul>
 				</div>

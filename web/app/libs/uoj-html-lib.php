@@ -375,7 +375,8 @@ function submissionVerdict($submission) {
 // what stands beside a full score, or a verdict that says the same: it is seen in a list
 // without reading the numbers
 function passedMark() {
-	return ' <span class="glyphicon glyphicon-ok uoj-passed-mark" title="通过"></span>';
+	// drawn, not taken from a font: a thin tick that looks the same on every machine
+	return ' <svg class="uoj-passed-mark" viewBox="0 0 16 16" role="img" aria-label="通过"><title>通过</title><path d="M3 8.6l3.3 3.3L13 4.9"/></svg>';
 }
 
 function echoSubmission($submission, $config, $user) {
@@ -413,11 +414,16 @@ function echoSubmission($submission, $config, $user) {
 		echo '<td>';
 		if ($status == 'Judged') {
 			if ($submission['score'] == null) {
-				echo '<a href="/submission/', $submission['id'], '" class="small">', $submission['result_error'], '</a>';
+				// what went wrong before any test ran: CE for a program that does not compile
+				if (verdictShort($submission['result_error']) !== $submission['result_error']) {
+					echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict text-danger" title="', HTML::escape($submission['result_error']), '"><strong>', verdictShort($submission['result_error']), '</strong></a>';
+				} else {
+					echo '<a href="/submission/', $submission['id'], '" class="small">', $submission['result_error'], '</a>';
+				}
 			} elseif (!empty($submission['contest_id']) && submissionContestRule($submission['contest_id']) === 'ICPC') {
 				// under the ICPC rule a submission passed or did not, and is said to
 				$verdict = submissionVerdict($submission);
-				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '"><strong>', HTML::escape($verdict), '</strong>', $verdict === 'Accepted' ? passedMark() : '', '</a>';
+				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '" title="', HTML::escape($verdict), '"><strong>', HTML::escape(verdictShort($verdict)), '</strong>', $verdict === 'Accepted' ? passedMark() : '', '</a>';
 			} else {
 				echo '<a href="/submission/', $submission['id'], '" class="uoj-score">', $submission['score'], $submission['score'] == 100 ? passedMark() : '', '</a>';
 			}
@@ -813,11 +819,11 @@ class JudgementDetailsPrinter {
 				echo 			'score: ', $subtask_score;
 				echo 		'</div>';
 				echo 		'<div class="col-sm-2">';
-				echo 			htmlspecialchars($subtask_info);
+				echo 			verdictHTML($subtask_info);
 				echo 		'</div>';
 			} else {
 				echo 		'<div class="col-sm-4">';
-				echo 			htmlspecialchars($subtask_info);
+				echo 			verdictHTML($subtask_info);
 				echo 		'</div>';
 			}
 
@@ -869,11 +875,11 @@ class JudgementDetailsPrinter {
 				echo 'score: ', $test_score;
 				echo '</div>';
 				echo '<div class="col-sm-2">';
-				echo htmlspecialchars($test_info);
+				echo verdictHTML($test_info);
 				echo '</div>';
 			} else {
 				echo '<div class="col-sm-4">';
-				echo htmlspecialchars($test_info);
+				echo verdictHTML($test_info);
 				echo '</div>';
 			}
 				

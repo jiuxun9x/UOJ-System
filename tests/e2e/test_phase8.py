@@ -116,7 +116,7 @@ class StatementIsKeptTest(unittest.TestCase):
 class PassedMarkTest(unittest.TestCase):
     """a submission that passed is seen to have passed without reading its score"""
 
-    MARK = '<span class="glyphicon glyphicon-ok uoj-passed-mark"'
+    MARK = '<svg class="uoj-passed-mark"'
 
     def test_full_score_has_the_mark_and_nothing_else_has(self):
         admin = uoj.admin()

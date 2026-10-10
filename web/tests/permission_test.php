@@ -654,6 +654,18 @@ check_same('Runtime Error', submissionVerdictOf(0, '<tests><subtask num="1" scor
 check_same('Wrong Answer', submissionVerdictOf(99, '<tests><test num="1" score="99" info="Accepted"></test><test num="-1" score="0" info="Extra Test Passed"></test></tests>'), 'less than full marks with nothing that failed is a wrong answer');
 check_same('Wrong Answer', submissionVerdictOf(0, null), 'so is a result without details');
 
+// a verdict is written by the letters everybody knows it by
+foreach (array('Accepted' => 'AC', 'Extra Test Passed' => 'AC', 'Wrong Answer' => 'WA', 'Time Limit Exceeded' => 'TLE', 'Memory Limit Exceeded' => 'MLE',
+		'Output Limit Exceeded' => 'OLE', 'Runtime Error' => 'RE', 'Dangerous Syscalls' => 'DS', 'Compile Error' => 'CE', 'Judgment Failed' => 'UKE',
+		'Judgement Failed' => 'UKE', 'Acceptable Answer' => 'PC') as $verdict => $letters) {
+	check_same($letters, verdictShort($verdict), "the letters of $verdict");
+}
+foreach (array('No Comment', 'Skipped', 'Checker Judgment Failed', 'Success', 'Waiting', '', 'accepted') as $verdict) {
+	check_same($verdict, verdictShort($verdict), "what has no letters is written as it is: $verdict");
+}
+check_same('<abbr class="uoj-verdict-short" title="Time Limit Exceeded">TLE</abbr>', verdictHTML('Time Limit Exceeded'), 'on a page the letters say what they stand for');
+check_same('Checker &lt;b&gt; Failed', verdictHTML('Checker <b> Failed'), 'a verdict without letters is text of the page, and nothing else');
+
 // ---- the form of a contest
 require_once __DIR__ . '/../app/libs/uoj-validate-lib.php';
 $form = array('name' => ' 期中上机 ', 'start_time' => '2026-10-12T14:00', 'last_min' => '180', 'rule' => 'ICPC', 'freeze_minutes' => '60',

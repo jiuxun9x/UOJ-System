@@ -380,6 +380,33 @@ function submissionVerdictOf($score, $details) {
 	}
 	return 'Wrong Answer';
 }
+// How a verdict is written: by the letters everybody knows it by. AC, WA, TLE take less
+// room than what they stand for and are read faster. A verdict that has no such letters is
+// written as it is; what the letters stand for is on the page of the help.
+function verdictShort($verdict) {
+	static $short = array(
+		'Accepted' => 'AC', 'Extra Test Passed' => 'AC',
+		'Acceptable Answer' => 'PC',
+		'Wrong Answer' => 'WA',
+		'Time Limit Exceeded' => 'TLE',
+		'Memory Limit Exceeded' => 'MLE',
+		'Output Limit Exceeded' => 'OLE',
+		'Runtime Error' => 'RE',
+		'Dangerous Syscalls' => 'DS',
+		'Compile Error' => 'CE',
+		'Judgment Failed' => 'UKE', 'Judgement Failed' => 'UKE'
+	);
+	return isset($short[$verdict]) ? $short[$verdict] : $verdict;
+}
+// A verdict as a page shows it: its letters, which say what they stand for when the pointer
+// is on them.
+function verdictHTML($verdict) {
+	$short = verdictShort($verdict);
+	if ($short === $verdict) {
+		return htmlspecialchars($verdict);
+	}
+	return '<abbr class="uoj-verdict-short" title="' . htmlspecialchars($verdict) . '">' . $short . '</abbr>';
+}
 // Whether the results of a contest change the ratings of the site. A contest of a domain
 // never does, whatever its settings say.
 function contestIsRated($contest) {

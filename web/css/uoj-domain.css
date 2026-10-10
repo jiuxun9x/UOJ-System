@@ -477,10 +477,33 @@ article blockquote > :last-child {
 	margin-bottom: 0;
 }
 
-/* ---- the mark beside a full score */
+/* ---- the mark beside a full score, and beside a verdict that says the same: a tick that is
+   drawn, as thick as the letters it stands beside and of their colour */
 .uoj-passed-mark {
-	font-size: 0.85em;
-	margin-left: 0.15em;
+	width: 1em;
+	height: 1em;
+	margin-left: 0.1em;
+	vertical-align: -0.14em;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2.4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+/* a verdict by its letters: the letters are the verdict, not a word that wants explaining */
+abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
+	font-weight: bold;
+	letter-spacing: 0.02em;
+	text-decoration: none;
+	border-bottom: 0;
+	cursor: help;
+}
+.uoj-verdict {
+	letter-spacing: 0.02em;
+	white-space: nowrap;
+}
+.uoj-verdict:hover {
+	text-decoration: none;
 }
 
 /* ---- the tags of the problems of a domain, in their list */
@@ -491,9 +514,30 @@ article blockquote > :last-child {
 }
 
 /* ---- the time of a virtual participation: wide enough for a date and a time side by side */
-.form-inline .uoj-virtual-start {
+.uoj-virtual-start {
 	width: 17em;
 	max-width: 100%;
+}
+/* the two ways to begin one: beside each other, each with what it means and its button */
+.uoj-virtual-choices {
+	display: flex;
+	flex-wrap: wrap;
+	margin: 1rem -0.5rem -0.5rem;
+}
+.uoj-virtual-choice {
+	flex: 1 1 19rem;
+	margin: 0 0.5rem 0.5rem;
+	padding: 1rem 1.25rem 0.75rem;
+	border: 1px solid #dee2e6;
+	border-radius: 0.3rem;
+	background-color: #f8f9fa;
+}
+.uoj-virtual-choice h5 {
+	font-size: 1.1rem;
+	margin-bottom: 0.35rem;
+}
+.uoj-virtual-choice p {
+	margin-bottom: 0.75rem;
 }
 
 /* ---- the row of whoever looks at a board */
@@ -604,3 +648,81 @@ tr.uoj-standings-virtual > td:nth-child(-n+3) {
 		flex-basis: 100%;
 	}
 }
+
+/* ---- the small things of every page. The pages are set in 14px, and what Bootstrap calls
+   small is 80% of that: help texts, dates and the labels of small buttons came out at 11px,
+   which is read with effort. They are a size up, and the things that are pressed are a
+   little quieter until the pointer is on them. */
+small, .small {
+	font-size: 87.5%;
+}
+.form-text {
+	margin-top: 0.3rem;
+	line-height: 1.5;
+}
+.badge {
+	padding: 0.3em 0.55em;
+	font-size: 80%;
+	font-weight: 600;
+}
+.btn-sm, .btn-group-sm > .btn {
+	padding: 0.25rem 0.65rem;
+	font-size: 0.9rem;
+	line-height: 1.5;
+}
+.btn-outline-secondary {
+	color: #495057;
+	background-color: #fff;
+	border-color: #ced4da;
+}
+.btn-outline-secondary:hover, .btn-outline-secondary:focus {
+	color: #212529;
+	background-color: #f1f3f5;
+	border-color: #adb5bd;
+}
+.btn-outline-danger {
+	background-color: #fff;
+	border-color: #f1aeb5;
+}
+.btn-outline-primary {
+	background-color: #fff;
+}
+.btn-outline-primary:hover, .btn-outline-danger:hover {
+	color: #fff;
+}
+.btn-outline-primary:hover {
+	background-color: #007bff;
+}
+.btn-outline-danger:hover {
+	background-color: #dc3545;
+	border-color: #dc3545;
+}
+/* what a card ends with does not push its lower edge away */
+.card-body > p:last-child, .card-body > ul:last-child, .card-body > .text-muted:last-child {
+	margin-bottom: 0 !important;
+}
+/* the parts of this form have room under them for when they wrap: the form takes it back */
+.card-body > #form-add-member {
+	margin-bottom: -0.5rem;
+}
+.card-footer.small {
+	line-height: 1.6;
+}
+/* the lists of a domain: what stands in a row stands on one line of it */
+.uoj-domain-header ~ .table-responsive > .table td, .uoj-domain-header ~ .table td {
+	vertical-align: middle;
+}
+.uoj-domain-title {
+	font-weight: 500;
+}
+.uoj-domain-section-title {
+	font-weight: 500;
+}
+.uoj-homework-card .card-title {
+	font-size: 1.2rem;
+}
+.uoj-homework-card .card-title .badge, h2 .badge, h3 .badge, h4 .badge, h5 .badge {
+	font-size: 0.8rem;
+	vertical-align: 0.15em;
+}
+

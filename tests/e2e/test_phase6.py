@@ -582,11 +582,11 @@ class IcpcTest(unittest.TestCase):
 
         # ---- what a contestant is told: passed or not, and nothing about the tests
         listing = ann.get(here + "/submissions").text
-        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success"><strong>Accepted' % ann_right)
-        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger"><strong>Wrong Answer' % ann_wrong)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success" title="Accepted"><strong>AC<' % ann_right)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger" title="Wrong Answer"><strong>WA<' % ann_wrong)
         # what passed has a mark beside it, and what did not has none
-        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success"><strong>Accepted</strong> <span class="glyphicon glyphicon-ok uoj-passed-mark"' % ann_right)
-        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger"><strong>Wrong Answer</strong></a>' % ann_wrong)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-success" title="Accepted"><strong>AC</strong> <svg class="uoj-passed-mark"' % ann_right)
+        self.assertRegex(listing, r'href="/submission/%d" class="uoj-verdict text-danger" title="Wrong Answer"><strong>WA</strong></a>' % ann_wrong)
         page = ann.get("/submission/%d" % ann_wrong).text
         self.assertIn('id="details-after-contest"', page)
         self.assertNotIn("Test #", page)
