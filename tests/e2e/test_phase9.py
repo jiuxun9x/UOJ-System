@@ -187,3 +187,120 @@ class FrozenBoardTest(unittest.TestCase):
         uoj.wait_idle()
         rows, mine, page = icpc_board(admin, contest_id)
         self.assertEqual(rows["p9_frz_fay"][2]["B"][0], "first")
+
+
+def registered(contest_id):
+    return [row[0] for row in db("select username from contests_registrants where contest_id = %d order by username" % contest_id)]
+
+
+class RegistrationTest(unittest.TestCase):
+    """a contest is joined before it begins and while it runs, and the people who run it put
+    contestants in and take them out at any time"""
+
+    def test_contest_is_joined_while_it_runs_and_not_after_it(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        early, late, never = (p3.account("p9_reg_" + name) for name in ("early", "late", "never"))
+        contest_id = admin.new_contest("p9 迟到也能报名", minutes=120, rule="ICPC", problems=str(problem_id))
+        here = "/contest/%d" % contest_id
+        early.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -1800, 120)
+
+        # ---- half an hour into it: the list of the contests offers it, and its pages lead to where it is joined
+        self.assertRegex(late.get("/contests").text, r'href="%s/register">' % here)
+        self.assertNotRegex(early.get("/contests").text, r'href="%s/register">' % here)
+        for path in (here, here + "/problem/A", here + "/standings"):
+            r = late.get(path)
+            self.assertEqual((r.status_code, r.headers.get("Location")), (302, here + "/register"), path)
+        page = late.get(here + "/register").text
+        self.assertIn('id="register-while-running"', page)
+        late.register_for_contest(contest_id)
+        self.assertEqual(registered(contest_id), ["p9_reg_early", "p9_reg_late"])
+        self.assertEqual(late.get(here).status_code, 200)
+        # who came late is in the contest from its start: the time of what they solve counts from there
+        submission_id = late.submit_in_contest(contest_id, problem_id, AB)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        rows, mine, page = icpc_board(late, contest_id)
+        self.assertEqual(rows["p9_reg_late"][:2], (1, 1))
+        self.assertRegex(rows["p9_reg_late"][2]["A"][1], r"^\+ 0:3\d$")
+        # nobody registers twice
+        r = late.get(here + "/register")
+        self.assertEqual(r.status_code, 302)
+
+        # ---- when it is over it is not joined any more
+        uoj.move_contest(contest_id, -3 * 3600, 120)
+        r = never.get(here + "/register")
+        self.assertEqual((r.status_code, r.headers.get("Location")), (302, here))
+        never.post(here + "/register", {"submit-register": "register"})
+        self.assertEqual(registered(contest_id), ["p9_reg_early", "p9_reg_late"])
+        self.assertNotRegex(never.get("/contests").text, r'href="%s/register">' % here)
+
+    def test_password_and_list_still_decide_who_joins_a_running_contest(self):
+        admin = uoj.admin()
+        knows, listed, other = (p3.account("p9_join_" + name) for name in ("knows", "listed", "other"))
+        with_password = admin.new_contest("p9 进行中的密码赛", minutes=120, join_mode="password", join_password="open sesame")
+        with_list = admin.new_contest("p9 进行中的名单赛", minutes=120, join_mode="list")
+        self.assertEqual(admin.form("/contest/%d/manage" % with_list, "allow", tab="access", names="p9_join_listed"), "")
+        for contest_id in (with_password, with_list):
+            uoj.move_contest(contest_id, -600, 120)
+        register = "/contest/%d/register" % with_password
+        self.assertNotEqual(other.submit_form(register, "register", {"join_password": "wrong"}), "")
+        self.assertEqual(knows.submit_form(register, "register", {"join_password": "open sesame"}), "")
+        self.assertEqual(registered(with_password), ["p9_join_knows"])
+        # a contest with a list is not there for who is not on it
+        self.assertEqual(other.get("/contest/%d/register" % with_list).status_code, 404)
+        other.post("/contest/%d/register" % with_list, {"submit-register": "register"})
+        self.assertEqual(listed.submit_form("/contest/%d/register" % with_list, "register"), "")
+        self.assertEqual(registered(with_list), ["p9_join_listed"])
+
+    def test_staff_puts_contestants_in_and_takes_them_out_at_any_time(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        ann, bob, cat, helper = (p3.account("p9_staff_" + name) for name in ("ann", "bob", "cat", "helper"))
+        contest_id = admin.new_contest("p9 现场赛", minutes=120, rule="ICPC", problems=str(problem_id))
+        here, manage = "/contest/%d" % contest_id, "/contest/%d/manage" % contest_id
+        self.assertEqual(admin.form(manage, "add_manager", tab="managers", username="p9_staff_helper", role="assistant"), "")
+        seats = lambda: dict(db("select username, seat from contests_registrants where contest_id = %d" % contest_id))
+        flash = lambda: uoj.text_of(re.search(r'(?s)id="contest-manage-flash">(.*?)</div>', admin.get(manage).text).group(1))
+
+        # ---- before it begins: several at once, with where they sit
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants",
+                                    names="p9_staff_ann A-12\np9_staff_bob，3 排 7 座\np9_staff_nobody B-1\np9_staff_helper\nbad name!"), "")  # fmt: skip
+        self.assertEqual(seats(), {"p9_staff_ann": "A-12", "p9_staff_bob": "3 排 7 座"})
+        said = flash()
+        for told in ("加入了 2 位选手", "p9_staff_nobody：没有这个用户", "p9_staff_helper：是这场比赛的工作人员"):
+            self.assertIn(told, said)
+        self.assertEqual(db_value("select player_num from contests where id = %d" % contest_id), "2")
+        page = admin.get(manage).text
+        self.assertRegex(page, r'(?s)<tr data-username="p9_staff_bob">.*?name="seat" value="3 排 7 座"')
+        # a seat is changed by itself, or with the list again; what a seat can not be is refused
+        self.assertEqual(admin.form(manage, "set_seat", tab="contestants", username="p9_staff_ann", seat="A-13"), "")
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p9_staff_bob B-2\np9_staff_ann"), "")
+        self.assertEqual(seats(), {"p9_staff_ann": "A-13", "p9_staff_bob": "B-2"})
+        self.assertIn("更新了 1 个座位", flash())
+        self.assertNotEqual(admin.form(manage, "set_seat", tab="contestants", username="p9_staff_ann", seat="<b>x</b>"), "")
+        self.assertEqual(seats()["p9_staff_ann"], "A-13")
+
+        # ---- while it runs: somebody who came late is put in, and is inside at once
+        uoj.move_contest(contest_id, -1800, 120)
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p9_staff_cat C-1"), "")
+        self.assertEqual(cat.get(here).status_code, 200)
+        self.assertEqual(uoj.wait_submission(cat.submit_in_contest(contest_id, problem_id, AB)).score, 100)
+        rows, mine, page = icpc_board(admin, contest_id)
+        self.assertEqual(sorted(rows), ["p9_staff_ann", "p9_staff_bob", "p9_staff_cat"])
+        # ---- somebody is taken out: off the board, with what they submitted kept, and back with it
+        self.assertEqual(admin.form(manage, "remove_contestant", tab="contestants", username="p9_staff_cat"), "")
+        self.assertEqual(sorted(seats()), ["p9_staff_ann", "p9_staff_bob"])
+        self.assertNotIn("p9_staff_cat", icpc_board(admin, contest_id)[0])
+        self.assertEqual(db_value("select count(*) from submissions where contest_id = %d and submitter = 'p9_staff_cat'" % contest_id), "1")
+        self.assertNotEqual(admin.form(manage, "remove_contestant", tab="contestants", username="p9_staff_cat"), "")
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p9_staff_cat"), "")
+        self.assertEqual(icpc_board(admin, contest_id)[0]["p9_staff_cat"][:2], (1, 1))
+
+        # ---- only who runs the contest does this
+        for nobody in (helper, ann):
+            for form, fields in (("add_contestants", dict(names="p9_staff_helper")), ("remove_contestant", dict(username="p9_staff_bob")),
+                                 ("set_seat", dict(username="p9_staff_bob", seat="Z-9"))):  # fmt: skip
+                self.assertEqual(nobody.post(manage, dict(fields, form=form, tab="contestants")).status_code, 403, form)
+        self.assertEqual(seats()["p9_staff_bob"], "B-2")
+        self.assertEqual(db_value("select count(*) from audit_logs where action = 'contest.add_contestants' and resource_id = '%d'" % contest_id), "4")

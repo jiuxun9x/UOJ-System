@@ -58,6 +58,11 @@
 			if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 				become404Page();
 			} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {
+				if ($myUser != null && !hasRegistered($myUser, $contest) && can($myUser, 'contest.register', $contest)) {
+					// a contest that runs can still be joined: this is where
+					header("Location: /contest/{$contest['id']}/register");
+					die();
+				}
 				if ($myUser == null || !hasRegistered($myUser, $contest)) {
 					becomeMsgPage("<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。比赛结束后再来看吧～</p>");
 				} else {

@@ -14,10 +14,12 @@
 	
 	if ($myUser == null) {
 		redirectToLogin();
-	} elseif (!can($myUser, 'contest.register', $contest) || $contest['cur_progress'] != CONTEST_NOT_STARTED) {
-		// the people who run it do not register, nobody registers twice, and nobody once it began
-		redirectTo('/contests');
+	} elseif (!can($myUser, 'contest.register', $contest) || $contest['cur_progress'] > CONTEST_IN_PROGRESS) {
+		// The people who run it do not register, nobody registers twice, and nobody once it
+		// is over. While it runs it can be joined: who comes late is late, and is not kept out.
+		redirectTo($contest['cur_progress'] > CONTEST_IN_PROGRESS ? "/contest/{$contest['id']}" : '/contests');
 	}
+	$is_running = $contest['cur_progress'] == CONTEST_IN_PROGRESS;
 	
 	$register_form = new UOJForm('register');
 	if ($contest['join_mode'] === 'password') {
@@ -44,12 +46,16 @@
 	};
 	$register_form->submit_button_config['class_str'] = 'btn btn-primary';
 	$register_form->submit_button_config['text'] = '报名比赛';
-	$register_form->succ_href = "/contests";
+	// whoever registers for a contest that runs goes straight into it
+	$register_form->succ_href = $is_running ? "/contest/{$contest['id']}" : "/contests";
 	
 	$register_form->runAtServer();
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 报名') ?>
 <?php echoContestDomainLink($contest) ?>
+<?php if ($is_running): ?>
+<div class="alert alert-info" id="register-while-running">这场比赛已经开始，现在仍然可以报名。计时从比赛开始时算起，不从你报名的时候算。</div>
+<?php endif ?>
 <h1 class="page-header">比赛规则</h1>
 <ul>
 	<li>比赛报名后不算正式参赛，报名后进了比赛页面也不算参赛，<strong>看了题目才算正式参赛</strong>。如果未正式参赛则不算rating。</li>

@@ -21,6 +21,11 @@
 			header("Location: /contest/{$contest['id']}/register");
 			die();
 		} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {
+			if ($myUser != null && !hasRegistered(Auth::user(), $contest) && can($myUser, 'contest.register', $contest)) {
+				// it can still be joined: this is where
+				header("Location: /contest/{$contest['id']}/register");
+				die();
+			}
 			if ($myUser == null || !hasRegistered(Auth::user(), $contest)) {
 				becomeMsgPage($contest['join_mode'] === 'open' ? "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。比赛结束后再来看吧～</p>" : "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。这场比赛只对报名参加的选手开放。</p>");
 			}

@@ -30,6 +30,10 @@ EOD;
 			}
 		} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {
 			$contest_name_link .= '<sup><a style="color:blue" href="/contest/'.$contest['id'].'">'.UOJLocale::get('contests::in progress').'</a></sup>';
+			// it can be joined while it runs
+			if ($myUser != null && can($myUser, 'contest.register', $contest)) {
+				$contest_name_link .= ' <sup><a style="color:red" href="/contest/'.$contest['id'].'/register">'.UOJLocale::get('contests::register').'</a></sup>';
+			}
 		} elseif ($contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST) {
 			$contest_name_link .= '<sup><a style="color:blue" href="/contest/'.$contest['id'].'">'.UOJLocale::get('contests::pending final test').'</a></sup>';
 		} elseif ($contest['cur_progress'] == CONTEST_TESTING) {

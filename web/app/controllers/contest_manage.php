@@ -100,6 +100,29 @@
 			$done('access', '已从名单里移除。');
 		},
 
+		// ---- the contestants: put in and taken out at any time, also while the contest runs
+		'add_contestants' => function() use ($contest, $done) {
+			global $myUser;
+			list($added, $seated, $refused) = contestAddRegistrants($contest, isset($_POST['names']) && is_string($_POST['names']) ? $_POST['names'] : '', $myUser);
+			$done('contestants', "加入了 $added 位选手" . ($seated ? "，更新了 $seated 个座位" : '') . '。' . ($refused ? '没有处理的行：' . join('；', array_slice($refused, 0, 10)) . (count($refused) > 10 ? ' 等 ' . count($refused) . ' 行' : '') : ''), $refused ? 'warning' : 'success');
+		},
+		'remove_contestant' => function() use ($contest, $posted, $done) {
+			global $myUser;
+			$err = contestRemoveRegistrant($contest, $posted('username'), $myUser);
+			if ($err !== '') {
+				return $err;
+			}
+			$done('contestants', '已把 ' . $posted('username') . ' 移出比赛。他在比赛里的提交还在，再加回来时照常计入。');
+		},
+		'set_seat' => function() use ($contest, $posted, $done) {
+			global $myUser;
+			$err = contestSetSeat($contest, $posted('username'), $posted('seat'), $myUser);
+			if ($err !== '') {
+				return $err;
+			}
+			$done('contestants', '座位已保存。');
+		},
+
 		// ---- the people who run it
 		'add_manager' => function() use ($contest, $posted, $done) {
 			$role = $posted('role') === 'owner' ? 'owner' : 'assistant';
@@ -134,7 +157,7 @@
 	$flash = domainTakeFlash();
 
 	// a form that was refused is shown again on its tab, with what was typed into it
-	$tabs = array('settings' => '设置', 'problems' => '试题', 'attachments' => '附件', 'access' => '名单', 'managers' => '管理者');
+	$tabs = array('settings' => '设置', 'problems' => '试题', 'attachments' => '附件', 'contestants' => '选手', 'access' => '名单', 'managers' => '管理者');
 	$active_tab = isset($_POST['tab']) && is_string($_POST['tab']) && isset($tabs[$_POST['tab']]) ? $_POST['tab'] : 'settings';
 	if ($error !== '' && $active_tab === 'settings') {
 		foreach (array('name', 'start_time', 'last_min', 'rule', 'freeze_minutes', 'standings_version', 'rating_k', 'join_mode') as $field) {
@@ -157,6 +180,8 @@
 	}
 	$managers = DB::selectAll("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
 	$allowed_users = contestAllowedUsers($contest);
+	$contestants = contestRegistrants($contest);
+	$contestant_identities = rosterIdentities(array_column($contestants, 'username'));
 	$attachments = attachmentsOf('contest', $contest['id']);
 	$has_begun = $contest['cur_progress'] > CONTEST_NOT_STARTED;
 ?>
@@ -275,6 +300,62 @@
 		<?php echoAttachmentsManager($attachments, 'attachments') ?>
 	</div>
 	
+	<div class="tab-pane<?= $active_tab === 'contestants' ? ' active' : '' ?>" id="tab-contestants">
+		<p class="text-muted">
+			报名了的人就是选手。选手可以自己报名：比赛开始前，以及<strong>比赛进行中</strong>都可以（密码限制、名单限制照常生效）；比赛结束后不能再报名。
+			你也可以在这里直接把人加进来或移出去，任何时候都行。座位号给现场赛用，气球页会显示它。
+		</p>
+		<h5>选手 <small class="text-muted">（<?= count($contestants) ?> 人）</small></h5>
+		<?php if ($contestants): ?>
+		<div class="table-responsive uoj-roster-box mb-3">
+			<table class="table table-bordered table-hover table-sm uoj-roster" id="list-contestants" style="max-width:60em">
+				<thead><tr><th style="width:4em">#</th><th>用户</th><th>学号</th><th>姓名</th><th style="width:15em">座位</th><th style="width:6em">操作</th></tr></thead>
+				<tbody>
+					<?php foreach ($contestants as $index => $contestant): ?>
+					<?php $identity = isset($contestant_identities[$contestant['username']]) ? $contestant_identities[$contestant['username']] : array('student_id' => '', 'real_name' => ''); ?>
+					<tr data-username="<?= $contestant['username'] ?>">
+						<td><?= $index + 1 ?></td>
+						<td><?= getUserLink($contestant['username']) ?></td>
+						<td><?= HTML::escape($identity['student_id']) ?></td>
+						<td><?= HTML::escape($identity['real_name']) ?></td>
+						<td>
+							<form method="post" class="form-inline justify-content-center flex-nowrap">
+								<?= HTML::hiddenToken() ?>
+								<input type="hidden" name="form" value="set_seat" />
+								<input type="hidden" name="tab" value="contestants" />
+								<input type="hidden" name="username" value="<?= $contestant['username'] ?>" />
+								<input type="text" class="form-control form-control-sm mr-1" name="seat" value="<?= HTML::escape($contestant['seat']) ?>" maxlength="20" placeholder="—" style="width:8em" />
+								<button type="submit" class="btn btn-light btn-sm border">保存</button>
+							</form>
+						</td>
+						<td>
+							<form method="post">
+								<?= HTML::hiddenToken() ?>
+								<input type="hidden" name="form" value="remove_contestant" />
+								<input type="hidden" name="tab" value="contestants" />
+								<input type="hidden" name="username" value="<?= $contestant['username'] ?>" />
+								<button type="submit" class="btn btn-outline-danger btn-sm" title="移出比赛" onclick="return confirm('把 <?= $contestant['username'] ?> 移出这场比赛？他的提交不会删除。')">移出</button>
+							</form>
+						</td>
+					</tr>
+					<?php endforeach ?>
+				</tbody>
+			</table>
+		</div>
+		<?php endif ?>
+		<form method="post" id="form-add-contestants" style="max-width:48em">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="add_contestants" />
+			<input type="hidden" name="tab" value="contestants" />
+			<div class="form-group">
+				<label for="input-contestants">加入选手，或者批量填座位</label>
+				<textarea class="form-control" id="input-contestants" name="names" rows="5" placeholder="每行一个用户名或学号，后面可以跟座位号&#10;CS26010001 A-12&#10;CS26010002 A-13"></textarea>
+				<small class="form-text text-muted">已经在比赛里的人，写了座位号就更新座位。只能加有账号的人：用学号登录过一次才有账号，还没登录过的人请放进“名单”，他登录后自己报名。</small>
+			</div>
+			<button type="submit" class="btn btn-primary">加入比赛</button>
+		</form>
+	</div>
+
 	<div class="tab-pane<?= $active_tab === 'access' ? ' active' : '' ?>" id="tab-access">
 		<p>
 			当前的参加方式：<strong id="contest-join-mode"><?= HTML::escape(explode('：', contestJoinModes()[$contest['join_mode']])[0]) ?></strong>。

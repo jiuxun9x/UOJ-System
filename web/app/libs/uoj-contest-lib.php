@@ -722,6 +722,91 @@ function genMoreContestInfo(&$contest) {
 	}
 }
 
+// ---- the contestants of a contest, as the people who run it see to them
+//
+// Somebody registers for a contest by themselves, before it begins or while it runs. The
+// people who run it can put somebody in as well, and take somebody out, at any time: a
+// contest that is held in a room has people who come late, and people who sit somewhere.
+
+// the contestants of a contest: rows of username, seat, has_participated
+function contestRegistrants($contest) {
+	return DB::selectAll("select username, seat, has_participated from contests_registrants where contest_id = {$contest['id']} order by username", MYSQLI_ASSOC);
+}
+// what may be written down as a seat: a short word, like "A-12" or "3 排 7 座"
+function contestSeatError($seat) {
+	if (!is_string($seat) || mb_strlen($seat, 'UTF-8') > 20 || preg_match('/[\x00-\x1f\x7f<>"\'&]/', $seat)) {
+		return '座位最多 20 个字符，不能有引号和尖括号';
+	}
+	return '';
+}
+// the user that a line of a list names: by username, or by the student number they logged in with
+function contestUserOfListEntry($entry) {
+	$user = validateUsername($entry) ? queryUser($entry) : null;
+	if (!$user && preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $entry)) {
+		$identity = DB::selectFirst("select username from external_identities where student_id = '".DB::escape($entry)."' order by id limit 1");
+		$user = $identity ? queryUser($identity['username']) : null;
+	}
+	return $user;
+}
+// Puts people into a contest. A line of the text names one of them, by username or student
+// number, and may say where they sit: "CS26010001 A-12". Somebody who is in it already gets
+// the seat that the line says, if it says one. The people who run a contest are not put in.
+// Returns array(how many were put in, how many seats were changed, the lines that were refused
+// as "the line: why").
+function contestAddRegistrants($contest, $text, $actor) {
+	$added = 0;
+	$seated = 0;
+	$refused = array();
+	$lines = array_slice(array_unique(array_filter(array_map('trim', preg_split('/[\r\n;]+/', (string)$text)), 'strlen')), 0, 5000);
+	foreach ($lines as $line) {
+		$parts = preg_split('/[\s,，]+/u', $line, 2);
+		$seat = isset($parts[1]) ? trim($parts[1]) : null;
+		$user = contestUserOfListEntry($parts[0]);
+		if (!$user) {
+			$refused[] = "{$parts[0]}：没有这个用户（用学号登录过一次之后才有账号）";
+			continue;
+		}
+		if ($seat !== null && contestSeatError($seat) !== '') {
+			$refused[] = "{$parts[0]}：" . contestSeatError($seat);
+			continue;
+		}
+		if (can($user, 'contest.assist', $contest)) {
+			$refused[] = "{$parts[0]}：是这场比赛的工作人员，不参赛";
+			continue;
+		}
+		$esc_username = DB::escape($user['username']);
+		DB::insert("insert ignore into contests_registrants (username, user_rating, contest_id, has_participated, seat) values ('$esc_username', ".(int)$user['rating'].", {$contest['id']}, 0, '".DB::escape((string)$seat)."')");
+		if (DB::affected_rows() == 1) {
+			$added++;
+		} elseif ($seat !== null) {
+			DB::update("update contests_registrants set seat = '".DB::escape($seat)."' where contest_id = {$contest['id']} and username = '$esc_username' and seat != '".DB::escape($seat)."'");
+			$seated += DB::affected_rows() == 1 ? 1 : 0;
+		}
+	}
+	updateContestPlayerNum($contest);
+	auditLog('contest.add_contestants', 'contest', $contest['id'], null, array('added' => $added, 'seated' => $seated, 'refused' => count($refused)), $actor);
+	return array($added, $seated, $refused);
+}
+// Takes somebody out of a contest. What they submitted to it stays where it is, and counts
+// again if they are put back in.
+function contestRemoveRegistrant($contest, $username, $actor) {
+	DB::delete("delete from contests_registrants where contest_id = {$contest['id']} and username = '".DB::escape($username)."'");
+	if (DB::affected_rows() != 1) {
+		return '这个用户没有报名这场比赛';
+	}
+	updateContestPlayerNum($contest);
+	auditLog('contest.remove_contestant', 'contest', $contest['id'], array('username' => $username), null, $actor);
+	return '';
+}
+function contestSetSeat($contest, $username, $seat, $actor) {
+	$err = contestSeatError($seat);
+	if ($err !== '') {
+		return $err;
+	}
+	DB::update("update contests_registrants set seat = '".DB::escape(trim($seat))."' where contest_id = {$contest['id']} and username = '".DB::escape($username)."'");
+	return '';
+}
+
 function updateContestPlayerNum($contest) {
 	DB::update("update contests set player_num = (select count(*) from contests_registrants where contest_id = {$contest['id']}) where id = {$contest['id']}");
 }

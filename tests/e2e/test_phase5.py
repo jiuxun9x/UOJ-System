@@ -414,8 +414,14 @@ class ContestAccessTest(unittest.TestCase):
         problem = here + "/problem/%d" % self.problem_id
         self.assertEqual(knows.get(here).status_code, 200)
         self.assertEqual(knows.get(problem).status_code, 200)
-        self.assertIn("尚未报名", guesses.get(here).text)
-        self.assertIn("尚未报名", guesses.get(problem).text)
+        # somebody who did not register is sent to where a contest that runs is joined, and
+        # is not inside before they did; somebody who is not logged in is told to come back
+        for path in (here, problem):
+            r = guesses.get(path)
+            self.assertEqual((r.status_code, r.headers.get("Location")), (302, register), path)
+        self.assertNotEqual(guesses.submit_form(register, "register", {"join_password": "open says me"}), "")
+        self.assertEqual(self.registered(contest_id), ["p5_acl_knows"])
+        self.assertIn("尚未报名", uoj.Client().get(here).text)
         # and it stays theirs when it is over, unlike a contest for everybody
         uoj.move_contest(contest_id, -7200)
         self.assertIn('id="contest-closed"', guesses.get(here).text)
