@@ -112,7 +112,7 @@ def icpc_board(client, contest_id, query=""):
 
     rows = {}
     for name, rank, solved, cells in re.findall(
-        r'(?s)<tr(?: class="uoj-scoreboard-me")? data-username="([^"]+)" data-rank="(\d+)" data-solved="(\d+)" data-penalty="\d+">(.*?)</tr>', page.text
+        r'(?s)<tr(?: class="uoj-scoreboard-me")? data-username="([^"]+)"(?: data-virtual="1")? data-rank="(\d+)" data-solved="(\d+)" data-penalty="\d+">(.*?)</tr>', page.text
     ):
         rows[name] = (int(rank), int(solved), cells_of(cells))
     mine = re.search(r'(?s)<div class="table-responsive" id="standings-mine">.*?<tbody>\s*<tr class="uoj-scoreboard-me" data-username="([^"]+)" data-solved="(\d+)"[^>]*>\s*<td[^>]*>([^<]*)</td>(.*?)</tr>', page.text)
@@ -390,6 +390,57 @@ class VirtualInContestTest(unittest.TestCase):
         self.assertIn('id="virtual-clock"', sitter.get(here).text)
         # the sitter is at the start again, where nobody has anything
         self.assertEqual(sorted(board(sitter)[0]), sorted([(name(early), 1, False), (name(late), 1, False), (name(sitter), 1, True), (name(quick), 1, True), (name(early), 1, True)]))
+
+    def test_board_freezes_for_who_sits_the_contest_virtually(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        # an hour, of which the last twenty minutes are frozen
+        contest_id = admin.new_contest("p9 虚拟参赛 封榜", rule="ICPC", freeze_minutes="20", problems=str(problem_id))
+        here, virtual = "/contest/%d" % contest_id, "/contest/%d/virtual" % contest_id
+        early, late, sitter = (p3.account("p9_vf_" + name) for name in ("early", "late", "sitter"))
+        for client in (early, late):
+            client.register_for_contest(contest_id)
+        # early solves it five minutes in; late fifty minutes in, when the board is frozen
+        uoj.move_contest(contest_id, -600)
+        made = [(5, early.submit_in_contest(contest_id, problem_id, AB)), (50, late.submit_in_contest(contest_id, problem_id, AB))]
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -7200)
+        for minutes, submission_id in made:
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
+               % (contest_id, minutes, submission_id))  # fmt: skip
+        self.assertEqual(admin.submit_form(here, "publish_result"), "")
+        self.assertIn("比赛开始 0:40 后将会封榜", uoj.text_of(sitter.get(virtual).text))
+
+        # the sitter solves it forty five minutes in: after the board froze as well
+        self.assertEqual(sitter.form(virtual, "start"), "")
+        own = sitter.submit(problem_id, AB, path=here + "/problem/A")
+        uoj.wait_submission(own)
+        mine = {own: 45 * 60}
+        # ---- thirty minutes in the board is the board, with what there is
+        self.sat(contest_id, sitter, 30 * 60, mine)
+        rows, me, page = icpc_board(sitter, contest_id)
+        self.assertNotIn('data-frozen="1"', page)
+        self.assertIsNone(me)
+        self.assertEqual((rows["p9_vf_early"][:2], rows["p9_vf_late"][:2]), ((1, 1), (2, 0)))
+        # ---- fifty five minutes in it is frozen, as it was for the contestants: what was
+        # submitted since it froze is counted and not told, the sitter's own on the board too
+        self.sat(contest_id, sitter, 55 * 60, mine)
+        rows, me, page = icpc_board(sitter, contest_id)
+        self.assertIn('data-frozen="1"', page)
+        self.assertIn("已到封榜时间", uoj.text_of(page))
+        self.assertEqual(rows["p9_vf_early"], (1, 1, {"A": ("first", "+ 0:05")}))
+        self.assertEqual(rows["p9_vf_late"], (2, 0, {"A": ("pending", "? 0 + 1")}))
+        self.assertEqual(rows["p9_vf_sitter"], (2, 0, {"A": ("pending", "? 0 + 1")}))
+        # above it, how it really stands with the sitter: theirs alone, and under their star
+        self.assertEqual((me[0], me[1], me[2]), ("p9_vf_sitter", 1, "?"))
+        self.assertEqual(me[3]["A"], ("solved", "+ 0:45"))
+        self.assertRegex(page, r'(?s)id="standings-mine".*?<span class="uoj-unofficial-star"[^>]*>\*</span>')
+        # ---- when it is over the contest is over, and its board says everything
+        self.sat(contest_id, sitter, 4000, mine)
+        rows, me, page = icpc_board(sitter, contest_id)
+        self.assertNotIn('data-frozen="1"', page)
+        self.assertIsNone(me)
+        self.assertEqual([rows[name][:2] for name in ("p9_vf_early", "p9_vf_sitter", "p9_vf_late")], [(1, 1), (2, 1), (3, 1)])
 
     def test_contest_is_sat_in_its_own_pages_and_shown_on_its_board(self):
         self.check("OI", "p9_vo_")
