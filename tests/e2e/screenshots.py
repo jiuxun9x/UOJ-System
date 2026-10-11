@@ -249,7 +249,7 @@ def seed():
     admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "lab305", "judger_adder_note": "实验楼 305 的机器"})
     return {"announcement": announcement, "teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
             "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
-            "sitter": sitter, "sat": sat, "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
+            "sitter": sitter, "sat": sat, "second_student": students[1], "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
 
 
 # ---- what is done on a page before its picture is taken. Each of these also checks that the
@@ -438,6 +438,45 @@ def balloon_settings_are_opened(page, seeded):
     page.locator("#balloon-settings").scroll_into_view_if_needed()
 
 
+def outer_board_keeps_itself_up_to_date(page, seeded):
+    """the outer board of a contest that runs, to somebody who is not logged in: its clock goes
+    on, and when something happens in the contest the rows move without the page being loaded
+    anew"""
+    first_row = "document.querySelector('#table-outer-board tbody tr').getAttribute('data-username')"
+    page.wait_for_selector("#table-outer-board tbody tr")
+    leader, second = seeded["student"].username, seeded["second_student"].username
+    assert page.evaluate(first_row) == leader, page.evaluate(first_row)
+    assert page.get_attribute("#outer-board", "data-frozen") == "1"
+    assert page.locator(".navbar").count() == 0
+    shown = page.inner_text("#outer-board-clock")
+    page.wait_for_function("document.querySelector('#outer-board-clock').textContent !== %s" % json.dumps(shown))
+    page.evaluate("window.stayed = true")
+    # What the second contestant submitted to B before the board froze turns out to have
+    # passed (a rejudge does that): with two problems and less penalty, they lead.
+    wrong = int(db_value("select min(id) from submissions where contest_id = %d and submitter = '%s' and problem_id = %d"
+                         % (seeded["icpc"], second, seeded["second_public"])))  # fmt: skip
+    before = db_value("select score from submissions where id = %d" % wrong)
+    db("update submissions set score = 100 where id = %d" % wrong)
+    try:
+        page.wait_for_function("%s === %s" % (first_row, json.dumps(second)), timeout=20000)
+        assert page.evaluate("window.stayed") is True
+        assert page.inner_text("#table-outer-board tbody tr td.uoj-ob-rank") == "1"
+    finally:
+        db("update submissions set score = %s where id = %d" % (before, wrong))
+    page.wait_for_function("%s === %s" % (first_row, json.dumps(leader)), timeout=20000)
+    # what moved has come to rest before the picture is taken
+    page.wait_for_function("document.querySelectorAll('#table-outer-board .uoj-ob-up, #table-outer-board .uoj-ob-flash').length === 0", timeout=10000)
+
+
+def outer_board_goes_dark(page, seeded):
+    """the outer board for a wall: dark, and the row of whoever looks is marked"""
+    page.wait_for_selector("#table-outer-board tbody tr")
+    page.click("#outer-board-theme")
+    assert page.evaluate("document.body.classList.contains('uoj-ob-dark-page')")
+    mine = page.eval_on_selector_all("#table-outer-board tr.uoj-ob-me", "rows => rows.map(row => row.getAttribute('data-username'))")
+    assert mine == [seeded["student"].username], mine
+
+
 def statement_is_read_as_it_was_written(page, seeded):
     """a statement written for Hydro: its formulas are set in the fonts of the site, also on a
     machine that has fonts MathJax would rather take, and its samples are samples"""
@@ -622,6 +661,9 @@ def pages(seeded):
         ("icpc-standings-staff", "admin", "/contest/%d/standings" % seeded["icpc"]),
         ("icpc-submissions", "student", "/contest/%d/submissions" % seeded["icpc"]),
         ("balloons", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_is_ticked_without_loading_the_page),
+        ("outer-board", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_keeps_itself_up_to_date),
+        ("outer-board-dark", "student", "/contest/%d/board" % seeded["icpc"], outer_board_goes_dark),
+        ("outer-board-final", "visitor", "/contest/%d/board" % seeded["contest"]),
         ("balloons-settings", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_settings_are_opened),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),

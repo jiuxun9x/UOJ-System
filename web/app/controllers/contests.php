@@ -30,6 +30,10 @@ EOD;
 			}
 		} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {
 			$contest_name_link .= '<sup><a style="color:blue" href="/contest/'.$contest['id'].'">'.UOJLocale::get('contests::in progress').'</a></sup>';
+			// whoever may get into it may watch it: its outer board
+			if (can($myUser, 'contest.enter', $contest)) {
+				$contest_name_link .= ' <sup><a class="uoj-outer-board-link" href="/contest/'.$contest['id'].'/board">外榜</a></sup>';
+			}
 			// it can be joined while it runs
 			if ($myUser != null && can($myUser, 'contest.register', $contest)) {
 				$contest_name_link .= ' <sup><a style="color:red" href="/contest/'.$contest['id'].'/register">'.UOJLocale::get('contests::register').'</a></sup>';

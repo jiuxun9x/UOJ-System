@@ -669,6 +669,147 @@ class VerdictLettersTest(unittest.TestCase):
             self.assertIn(letters, told)
 
 
+class OuterBoardTest(unittest.TestCase):
+    """a contest has a board for the people who watch: a page of its own that keeps itself up
+    to date, shows everybody the same, and nobody more than everybody may know"""
+
+    def test_outer_board_is_for_who_watches_and_frozen_for_everybody(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p9 外榜 <b>赛</b>", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d, %d" % (first, second))
+        here, board = "/contest/%d" % contest_id, "/contest/%d/board" % contest_id
+        ann, bob, cat, outsider, sitter = (p3.account("p9_ob_" + name) for name in ("ann", "bob", "cat", "outsider", "sitter"))
+        for client in (ann, bob, cat):
+            client.register_for_contest(contest_id)
+        state = lambda client: client.get(board + "?json=1").json()
+        rows = lambda told: [(row["username"], row["rank"], row["solved"], row["penalty"], row["dirt"], [tuple(cell) for cell in row["cells"]]) for row in told["rows"]]
+        heads = lambda told: [(problem["letter"], problem["solved"], problem["tries"]) for problem in told["problems"]]
+
+        def at(minutes, submission_id):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
+               " where id = %d" % (contest_id, minutes, submission_id))  # fmt: skip
+            return submission_id
+
+        # ---- before it begins there is nothing to watch, not even how many problems it has
+        told = state(outsider)
+        self.assertEqual((told["phase"], told["problems"], told["rows"], told["ticking"]), ("before", [], [], False))
+        self.assertGreater(told["starts_in"], 3000)
+
+        # ---- a hundred minutes into its three hundred
+        uoj.move_contest(contest_id, -100 * 60, 300)
+        made = {"ann wrong": (10, ann.submit_in_contest(contest_id, first, AB_WRONG)), "ann": (20, ann.submit_in_contest(contest_id, first, AB)),
+                "bob": (30, bob.submit_in_contest(contest_id, first, AB)), "bob wrong": (40, bob.submit_in_contest(contest_id, second, AB_WRONG))}  # fmt: skip
+        for minutes, submission_id in made.values():
+            at(minutes, submission_id)
+        uoj.wait_idle()
+        # It is a page of its own, without the site around it, for whoever may get into the
+        # contest: also somebody who is not in it, and somebody who is not logged in.
+        for client in (outsider, uoj.Client(), ann, admin):
+            r = client.get(board)
+            self.assertEqual(r.status_code, 200)
+            for part in ('id="outer-board"', "window.uojOuterBoard = {", "/js/uoj-board.js", "/css/uoj-board.css"):
+                self.assertIn(part, r.text)
+            self.assertNotIn('class="navbar', r.text)
+        # the name of the contest is text of the page and of what is handed to its script
+        page = outsider.get(board).text
+        self.assertIn('id="outer-board-title">p9 外榜 赛</h1>', page)
+        self.assertNotIn("<b>赛</b>", page)
+        # who is not in the contest is told where to watch it, and so is the list of the contests
+        self.assertIn('id="link-outer-board" href="%s"' % board, uoj.Client().get(here).text)
+        self.assertIn('class="uoj-outer-board-link" href="%s"' % board, outsider.get("/contests").text)
+        self.assertIn('href="%s"' % board, ann.get(here).text)
+        self.assertEqual((ann.get(here + "?tab=board").status_code, ann.get(here + "?tab=board").headers["Location"]), (302, board))
+
+        told = state(outsider)
+        self.assertEqual((told["phase"], told["rule"], told["frozen"], told["ticking"], told["duration"], told["freeze"]), ("running", "ICPC", False, True, 18000, 14400))
+        self.assertTrue(5990 <= told["elapsed"] <= 6900, told["elapsed"])
+        self.assertEqual(told["name"], "p9 外榜 赛")
+        # bob solved A after thirty minutes; ann after twenty, with an attempt in vain before,
+        # which costs her twenty more: she was first, and is behind him. cat has not opened a
+        # problem yet, and is not on the board.
+        self.assertEqual(rows(told), [
+            ("p9_ob_bob", 1, 1, 1800, 0, [("solved", "+", "0:30"), ("failed", "-1", "0:40")]),
+            ("p9_ob_ann", 2, 1, 2400, 50, [("first", "+1", "0:20"), ("none", "", "")]),
+        ])  # fmt: skip
+        # over a problem: how many solved it, out of how many submissions that count
+        self.assertEqual(heads(told), [("A", 2, 3), ("B", 0, 1)])
+        # nothing is in it that is not for everybody: no titles, no numbers of submissions
+        self.assertEqual(sorted(told["problems"][0]), ["color", "letter", "solved", "tries"])
+        self.assertEqual(sorted(told["rows"][0]), ["band", "cells", "dirt", "key", "nickname", "penalty", "rank", "solved", "username"])
+        self.assertEqual([problem["color"] for problem in told["problems"]], [None, None])
+        # everybody is told the same
+        for client in (uoj.Client(), ann, admin):
+            self.assertEqual(state(client)["hash"], told["hash"])
+        # ---- the page asks again every few seconds: as long as nothing happened it is told so
+        again = outsider.get(board + "?json=1&have=" + told["hash"]).json()
+        self.assertEqual((again["same"], again["hash"], again["phase"], again["ticking"]), (True, told["hash"], "running", True))
+        self.assertNotIn("rows", again)
+        # and when something happened it is told what there is now, at once
+        uoj.wait_submission(cat.submit_in_contest(contest_id, second, AB))
+        now = outsider.get(board + "?json=1&have=" + told["hash"]).json()
+        self.assertNotIn("same", now)
+        self.assertNotEqual(now["hash"], told["hash"])
+        self.assertEqual([row[:3] for row in rows(now)], [("p9_ob_bob", 1, 1), ("p9_ob_ann", 2, 1), ("p9_ob_cat", 3, 1)])
+        self.assertEqual(rows(now)[2][5][1][:2], ("first", "+"))
+        self.assertEqual(heads(now), [("A", 2, 3), ("B", 1, 2)])
+        # where the contest gives balloons, a problem is headed by the colour of its balloon
+        self.assertEqual(admin.form("/contest/%d/balloons" % contest_id, "settings", balloons="on"), "")
+        self.assertEqual([problem["color"] for problem in state(outsider)["problems"]], ["#e53935", "#fb8c00"])
+
+        # ---- the board freezes for whoever looks: this is the board of the room. Two hundred
+        # and fifty minutes in, what cat submitted is from after the board froze.
+        uoj.move_contest(contest_id, -250 * 60, 300)
+        for minutes, submission_id in made.values():
+            at(minutes, submission_id)
+        frozen = state(outsider)
+        self.assertEqual((frozen["phase"], frozen["frozen"], frozen["ticking"]), ("running", True, True))
+        self.assertEqual(rows(frozen)[2], ("p9_ob_cat", 3, 0, 0, None, [("none", "", ""), ("pending", "?", "0 + 1")]))
+        self.assertEqual(heads(frozen), [("A", 2, 3), ("B", 0, 2)])
+        # the people who run the contest see everything on its board, and on this one what everybody sees
+        self.assertEqual(state(admin)["hash"], frozen["hash"])
+        self.assertEqual(icpc_board(admin, contest_id)[0]["p9_ob_cat"][:2], (3, 1))
+
+        # ---- a contest that is not for everybody keeps its board with the people who are in it
+        self.assertEqual(admin.contest_settings(contest_id, join_mode="password", join_password="open sesame"), "")
+        page = outsider.get(board).text
+        self.assertIn("不对所有人开放", uoj.text_of(page))
+        self.assertNotIn('id="outer-board"', page)
+        self.assertNotIn('"rows"', outsider.get(board + "?json=1").text)
+        self.assertEqual(uoj.Client().get(board).status_code, 302)
+        self.assertEqual(state(ann)["hash"], frozen["hash"])
+        self.assertEqual(admin.contest_settings(contest_id, join_mode="open"), "")
+
+        # ---- when it is over the board waits, frozen, and when the results are published it is the board
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        for minutes, submission_id in made.values():
+            at(minutes, submission_id)
+        at(250, int(db_value("select max(id) from submissions where contest_id = %d and submitter = 'p9_ob_cat'" % contest_id)))
+        waiting = state(outsider)
+        self.assertEqual((waiting["phase"], waiting["frozen"], waiting["ticking"], waiting["elapsed"]), ("waiting", True, False, 18000))
+        self.assertEqual(rows(waiting)[2][5][1], ("pending", "?", "0 + 1"))
+        self.assertEqual(admin.submit_form(here, "publish_result"), "")
+        final = state(outsider)
+        self.assertEqual((final["phase"], final["frozen"], final["ticking"], final["elapsed"]), ("final", False, False, 18000))
+        self.assertEqual(rows(final), [
+            ("p9_ob_bob", 1, 1, 1800, 0, [("solved", "+", "0:30"), ("failed", "-1", "0:40")]),
+            ("p9_ob_ann", 2, 1, 2400, 50, [("first", "+1", "0:20"), ("none", "", "")]),
+            ("p9_ob_cat", 3, 1, 15000, 0, [("none", "", ""), ("first", "+", "4:10")]),
+        ])  # fmt: skip
+
+        # ---- to somebody who sits the contest virtually it is the board of the moment they
+        # are at, with the contestants on it and nobody else
+        self.assertEqual(sitter.form(here + "/virtual", "start"), "")
+        db("update contest_virtuals set start_time = '%s' where contest_id = %d and username = 'p9_ob_sitter'" % (uoj.web_time(-25 * 60), contest_id))
+        replay = state(sitter)
+        self.assertEqual((replay["phase"], replay["frozen"], replay["ticking"]), ("replay", False, True))
+        self.assertTrue(1495 <= replay["elapsed"] <= 1700, replay["elapsed"])
+        # twenty five minutes in: ann has solved A, bob will in five minutes
+        self.assertEqual([row[:3] for row in rows(replay)], [("p9_ob_ann", 1, 1), ("p9_ob_bob", 2, 0), ("p9_ob_cat", 2, 0)])
+        self.assertEqual(heads(replay), [("A", 1, 2), ("B", 0, 0)])
+        # to everybody else it is what it is
+        self.assertEqual(state(outsider)["hash"], final["hash"])
+
+
 def registered(contest_id):
     return [row[0] for row in db("select username from contests_registrants where contest_id = %d order by username" % contest_id)]
 

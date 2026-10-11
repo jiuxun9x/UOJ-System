@@ -42,6 +42,7 @@ Route::group([
 		Route::any('/contest/{id}/export_standings', '/export_contest_standings_table.php');
 		Route::any('/contest/{id}/virtual', '/contest_virtual.php');
 		Route::any('/contest/{id}/balloons', '/contest_balloons.php');
+		Route::any('/contest/{id}/board', '/contest_board.php');
 		// a problem of a contest is called by its letter there; its number is understood as well
 		Route::any('/contest/{contest_id}/problem/{letter}', '/problem.php');
 		Route::any('/contest/{contest_id}/problem/{letter}/statistics', '/problem_statistics.php');

@@ -27,7 +27,7 @@
 				die();
 			}
 			if ($myUser == null || !hasRegistered(Auth::user(), $contest)) {
-				becomeMsgPage($contest['join_mode'] === 'open' ? "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。比赛结束后再来看吧～</p>" : "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。这场比赛只对报名参加的选手开放。</p>");
+				becomeMsgPage($contest['join_mode'] === 'open' ? "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。比赛结束后再来看吧～</p><p>想看比赛的进展，可以打开<a id=\"link-outer-board\" href=\"/contest/{$contest['id']}/board\">外榜</a>。</p>" : "<h1>比赛正在进行中</h1><p>很遗憾，您尚未报名。这场比赛只对报名参加的选手开放。</p>");
 			}
 		} elseif (!can($myUser, 'contest.enter', $contest)) {
 			// over, and not for everybody
@@ -79,6 +79,12 @@
 		)
 	);
 	
+	// the board for the people who watch: a page of its own, made for a wall
+	$tabs_info['board'] = array(
+		'name' => '外榜',
+		'url' => "/contest/{$contest['id']}/board"
+	);
+	
 	if (can($myUser, 'contest.assist', $contest)) {
 		$tabs_info['backstage'] = array(
 			'name' => UOJLocale::get('contests::contest backstage'),
@@ -88,6 +94,10 @@
 	
 	if (!isset($tabs_info[$cur_tab])) {
 		become404Page();
+	}
+	// (the outer board is a page of its own)
+	if ($cur_tab === 'board') {
+		redirectTo($tabs_info['board']['url']);
 	}
 	
 	if (isset($_POST['check_notice'])) {

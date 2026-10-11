@@ -1,0 +1,420 @@
+/* The outer board of a contest: a page of its own, made to be read from across a room. */
+
+.uoj-ob {
+	--ob-bg: #ffffff;
+	--ob-fg: #1c2530;
+	--ob-muted: #6b7785;
+	--ob-line: #e3e7ee;
+	--ob-band-0: #eef1fb;
+	--ob-band-1: #f7f8fa;
+	--ob-head: #f1f3f7;
+	--ob-head-yes: #bdeec5;
+	--ob-head-no: #f7c6c6;
+	--ob-solved: #c8f1cd;
+	--ob-first: #4ec565;
+	--ob-first-fg: #06310f;
+	--ob-part: #fde9b3;
+	--ob-failed: #f8cdcf;
+	--ob-pending: #cddafa;
+	--ob-accent: #2f6fed;
+	--ob-frozen: #7a9cf0;
+	/* as wide as the window, whatever the page around it is */
+	width: 98vw;
+	margin: 0.75rem calc(50% - 49vw) 2rem;
+	color: var(--ob-fg);
+	text-align: center;
+}
+body.uoj-ob-dark-page {
+	background-color: #0e131d;
+}
+body.uoj-ob-dark-page .uoj-ob {
+	--ob-bg: #0e131d;
+	--ob-fg: #e7ebf3;
+	--ob-muted: #93a0b5;
+	--ob-line: #263043;
+	--ob-band-0: #1b2334;
+	--ob-band-1: #141a27;
+	--ob-head: #1b2334;
+	--ob-head-yes: #1f5c2d;
+	--ob-head-no: #6c2731;
+	--ob-solved: #1e5a2b;
+	--ob-first: #36b950;
+	--ob-first-fg: #03200a;
+	--ob-part: #6b5617;
+	--ob-failed: #6a2630;
+	--ob-pending: #2b4079;
+	--ob-accent: #6d9bff;
+	--ob-frozen: #4466c0;
+}
+
+/* ---- what stands over the table */
+.uoj-ob-title {
+	margin: 0 0 0.6rem;
+	font-size: 2rem;
+	font-weight: 700;
+	letter-spacing: 0.01em;
+}
+.uoj-ob-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 0.5rem;
+}
+.uoj-ob-bar > div {
+	display: flex;
+	flex: 1 1 0;
+	align-items: center;
+	min-width: 0;
+}
+.uoj-ob-state {
+	justify-content: flex-start;
+}
+.uoj-ob-tools {
+	justify-content: flex-end;
+	flex-wrap: wrap;
+}
+.uoj-ob-clock {
+	flex: 0 0 auto !important;
+	justify-content: center;
+	align-items: baseline !important;
+	font-variant-numeric: tabular-nums;
+}
+.uoj-ob-clock strong {
+	margin: 0 0.5rem;
+	font-size: 2.4rem;
+	font-weight: 700;
+	line-height: 1;
+}
+.uoj-ob-clock-label, .uoj-ob-clock-of, .uoj-ob-rule, .uoj-ob-note {
+	color: var(--ob-muted);
+}
+.uoj-ob-clock-of {
+	font-size: 1.1rem;
+}
+.uoj-ob-rule {
+	margin-left: 0.6rem;
+	font-weight: 600;
+}
+.uoj-ob-pill {
+	padding: 0.25rem 0.8rem;
+	border-radius: 999px;
+	font-weight: 600;
+	color: #fff;
+	background-color: #6b7785;
+	white-space: nowrap;
+}
+.uoj-ob-pill-running, .uoj-ob-pill-replay {
+	background-color: #1f9d49;
+}
+.uoj-ob-pill-final {
+	background-color: #34435a;
+}
+.uoj-ob-pill-frozen {
+	background-color: #3d63c9;
+}
+.uoj-ob-live {
+	margin-right: 0.75rem;
+	color: var(--ob-muted);
+	font-size: 0.9rem;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+.uoj-ob-live i {
+	display: inline-block;
+	width: 0.6em;
+	height: 0.6em;
+	margin-right: 0.4em;
+	border-radius: 50%;
+	background-color: #24b451;
+	animation: uoj-ob-beat 2s ease-in-out infinite;
+}
+.uoj-ob-live-off i {
+	background-color: #d9534f;
+	animation: none;
+}
+@keyframes uoj-ob-beat {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+.uoj-ob-button, a.uoj-ob-button {
+	margin: 0.15rem 0 0.15rem 0.4rem;
+	padding: 0.2rem 0.7rem;
+	border: 1px solid var(--ob-line);
+	border-radius: 0.3rem;
+	font-size: 0.9rem;
+	line-height: 1.5;
+	color: var(--ob-fg);
+	background-color: var(--ob-bg);
+	text-decoration: none;
+	cursor: pointer;
+}
+.uoj-ob-button:hover, a.uoj-ob-button:hover {
+	border-color: var(--ob-accent);
+	color: var(--ob-accent);
+}
+.uoj-ob-button-on {
+	border-color: var(--ob-accent);
+	color: #fff !important;
+	background-color: var(--ob-accent);
+}
+/* how far the contest has come, and from where its board is frozen */
+.uoj-ob-progress {
+	position: relative;
+	height: 0.45rem;
+	overflow: hidden;
+	border-radius: 999px;
+	background-color: var(--ob-line);
+}
+.uoj-ob-progress-done, .uoj-ob-progress-frozen {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+}
+.uoj-ob-progress-done {
+	left: 0;
+	width: 0;
+	border-radius: 999px;
+	background-color: var(--ob-accent);
+	opacity: 0.9;
+	transition: width 1s linear;
+}
+.uoj-ob-progress-frozen {
+	background-image: repeating-linear-gradient(135deg, var(--ob-frozen) 0, var(--ob-frozen) 4px, transparent 4px, transparent 8px);
+	opacity: 0.55;
+}
+.uoj-ob-note {
+	min-height: 1.5em;
+	margin: 0.45rem 0 0.6rem;
+	font-size: 0.95rem;
+}
+.uoj-ob-empty {
+	margin: 4rem 0;
+	font-size: 1.2rem;
+	color: var(--ob-muted);
+}
+
+/* ---- the table */
+.uoj-ob-scroll {
+	overflow-x: auto;
+}
+.uoj-ob-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 3px;
+	font-size: 1rem;
+	font-variant-numeric: tabular-nums;
+}
+.uoj-ob-table th {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	padding: 0.35rem 0.4rem;
+	border-radius: 0.35rem;
+	font-weight: 600;
+	white-space: nowrap;
+	background-color: var(--ob-head);
+}
+.uoj-ob-table th.uoj-ob-problem {
+	min-width: 3.6em;
+	padding-bottom: 0.45rem;
+}
+.uoj-ob-table th.uoj-ob-problem span {
+	display: block;
+	font-size: 1.1rem;
+	font-weight: 700;
+	line-height: 1.2;
+}
+.uoj-ob-table th.uoj-ob-problem small {
+	display: block;
+	font-size: 0.8rem;
+	font-weight: 600;
+	opacity: 0.85;
+}
+.uoj-ob-table th.uoj-ob-solved-by {
+	background-color: var(--ob-head-yes);
+}
+.uoj-ob-table th.uoj-ob-unsolved {
+	background-color: var(--ob-head-no);
+}
+.uoj-ob-table td {
+	padding: 0.25rem 0.4rem;
+	border-radius: 0.35rem;
+	line-height: 1.25;
+	vertical-align: middle;
+}
+.uoj-ob-band-0 > td {
+	background-color: var(--ob-band-0);
+}
+.uoj-ob-band-1 > td {
+	background-color: var(--ob-band-1);
+}
+.uoj-ob-table .uoj-ob-rank {
+	width: 3.6em;
+	font-weight: 600;
+}
+.uoj-ob-table .uoj-ob-name {
+	max-width: 30vw;
+	overflow: hidden;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.uoj-ob-table td.uoj-ob-name {
+	padding-left: 0.7rem;
+}
+.uoj-ob-nick {
+	font-weight: 600;
+}
+.uoj-ob-name small {
+	margin-left: 0.5em;
+	font-size: 0.82em;
+	color: var(--ob-muted);
+}
+.uoj-ob-table .uoj-ob-num {
+	width: 4.2em;
+	font-weight: 600;
+}
+.uoj-ob-table td.uoj-ob-total {
+	font-size: 1.1rem;
+	font-weight: 700;
+}
+.uoj-ob-table td.uoj-ob-dirt {
+	font-weight: 400;
+	color: var(--ob-muted);
+}
+/* the first three, as long as they have solved something */
+.uoj-ob-medal {
+	display: inline-block;
+	min-width: 1.9em;
+	padding: 0.05em 0.3em;
+	border-radius: 999px;
+	color: #3a2a00;
+}
+.uoj-ob-medal-1 {
+	background-color: #f6c945;
+}
+.uoj-ob-medal-2 {
+	background-color: #cfd6de;
+}
+.uoj-ob-medal-3 {
+	background-color: #e0a36a;
+}
+/* the row of whoever looks */
+.uoj-ob-me > td.uoj-ob-name {
+	box-shadow: inset 4px 0 0 var(--ob-accent);
+}
+.uoj-ob-me > td.uoj-ob-rank, .uoj-ob-me > td.uoj-ob-name {
+	color: var(--ob-accent);
+}
+
+/* a cell: what it says, and under it when */
+.uoj-ob-cell b {
+	display: block;
+	font-weight: 700;
+}
+.uoj-ob-cell small {
+	display: block;
+	font-size: 0.8em;
+	opacity: 0.8;
+}
+.uoj-ob-table td.uoj-ob-none {
+	color: var(--ob-muted);
+	opacity: 0.5;
+}
+.uoj-ob-table td.uoj-ob-solved, .uoj-ob-legend i.uoj-ob-solved {
+	background-color: var(--ob-solved);
+}
+.uoj-ob-table td.uoj-ob-first, .uoj-ob-legend i.uoj-ob-first {
+	color: var(--ob-first-fg);
+	background-color: var(--ob-first);
+}
+.uoj-ob-table td.uoj-ob-part {
+	background-color: var(--ob-part);
+}
+.uoj-ob-table td.uoj-ob-failed, .uoj-ob-legend i.uoj-ob-failed {
+	background-color: var(--ob-failed);
+}
+.uoj-ob-table td.uoj-ob-pending, .uoj-ob-legend i.uoj-ob-pending {
+	background-color: var(--ob-pending);
+}
+
+/* ---- what happened just now is seen to have happened */
+.uoj-ob-table tr {
+	will-change: transform;
+}
+.uoj-ob-table td.uoj-ob-flash {
+	animation: uoj-ob-flash 2.4s ease-out;
+}
+@keyframes uoj-ob-flash {
+	0% {
+		box-shadow: 0 0 0 3px var(--ob-accent), 0 0 18px 4px var(--ob-accent);
+		transform: scale(1.12);
+	}
+	30% {
+		transform: scale(1);
+	}
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+	}
+}
+.uoj-ob-table tr.uoj-ob-up > td.uoj-ob-rank, .uoj-ob-table tr.uoj-ob-up > td.uoj-ob-name,
+.uoj-ob-table tr.uoj-ob-new > td.uoj-ob-rank, .uoj-ob-table tr.uoj-ob-new > td.uoj-ob-name {
+	animation: uoj-ob-up 2.4s ease-out;
+}
+@keyframes uoj-ob-up {
+	0%, 40% {
+		box-shadow: inset 0 0 0 2px var(--ob-accent);
+	}
+	100% {
+		box-shadow: inset 0 0 0 0 transparent;
+	}
+}
+
+/* ---- under the table: what the colours mean */
+.uoj-ob-legend {
+	margin-top: 0.9rem;
+	font-size: 0.9rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-legend span {
+	display: inline-block;
+	margin: 0 0.8rem 0.3rem;
+	white-space: nowrap;
+}
+.uoj-ob-legend i {
+	display: inline-block;
+	width: 1.1em;
+	height: 1.1em;
+	margin-right: 0.4em;
+	border-radius: 0.25rem;
+	vertical-align: -0.2em;
+}
+
+/* ---- on a telephone the table scrolls sideways under a head that is its own lines */
+@media (max-width: 767.98px) {
+	.uoj-ob-title {
+		font-size: 1.4rem;
+	}
+	.uoj-ob-bar > div {
+		flex: 1 1 100%;
+		justify-content: center;
+		margin-bottom: 0.4rem;
+	}
+	.uoj-ob-clock strong {
+		font-size: 1.9rem;
+	}
+	.uoj-ob-table {
+		font-size: 0.9rem;
+	}
+	.uoj-ob-table .uoj-ob-name {
+		max-width: 46vw;
+	}
+	.uoj-ob-legend-dirt {
+		white-space: normal !important;
+	}
+}

@@ -30,6 +30,7 @@
 	requirePHPLib('upload');
 	requirePHPLib('virtual');
 	requirePHPLib('balloon');
+	requirePHPLib('board');
 	requirePHPLib('attachment');
 	requirePHPLib('notice');
 	requirePHPLib('html');
