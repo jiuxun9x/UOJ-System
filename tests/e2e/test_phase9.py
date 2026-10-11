@@ -328,6 +328,17 @@ class VirtualInContestTest(unittest.TestCase):
         self.assertEqual(board(sitter)[0], replayed)
         if rule == "ICPC":
             self.assertRegex(board(sitter)[1], r'(?s)data-username="%s" data-rank="3".*?<td class="uoj-icpc-solved" data-problem="A"><a[^>]*>\+1</a>' % name(late))
+        # What the sitter submits meanwhile to the same problem in another contest that runs is
+        # of that contest: it is not in the list of the participation, and not on its board.
+        elsewhere = admin.new_contest("p9 同题的另一场 " + rule, rule="IOI", problems=str(first))
+        sitter.register_for_contest(elsewhere)
+        uoj.move_contest(elsewhere, -60)
+        there = sitter.submit_in_contest(elsewhere, first, AB_WRONG)
+        uoj.wait_submission(there)
+        self.assertEqual(db_value("select contest_id from submissions where id = %d" % there), str(elsewhere))
+        self.assertNotIn('href="/submission/%d"' % there, sitter.get(here + "/submissions").text)
+        self.assertEqual(board(sitter)[0], replayed)
+        uoj.move_contest(elsewhere, -7200)
         # Everybody else sees the contest as it ended, and who sits it when they ask: as far
         # as that one has come.
         rows, page = board(watcher)

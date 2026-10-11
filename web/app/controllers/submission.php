@@ -121,7 +121,7 @@
 	// Somebody who sits a contest virtually is told what a contestant was told: the outcome,
 	// and not the single tests, until their participation is over. (Who looks after the
 	// problem sees everything, as always.)
-	$sits_virtually = $is_owner && $out_status == 'Judged' && !can($myUser, 'problem.manage', $problem) && virtualRunningOfSubmission($submission) !== null;
+	$sits_virtually = $is_owner && $out_status == 'Judged' && $contest == null && !can($myUser, 'problem.manage', $problem) && virtualRunningOfSubmission($submission) !== null;
 	if ($sits_virtually) {
 		$should_show_all_details = false;
 	}

@@ -137,7 +137,9 @@ function runningVirtual($contest_id, $user) {
 	$virtual = queryVirtual($contest_id, $user['username']);
 	return $virtual && virtualPhase($virtual, UOJTime::$time_now->getTimestamp()) === 'running' ? $virtual : null;
 }
-// what the user of a virtual participation submitted in it, as a condition on the submissions
+// What the user of a virtual participation submitted in it, as a condition on the submissions:
+// to the problems of the contest, while it lasted - and not in a contest. What somebody
+// submits to the same problem in another contest that runs meanwhile is of that contest.
 function virtualSubmissionsCond($contest, $virtual) {
 	$problem_ids = array_map('intval', contestProblemIds($contest['id']));
 	if (!$problem_ids) {
@@ -145,6 +147,7 @@ function virtualSubmissionsCond($contest, $virtual) {
 	}
 	$until = date('Y-m-d H:i:s', strtotime($virtual['start_time']) + $virtual['last_min'] * 60);
 	return "submissions.submitter = '".DB::escape($virtual['username'])."' and submissions.problem_id in (".join(',', $problem_ids).")"
+		." and submissions.contest_id is null"
 		." and submissions.submit_time >= '".DB::escape($virtual['start_time'])."' and submissions.submit_time < '$until'";
 }
 // The contest whose virtual participation a submission is part of, while that participation
@@ -202,7 +205,7 @@ function virtualAddUnofficial($contest, &$standings, &$score, $elapsed, $freeze_
 		foreach (DB::selectAll("select submissions.id, timestampdiff(second, contest_virtuals.start_time, submissions.submit_time) as seconds_in, contest_virtuals.username, submissions.problem_id, submissions.score"
 				." from contest_virtuals join submissions on submissions.submitter = contest_virtuals.username"
 				." where contest_virtuals.contest_id = {$contest['id']} and contest_virtuals.start_time <= '$now' and submissions.problem_id in (".join(',', array_keys($pos)).")"
-				." and submissions.score is not null and submissions.submit_time >= contest_virtuals.start_time"
+				." and submissions.contest_id is null and submissions.score is not null and submissions.submit_time >= contest_virtuals.start_time"
 				." and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute) order by submissions.id", MYSQLI_ASSOC) as $row) {
 			if ($row['seconds_in'] <= $elapsed) {
 				$rows[] = array((int)$row['id'], (int)$row['seconds_in'], '*' . $row['username'], $pos[(int)$row['problem_id']], (int)$row['score']);

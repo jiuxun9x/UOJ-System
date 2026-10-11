@@ -514,7 +514,7 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 }
 
 /* ---- the time of a virtual participation: wide enough for a date and a time side by side */
-.uoj-virtual-start {
+.uoj-virtual-start, .form-inline .uoj-virtual-start {
 	width: 17em;
 	max-width: 100%;
 }
