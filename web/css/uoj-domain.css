@@ -518,26 +518,12 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	width: 17em;
 	max-width: 100%;
 }
-/* the two ways to begin one: beside each other, each with what it means and its button */
-.uoj-virtual-choices {
-	display: flex;
-	flex-wrap: wrap;
-	margin: 1rem -0.5rem -0.5rem;
+/* the rules of a virtual participation: a list that is read line by line */
+#virtual-rules li {
+	margin-bottom: 0.3rem;
 }
-.uoj-virtual-choice {
-	flex: 1 1 19rem;
-	margin: 0 0.5rem 0.5rem;
-	padding: 1rem 1.25rem 0.75rem;
-	border: 1px solid #dee2e6;
-	border-radius: 0.3rem;
-	background-color: #f8f9fa;
-}
-.uoj-virtual-choice h5 {
-	font-size: 1.1rem;
-	margin-bottom: 0.35rem;
-}
-.uoj-virtual-choice p {
-	margin-bottom: 0.75rem;
+#virtual-reserve > summary {
+	cursor: pointer;
 }
 
 /* ---- the row of whoever looks at a board */
@@ -551,10 +537,12 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	box-shadow: inset -2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
 }
 
-/* ---- a row of somebody who sat the contest afterwards: it is on the board, and not of it */
-.uoj-scoreboard tr[data-virtual] > td:nth-child(-n+3),
-tr.uoj-standings-virtual > td:nth-child(-n+3) {
-	background-color: #eef6fb !important;
+/* ---- somebody who sat the contest virtually: on the board under a star */
+.uoj-unofficial-star {
+	margin-right: 1px;
+	font-weight: bold;
+	color: #6c757d;
+	cursor: help;
 }
 
 /* ---- balloons: a balloon is its colour with the letter of its problem on it */

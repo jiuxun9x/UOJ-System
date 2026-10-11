@@ -42,14 +42,13 @@
 	}
 
 	// Somebody who sits this contest virtually right now is in it as its contestants were:
-	// these pages show them the problems, what they submitted and the board, replayed to
-	// where they are in it. $virtual_pieces is what the view of a virtual participation needs.
-	$virtual_pieces = null;
-	if ($contest['cur_progress'] == CONTEST_FINISHED && can($myUser, 'contest.virtual', $contest) && ($my_virtual = runningVirtual($contest['id'], $myUser))) {
-		$virtual_problems = virtualProblems($contest);
-		$virtual_pieces = array('contest' => $contest, 'virtual' => $my_virtual, 'phase' => 'running', 'problems' => $virtual_problems,
-			'submissions' => virtualSubmissions($my_virtual, $virtual_problems), 'standings' => virtualStandingsNow($contest, $my_virtual, $virtual_problems));
+	// the pages are the pages of the contest, with a clock that runs down, the list of what
+	// they submitted in it, and the board as it stood at the same moment of the contest.
+	$my_virtual = null;
+	if ($contest['cur_progress'] == CONTEST_FINISHED && can($myUser, 'contest.virtual', $contest)) {
+		$my_virtual = runningVirtual($contest['id'], $myUser);
 	}
+	$virtual_elapsed = $my_virtual ? virtualElapsed($my_virtual, UOJTime::$time_now->getTimestamp()) : null;
 	
 	// A contest that gives balloons is told by its contestants where they sit, if they want
 	// to tell: whoever brings a balloon has to find them. The people who run the contest can
@@ -362,12 +361,6 @@ EOD;
 	}
 	
 	function echoDashboard() {
-		global $virtual_pieces;
-		if ($virtual_pieces) {
-			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'status'));
-			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'problems'));
-			return;
-		}
 		global $contest, $post_notice, $post_question, $reply_question;
 		
 		$myname = Auth::id();
@@ -445,13 +438,13 @@ EOD;
 	}
 	
 	function echoMySubmissions() {
-		global $virtual_pieces;
-		if ($virtual_pieces) {
-			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'status'));
-			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'submissions'));
+		global $contest, $myUser, $my_virtual;
+		if ($my_virtual) {
+			// what one submitted in the participation, listed as the contest lists submissions
+			echoSubmissionsList(virtualSubmissionsCond($contest, $my_virtual), 'order by id desc',
+				array('judge_time_hidden' => '', 'inside' => '', 'as_in_contest' => $contest['id']), $myUser);
 			return;
 		}
-		global $contest, $myUser;
 
 		// Whose submissions: one's own, or everybody's. The people who run the contest have
 		// none of their own and are there to look at everybody's, so that is what they are
@@ -479,75 +472,96 @@ EOD;
 	}
 	
 	function echoStandings() {
-		global $contest, $virtual_pieces;
-		if ($virtual_pieces) {
-			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'status'));
-			uojIncludeView('contest-virtual', $virtual_pieces + array('part' => 'standings'));
-			return;
-		}
+		global $contest, $my_virtual, $virtual_elapsed;
 		
-		// While the board is frozen everybody sees it as it was when it froze. The staff sees
-		// everything, and can ask for what the others see.
+		// Who sat the contest virtually is on its board for whoever asks: under a star, and
+		// ranked among the contestants. Whoever has sat it, or sits it now, is asked for
+		// nothing: they want to see where they stand.
+		$unofficial_people = $contest['cur_progress'] == CONTEST_FINISHED ? virtualPeople($contest) : array();
+		$sat_it = false;
+		foreach ($unofficial_people as $person) {
+			$sat_it = $sat_it || (Auth::check() && $person[0] === '*' . Auth::id());
+		}
+		$with_unofficial = $unofficial_people && (isset($_GET['unofficial']) ? $_GET['unofficial'] === '1' : $sat_it);
+		$here = "/contest/{$contest['id']}/standings";
+		
 		$is_staff = can(Auth::user(), 'contest.assist', $contest);
-		$board_is_frozen = contestBoardIsFrozen($contest);
-		$frozen = $board_is_frozen && (!$is_staff || isset($_GET['frozen']));
-		$contest_data = queryContestData($contest);
-		calcStandings($contest, $contest_data, $score, $standings, false, $frozen ? contestFreezeOffset($contest) : null);
-		if ($board_is_frozen) {
-			$since = virtualClock(contestFreezeOffset($contest));
-			echo '<div class="alert alert-info" id="standings-frozen">';
-			if ($frozen) {
-				echo "榜单已封榜：这是比赛开始后 $since 时的榜单，此后的提交只显示次数，公布成绩时揭晓。";
-				if ($is_staff) {
-					echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings">看完整的榜单</a>';
-				}
-			} else {
-				echo "选手看到的榜单从比赛开始后 $since 起封榜，公布成绩时揭晓。这是只有工作人员能看到的完整榜单。";
-				echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings?frozen=1">看选手看到的榜单</a>';
-			}
-			echo '</div>';
-		}
-		
-		if ($contest['cur_progress'] >= CONTEST_FINISHED && can(Auth::user(), 'contest.assist', $contest)) {
-			echo <<<EOD
-				<div>
-					<a class="btn btn-info" href="/contest/{$contest['id']}/export_standings">下载排名</a>
-				</div>
-			EOD;
-		}
-		
-		// Who sat the contest virtually afterwards can be shown among its contestants: each
-		// where they would have stood. Whoever has done so sees it without asking.
-		if ($contest['cur_progress'] == CONTEST_FINISHED) {
-			$virtual_rows = virtualFinalRows($contest);
-			$mine_too = false;
-			foreach ($virtual_rows as $row) {
-				$mine_too = $mine_too || (Auth::check() && $row['username'] === Auth::id());
-			}
-			$with_virtual = isset($_GET['virtual']) ? $_GET['virtual'] === '1' : $mine_too;
-			if ($virtual_rows) {
-				echo '<div class="text-right mb-2" id="standings-virtual-switch"><span class="text-muted mr-2">有 ', count($virtual_rows), ' 人赛后虚拟参赛。</span>';
-				echo $with_virtual
-					? '<a class="btn btn-light btn-sm border" href="/contest/' . $contest['id'] . '/standings?virtual=0">只看正式选手</a>'
-					: '<a class="btn btn-light btn-sm border" href="/contest/' . $contest['id'] . '/standings?virtual=1">把他们也显示在榜上</a>';
-				echo '</div>';
-				if ($with_virtual) {
-					virtualJoinStandings($standings, $score, $virtual_rows);
-				}
-			}
-		}
-		
-		// A contestant who looks at the frozen board is shown, above it, how it really stands
-		// with them: one row, which is theirs alone.
 		$mine = null;
-		if ($frozen && !$is_staff && Auth::check()) {
-			calcStandings($contest, $contest_data, $true_score, $true_standings);
-			foreach ($true_standings as $row) {
-				if ($row[2][0] === Auth::id()) {
-					// who has submitted nothing yet has a row, and no cells
-					$mine = array('row' => $row, 'cells' => isset($true_score[Auth::id()]) ? $true_score[Auth::id()] : array());
+		$me = Auth::check() ? Auth::id() : null;
+		if ($my_virtual) {
+			// ---- for who sits the contest virtually: the board of the same moment of the
+			// contest. It freezes when the board of the contest froze, for them as for the
+			// contestants: what the others submitted from then on is counted and not told.
+			list($standings, $score, $contest_data, $frozen) = virtualBoard($contest, $virtual_elapsed, $with_unofficial);
+			echo '<p class="text-muted text-left mb-2" id="standings-replayed">这是原比赛进行到 <strong>', virtualClock($virtual_elapsed), '</strong> 时的榜单：其他选手显示的是他们在这一时刻之前的提交与结果。';
+			if ($frozen) {
+				echo '已到封榜时间（开始后 ', virtualClock(contestFreezeOffset($contest)), '），此后其他选手的提交只显示次数。';
+			}
+			echo '</p>';
+			$me = '*' . Auth::id();
+			if ($frozen) {
+				// above the frozen board, how it really stands with them
+				list($true_standings, $true_score) = virtualBoard(array('freeze_minutes' => 0) + $contest, $virtual_elapsed, true);
+				foreach ($true_standings as $row) {
+					if ((string)$row[2][0] === $me) {
+						$mine = array('row' => $row, 'cells' => isset($true_score[$me]) ? $true_score[$me] : array());
+					}
 				}
 			}
+		} else {
+			// While the board is frozen everybody sees it as it was when it froze. The staff sees
+			// everything, and can ask for what the others see.
+			$board_is_frozen = contestBoardIsFrozen($contest);
+			$frozen = $board_is_frozen && (!$is_staff || isset($_GET['frozen']));
+			$contest_data = queryContestData($contest);
+			calcStandings($contest, $contest_data, $score, $standings, false, $frozen ? contestFreezeOffset($contest) : null);
+			if ($board_is_frozen) {
+				$since = virtualClock(contestFreezeOffset($contest));
+				echo '<div class="alert alert-info" id="standings-frozen">';
+				if ($frozen) {
+					echo "榜单已封榜：这是比赛开始后 $since 时的榜单，此后的提交只显示次数，公布成绩时揭晓。";
+					if ($is_staff) {
+						echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings">看完整的榜单</a>';
+					}
+				} else {
+					echo "选手看到的榜单从比赛开始后 $since 起封榜，公布成绩时揭晓。这是只有工作人员能看到的完整榜单。";
+					echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings?frozen=1">看选手看到的榜单</a>';
+				}
+				echo '</div>';
+			}
+			
+			if ($contest['cur_progress'] >= CONTEST_FINISHED && can(Auth::user(), 'contest.assist', $contest)) {
+				echo <<<EOD
+					<div>
+						<a class="btn btn-info" href="/contest/{$contest['id']}/export_standings">下载排名</a>
+					</div>
+				EOD;
+			}
+			
+			// A contestant who looks at the frozen board is shown, above it, how it really stands
+			// with them: one row, which is theirs alone.
+			if ($frozen && !$is_staff && Auth::check()) {
+				calcStandings($contest, $contest_data, $true_score, $true_standings);
+				foreach ($true_standings as $row) {
+					if ($row[2][0] === Auth::id()) {
+						// who has submitted nothing yet has a row, and no cells
+						$mine = array('row' => $row, 'cells' => isset($true_score[Auth::id()]) ? $true_score[Auth::id()] : array());
+					}
+				}
+			}
+			if ($with_unofficial) {
+				// the contest is over: everybody as they stood at the end of their participation
+				virtualAddUnofficial($contest, $standings, $score, $contest['last_min'] * 60);
+			}
+		}
+		
+		if ($unofficial_people) {
+			echo '<div class="custom-control custom-checkbox text-left mb-2" id="standings-unofficial">';
+			echo '<input type="checkbox" class="custom-control-input" id="input-show-unofficial"', $with_unofficial ? ' checked="checked"' : '', ' data-href="', $here, '?unofficial=', $with_unofficial ? '0' : '1', '" />';
+			echo '<label class="custom-control-label" for="input-show-unofficial">显示非官方排行榜</label>';
+			echo ' <small class="text-muted ml-1">名字前带 * 的是赛后虚拟参赛的 ', count($unofficial_people), ' 人，不是正式成绩</small>';
+			echo '</div>';
+			echo '<script type="text/javascript">$("#input-show-unofficial").on("change", function() { window.location.href = $(this).data("href"); });</script>';
 		}
 		
 		uojIncludeView(contestRule($contest) === 'ICPC' ? 'contest-standings-icpc' : 'contest-standings', [
@@ -556,8 +570,13 @@ EOD;
 			'score' => $score,
 			'contest_data' => $contest_data,
 			'frozen' => $frozen,
-			'mine' => $mine
+			'mine' => $mine,
+			'me' => $me
 		]);
+		if ($my_virtual) {
+			// the board moves on with the clock
+			echo '<script type="text/javascript">setTimeout(function() { window.location.reload(); }, 60000);</script>';
+		}
 	}
 	
 	function echoContestCountdown() {
@@ -604,13 +623,18 @@ EOD;
 EOD;
 	}
 	
-	// beside the pages of somebody who sits the contest virtually: how long they have left
-	function echoVirtualRunning() {
-		global $virtual_pieces;
-		$virtual = $virtual_pieces['virtual'];
-		$rest = max(0, $virtual['last_min'] * 60 - virtualElapsed($virtual, UOJTime::$time_now->getTimestamp()));
-		echo '<div class="card border-success" id="virtual-clock"><div class="card-header bg-success text-white"><h3 class="card-title">虚拟参赛剩余时间</h3></div>';
-		echo '<div class="card-body text-center countdown" data-rest="', $rest, '"></div></div>';
+	// Beside the pages of somebody who sits the contest virtually: the clock of a contest that
+	// runs, which runs down to the end of their participation.
+	function echoVirtualCountdown() {
+		global $my_virtual, $virtual_elapsed;
+		$rest = max(0, $my_virtual['last_min'] * 60 - $virtual_elapsed);
+		$contest_ends_in = UOJLocale::get('contests::contest ends in');
+		echo '<div class="card border-info" id="virtual-clock">';
+		echo '<div class="card-header bg-info"><h3 class="card-title">', $contest_ends_in, ' <span class="badge badge-light align-middle" style="font-size:0.85rem">虚拟参赛</span></h3></div>';
+		echo '<div class="card-body text-center countdown" data-rest="', $rest, '"></div>';
+		echo '</div>';
+		// when it is over the pages are the pages of a contest that is over
+		echo '<script type="text/javascript">setTimeout(function() { window.location.reload(); }, ', ($rest + 1) * 1000, ');</script>';
 	}
 	
 	function echoContestFinished() {
@@ -667,8 +691,8 @@ EOD;
 
 	<div class="col-sm-3">
 		<?php
-			if ($virtual_pieces) {
-				echoVirtualRunning();
+			if ($my_virtual) {
+				echoVirtualCountdown();
 			} elseif ($contest['cur_progress'] <= CONTEST_IN_PROGRESS) {
 				echoContestCountdown();
 			} elseif ($contest['cur_progress'] <= CONTEST_TESTING) {

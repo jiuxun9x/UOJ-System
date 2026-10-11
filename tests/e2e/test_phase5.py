@@ -511,15 +511,14 @@ class ContestAccessTest(unittest.TestCase):
 class VirtualTest(unittest.TestCase):
     """sitting a contest that is over, alone and against the clock"""
 
-    def standings(self, client, contest_id):
-        """the replayed standings as a page shows them: rows of username, rank, score, whether it
-        is the virtual row. While a participation runs they are the board of the contest itself;
-        of one that is over, a tab of the page it was started on."""
-        page = client.get("/contest/%d/standings" % contest_id).text
-        if 'id="table-virtual-standings"' not in page:
-            page = client.get("/contest/%d/virtual?tab=standings" % contest_id).text
-        rows = re.findall(r'(?s)<tr([^>]*) data-username="([^"]+)" data-rank="(\d+)">(.*?)</tr>', page)
-        return [(name, int(rank), int(re.search(r"<strong>(-?\d+)</strong>", body).group(1)), "virtual-my-row" in attrs) for attrs, name, rank, body in rows]
+    def standings(self, client, contest_id, query=""):
+        """the board of the contest as a page hands it to its script: rows of username, rank,
+        score, whether the row is of somebody who sat the contest virtually (who is on the
+        board as "*" and their name). To who sits it now, it is the board of the same moment
+        of the contest."""
+        page = client.get("/contest/%d/standings%s" % (contest_id, query)).text
+        rows = json.loads(re.search(r"(?m)^standings=(.*);$", page).group(1))
+        return [(row[2][0].lstrip("*"), int(row[3]), int(row[0]), row[2][0].startswith("*")) for row in rows]
 
     def test_contest_is_sat_again_with_its_standings_replayed(self):
         admin = uoj.admin()
@@ -583,8 +582,9 @@ class VirtualTest(unittest.TestCase):
         self.assertEqual(sitter.form(virtual, "reserve", start_time=uoj.web_time(3600)[:16].replace(" ", "T")), "")
         page = sitter.get(virtual).text
         self.assertIn('id="virtual-upcoming"', page)
-        self.assertNotIn('id="table-virtual-problems"', page)
-        self.assertEqual(self.standings(sitter, contest_id), [])
+        # a participation that has not begun is nowhere: the contest is a contest that is over
+        self.assertNotIn('id="virtual-clock"', sitter.get(here).text)
+        self.assertEqual([row[0] for row in self.standings(sitter, contest_id)], ["p5_vp_early", "p5_vp_late"])
         self.assertEqual(sitter.form(virtual, "cancel"), "")
         self.assertNotEqual(sitter.form(virtual, "cancel"), "")
         self.assertEqual(db_value("select count(*) from contest_virtuals where contest_id = %d" % contest_id), "0")
@@ -595,7 +595,9 @@ class VirtualTest(unittest.TestCase):
         self.assertEqual(db_value("select last_min from contest_virtuals where contest_id = %d and username = 'p5_vp_sitter'" % contest_id), "60")
         # it is sat in the pages of the contest itself, and the page it was started on leads there
         self.assertEqual((sitter.get(virtual).status_code, sitter.get(virtual).headers["Location"]), (302, here))
-        self.assertIn('id="virtual-running"', sitter.get(here).text)
+        page = sitter.get(here).text
+        self.assertIn('id="virtual-clock"', page)
+        self.assertNotIn('id="link-virtual"', page)
 
         # the test moves the start of the participation back to let its time go by, and what
         # was submitted in it with it
@@ -641,15 +643,16 @@ class VirtualTest(unittest.TestCase):
         submit(second_id, AB, 2400)
         rows = at(2500)
         self.assertEqual([row[:3] for row in rows], [("p5_vp_sitter", 1, 200), ("p5_vp_early", 2, 100), ("p5_vp_late", 3, 100)])
-        page = sitter.get(here).text
-        self.assertRegex(page, r'id="virtual-score">200 ')
-        self.assertRegex(uoj.text_of(page), r"此刻排在第\s*1\s*名")
+        # it is the board of everybody who sits the contest; asked for the contestants alone,
+        # the sitter is not on it
+        self.assertEqual([row[:3] for row in self.standings(sitter, contest_id, "?unofficial=0")], [("p5_vp_early", 1, 100), ("p5_vp_late", 2, 100)])
 
         # when the time is up it is over: what comes later does not count
         rows = at(4000)
         page = sitter.get(virtual).text
         self.assertIn('id="virtual-ended"', page)
-        self.assertRegex(uoj.text_of(page), r"相当于第\s*1\s*名")
+        self.assertRegex(uoj.text_of(page), r"得到 200 分， 在含非官方选手的排行榜上排第 1 名（共 3 人）")
+        self.assertNotIn('id="virtual-clock"', sitter.get(here).text)
         late_one = sitter.submit(first_id, AB_WRONG, path="%s/problem/%d" % (here, first_id))
         uoj.wait_submission(late_one)
         self.assertEqual([row[:3] for row in self.standings(sitter, contest_id)], [("p5_vp_sitter", 1, 200), ("p5_vp_early", 2, 100), ("p5_vp_late", 3, 100)])
@@ -672,7 +675,9 @@ class VirtualTest(unittest.TestCase):
         self.assertEqual(early.form(virtual, "start"), "")
         # who took part is in the standings twice: as they were, and as they are now
         rows = self.standings(early, contest_id)
-        self.assertEqual(sorted((row[0], row[3]) for row in rows), [("p5_vp_early", False), ("p5_vp_early", True), ("p5_vp_late", False)])
+        # (and the sitter, who sits it at this moment, is on it as everybody who does)
+        self.assertEqual(sorted((row[0], row[3]) for row in rows),
+                         [("p5_vp_early", False), ("p5_vp_early", True), ("p5_vp_late", False), ("p5_vp_sitter", True)])  # fmt: skip
 
 
 class ProgramCacheTest(unittest.TestCase):

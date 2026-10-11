@@ -19,5 +19,6 @@ contest_id=<?=$contest['id']?>;
 standings=<?=json_encode($standings)?>;
 score=<?=json_encode($score)?>;
 problems=<?=json_encode($problem_numbers)?>;
+standings_me=<?=json_encode(isset($me) ? $me : (Auth::check() ? Auth::id() : null))?>;
 $(document).ready(showStandings());
 </script>

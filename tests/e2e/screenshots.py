@@ -376,21 +376,36 @@ def board_names_problems_by_letter(page, seeded):
 
 
 def virtual_is_sat_in_the_contest(page, seeded):
-    """the page of a contest, to somebody who sits it virtually: the problems, and a clock that runs"""
-    page.wait_for_selector("#table-virtual-problems")
+    """the page of a contest, to somebody who sits it virtually: what it was while the contest
+    ran - its problems, and the clock of a contest that runs down"""
     page.wait_for_function("document.querySelector('#virtual-clock .countdown').textContent.trim() !== ''")
-    page.wait_for_function("document.querySelector('#virtual-countdown').textContent.trim() !== ''")
+    assert "距离比赛结束" in page.inner_text("#virtual-clock"), page.inner_text("#virtual-clock")
+    assert page.locator("#link-virtual").count() == 0
+    links = page.eval_on_selector_all("table a", "links => links.map(a => a.getAttribute('href'))")
+    assert "/contest/%d/problem/A" % seeded["contest"] in links, links
+
+
+def board_is_replayed_for_who_sits_it(page, seeded):
+    """the board of a contest, to somebody who sits it virtually: the board of that moment of
+    the contest, with whoever sits it under a star, and their own row marked"""
+    page.wait_for_selector("#standings tr.uoj-standings-me")
+    assert page.locator("#standings-replayed").count() == 1
+    assert page.is_checked("#input-show-unofficial")
+    mine = page.eval_on_selector("#standings tr.uoj-standings-me", "row => row.cells[1].textContent.trim()")
+    assert mine.startswith("*"), mine
 
 
 def board_marks_who_sat_it_afterwards(page, seeded):
-    """the board the browser draws, with somebody on it who sat the contest afterwards: their
-    row is marked, their rank is in brackets, and the contestants are counted without them"""
+    """the board the browser draws, with the people on it who sat the contest virtually: under
+    a star, ranked among the contestants, who are counted as what they are"""
     page.wait_for_selector("#standings tr.uoj-standings-virtual")
-    row = page.eval_on_selector("#standings tr.uoj-standings-virtual", "row => [row.cells[0].textContent.trim(), row.cells[1].textContent]")
-    assert re.fullmatch(r"\(\d+\)", row[0]) and "虚拟" in row[1], row
-    ranks = page.eval_on_selector_all("#standings tbody tr:not(.uoj-standings-virtual)", "rows => rows.map(row => row.cells[0].textContent.trim())")
-    assert ranks == ["1", "2"], ranks
-    assert "共 2 名参赛者" in page.inner_text("#standings"), page.inner_text("#standings")
+    rows = page.eval_on_selector_all("#standings tbody tr", "rows => rows.map(row => [row.cells[0].textContent.trim(), row.cells[1].textContent.trim(), row.className])")
+    assert [row[0] for row in rows] == ["1", "2", "3", "4"], rows
+    assert [row[1].startswith("*") for row in rows] == [False, True, True, False], rows
+    assert ["uoj-standings-me" in row[2] for row in rows].count(True) == 1, rows
+    told = page.inner_text("#standings-count")
+    assert "共 2 名参赛者" in told and "另有 2 人带 * 号" in told, told
+    assert page.is_checked("#input-show-unofficial")
 
 
 def balloon_is_ticked_without_loading_the_page(page, seeded):
@@ -546,6 +561,8 @@ def new_problem_is_kept(page, seeded):
 def reservation_is_filled_in(page, seeded):
     """the field for the time of a virtual participation offers the next minute that ends in 0
     or 5, with its date, and has room for both"""
+    # the reservation is out of the way of who starts now: it is asked for
+    page.click("#virtual-reserve > summary")
     field = "#input-start_time"
     offered = page.input_value(field)
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d[05]", offered), offered
@@ -623,7 +640,7 @@ def pages(seeded):
         # a contest that is sat again is sat in its own pages
         ("virtual", "sitter", "/contest/%d" % seeded["contest"], virtual_is_sat_in_the_contest),
         ("virtual-submissions", "sitter", "/contest/%d/submissions" % seeded["contest"]),
-        ("virtual-standings", "sitter", "/contest/%d/standings" % seeded["contest"]),
+        ("virtual-standings", "sitter", "/contest/%d/standings" % seeded["contest"], board_is_replayed_for_who_sits_it),
         ("virtual-reserve", "student", "/contest/%d/virtual" % seeded["contest"], reservation_is_filled_in),
         ("virtual-ended", "sat", "/contest/%d/virtual" % seeded["contest"]),
         ("contest-standings-virtual", "sat", "/contest/%d/standings" % seeded["contest"], board_marks_who_sat_it_afterwards),

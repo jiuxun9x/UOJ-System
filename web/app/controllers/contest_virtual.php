@@ -1,5 +1,7 @@
 <?php
-	// sitting a contest that is over, alone and against the clock
+	// Sitting a contest that is over, alone and against the clock. This page says what the
+	// rules are and has the button that starts; once started, the pages of the contest are
+	// where it happens.
 	if (!validateUInt($_GET['id']) || !($contest = queryContest($_GET['id']))) {
 		become404Page();
 	}
@@ -55,121 +57,26 @@
 	$virtual = queryVirtual($contest['id'], $myUser['username']);
 	$phase = $virtual ? virtualPhase($virtual, $now) : null;
 	// While it runs, the pages of the contest are its pages: the problems, what was submitted
-	// and the board, as during the contest. This page is where one starts, reserves, and
-	// looks back at one that is over.
+	// and the board, as during the contest.
 	// (A form that was refused is answered here, with why: starting again while it runs is.)
 	if ($phase === 'running' && $error === '') {
 		redirectTo("/contest/{$contest['id']}");
 	}
-	$problems = virtualProblems($contest);
-	$tab = isset($_GET['tab']) && $_GET['tab'] === 'standings' ? 'standings' : 'problems';
 	$flash = domainTakeFlash();
-	
-	$submissions = array();
-	$standings = array();
-	if ($virtual && $phase !== 'upcoming') {
-		$submissions = virtualSubmissions($virtual, $problems);
-		$standings = virtualStandingsNow($contest, $virtual, $problems);
-	}
-	$pieces = array('contest' => $contest, 'virtual' => $virtual, 'phase' => $phase, 'problems' => $problems, 'submissions' => $submissions, 'standings' => $standings);
+	$rule = contestRule($contest);
+	// how the last time went, for somebody who sat it before
+	$result = $phase === 'ended' ? virtualResult($contest, $myUser['username']) : null;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 虚拟参赛') ?>
 <?php echoContestDomainLink($contest) ?>
-<div class="d-flex flex-wrap align-items-center mb-3">
-	<h2 class="mr-auto mb-2"><a href="/contest/<?= $contest['id'] ?>"><?= $contest['name'] ?></a> <small class="text-muted">虚拟参赛</small></h2>
-</div>
+<div class="text-left" id="virtual-page">
+<h1 class="page-header">虚拟比赛规则</h1>
 <?php if ($flash): ?>
 <div class="alert alert-<?= $flash[0] ?>" role="alert"><?= HTML::escape($flash[1]) ?></div>
 <?php endif ?>
 <?php echoDomainError($error) ?>
 
-<?php if (!$virtual): ?>
-<div class="card mb-3" id="virtual-none">
-	<div class="card-body">
-		<p>这场比赛已经结束。虚拟参赛让你按原比赛的时长（<?= $contest['last_min'] ?> 分钟）自己做一遍：开始后计时，期间你对比赛题目的提交单独计分，榜单会按原比赛的时间线回放其他选手当时的成绩，结束时你能看到自己相当于第几名。</p>
-		<ul class="text-muted small">
-			<li>提交直接用完整数据评测并立即显示结果；原比赛如果只显示样例结果，这一点和原比赛不同。</li>
-			<li>和比赛一样，每道题以最后一次提交为准（编译错误不算）；罚时是那次提交距开始的时间。</li>
-			<li>开始后直接在这场比赛的页面里做：题目、提交、榜单都和比赛进行时一样，榜单按原比赛同一时刻回放。</li>
-			<li>虚拟参赛不影响 Rating。结束后你的成绩可以在原比赛的榜单里对照着看（带“虚拟”标记，不改变别人的名次）。</li>
-		</ul>
-		<?php if (!$can_virtual): ?>
-		<p class="text-danger mb-0" id="virtual-not-yet">这场比赛还没有公布最终成绩，公布之后才能虚拟参赛。</p>
-		<?php else: ?>
-		<?php // two ways to begin, side by side: each says what happens, and has its one button ?>
-		<div class="uoj-virtual-choices">
-			<form method="post" class="uoj-virtual-choice">
-				<?= HTML::hiddenToken() ?>
-				<input type="hidden" name="form" value="start" />
-				<h5>现在开始</h5>
-				<p class="text-muted">点下去就开始计时，共 <?= $contest['last_min'] ?> 分钟，中途不能暂停。</p>
-				<button type="submit" class="btn btn-primary" id="button-virtual-start">现在开始</button>
-			</form>
-			<form method="post" class="uoj-virtual-choice" id="form-virtual-reserve">
-				<?= HTML::hiddenToken() ?>
-				<input type="hidden" name="form" value="reserve" />
-				<h5><label class="mb-0" for="input-start_time">预约一个时间</label></h5>
-				<p class="text-muted">到时间自己开始计时，不会等人；开始之前可以取消。</p>
-				<div class="d-flex flex-wrap">
-					<?php // filled in already with the next minute that ends in 0 or 5: it is changed, not typed from nothing ?>
-					<input type="datetime-local" class="form-control mr-2 mb-2 uoj-virtual-start" id="input-start_time" name="start_time" value="<?= virtualDefaultStart($now) ?>" min="<?= date('Y-m-d\TH:i', $now) ?>" max="<?= date('Y-m-d\TH:i', $now + 30 * 86400) ?>" required="required" />
-					<button type="submit" class="btn btn-outline-primary mb-2">预约</button>
-				</div>
-			</form>
-			<script type="text/javascript">
-			// The page may stay open: the time that is offered moves on with the clock, for as
-			// long as nobody has put a time of their own into the field. The clock is the
-			// server's, which is the one the reservation is kept by.
-			$(function() {
-				var field = $('#input-start_time');
-				var offered = field.val();
-				var opened = new Date().getTime();
-				var two = function(n) {
-					return (n < 10 ? '0' : '') + n;
-				};
-				// what the server's clock shows, read as if it were this machine's
-				var server = new Date(<?= date('Y', $now) ?>, <?= date('n', $now) - 1 ?>, <?= date('j', $now) ?>, <?= (int)date('G', $now) ?>, <?= (int)date('i', $now) ?>, <?= (int)date('s', $now) ?>).getTime();
-				setInterval(function() {
-					if (field.val() !== offered) {
-						return;
-					}
-					var now = new Date(server + new Date().getTime() - opened);
-					now.setSeconds(0, 0);
-					now.setMinutes(now.getMinutes() + 5 - now.getMinutes() % 5);
-					offered = now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()) + 'T' + two(now.getHours()) + ':' + two(now.getMinutes());
-					field.val(offered);
-				}, 15000);
-			});
-			</script>
-		</div>
-		<?php endif ?>
-	</div>
-</div>
-<?php elseif ($phase === 'upcoming'): ?>
-<div class="card mb-3 border-info" id="virtual-upcoming">
-	<div class="card-body">
-		<h5 class="card-title">已预约：<?= $virtual['start_time'] ?> 开始，时长 <?= $virtual['last_min'] ?> 分钟</h5>
-		<p>到时间后打开这个页面即可，计时从预约的时间算起，不会等你。距开始还有 <strong id="virtual-countdown"></strong>。</p>
-		<div class="d-flex flex-wrap">
-			<form method="post" class="mr-2">
-				<?= HTML::hiddenToken() ?>
-				<input type="hidden" name="form" value="start" />
-				<button type="submit" class="btn btn-primary">不等了，现在开始</button>
-			</form>
-			<form method="post">
-				<?= HTML::hiddenToken() ?>
-				<input type="hidden" name="form" value="cancel" />
-				<button type="submit" class="btn btn-outline-secondary" id="button-virtual-cancel">取消预约</button>
-			</form>
-		</div>
-	</div>
-</div>
-<script type="text/javascript">
-$('#virtual-countdown').countdown(<?= strtotime($virtual['start_time']) - $now ?>, function() {
-	window.location.reload();
-});
-</script>
-<?php elseif ($phase === 'running'): ?>
+<?php if ($phase === 'running'): ?>
 <div class="card mb-3 border-success" id="virtual-running-elsewhere">
 	<div class="card-body">
 		<p>你的虚拟参赛正在进行中，它在这场比赛自己的页面里：题目、提交记录和榜单都在那里。</p>
@@ -177,21 +84,105 @@ $('#virtual-countdown').countdown(<?= strtotime($virtual['start_time']) - $now ?
 	</div>
 </div>
 <?php else: ?>
-<?php uojIncludeView('contest-virtual', $pieces + array('part' => 'status')) ?>
-<div class="d-flex flex-wrap mb-3">
-	<a class="btn btn-light border mr-2" id="link-virtual-on-board" href="/contest/<?= $contest['id'] ?>/standings?virtual=1">在比赛榜单里看我的位置</a>
-	<?php if ($can_virtual): ?>
-	<form method="post" onsubmit="return confirm('重新开始会丢掉这一次的虚拟成绩（提交记录还在）。继续吗？')">
-		<?= HTML::hiddenToken() ?>
-		<input type="hidden" name="form" value="start" />
-		<button type="submit" class="btn btn-outline-secondary" id="button-virtual-restart">重新开始</button>
-	</form>
-	<?php endif ?>
-</div>
-<ul class="nav nav-tabs mb-3">
-	<li class="nav-item"><a class="nav-link<?= $tab === 'problems' ? ' active' : '' ?>" href="<?= $here ?>">题目与提交</a></li>
-	<li class="nav-item"><a class="nav-link<?= $tab === 'standings' ? ' active' : '' ?>" href="<?= $here ?>?tab=standings" id="link-virtual-standings">榜单回放</a></li>
+<p>虚拟比赛是一种参加过去比赛的方式，尽可能接近实际参赛时的体验：按原比赛的时长自己做一遍，排行榜回放到比赛的同一时刻。</p>
+<p>本场比赛 <a href="/contest/<?= $contest['id'] ?>"><?= $contest['name'] ?></a> 的赛制为 <strong><?= $rule ?></strong>：</p>
+<ul id="virtual-rules">
+	<?php foreach (virtualRules($rule, (int)$contest['last_min'], contestFreezeOffset($contest)) as $line): ?>
+	<li><?= $line[0] === '!' ? '<strong>' . HTML::escape(substr($line, 1)) . '</strong>' : HTML::escape($line) ?></li>
+	<?php endforeach ?>
 </ul>
-<?php uojIncludeView('contest-virtual', $pieces + array('part' => $tab === 'standings' ? 'standings' : 'problems')) ?>
+
+<?php if ($phase === 'upcoming'): ?>
+<div class="card mb-3 border-info" id="virtual-upcoming">
+	<div class="card-body">
+		<h5 class="card-title">已预约：<?= $virtual['start_time'] ?> 开始，时长 <?= $virtual['last_min'] ?> 分钟</h5>
+		<p>到时间后打开这场比赛即可，计时从预约的时间算起，不会等你。距开始还有 <strong id="virtual-countdown"></strong>。</p>
+		<form method="post">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="cancel" />
+			<button type="submit" class="btn btn-outline-secondary btn-sm" id="button-virtual-cancel">取消预约</button>
+		</form>
+	</div>
+</div>
+<script type="text/javascript">
+// counted down in the words of the sentence; when it is time, the contest is where to be
+(function() {
+	var rest = <?= strtotime($virtual['start_time']) - $now ?>;
+	var two = function(n) {
+		return (n < 10 ? '0' : '') + n;
+	};
+	var show = function() {
+		$('#virtual-countdown').text(Math.floor(rest / 3600) + ':' + two(Math.floor(rest / 60) % 60) + ':' + two(rest % 60));
+	};
+	show();
+	setInterval(function() {
+		rest--;
+		if (rest <= 0) {
+			window.location.reload();
+			return;
+		}
+		show();
+	}, 1000);
+})();
+</script>
+<?php elseif ($phase === 'ended'): ?>
+<div class="alert alert-secondary" id="virtual-ended">
+	你已经虚拟参赛过这场比赛（<?= $virtual['start_time'] ?> 开始）<?php if ($result): ?>：
+	<?= $rule === 'ICPC' ? '通过 <strong>' . ($result['score'] / 100) . '</strong> 题，罚时 ' . contestClock($result['penalty']) : '得到 <strong>' . $result['score'] . '</strong> 分' ?>，
+	在含非官方选手的排行榜上排第 <strong id="virtual-rank"><?= $result['rank'] ?></strong> 名（共 <?= $result['people'] ?> 人）<?php endif ?>。
+	<a class="alert-link" id="link-virtual-on-board" href="/contest/<?= $contest['id'] ?>/standings?unofficial=1">在排行榜里看</a>。
+	再次开始会用新的成绩替换这一次（提交记录都还在）。
+</div>
 <?php endif ?>
+
+<?php if (!$can_virtual): ?>
+<p class="text-danger" id="virtual-not-yet">这场比赛还没有公布最终成绩，公布之后才能虚拟参赛。</p>
+<?php else: ?>
+<p><strong>点击下方按钮立即开始您的虚拟参赛。</strong></p>
+<form method="post" class="text-center mb-3"<?= $phase === 'ended' ? ' onsubmit="return confirm(\'重新开始会用新的成绩替换上一次的虚拟成绩。继续吗？\')"' : '' ?>>
+	<?= HTML::hiddenToken() ?>
+	<input type="hidden" name="form" value="start" />
+	<button type="submit" class="btn btn-primary btn-lg px-5" id="button-virtual-start">开始！</button>
+</form>
+<?php // not now, but at a time: asked for by who wants it, and out of the way of who does not ?>
+<details class="mb-3" id="virtual-reserve"<?= $error !== '' && isset($_POST['form']) && $_POST['form'] === 'reserve' ? ' open' : '' ?>>
+	<summary class="text-muted">不想现在开始？可以预约一个时间</summary>
+	<form method="post" class="form-inline mt-2" id="form-virtual-reserve">
+		<?= HTML::hiddenToken() ?>
+		<input type="hidden" name="form" value="reserve" />
+		<label class="mr-2 mb-2" for="input-start_time">开始时间</label>
+		<?php // filled in already with the next minute that ends in 0 or 5: it is changed, not typed from nothing ?>
+		<input type="datetime-local" class="form-control mr-2 mb-2 uoj-virtual-start" id="input-start_time" name="start_time" value="<?= virtualDefaultStart($now) ?>" min="<?= date('Y-m-d\TH:i', $now) ?>" max="<?= date('Y-m-d\TH:i', $now + 30 * 86400) ?>" required="required" />
+		<button type="submit" class="btn btn-outline-primary mb-2">预约</button>
+		<small class="form-text text-muted w-100">到时间自己开始计时，不会等人；开始之前可以取消。</small>
+	</form>
+	<script type="text/javascript">
+	// The page may stay open: the time that is offered moves on with the clock, for as
+	// long as nobody has put a time of their own into the field. The clock is the
+	// server's, which is the one the reservation is kept by.
+	$(function() {
+		var field = $('#input-start_time');
+		var offered = field.val();
+		var opened = new Date().getTime();
+		var two = function(n) {
+			return (n < 10 ? '0' : '') + n;
+		};
+		// what the server's clock shows, read as if it were this machine's
+		var server = new Date(<?= date('Y', $now) ?>, <?= date('n', $now) - 1 ?>, <?= date('j', $now) ?>, <?= (int)date('G', $now) ?>, <?= (int)date('i', $now) ?>, <?= (int)date('s', $now) ?>).getTime();
+		setInterval(function() {
+			if (field.val() !== offered) {
+				return;
+			}
+			var now = new Date(server + new Date().getTime() - opened);
+			now.setSeconds(0, 0);
+			now.setMinutes(now.getMinutes() + 5 - now.getMinutes() % 5);
+			offered = now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()) + 'T' + two(now.getHours()) + ':' + two(now.getMinutes());
+			field.val(offered);
+		}, 15000);
+	});
+	</script>
+</details>
+<?php endif ?>
+<?php endif ?>
+</div>
 <?php echoUOJPageFooter() ?>

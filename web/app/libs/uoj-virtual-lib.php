@@ -1,13 +1,19 @@
 <?php
 
-// Virtual participation: sitting a contest that is over, alone, against the clock. It lasts
-// as long as the contest did, starts now or at a time that was reserved, and what its user
-// submits to the problems of the contest meanwhile is what counts for them. The standings
-// are replayed beside it: every contestant of the real contest appears with what they had
-// at the same moment of their contest.
+// Virtual participation: sitting a contest that is over, alone, against the clock, the way
+// QOJ has it. It lasts as long as the contest did and starts now, or at a time that was
+// reserved. While it runs, the pages of the contest are to its user what they were to a
+// contestant: the problems, a clock that runs down, the list of what they submitted, and the
+// board - which is the board as it stood at the same moment of the contest.
 //
-// What is submitted during a virtual participation is judged with all the data and shown
-// at once, also where the real contest only showed how the samples went.
+// Whoever sat a contest virtually is on its board as somebody who did not take part in it:
+// under a star, ranked among the contestants, for whoever asks to see the board with them.
+// To the board, somebody who sat the contest virtually is the person "*" and their name;
+// a username has no star in it, and a contestant who sat the contest again is two people.
+//
+// What is submitted during a virtual participation is judged with all the data, also where
+// the contest only judged with the samples. As in the contest, how it did on the single
+// tests is not shown while the participation runs.
 
 // ---- deciding without the database
 
@@ -55,75 +61,67 @@ function virtualClock($seconds) {
 	return sprintf('%d:%02d:%02d', floor($seconds / 3600), floor($seconds / 60) % 60, $seconds % 60);
 }
 
-// The standings of a contest as they were $elapsed seconds into it, with somebody who sits
-// it virtually among the contestants.
-//   $people   the contestants of the contest: rows of username, rating, nickname
-//   $final    what counted for them in the end: rows of submitter, position of the problem,
-//             score, penalty in seconds, id of the submission, failed attempts before it
-//   $me       array('username', 'nickname') of who sits it virtually
-//   $mine     what they submitted that was judged: rows of id, seconds into their
-//             participation, position of the problem, score, in the order of the ids
-//   $ended    whether the participation is over: only then is a zero shown, which says
-//             nothing about when it was earned
-//   $rule     the rule of the contest, which the participation is counted by as well
-// Returns rows of username, rating, nickname, virtual, score, penalty, cells (position of
-// the problem => what contestCells() says of it) and rank, the best first.
-function virtualStandings($people, $final, $me, $mine, $elapsed, $ended, $standings_version = 2, $rule = 'OI') {
+// who a row of a board is: array(whether they sat the contest virtually, their username)
+function virtualPersonOfKey($key) {
+	$key = (string)$key;
+	return $key !== '' && $key[0] === '*' ? array(true, substr($key, 1)) : array(false, $key);
+}
+// Ranks the contestants of a contest and the people who sat it virtually together.
+//   $standings   the standings of the contestants: rows of score, penalty, person (and
+//                maybe a rank, which is not looked at)
+//   $unofficial  the same of the people who sat it virtually: rows of score, penalty, person
+// Returns the rows of both, the best first, each with its rank among all of them: more is
+// better, then less penalty; who is level has the same rank.
+function virtualRankTogether($standings, $unofficial) {
 	$rows = array();
-	foreach ($people as $person) {
-		$rows['r/' . $person[0]] = array('username' => (string)$person[0], 'rating' => (int)$person[1], 'nickname' => isset($person[2]) ? $person[2] : '', 'virtual' => false, 'score' => 0, 'penalty' => 0, 'cells' => array());
+	foreach (array_merge(array_values($standings), array_values($unofficial)) as $row) {
+		$rows[] = array($row[0], $row[1], $row[2]);
 	}
-	foreach ($final as $result) {
-		list($submitter, $pos, $score, $penalty, $submission_id) = $result;
-		$attempts = isset($result[5]) ? (int)$result[5] : 0;
-		// When it was earned. Under the ICPC rule the penalty of a solved problem is the
-		// time it was solved at and what the failed attempts before it cost.
-		$since = $rule === 'ICPC' && $score == 100 ? $penalty - CONTEST_ICPC_PENALTY * $attempts : $penalty;
-		if (!isset($rows['r/' . $submitter]) || $since > $elapsed || ($score == 0 && !$ended)) {
-			continue;
-		}
-		$rows['r/' . $submitter]['cells'][$pos] = $rule === 'ICPC'
-			? array((int)$score, (int)$penalty, (int)$submission_id, $attempts, 0)
-			: array((int)$score, (int)$penalty, (int)$submission_id);
-	}
-	$virtual = array('username' => (string)$me['username'], 'rating' => isset($me['rating']) ? (int)$me['rating'] : 0, 'nickname' => $me['nickname'], 'virtual' => true, 'score' => 0, 'penalty' => 0, 'cells' => array());
-	// what counts of it is what would have counted in the contest
-	$happened = array();
-	foreach ($mine as $submission) {
-		list($submission_id, $offset, $pos, $score) = $submission;
-		if ($offset <= $elapsed) {
-			$happened[] = array($submission_id, $offset, 'v', $pos, $score);
-		}
-	}
-	$counted = contestCells($rule, $standings_version, $happened);
-	$virtual['cells'] = isset($counted['v']) ? $counted['v'] : array();
-	$rows['v'] = $virtual;
-	foreach ($rows as &$row) {
-		foreach ($row['cells'] as $cell) {
-			$row['score'] += $cell[0];
-			$row['penalty'] += $cell[1];
-		}
-	}
-	unset($row);
-	$rows = array_values($rows);
 	usort($rows, function($lhs, $rhs) {
-		if ($lhs['score'] != $rhs['score']) {
-			return $rhs['score'] - $lhs['score'];
+		if ($lhs[0] != $rhs[0]) {
+			return $rhs[0] - $lhs[0];
 		}
-		if ($lhs['penalty'] != $rhs['penalty']) {
-			return $lhs['penalty'] - $rhs['penalty'];
+		if ($lhs[1] != $rhs[1]) {
+			return $lhs[1] - $rhs[1];
 		}
-		if ($lhs['virtual'] != $rhs['virtual']) {
-			return $lhs['virtual'] ? -1 : 1;
-		}
-		return strcmp($lhs['username'], $rhs['username']);
+		return strcmp((string)$lhs[2][0], (string)$rhs[2][0]);
 	});
 	foreach ($rows as $index => &$row) {
-		$same = $index > 0 && $rows[$index - 1]['score'] == $row['score'] && $rows[$index - 1]['penalty'] == $row['penalty'];
-		$row['rank'] = $same ? $rows[$index - 1]['rank'] : $index + 1;
+		$level = $index > 0 && $rows[$index - 1][0] == $row[0] && $rows[$index - 1][1] == $row[1];
+		$row[3] = $level ? $rows[$index - 1][3] : $index + 1;
 	}
 	unset($row);
 	return $rows;
+}
+// What a contest tells somebody before they sit it virtually: its rules, in lines. A line
+// that begins with "!" is one to notice.
+//   $rule            'OI', 'IOI' or 'ICPC'
+//   $minutes         how long the contest lasts
+//   $freeze_offset   seconds into it at which its board freezes, or null
+function virtualRules($rule, $minutes, $freeze_offset) {
+	$lines = array("比赛时长为 $minutes 分钟，从你点“开始”的那一刻算起，中途不能暂停。");
+	if ($rule === 'ICPC') {
+		$lines[] = '每道题目均不计算部分分。';
+		$lines[] = '比赛中途可以提交，在第一次通过提交后，这道题此后的提交均会被忽略。';
+		$lines[] = '每一次错误的提交（不含 Compile Error）会计算 ' . (CONTEST_ICPC_PENALTY / 60) . ' 分钟的罚时。没有通过的题目不会计算罚时。';
+	} else {
+		$lines[] = '每道题目满分 100 分，可以得到部分分。';
+		$lines[] = '比赛中途可以多次提交，每道题目以最后一次提交为准（Compile Error 不算）。';
+		if ($rule === 'OI') {
+			$lines[] = '虚拟参赛时，提交直接用全部数据评测并显示得分；正式比赛中只用样例评测，这一点不同。';
+		}
+	}
+	$lines[] = '!比赛中途不会显示提交记录在任何测试点（包括样例）的详细信息，只会显示评测结果。';
+	$lines[] = '比赛过程中可以查看排行榜，排行榜是原比赛进行到同一时刻的样子：包含所有选手在此时刻前的提交与结果。';
+	if ($freeze_offset !== null) {
+		$lines[] = '比赛开始 ' . contestClock($freeze_offset) . ' 后将会封榜。在此之后其他选手的提交结果不可见，你自己的照常显示。';
+	}
+	$lines[] = $rule === 'ICPC'
+		? '比赛排名以解决问题的数量从高到低排序，解决问题相同的选手按照罚时从低到高排序。'
+		: '比赛排名以总分从高到低排序，总分相同的选手按照得分提交的用时从低到高排序。';
+	$lines[] = '虚拟参赛是非官方成绩：不影响 Rating，在排行榜上名字前带 * 号，勾选“显示非官方排行榜”才会出现。';
+	$lines[] = '全凭自觉：比赛已经结束，题解和别人的代码可能都看得到，请像正式比赛一样独立完成。';
+	return $lines;
 }
 
 // ---- queries
@@ -139,134 +137,117 @@ function runningVirtual($contest_id, $user) {
 	$virtual = queryVirtual($contest_id, $user['username']);
 	return $virtual && virtualPhase($virtual, UOJTime::$time_now->getTimestamp()) === 'running' ? $virtual : null;
 }
-// the problems of a contest in their order: rows of id, title and the letter they go by
-function virtualProblems($contest) {
-	$problems = array();
-	foreach (DB::selectAll("select problems.id, problems.title, problems.owner_domain_id, problems.domain_pid from contests_problems join problems on problems.id = contests_problems.problem_id where contests_problems.contest_id = {$contest['id']} order by contests_problems.position, problems.id") as $index => $row) {
-		// 'number' is what the address of the problem in the contest says
-		$problems[] = array('id' => (int)$row['id'], 'number' => problemNumber($row), 'title' => $row['title'], 'letter' => chr(ord('A') + $index % 26));
+// what the user of a virtual participation submitted in it, as a condition on the submissions
+function virtualSubmissionsCond($contest, $virtual) {
+	$problem_ids = array_map('intval', contestProblemIds($contest['id']));
+	if (!$problem_ids) {
+		return '1 = 0';
 	}
-	return $problems;
+	$until = date('Y-m-d H:i:s', strtotime($virtual['start_time']) + $virtual['last_min'] * 60);
+	return "submissions.submitter = '".DB::escape($virtual['username'])."' and submissions.problem_id in (".join(',', $problem_ids).")"
+		." and submissions.submit_time >= '".DB::escape($virtual['start_time'])."' and submissions.submit_time < '$until'";
 }
-// What the user of a virtual participation submitted to the problems of the contest while
-// it lasted, the oldest first: rows of id, offset (seconds into it), pos, score (null when
-// it is not judged, or did not compile) and status.
-function virtualSubmissions($virtual, $problems) {
-	$pos = array();
-	foreach ($problems as $index => $problem) {
-		$pos[$problem['id']] = $index;
-	}
-	if (!$pos) {
-		return array();
-	}
-	$start = strtotime($virtual['start_time']);
-	$from = DB::escape($virtual['start_time']);
-	$until = date('Y-m-d H:i:s', $start + $virtual['last_min'] * 60);
-	$rows = array();
-	foreach (DB::selectAll("select id, submit_time, problem_id, score, status, result_error from submissions where submitter = '".DB::escape($virtual['username'])."' and problem_id in (".join(',', array_keys($pos)).") and submit_time >= '$from' and submit_time < '$until' order by id") as $row) {
-		$rows[] = array(
-			'id' => (int)$row['id'],
-			'offset' => strtotime($row['submit_time']) - $start,
-			'pos' => $pos[(int)$row['problem_id']],
-			'score' => $row['score'] === null ? null : (int)$row['score'],
-			'status' => $row['result_error'] !== null ? $row['result_error'] : $row['status']
-		);
-	}
-	return $rows;
-}
-// the standings of a contest replayed for a virtual participation as it is now
-function virtualStandingsNow($contest, $virtual, $problems) {
-	$pos = array();
-	foreach ($problems as $index => $problem) {
-		$pos[$problem['id']] = $index;
-	}
-	$people = array();
-	foreach (DB::selectAll("select contests_registrants.username, user_rating, ifnull(user_info.nickname, '') as nickname from contests_registrants left join user_info on user_info.username = contests_registrants.username where contest_id = {$contest['id']} and has_participated = 1") as $row) {
-		$people[] = array($row['username'], (int)$row['user_rating'], $row['nickname']);
-	}
-	$final = array();
-	foreach (DB::selectAll("select submitter, problem_id, score, penalty, submission_id, attempts from contests_submissions where contest_id = {$contest['id']}") as $row) {
-		if (isset($pos[(int)$row['problem_id']])) {
-			$final[] = array($row['submitter'], $pos[(int)$row['problem_id']], (int)$row['score'], (int)$row['penalty'], (int)$row['submission_id'], (int)$row['attempts']);
-		}
-	}
-	$mine = array();
-	foreach (virtualSubmissions($virtual, $problems) as $submission) {
-		if ($submission['score'] !== null) {
-			$mine[] = array($submission['id'], $submission['offset'], $submission['pos'], $submission['score']);
-		}
-	}
-	$user = queryUser($virtual['username']);
-	$now = UOJTime::$time_now->getTimestamp();
-	return virtualStandings($people, $final, array('username' => $virtual['username'], 'nickname' => $user ? $user['nickname'] : '', 'rating' => $user ? $user['rating'] : 0), $mine,
-		virtualElapsed($virtual, $now), virtualPhase($virtual, $now) === 'ended', $contest['extra_config']['standings_version'], contestRule($contest));
-}
-
-// The virtual participations in a contest that are over, as rows of its board: for each,
-// array('username', 'rating', 'nickname', 'cells' => position of the problem => what
-// contestCells() says of it, 'score', 'penalty').
-function virtualFinalRows($contest, $limit = 500) {
-	$problems = virtualProblems($contest);
-	$rule = contestRule($contest);
+// The contest whose virtual participation a submission is part of, while that participation
+// runs: its id, or null. How such a submission did on the single tests is not told yet.
+function virtualRunningOfSubmission($submission) {
 	$now = DB::escape(UOJTime::$time_now_str);
+	$time = DB::escape($submission['submit_time']);
+	$row = DB::selectFirst("select contest_virtuals.contest_id from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
+		." where contest_virtuals.username = '".DB::escape($submission['submitter'])."' and contests_problems.problem_id = ".(int)$submission['problem_id']
+		." and contest_virtuals.start_time <= '$time' and '$time' < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)"
+		." and '$now' < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute) limit 1", MYSQLI_ASSOC);
+	return $row ? (int)$row['contest_id'] : null;
+}
+// Everybody who sat a contest virtually or sits it now, as people of its board: rows of "*"
+// and the username, rating, nickname.
+function virtualPeople($contest, $limit = 2000) {
+	$now = DB::escape(UOJTime::$time_now_str);
+	$people = array();
+	foreach (DB::selectAll("select contest_virtuals.username, user_info.rating, ifnull(user_info.nickname, '') as nickname from contest_virtuals"
+			." left join user_info on user_info.username = contest_virtuals.username"
+			." where contest_virtuals.contest_id = {$contest['id']} and contest_virtuals.start_time <= '$now' order by contest_virtuals.id limit ".(int)$limit, MYSQLI_ASSOC) as $row) {
+		$people[] = array('*' . $row['username'], (int)$row['rating'], $row['nickname']);
+	}
+	return $people;
+}
+// What the contestants of a contest had submitted $elapsed seconds into it, in the shape
+// queryContestData() gives a contest that runs: the board made of it is the board of that
+// moment. Under the ICPC rule the failed attempts are on it as they were made.
+function virtualOfficialData($contest, $elapsed) {
+	$data = queryContestData(array('cur_progress' => CONTEST_IN_PROGRESS) + $contest);
+	$until = $contest['start_time']->getTimestamp() + $elapsed;
 	$rows = array();
-	foreach (DB::selectAll("select contest_virtuals.*, user_info.rating, ifnull(user_info.nickname, '') as nickname from contest_virtuals left join user_info on user_info.username = contest_virtuals.username"
-			." where contest_id = {$contest['id']} and date_add(start_time, interval last_min minute) <= '$now' order by contest_virtuals.id limit ".(int)$limit, MYSQLI_ASSOC) as $virtual) {
-		$happened = array();
-		foreach (virtualSubmissions($virtual, $problems) as $submission) {
-			if ($submission['score'] !== null) {
-				$happened[] = array($submission['id'], $submission['offset'], 'v', $submission['pos'], $submission['score']);
+	foreach ($data['data'] as $row) {
+		// (a contest that is over has nothing that still waits to be judged)
+		if ($row[4] !== null && strtotime($row[1]) <= $until) {
+			$rows[] = $row;
+		}
+	}
+	$data['data'] = $rows;
+	return $data;
+}
+// Puts everybody who sat the contest virtually among its standings, as they stood $elapsed
+// seconds into their participations, and ranks everybody anew. $standings and $score are
+// what calcStandings() made; with $freeze_offset, what was submitted from that second of a
+// participation on is counted and not told, as on the frozen board of the contest.
+function virtualAddUnofficial($contest, &$standings, &$score, $elapsed, $freeze_offset = null) {
+	$people = virtualPeople($contest);
+	if (!$people) {
+		return;
+	}
+	$pos = array_flip(array_map('intval', contestProblemIds($contest['id'])));
+	$rows = array();
+	if ($pos) {
+		$now = DB::escape(UOJTime::$time_now_str);
+		foreach (DB::selectAll("select submissions.id, timestampdiff(second, contest_virtuals.start_time, submissions.submit_time) as seconds_in, contest_virtuals.username, submissions.problem_id, submissions.score"
+				." from contest_virtuals join submissions on submissions.submitter = contest_virtuals.username"
+				." where contest_virtuals.contest_id = {$contest['id']} and contest_virtuals.start_time <= '$now' and submissions.problem_id in (".join(',', array_keys($pos)).")"
+				." and submissions.score is not null and submissions.submit_time >= contest_virtuals.start_time"
+				." and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute) order by submissions.id", MYSQLI_ASSOC) as $row) {
+			if ($row['seconds_in'] <= $elapsed) {
+				$rows[] = array((int)$row['id'], (int)$row['seconds_in'], '*' . $row['username'], $pos[(int)$row['problem_id']], (int)$row['score']);
 			}
 		}
-		$counted = contestCells($rule, $contest['extra_config']['standings_version'], $happened);
-		$row = array('username' => $virtual['username'], 'rating' => (int)$virtual['rating'], 'nickname' => $virtual['nickname'], 'cells' => isset($counted['v']) ? $counted['v'] : array(), 'score' => 0, 'penalty' => 0);
-		foreach ($row['cells'] as $cell) {
-			$row['score'] += $cell[0];
-			$row['penalty'] += $cell[1];
-		}
-		$rows[] = $row;
 	}
-	return $rows;
+	$cells = contestCells(contestRule($contest), $contest['extra_config']['standings_version'], $rows, $freeze_offset);
+	$unofficial = array();
+	foreach ($people as $person) {
+		$score[$person[0]] = isset($cells[$person[0]]) ? $cells[$person[0]] : array();
+		$row = array(0, 0, $person);
+		foreach ($score[$person[0]] as $cell) {
+			$row[0] += $cell[0];
+			$row[1] += $cell[1];
+		}
+		$unofficial[] = $row;
+	}
+	$standings = virtualRankTogether($standings, $unofficial);
 }
-// Puts them among the standings of the contest, as calcStandings() left them. Each stands
-// where it would have stood, with the rank it would have had; nobody who took part moves,
-// and nobody's rank changes. A row that is virtual has 'v' as the fourth thing said of its
-// person, and its cells are in $score under "v/" and the username: somebody who took part
-// and sat the contest again afterwards is there twice.
-function virtualJoinStandings(&$standings, &$score, $rows) {
-	$better = function($row, $than) {
-		return $row[0] > $than['score'] || ($row[0] == $than['score'] && $row[1] < $than['penalty']);
-	};
-	foreach ($rows as &$row) {
-		$row['rank'] = 1;
-		foreach ($standings as $real) {
-			$row['rank'] += $better($real, $row) ? 1 : 0;
+// The board of a contest for somebody who sits it virtually and is $elapsed seconds into
+// it: the contest as it stood then, with the people who sat it virtually when $unofficial.
+// Once the board of the contest froze, it is frozen for them as well ($frozen says so).
+// Returns array($standings, $score, $contest_data, $frozen).
+function virtualBoard($contest, $elapsed, $unofficial) {
+	$freeze = contestFreezeOffset($contest);
+	$frozen = $freeze !== null && $elapsed >= $freeze;
+	$contest_data = virtualOfficialData($contest, $elapsed);
+	calcStandings($contest, $contest_data, $score, $standings, false, $frozen ? $freeze : null);
+	if ($unofficial) {
+		virtualAddUnofficial($contest, $standings, $score, $elapsed, $frozen ? $freeze : null);
+	}
+	return array($standings, $score, $contest_data, $frozen);
+}
+// How it stands with somebody who sat a contest virtually, on the board of the contest with
+// everybody who did: array('rank', 'score', 'penalty', 'people' => how many are on that
+// board), or null if they are not on it.
+function virtualResult($contest, $username) {
+	calcStandings($contest, queryContestData($contest), $score, $standings);
+	virtualAddUnofficial($contest, $standings, $score, $contest['last_min'] * 60);
+	foreach ($standings as $row) {
+		if ((string)$row[2][0] === '*' . $username) {
+			return array('rank' => $row[3], 'score' => $row[0], 'penalty' => $row[1], 'people' => count($standings));
 		}
 	}
-	unset($row);
-	usort($rows, function($lhs, $rhs) {
-		if ($lhs['rank'] != $rhs['rank']) {
-			return $lhs['rank'] - $rhs['rank'];
-		}
-		return strcmp($lhs['username'], $rhs['username']);
-	});
-	$joined = array();
-	$next = 0;
-	foreach (array_values($standings) as $index => $real) {
-		// before the first of the contestants it is not worse than
-		while ($next < count($rows) && $rows[$next]['rank'] <= $index + 1) {
-			$joined[] = array($rows[$next]['score'], $rows[$next]['penalty'], array($rows[$next]['username'], $rows[$next]['rating'], $rows[$next]['nickname'], 'v'), $rows[$next]['rank']);
-			$next++;
-		}
-		$joined[] = $real;
-	}
-	for (; $next < count($rows); $next++) {
-		$joined[] = array($rows[$next]['score'], $rows[$next]['penalty'], array($rows[$next]['username'], $rows[$next]['rating'], $rows[$next]['nickname'], 'v'), $rows[$next]['rank']);
-	}
-	foreach ($rows as $row) {
-		$score['v/' . $row['username']] = $row['cells'];
-	}
-	$standings = $joined;
+	return null;
 }
 
 // ---- changes; each returns '' or why it was refused

@@ -296,103 +296,54 @@ foreach (array('2026-10-10 11:00:00', '2026-11-09 12:00:01', '2026-10-10T19:30',
 	check_same(true, virtualStartError($bad, $now) !== '', 'refused as the start of a virtual participation: ' . json_encode($bad));
 }
 
-// a contest of three problems and an hour: ann solved A after 5 minutes and B after 40,
-// bob solved A after 30 and never got anything for C
-$people = array(array('ann', 1500, ''), array('bob', 1600, '小波'), array('20260101', 1500, ''));
-$final = array(array('ann', 0, 100, 300, 11), array('ann', 1, 60, 2400, 12), array('bob', 0, 100, 1800, 13), array('bob', 2, 0, 0, 14));
-$me = array('username' => 'me', 'nickname' => '', 'rating' => 1500);
-$board = function($mine, $elapsed, $ended = false, $version = 2) use ($people, $final, $me) {
-	$lines = array();
-	foreach (virtualStandings($people, $final, $me, $mine, $elapsed, $ended, $version) as $row) {
-		$lines[] = $row['rank'] . ' ' . $row['username'] . ($row['virtual'] ? '*' : '') . ' ' . $row['score'] . '/' . $row['penalty'];
-	}
-	return join(', ', $lines);
-};
-check_same('1 me* 0/0, 1 20260101 0/0, 1 ann 0/0, 1 bob 0/0', $board(array(), 0), 'at the start nobody has anything');
-check_same('1 ann 100/300, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $board(array(), 600), 'ten minutes in, ann has her first problem');
-check_same('1 ann 100/300, 2 me* 100/900, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 900, 0, 100)), 1000), 'solving it later ranks behind');
-check_same('1 me* 100/200, 2 ann 100/300, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 200, 0, 100)), 1000), 'and sooner ranks ahead');
-check_same('1 ann 160/2700, 2 me* 100/900, 3 bob 100/1800, 4 20260101 0/0', $board(array(array(21, 900, 0, 100)), 3000), 'the others get what they got when they got it');
-check_same('1 me* 100/300, 1 ann 100/300, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 300, 0, 100)), 600), 'the same score at the same time is the same rank');
-// the last submission to a problem is the one that counts, as in a contest
-check_same('1 ann 100/300, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $board(array(array(21, 200, 0, 100), array(22, 500, 0, 0)), 600), 'a later submission that fails takes the points away');
-check_same('1 ann 100/300, 2 20260101 0/0, 2 bob 0/0, 4 me* 0/500', $board(array(array(21, 200, 0, 100), array(22, 500, 0, 0)), 600, false, 1), 'with the time of it, by the old way of counting');
-check_same('1 me* 100/200, 2 ann 100/300, 3 20260101 0/0, 3 bob 0/0', $board(array(array(21, 200, 0, 100), array(22, 900, 0, 0)), 600), 'what is submitted later has not happened yet');
-// a zero says nothing about when it was earned, so it is shown when everything is
-$cells_of = function($username, $elapsed, $ended) use ($people, $final, $me) {
-	foreach (virtualStandings($people, $final, $me, array(), $elapsed, $ended) as $row) {
-		if ($row['username'] === $username && !$row['virtual']) {
-			return array_keys($row['cells']);
-		}
-	}
-};
-check_same(array(0), $cells_of('bob', 3600, false), 'a zero is not shown while the participation runs');
-check_same(array(0, 2), $cells_of('bob', 3600, true), 'and is when it is over');
-check_same('20260101', virtualStandings($people, $final, $me, array(), 0, false)[1]['username'], 'a username that is a number is a string in the standings');
-// who sat the real contest and sits it again is there twice: as they were, and as they are now
-$again = virtualStandings($people, $final, array('username' => 'ann', 'nickname' => '', 'rating' => 1500), array(array(31, 100, 0, 100)), 600, false);
-check_same(array('ann', true, 'ann', false), array($again[0]['username'], $again[0]['virtual'], $again[1]['username'], $again[1]['virtual']), 'a contestant who sits the contest again');
-
-// ---- who sat a contest afterwards is put on its board, and the board is what it was
-// the board as calcStandings() leaves it: score, penalty, who, rank
+// ---- who sat a contest virtually is on its board under a star, ranked among the contestants
+check_same(array(array(false, 'ann'), array(true, 'ann'), array(true, '20260101'), array(false, '')),
+	array(virtualPersonOfKey('ann'), virtualPersonOfKey('*ann'), virtualPersonOfKey('*20260101'), virtualPersonOfKey('')), 'who a row of a board is');
+// the standings of the contestants as calcStandings() leaves them: score, penalty, who, rank
 $board = array(
 	array(200, 900, array('ann', 1600, ''), 1),
 	array(100, 300, array('bob', 1500, '小波'), 2),
 	array(100, 300, array('cat', 1500, ''), 2),
 	array(0, 0, array('dan', 1500, ''), 4)
 );
-$cells = array('ann' => array(0 => array(100, 300, 1), 1 => array(100, 600, 2)), 'bob' => array(0 => array(100, 300, 3)), 'cat' => array(0 => array(100, 300, 4)));
 $sat = function($username, $score, $penalty) {
-	return array('username' => $username, 'rating' => 1500, 'nickname' => '', 'cells' => $score > 0 ? array(0 => array($score, $penalty, 9)) : array(), 'score' => $score, 'penalty' => $penalty);
+	return array($score, $penalty, array('*' . $username, 1500, ''));
 };
-$joined = function($rows) use ($board, $cells) {
-	$standings = $board;
-	$score = $cells;
-	virtualJoinStandings($standings, $score, $rows);
+$ranked = function($unofficial) use ($board) {
 	$lines = array();
-	foreach ($standings as $row) {
-		$lines[] = (isset($row[2][3]) && $row[2][3] === 'v' ? '(' . $row[3] . ')' : $row[3]) . ' ' . $row[2][0];
-	}
-	return array(join(', ', $lines), $standings, $score);
-};
-check_same('1 ann, 2 bob, 2 cat, 4 dan', $joined(array())[0], 'a board nobody sat afterwards is the board');
-check_same('(1) eve, 1 ann, 2 bob, 2 cat, 4 dan', $joined(array($sat('eve', 300, 0)))[0], 'better than everybody: before everybody, and nobody moves down');
-check_same('1 ann, (2) eve, 2 bob, 2 cat, 4 dan', $joined(array($sat('eve', 100, 200)))[0], 'between two contestants: with the rank of the one it comes before');
-check_same('1 ann, (2) eve, 2 bob, 2 cat, 4 dan', $joined(array($sat('eve', 100, 300)))[0], 'level with contestants: with their rank, before them');
-check_same('1 ann, 2 bob, 2 cat, (4) eve, 4 dan', $joined(array($sat('eve', 100, 301)))[0], 'behind two who are level: the rank after both');
-check_same('1 ann, 2 bob, 2 cat, (4) eve, 4 dan', $joined(array($sat('eve', 0, 0)))[0], 'with nothing: level with who has nothing');
-check_same('1 ann, 2 bob, 2 cat, 4 dan, (5) eve', $joined(array($sat('eve', -5, 0)))[0], 'worse than everybody: after everybody');
-check_same('(1) fay, 1 ann, (2) eve, (2) gus, 2 bob, 2 cat, 4 dan', $joined(array($sat('gus', 100, 250), $sat('eve', 100, 200), $sat('fay', 300, 0)))[0],
-	'several of them: each where it would have stood alone, level ones by their names');
-list($line, $with_ann, $with_score) = $joined(array($sat('ann', 100, 100)));
-check_same('1 ann, (2) ann, 2 bob, 2 cat, 4 dan', $line, 'a contestant who sat it again is there twice');
-check_same(array(array('ann', 1500, '', 'v'), 2), array($with_ann[1][2], $with_ann[1][3]), 'a row that is virtual says so of its person');
-check_same(array(array(0 => array(100, 100, 9)), 2), array($with_score['v/ann'], count($with_score['ann'])), 'and its cells are kept beside the ones of the contestant');
-check_same($board, array_values(array_filter($with_ann, function($row) {
-	return !isset($row[2][3]);
-})), 'the rows of the contestants are untouched');
-
-// under the ICPC rule the replay shows a solved problem from the moment it was solved, though
-// its penalty says more, and counts the participation as the contest would
-$icpc_final = array(array('ann', 0, 100, 300 + 2 * 1200, 11, 2), array('bob', 0, 100, 1800, 13, 0), array('bob', 1, 0, 0, 14, 3));
-$icpc_board = function($mine, $elapsed, $ended = false) use ($people, $icpc_final, $me) {
-	$lines = array();
-	foreach (virtualStandings($people, $icpc_final, $me, $mine, $elapsed, $ended, 2, 'ICPC') as $row) {
-		$lines[] = $row['rank'] . ' ' . $row['username'] . ($row['virtual'] ? '*' : '') . ' ' . $row['score'] . '/' . $row['penalty'];
+	foreach (virtualRankTogether($board, $unofficial) as $row) {
+		$lines[] = $row[3] . ' ' . $row[2][0];
 	}
 	return join(', ', $lines);
 };
-check_same('1 ann 100/2700, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $icpc_board(array(), 600), 'ann solved it after five minutes, with the penalty of her two attempts in vain');
-check_same('1 me* 0/0, 1 20260101 0/0, 1 ann 0/0, 1 bob 0/0', $icpc_board(array(), 200), 'and not before');
-check_same('1 me* 100/1700, 2 ann 100/2700, 3 20260101 0/0, 3 bob 0/0', $icpc_board(array(array(21, 100, 0, 0), array(22, 500, 0, 100), array(23, 550, 0, 0)), 600), 'one attempt in vain costs twenty minutes, and what comes after solving changes nothing');
-check_same('1 ann 100/2700, 2 me* 0/0, 2 20260101 0/0, 2 bob 0/0', $icpc_board(array(array(21, 100, 0, 0), array(22, 300, 0, 60)), 600), 'a problem that is not solved costs nothing');
-$icpc_cells = function($username, $ended) use ($people, $icpc_final, $me) {
-	foreach (virtualStandings($people, $icpc_final, $me, array(), 3600, $ended, 2, 'ICPC') as $row) {
-		if ($row['username'] === $username && !$row['virtual']) {
-			return $row['cells'];
-		}
-	}
-};
-check_same(array(0 => array(100, 1800, 13, 0, 0)), $icpc_cells('bob', false), 'what bob never solved is not shown while the participation runs');
-check_same(array(0, 0, 14, 3, 0), $icpc_cells('bob', true)[1], 'and is when it is over, with how often he tried');
+check_same('1 ann, 2 bob, 2 cat, 4 dan', $ranked(array()), 'a board nobody sat virtually is the board');
+check_same('1 *eve, 2 ann, 3 bob, 3 cat, 5 dan', $ranked(array($sat('eve', 300, 0))), 'better than everybody: first, and everybody is one down');
+check_same('1 ann, 2 *eve, 3 bob, 3 cat, 5 dan', $ranked(array($sat('eve', 100, 200))), 'between two contestants');
+check_same('1 ann, 2 *eve, 2 bob, 2 cat, 5 dan', $ranked(array($sat('eve', 100, 300))), 'level with contestants: their rank, and who comes after is one more down');
+check_same('1 ann, 2 bob, 2 cat, 4 *eve, 5 dan', $ranked(array($sat('eve', 100, 301))), 'behind two who are level');
+check_same('1 ann, 2 bob, 2 cat, 4 *eve, 4 dan', $ranked(array($sat('eve', 0, 0))), 'with nothing: level with who has nothing');
+check_same('1 *fay, 2 ann, 3 *eve, 4 *gus, 5 bob, 5 cat, 7 dan', $ranked(array($sat('gus', 100, 250), $sat('eve', 100, 200), $sat('fay', 300, 0))), 'several of them');
+check_same('1 ann, 2 *ann, 3 bob, 3 cat, 5 dan', $ranked(array($sat('ann', 100, 100))), 'a contestant who sat it again is two people');
+$together = virtualRankTogether($board, array($sat('eve', 100, 200)));
+check_same(array(array('*eve', 1500, ''), 4), array($together[1][2], count($together[1])), 'a row is score, penalty, who and rank');
+check_same(array(array(), array()), array(virtualRankTogether(array(), array()), virtualRankTogether(array(), array())), 'nobody at all');
 
+// ---- what somebody is told before they sit a contest virtually
+$told = function($rule, $minutes, $freeze) {
+	return join("\n", virtualRules($rule, $minutes, $freeze));
+};
+$icpc = $told('ICPC', 300, 4 * 3600);
+foreach (array('比赛时长为 300 分钟', '每道题目均不计算部分分', '第一次通过提交后', '20 分钟的罚时', '没有通过的题目不会计算罚时',
+		'!比赛中途不会显示提交记录在任何测试点（包括样例）的详细信息', '比赛开始 4:00 后将会封榜', '解决问题的数量从高到低', '名字前带 * 号') as $said) {
+	check_same(true, strpos($icpc, $said) !== false, "the rules of an ICPC contest say: $said");
+}
+check_same(false, strpos($told('ICPC', 300, null), '封榜'), 'a contest whose board does not freeze says nothing of it');
+$oi = $told('OI', 180, null);
+foreach (array('比赛时长为 180 分钟', '可以得到部分分', '以最后一次提交为准', '正式比赛中只用样例评测', '以总分从高到低') as $said) {
+	check_same(true, strpos($oi, $said) !== false, "the rules of an OI contest say: $said");
+}
+check_same(array(false, false), array(strpos($oi, '罚时'), strpos($oi, '封榜')), 'and nothing of penalties or a frozen board');
+check_same(array(true, false), array(strpos($told('IOI', 60, null), '可以得到部分分') !== false, strpos($told('IOI', 60, null), '只用样例评测')), 'the IOI rule judges with everything in the contest too');
+check_same(1, count(array_filter(virtualRules('ICPC', 300, 3600), function($line) {
+	return $line[0] === '!';
+})), 'one line is to be noticed');

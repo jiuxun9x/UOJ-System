@@ -395,6 +395,9 @@ function echoSubmission($submission, $config, $user) {
 	}
 	
 	$status = explode(', ', $submission['status'])[0];
+	// The contest a row is shown as a submission of: the one it was made in, or - 'as_in_contest' -
+	// the one its submitter sits virtually, whose submissions are submissions to its problems.
+	$in_contest = isset($config['as_in_contest']) ? (int)$config['as_in_contest'] : (isset($submission['contest_id']) ? $submission['contest_id'] : null);
 	
 	$show_status_details = Auth::check() && $submission['submitter'] === Auth::id() && $status !== 'Judged';
 	
@@ -408,7 +411,7 @@ function echoSubmission($submission, $config, $user) {
 	}
 	if (!isset($config['problem_hidden'])) {
 		// 'inside': the list is the list of one contest or one homework
-		echo '<td>', getSubmissionProblemLink($problem, $submission['contest_id'], isset($submission['homework_id']) ? $submission['homework_id'] : null, isset($config['inside'])), '</td>';
+		echo '<td>', getSubmissionProblemLink($problem, $in_contest, isset($submission['homework_id']) ? $submission['homework_id'] : null, isset($config['inside'])), '</td>';
 	}
 	if (!isset($config['submitter_hidden'])) {
 		echo '<td>', $submitterLink, '</td>';
@@ -423,7 +426,7 @@ function echoSubmission($submission, $config, $user) {
 				} else {
 					echo '<a href="/submission/', $submission['id'], '" class="small">', $submission['result_error'], '</a>';
 				}
-			} elseif (!empty($submission['contest_id']) && submissionContestRule($submission['contest_id']) === 'ICPC') {
+			} elseif (!empty($in_contest) && submissionContestRule($in_contest) === 'ICPC') {
 				// under the ICPC rule a submission passed or did not, and is said to
 				$verdict = submissionVerdict($submission);
 				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '" title="', HTML::escape($verdict), '"><strong>', HTML::escape(verdictShort($verdict)), '</strong>', $verdict === 'Accepted' ? passedMark() : '', '</a>';

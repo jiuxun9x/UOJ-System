@@ -1593,14 +1593,16 @@ function showStandings() {
 			}).join('') +
 		'</tr>',
 		function(row) {
-			// Somebody who sat the contest virtually afterwards stands where they would have
-			// stood, with the rank they would have had: their cells are kept under "v/" and
-			// their name, since they may have taken part as well.
-			var virtual = row[2][3] === 'v';
-			var cells = score[(virtual ? 'v/' : '') + row[2][0]] || {};
-			var col_tr = virtual ? '<tr class="uoj-standings-virtual" data-virtual="' + row[2][0] + '">' : '<tr>';
-			col_tr += '<td>' + (virtual ? '<span class="text-muted" title="赛后虚拟参赛：放在正式比赛里是第 ' + row[3] + ' 名">(' + row[3] + ')</span>' : row[3]) + '</td>';
-			col_tr += '<td>' + getUserLink(row[2][0], row[2][1], undefined, row[2][2]) + (virtual ? ' <span class="badge badge-info">虚拟</span>' : '') + '</td>';
+			// Somebody who sat the contest virtually is on the board as "*" and their name:
+			// with a star before the name, ranked among the contestants.
+			var key = String(row[2][0]);
+			var virtual = key.charAt(0) === '*';
+			var name = virtual ? key.substr(1) : key;
+			var cells = score[key] || {};
+			var classes = (virtual ? 'uoj-standings-virtual' : '') + (typeof standings_me === 'string' && (standings_me === key || '*' + standings_me === key) ? ' table-warning uoj-standings-me' : '');
+			var col_tr = '<tr' + (classes ? ' class="' + $.trim(classes) + '"' : '') + (virtual ? ' data-virtual="' + name + '"' : '') + '>';
+			col_tr += '<td>' + row[3] + '</td>';
+			col_tr += '<td>' + (virtual ? '<span class="uoj-unofficial-star" title="非官方：赛后虚拟参赛">*</span>' : '') + getUserLink(name, row[2][1], undefined, row[2][2]) + '</td>';
 			col_tr += '<td>' + '<div><span class="uoj-score" data-max="' + problems.length * 100 + '" style="color:' + getColOfScore(row[0] / problems.length) + '">' + row[0] + '</span></div>' + '<div>' + getPenaltyTimeStr(row[1]) + '</div></td>';
 			for (var i = 0; i < problems.length; i++) {
 				col_tr += '<td>';
@@ -1624,9 +1626,11 @@ function showStandings() {
 			page_len: 100,
 			print_after_table: function() {
 				var contestants = $.grep(standings, function(row) {
-					return row[2][3] !== 'v';
+					return String(row[2][0]).charAt(0) !== '*';
 				}).length;
-				return '<div class="text-right text-muted">' + uojLocale("contests::n participants", contestants) + '</div>';
+				var others = standings.length - contestants;
+				return '<div class="text-right text-muted" id="standings-count">' + uojLocale("contests::n participants", contestants)
+					+ (others > 0 ? '，另有 ' + others + ' 人带 * 号（虚拟参赛）' : '') + '</div>';
 			}
 		}
 	);

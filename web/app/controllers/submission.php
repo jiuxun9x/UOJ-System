@@ -118,8 +118,15 @@
 	// tests. What the compiler said of a program that did not compile is told all the same:
 	// it says nothing about the tests.
 	$is_owner = $myUser != null && $submission['submitter'] === $myUser['username'];
+	// Somebody who sits a contest virtually is told what a contestant was told: the outcome,
+	// and not the single tests, until their participation is over. (Who looks after the
+	// problem sees everything, as always.)
+	$sits_virtually = $is_owner && $out_status == 'Judged' && !can($myUser, 'problem.manage', $problem) && virtualRunningOfSubmission($submission) !== null;
+	if ($sits_virtually) {
+		$should_show_all_details = false;
+	}
 	$details_wait_for_the_contest = !$should_show_all_details && $is_owner && $out_status == 'Judged'
-		&& $contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS;
+		&& (($contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS) || $sits_virtually);
 	$show_compile_error = $details_wait_for_the_contest && $submission['result_error'] === 'Compile Error';
 ?>
 <?php 
@@ -221,7 +228,11 @@
 		</div>
 	</div>
 <?php elseif ($details_wait_for_the_contest): ?>
+	<?php if ($sits_virtually): ?>
+	<p class="text-muted text-center" id="details-after-virtual">虚拟参赛进行中，和比赛时一样不显示每个测试点的结果；结束后可以在这里看到。</p>
+	<?php else: ?>
 	<p class="text-muted text-center" id="details-after-contest">比赛进行中不显示每个测试点的结果，比赛结束后可以在这里看到。</p>
+	<?php endif ?>
 <?php endif ?>
 
 <?php if (isset($rejudge_form)): ?>

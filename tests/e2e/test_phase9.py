@@ -196,21 +196,23 @@ class FrozenBoardTest(unittest.TestCase):
         self.assertEqual(rows["p9_frz_fay"][2]["B"][0], "first")
 
 
-def final_board(client, contest_id, rule, query=""):
-    """the board of a contest that is over, as somebody is shown it: rows of (username, rank,
-    whether the row is a virtual participation) in the order of the board, and the page"""
+def board_of(client, contest_id, rule, query=""):
+    """the board of a contest as somebody is shown it: rows of (username, rank, whether the row
+    is of somebody who sat the contest virtually) in the order of the board, and the page"""
     page = client.get("/contest/%d/standings%s" % (contest_id, query)).text
     if rule == "ICPC":
         found = re.findall(r'<tr(?: class="uoj-scoreboard-me")? data-username="([^"]+)"( data-virtual="1")? data-rank="(\d+)"', page)
         return [(name, int(rank), virtual != "") for name, virtual, rank in found], page
-    # the other boards are drawn in the browser, from what the page hands its script
+    # the other boards are drawn in the browser, from what the page hands its script: who sat
+    # the contest virtually is on them as "*" and their name
     standings = json.loads(re.search(r"(?m)^standings=(.*);$", page).group(1))
-    return [(row[2][0], int(row[3]), len(row[2]) > 3 and row[2][3] == "v") for row in standings], page
+    return [(row[2][0].lstrip("*"), int(row[3]), row[2][0].startswith("*")) for row in standings], page
 
 
 class VirtualInContestTest(unittest.TestCase):
-    """a contest that is over is sat again in its own pages, as Codeforces does it, and what
-    came of that is shown on its board afterwards, marked, for whoever wants to see it"""
+    """a contest that is over is sat again the way QOJ has it: its rules and a button that
+    starts; then its own pages, as during the contest; and on its board, under a star, among
+    the contestants, for whoever asks for the board with the people who are not contestants"""
 
     def sat(self, contest_id, client, elapsed, submitted):
         """moves a virtual participation in time: it began so many seconds ago, and what was
@@ -221,12 +223,6 @@ class VirtualInContestTest(unittest.TestCase):
             db("update submissions set submit_time = date_add((select start_time from contest_virtuals where %s), interval %d second) where id = %d"
                % (where, seconds, submission_id))  # fmt: skip
 
-    def replayed(self, client, contest_id):
-        """the board of the contest as somebody who sits it is shown it: (username, rank, whether the row is theirs)"""
-        page = client.get("/contest/%d/standings" % contest_id).text
-        self.assertIn('id="table-virtual-standings"', page)
-        return [(name, int(rank), "virtual-my-row" in attrs) for attrs, name, rank in re.findall(r'<tr([^>]*) data-username="([^"]+)" data-rank="(\d+)">', page)]
-
     def check(self, rule, prefix):
         admin = uoj.admin()
         first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
@@ -234,15 +230,17 @@ class VirtualInContestTest(unittest.TestCase):
         here, virtual = "/contest/%d" % contest_id, "/contest/%d/virtual" % contest_id
         early, late, sitter, quick, watcher = (p3.account(prefix + name) for name in ("early", "late", "sitter", "quick", "watcher"))
         name = lambda client: client.username
+        board = lambda client, query="": board_of(client, contest_id, rule, query)
         for client in (early, late):
             client.register_for_contest(contest_id)
 
-        # ---- the contest: early solves A five minutes in, late thirty minutes in
+        # ---- the contest: early solves A five minutes in; late fails it at twenty and solves it at thirty
         uoj.move_contest(contest_id, -600)
-        solved = {5: early.submit_in_contest(contest_id, first, AB), 30: late.submit_in_contest(contest_id, first, AB)}
+        made = [(5, early.submit_in_contest(contest_id, first, AB)), (20, late.submit_in_contest(contest_id, first, AB_WRONG)),
+                (30, late.submit_in_contest(contest_id, first, AB))]  # fmt: skip
         uoj.wait_idle()
         uoj.move_contest(contest_id, -7200)
-        for minutes, submission_id in solved.items():
+        for minutes, submission_id in made:
             db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
                % (contest_id, minutes, submission_id))  # fmt: skip
         if rule == "OI":
@@ -250,78 +248,113 @@ class VirtualInContestTest(unittest.TestCase):
             uoj.wait_idle()
         self.assertEqual(admin.submit_form(here, "publish_result"), "")
         real = [(name(early), 1, False), (name(late), 2, False)]
-        rows, page = final_board(watcher, contest_id, rule)
+        rows, page = board(watcher)
         self.assertEqual(rows, real)
-        # nobody sat it again yet: the board has nothing to offer
-        self.assertNotIn('id="standings-virtual-switch"', page)
+        # nobody sat it again yet: the board has nobody else to show
+        self.assertNotIn('id="standings-unofficial"', page)
 
+        # ---- the page that starts it says what the rules are, and has one button
+        page = sitter.get(virtual).text
+        told = uoj.text_of(page)
+        for said in ("虚拟比赛规则", "比赛时长为 60 分钟", "比赛中途不会显示提交记录在任何测试点（包括样例）的详细信息", "名字前带 * 号", "点击下方按钮立即开始您的虚拟参赛"):
+            self.assertIn(said, told)
+        self.assertIn("20 分钟的罚时" if rule == "ICPC" else "以最后一次提交为准", told)
+        self.assertEqual(page.count('id="button-virtual-start"'), 1)
         # ---- starting takes one into the contest itself
         r = sitter.post(virtual, {"form": "start"})
         self.assertEqual((r.status_code, r.headers["Location"]), (302, here))
         r = sitter.get(virtual)
         self.assertEqual((r.status_code, r.headers["Location"]), (302, here))
-        # whose pages are now the pages of the participation: the problems, and the clock
+        # whose pages are what they were while it ran: its problems, and a clock that runs down
         page = sitter.get(here).text
-        for mark in ('id="virtual-running"', 'id="virtual-clock"', 'id="table-virtual-problems"', 'href="/contest/%d/problem/A"' % contest_id):
-            self.assertIn(mark, page)
+        self.assertIn('id="virtual-clock"', page)
+        self.assertIn("距离比赛结束", uoj.text_of(page))
+        self.assertRegex(page, r'<a href="/contest/%d/problem/A">' % contest_id)
         self.assertNotIn('id="link-virtual"', page)
-        # to everybody else they are what they were
+        # to everybody else the contest is over
         page = watcher.get(here).text
-        self.assertNotIn('id="virtual-running"', page)
+        self.assertNotIn('id="virtual-clock"', page)
         self.assertIn('id="link-virtual"', page)
 
         # ---- a problem is submitted to as in the contest, and one is taken where the contest takes one
         r = sitter.post(here + "/problem/A", {
-            "submit-answer": "answer", "answer_answer_upload_type": "editor", "answer_answer_editor": AB, "answer_answer_language": "C++17",
+            "submit-answer": "answer", "answer_answer_upload_type": "editor", "answer_answer_editor": AB_WRONG, "answer_answer_language": "C++17",
         })  # fmt: skip
         self.assertEqual((r.status_code, r.headers["Location"]), (302, here + "/submissions"))
-        own = int(db_value("select max(id) from submissions where submitter = '%s' and problem_id = %d" % (name(sitter), first)))
-        uoj.wait_submission(own)
-        mine = {own: 600}
-        # twenty minutes in: the list of the contest is the list of what one submitted in it
+        wrong = int(db_value("select max(id) from submissions where submitter = '%s' and problem_id = %d" % (name(sitter), first)))
+        own = sitter.submit(first, AB, path=here + "/problem/A")
+        for submission_id in (wrong, own):
+            uoj.wait_submission(submission_id)
+        mine = {wrong: 480, own: 600}
+        # twenty minutes in: the list of the contest is the list of what one submitted in it,
+        # said the way the contest says it
         self.sat(contest_id, sitter, 1200, mine)
         page = sitter.get(here + "/submissions").text
-        self.assertIn('id="table-virtual-submissions"', page)
-        self.assertIn('href="/submission/%d"' % own, page)
-        # and its board is the board as it was twenty minutes into the contest, with oneself on it
-        self.assertEqual(self.replayed(sitter, contest_id), [(name(early), 1, False), (name(sitter), 2, True), (name(late), 3, False)])
-        # the board of everybody else is the board of the contest: a participation that is not
-        # over is on no board
-        for query in ("", "?virtual=1"):
-            rows, page = final_board(watcher, contest_id, rule, query)
-            self.assertEqual(rows, real, query)
-            self.assertNotIn('id="standings-virtual-switch"', page)
+        for submission_id in (wrong, own):
+            self.assertIn('href="/submission/%d"' % submission_id, page)
+        self.assertRegex(page, r'<a href="/contest/%d/problem/A">A\. ' % contest_id)
+        if rule == "ICPC":
+            self.assertRegex(page, r'href="/submission/%d" class="uoj-verdict text-success" title="Accepted"><strong>AC</strong>' % own)
+            self.assertRegex(page, r'href="/submission/%d" class="uoj-verdict text-danger" title="Wrong Answer"><strong>WA</strong>' % wrong)
+        self.assertNotIn('href="/submission/%d"' % made[0][1], page)
+        # As in the contest, how a submission did on the single tests is not told while the
+        # participation runs - to who sits it; who looks after the problem sees everything.
+        page = sitter.get("/submission/%d" % wrong).text
+        self.assertIn('id="details-after-virtual"', page)
+        self.assertNotIn("uoj-verdict-short", page)
+        self.assertIn("uoj-verdict-short", admin.get("/submission/%d" % wrong).text)
 
-        # ---- when it is over, the pages of the contest are the pages of the contest again
+        # ---- the board is the board of the same moment of the contest, with everybody on it
+        # who sits it: early solved A after five minutes, the sitter after ten, late has not yet
+        replayed = [(name(early), 1, False), (name(sitter), 2, True), (name(late), 3, False)]
+        rows, page = board(sitter)
+        self.assertEqual(rows, replayed)
+        self.assertIn('id="standings-replayed"', page)
+        self.assertRegex(page, r'id="input-show-unofficial" checked="checked" data-href="%s/standings\?unofficial=0"' % here)
+        if rule == "ICPC":
+            # the attempts are on it as they were made: late had failed once by then
+            self.assertRegex(page, r'(?s)data-username="%s" data-rank="3".*?<td class="uoj-icpc-failed" data-problem="A"><a[^>]*>-1</a>' % name(late))
+            self.assertRegex(page, r'(?s)data-username="%s" data-virtual="1" data-rank="2".*?<td class="uoj-icpc-solved" data-problem="A"><a[^>]*>\+1</a>' % name(sitter))
+            self.assertRegex(page, r'<tr class="uoj-scoreboard-me" data-username="%s" data-virtual="1"' % name(sitter))
+            self.assertRegex(page, r'<span class="uoj-unofficial-star"[^>]*>\*</span><span class="uoj-username"[^>]*>%s<' % name(sitter))
+        else:
+            self.assertRegex(page, r'(?m)^standings_me="\*%s";$' % name(sitter))
+        # asked for the contestants alone, it is the contest at that moment without the sitter
+        rows, page = board(sitter, "?unofficial=0")
+        self.assertEqual(rows, [(name(early), 1, False), (name(late), 2, False)])
+        self.assertRegex(page, r'id="input-show-unofficial" data-href="%s/standings\?unofficial=1"' % here)
+        # forty minutes in, late has solved it too
+        self.sat(contest_id, sitter, 2400, mine)
+        self.assertEqual(board(sitter)[0], replayed)
+        if rule == "ICPC":
+            self.assertRegex(board(sitter)[1], r'(?s)data-username="%s" data-rank="3".*?<td class="uoj-icpc-solved" data-problem="A"><a[^>]*>\+1</a>' % name(late))
+        # Everybody else sees the contest as it ended, and who sits it when they ask: as far
+        # as that one has come.
+        rows, page = board(watcher)
+        self.assertEqual(rows, real)
+        self.assertRegex(page, r'id="input-show-unofficial" data-href="%s/standings\?unofficial=1"' % here)
+        self.assertNotIn(name(sitter), page)
+        self.assertEqual(board(watcher, "?unofficial=1")[0], replayed)
+
+        # ---- when it is over, the pages of the contest are the pages of a contest that is over
         self.sat(contest_id, sitter, 4000, mine)
         page = sitter.get(here).text
-        self.assertNotIn('id="virtual-running"', page)
+        self.assertNotIn('id="virtual-clock"', page)
         self.assertIn('id="link-virtual"', page)
         page = sitter.get(virtual).text
         self.assertIn('id="virtual-ended"', page)
-        self.assertIn('id="link-virtual-on-board" href="/contest/%d/standings?virtual=1"' % contest_id, page)
-        # Whoever sat it sees themselves on its board without asking: where they would have
-        # stood, with the rank they would have had. Solved ten minutes in, that is behind
-        # early and before late, whose rank is what it was.
-        with_sitter = [(name(early), 1, False), (name(sitter), 2, True), (name(late), 2, False)]
-        rows, page = final_board(sitter, contest_id, rule)
-        self.assertEqual(rows, with_sitter)
-        self.assertRegex(uoj.text_of(page), r"有 1 人赛后虚拟参赛")
-        self.assertIn('href="/contest/%d/standings?virtual=0"' % contest_id, page)
-        rows, page = final_board(sitter, contest_id, rule, "?virtual=0")
-        self.assertEqual(rows, real)
-        self.assertIn('href="/contest/%d/standings?virtual=1"' % contest_id, page)
-        # everybody else sees the contestants, and the others when they ask
-        rows, page = final_board(watcher, contest_id, rule)
-        self.assertEqual(rows, real)
-        self.assertIn('id="standings-virtual-switch"', page)
-        self.assertNotIn(name(sitter), page)
-        rows, page = final_board(watcher, contest_id, rule, "?virtual=1")
-        self.assertEqual(rows, with_sitter)
+        self.assertRegex(page, r'id="virtual-rank">2</strong> 名（共 3 人）')
+        self.assertIn('id="link-virtual-on-board" href="/contest/%d/standings?unofficial=1"' % contest_id, page)
+        self.assertNotIn('id="details-after-virtual"', sitter.get("/submission/%d" % wrong).text)
+        # whoever sat it sees the board with themselves on it without asking, everybody else when they ask
+        self.assertEqual(board(sitter)[0], replayed)
+        self.assertEqual(board(sitter, "?unofficial=0")[0], real)
+        self.assertEqual(board(watcher)[0], real)
+        self.assertEqual(board(watcher, "?unofficial=1")[0], replayed)
         # and nothing of the contest has changed
         self.assertEqual(db("select username, `rank` from contests_registrants where contest_id = %d order by `rank`" % contest_id), [[name(early), "1"], [name(late), "2"]])
 
-        # ---- somebody who solves both problems in two minutes stands before everybody, and is first at nothing
+        # ---- somebody who solves both problems in two minutes is before everybody
         self.assertEqual(quick.form(virtual, "start"), "")
         theirs = {quick.submit(first, AB, path=here + "/problem/A"): 60, quick.submit(second, AB, path=here + "/problem/B"): 120}
         for submission_id in theirs:
@@ -330,34 +363,33 @@ class VirtualInContestTest(unittest.TestCase):
         # somebody who took part and sits it again is on the board twice
         self.assertEqual(early.form(virtual, "start"), "")
         self.sat(contest_id, early, 4000, {})
-        rows, page = final_board(watcher, contest_id, rule, "?virtual=1")
-        self.assertEqual(rows, [(name(quick), 1, True), (name(early), 1, False), (name(sitter), 2, True), (name(late), 2, False), (name(early), 3, True)])
-        self.assertRegex(uoj.text_of(page), r"有 3 人赛后虚拟参赛")
+        rows, page = board(watcher, "?unofficial=1")
+        self.assertEqual(rows, [(name(quick), 1, True), (name(early), 2, False), (name(sitter), 3, True), (name(late), 4, False), (name(early), 5, True)])
+        self.assertIn("赛后虚拟参赛的 3 人", uoj.text_of(page))
         if rule == "ICPC":
-            board = page[page.index('id="table-icpc-standings"'):]
-            # who solved a problem first, and how many solved it, is said of the contestants
-            self.assertEqual(re.findall(r'data-solved-by="(\d+)"', board), ["2", "0"])
-            cells = re.findall(r'<tr[^>]* data-username="([^"]+)"( data-virtual="1")? [^>]*>.*?<td class="uoj-icpc-(\w*)" data-problem="A">', board, re.S)
-            self.assertEqual([(who, kind) for who, virtual, kind in cells if who in (name(quick), name(early)) and kind],
-                             [(name(quick), "solved"), (name(early), "first")])  # fmt: skip
-            # a rank that nobody holds is written as one: (1)
-            self.assertRegex(board, r'data-username="%s" data-virtual="1" data-rank="1"[^>]*>\s*<td><span class="text-muted" title="[^"]*">\(1\)</span></td>' % name(quick))
-            self.assertRegex(board, r'data-username="%s" data-rank="1"[^>]*>\s*<td>1</td>' % name(early))
-            # and the contestants are as many as they were
-            self.assertIn("共 2 名参赛者", uoj.text_of(page))
+            # the contestants are counted as what they are
+            self.assertIn("共 2 名参赛者，另有 3 人带 * 号", uoj.text_of(page))
+            # with everybody on the board, everybody is among who solved a problem, and who was first
+            self.assertEqual(re.findall(r'data-solved-by="(\d+)"', page), ["4", "1"])
+            self.assertRegex(page, r'(?s)data-username="%s" data-virtual="1" data-rank="1".*?<td class="uoj-icpc-first" data-problem="A">' % name(quick))
+            # and without them, the contestants are
+            board_alone = board(watcher)[1]
+            self.assertEqual(re.findall(r'data-solved-by="(\d+)"', board_alone), ["2", "0"])
+            self.assertRegex(board_alone, r'(?s)data-username="%s" data-rank="1".*?<td class="uoj-icpc-first" data-problem="A">' % name(early))
         else:
-            # the cells of a virtual row are kept beside the ones its user has as a contestant
             score = json.loads(re.search(r"(?m)^score=(.*);$", page).group(1))
-            self.assertEqual(sorted(key for key in score if key.startswith("v/")), sorted("v/" + name(client) for client in (quick, sitter, early)))
-            self.assertEqual([cell[0] for cell in score["v/" + name(quick)]], [100, 100])
+            self.assertEqual(sorted(key for key in score if key.startswith("*")), sorted("*" + name(client) for client in (quick, sitter, early)))
+            self.assertEqual([cell[0] for cell in score["*" + name(quick)]], [100, 100])
             self.assertEqual(len(score[name(early)]), 1)
 
         # ---- sitting it once more takes the last time off the board: one participation each
         self.assertEqual(sitter.form(virtual, "start"), "")
-        rows, page = final_board(watcher, contest_id, rule, "?virtual=1")
-        self.assertNotIn((name(sitter), 2, True), rows)
-        self.assertRegex(uoj.text_of(page), r"有 2 人赛后虚拟参赛")
-        self.assertIn('id="virtual-running"', sitter.get(here).text)
+        rows, page = board(watcher, "?unofficial=1")
+        # (with nothing yet, level with who sat it and solved nothing)
+        self.assertEqual([row for row in rows if row[0] == name(sitter)], [(name(sitter), 4, True)])
+        self.assertIn('id="virtual-clock"', sitter.get(here).text)
+        # the sitter is at the start again, where nobody has anything
+        self.assertEqual(sorted(board(sitter)[0]), sorted([(name(early), 1, False), (name(late), 1, False), (name(sitter), 1, True), (name(quick), 1, True), (name(early), 1, True)]))
 
     def test_contest_is_sat_in_its_own_pages_and_shown_on_its_board(self):
         self.check("OI", "p9_vo_")
