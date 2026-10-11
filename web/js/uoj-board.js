@@ -311,6 +311,10 @@
 	words();
 	tick();
 	live(true);
+	// the bar stands where the contest is, and moves on from there
+	setTimeout(function() {
+		$('#outer-board-progress').addClass('uoj-ob-progress-going');
+	}, 50);
 	setInterval(tick, 1000);
 	later();
 })(jQuery);

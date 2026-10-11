@@ -181,6 +181,9 @@ body.uoj-ob-dark-page .uoj-ob {
 	border-radius: 999px;
 	background-color: var(--ob-accent);
 	opacity: 0.9;
+}
+/* it goes on with the clock - once it stands where the contest is, not on its way there */
+.uoj-ob-progress-going .uoj-ob-progress-done {
 	transition: width 1s linear;
 }
 .uoj-ob-progress-frozen {
@@ -393,6 +396,11 @@ body.uoj-ob-dark-page .uoj-ob {
 	margin-right: 0.4em;
 	border-radius: 0.25rem;
 	vertical-align: -0.2em;
+}
+
+/* a board of scores knows no dirt */
+.uoj-ob:not([data-rule="ICPC"]) .uoj-ob-legend-dirt {
+	display: none;
 }
 
 /* ---- on a telephone the table scrolls sideways under a head that is its own lines */

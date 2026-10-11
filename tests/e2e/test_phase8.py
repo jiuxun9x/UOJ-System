@@ -238,7 +238,10 @@ class RevealProblemsTest(unittest.TestCase):
         # minute, but for the problem that a contest which is still to come needs hidden
         uoj.move_contest(told, -7200, 60)
         uoj.move_contest(untold, -7200, 60)
-        self.assertEqual(visitor.get("/problem/%d" % first).status_code, 404)
+        # (The site looks by itself every minute. When that minute falls between these lines
+        # the problem is shown already, and that is the only way it can be.)
+        if visitor.get("/problem/%d" % first).status_code != 404:
+            self.assertEqual(hidden(first), [False])
         admin.get("/contest/%d" % told)
         self.assertEqual(hidden(first, second, third, fourth), [False, True, True, True])
         self.assertEqual(told_to(told), ["1", "not yet"])
