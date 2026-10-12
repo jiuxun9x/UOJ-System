@@ -562,14 +562,6 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	margin-left: 2px;
 	font-size: 80%;
 }
-.uoj-balloon-dot {
-	display: inline-block;
-	width: 0.8em;
-	height: 0.8em;
-	border: 1px solid rgba(0, 0, 0, 0.3);
-	border-radius: 50%;
-	vertical-align: baseline;
-}
 .uoj-balloons > tbody > tr > td {
 	vertical-align: middle;
 }

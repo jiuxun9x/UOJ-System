@@ -578,8 +578,9 @@ class BalloonTest(unittest.TestCase):
         self.assertEqual(legend(page), [("A", "#e53935"), ("B", "#00ff00")])
         self.assertRegex(page, r'(?s)data-balloon="p9_bal_bob/B".*?background-color:#00ff00;color:#000000.*?荧光绿')
         self.assertIn('id="balloon-settings"', admin.get(balloons).text)
-        # the contestants see what a problem is worth, on the page of the contest and on its board
-        self.assertRegex(ann.get(here).text, r'class="uoj-balloon-dot" style="background-color:#00ff00" title="气球：荧光绿"')
+        # the contestants see what a problem is worth at the head of the board, and the list of
+        # the problems is a list of problems
+        self.assertNotIn("uoj-balloon", ann.get(here).text)
         self.assertIn('data-balloon="#00ff00"', ann.get(here + "/standings").text)
 
         # ---- a contestant says where they sit, and nobody else does it for them

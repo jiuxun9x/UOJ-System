@@ -405,8 +405,6 @@ EOD;
 			'attachments' => can(Auth::user(), 'contest.read', $contest) ? attachmentsOf('contest', $contest['id']) : array(),
 			'contest_notice' => $contest_notice,
 			'contest_problems' => $contest_problems,
-			// the colour of the balloon that a problem is worth, where there are balloons
-			'balloon_colors' => balloonsEnabled($contest) ? balloonColors($contest) : array(),
 			'post_question' => $post_question,
 			'my_questions_pag' => $my_questions_pag,
 			'others_questions_pag' => $others_questions_pag
