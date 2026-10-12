@@ -429,12 +429,36 @@ def balloon_is_ticked_without_loading_the_page(page, seeded):
 
 
 def balloon_settings_are_opened(page, seeded):
-    """the settings of the balloons: a colour that is ready fills in the colour and its name"""
-    page.click("#balloon-settings > summary")
+    """the settings of the balloons: a colour is picked from the ones that are ready, or written"""
+    # the button at the head of the page opens them, at the foot of it
+    page.click("#link-balloon-settings")
+    page.wait_for_selector("#table-balloon-colors", state="visible")
     row = "#table-balloon-colors tr[data-problem=A] "
+    code, picker, name, body = row + ".uoj-balloon-code input[type=text]", row + "input[type=color]", row + ".uoj-balloon-color-name", row + ".uoj-balloon-body"
     page.select_option(row + "select", label="紫色")
-    assert page.input_value(row + "input[type=color]") == "#8e24aa", page.input_value(row + "input[type=color]")
-    assert page.input_value(row + "input[type=text]") == "紫色"
+    assert (page.input_value(code), page.input_value(picker), page.input_value(name)) == ("#8e24aa", "#8e24aa", "紫色")
+    assert page.get_attribute(body, "fill") == "#8e24aa"
+    # a colour is typed as its code, short or long, or by its name: the balloon of the row is
+    # drawn in it at once, and the picker beside the field shows it
+    for typed, meant in (("#0a7", "#00aa77"), ("lightblue", "#add8e6"), ("E53935", "#e53935")):
+        page.fill(code, typed)
+        assert page.input_value(picker) == meant, (typed, page.input_value(picker))
+        assert page.get_attribute(body, "fill") == meant
+        assert page.input_value(row + "select") == ""
+    # the letter on a light balloon is dark, on a dark one light
+    page.fill(code, "#ffff00")
+    assert page.get_attribute(row + ".uoj-balloon text", "fill") == "#000000"
+    page.fill(code, "navy")
+    assert page.get_attribute(row + ".uoj-balloon text", "fill") == "#ffffff"
+    # what is no colour is marked as wrong, and changes nothing
+    page.fill(code, "not a colour")
+    assert "is-invalid" in page.get_attribute(code, "class")
+    assert page.input_value(picker) == "#000080"
+    page.fill(code, "#00aa77")
+    assert "is-invalid" not in page.get_attribute(code, "class")
+    # all of them as a text, a line for a problem
+    page.click("#balloon-bulk > summary")
+    assert page.input_value("#input-balloon-bulk").startswith("A #")
     page.locator("#balloon-settings").scroll_into_view_if_needed()
 
 
@@ -720,7 +744,7 @@ def pages(seeded):
 
 
 def main(out):
-    os.makedirs(out, exist_ok=True)
+    os.makedirs(os.path.join(out, "html"), exist_ok=True)
     clients = seed()
     # a page that does not do what it is there for does not stop the pictures of the others:
     # all of them are taken, and then all that went wrong is said
@@ -743,6 +767,11 @@ def main(out):
                 except Exception as e:
                     failures.append("%s (%s): %s: %s" % (name, label, type(e).__name__, str(e).strip().split("\n")[0][:400]))
                 page.screenshot(path=os.path.join(out, "%s-%s.png" % (name, label)), full_page=True)
+                if label == "desktop":
+                    # the page as the browser has it, to look at with a stylesheet that is being
+                    # worked on: served beside the css of the checkout, it is that page restyled
+                    with open(os.path.join(out, "html", name + ".html"), "w", encoding="utf-8") as f:
+                        f.write(page.content())
                 context.close()
                 print("took", name, label)
         browser.close()
