@@ -103,8 +103,10 @@
 					<label class="custom-control-label" for="input-import-public">导入后<?= $domain ? '对本域的成员' : '对所有人' ?>公开</label>
 					<small class="form-text text-muted">不勾选时导入的题目是隐藏的。模板里写了 <code>public</code> 的以模板为准。</small>
 				</div>
-				<button type="submit" class="btn btn-primary" id="button-import-problems"><span class="glyphicon glyphicon-import"></span> 导入</button>
-				<a class="btn btn-link" href="<?= $list ?>">返回题目列表</a>
+				<div class="uoj-actions">
+					<button type="submit" class="btn btn-primary" id="button-import-problems"><span class="glyphicon glyphicon-import"></span> 导入</button>
+					<a class="btn btn-link" href="<?= $list ?>">返回题目列表</a>
+				</div>
 			</div>
 		</form>
 	</div>
@@ -118,8 +120,10 @@
   problem.conf        评测设置（时限、比较方式、子任务……）
   data/               测试数据、校验器
   additional_file/    附件、题面里的图片</pre>
-				<a class="btn btn-primary btn-sm" id="link-import-package-template" href="<?= $here ?>?template=zip"><span class="glyphicon glyphicon-download-alt"></span> 下载题目包模板</a>
-				<a class="btn btn-outline-secondary btn-sm" id="link-import-conf-template" href="<?= $here ?>?template=conf">只要 problem.conf</a>
+				<div class="uoj-actions">
+					<a class="btn btn-primary btn-sm" id="link-import-package-template" href="<?= $here ?>?template=zip"><span class="glyphicon glyphicon-download-alt"></span> 下载题目包模板</a>
+					<a class="btn btn-outline-secondary btn-sm" id="link-import-conf-template" href="<?= $here ?>?template=conf">只要 problem.conf</a>
+				</div>
 				<ul class="pl-3 mb-0 mt-3 small text-muted">
 					<li>模板本身就能导入，里面有两道例题和一份完整的格式说明（<code>README.md</code>）。把说明和你的题目一起交给 AI，可以让它批量整理成这个格式。</li>
 					<li><code>problem.conf</code> 里每个设置都有注释，用不到的默认注释掉了；注释在导入时自动去掉。</li>
