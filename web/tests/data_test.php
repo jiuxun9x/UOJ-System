@@ -431,11 +431,26 @@ $as_text = "use_builtin_judger on\nn_tests 2\ntime_limit_2 3\n";
 check_same(array(array('use_builtin_judger' => 'on', 'n_tests' => '2', 'time_limit_2' => '3'), ''), problemConfFromText($as_text), 'a problem.conf that was written by hand');
 check_same($as_text, problemConfText(problemConfFromText($as_text)[0]), 'is written the way it was read');
 check_same(array('a' => '1', 'b' => 'x.cpp'), problemConfFromText("\r\n  a   1  \r\n\r\nb x.cpp")[0], 'empty lines and blanks at the ends say nothing');
-foreach (array('' => '空的', "\n \n" => '空的', "n_tests\n" => '第 1 行', "a 1\nn_tests 1 2\n" => '第 2 行', "a 1\na 2\n" => '写了两次', "键 1\n" => '字母', "a\t1\n" => '第 1 行', "a " . str_repeat('x', 201) => '太长') as $wrong => $said) {
+foreach (array('' => '空的', "\n \n" => '空的', "n_tests\n" => '第 1 行', "a 1\nn_tests 1 2\n" => '第 2 行', "a 1\na 2\n" => '写了两次', "键 1\n" => '字母', "a " . str_repeat('x', 201) => '太长',
+		"# nothing but a comment\n" => '空的', "a 1\n# a comment\n\nn_tests\n" => '第 4 行', "a 1#2 3\n" => '第 1 行') as $wrong => $said) {
 	list($conf, $err) = problemConfFromText($wrong);
 	check_same(array(null, true), array($conf, strpos($err, $said) !== false), 'no problem.conf: ' . json_encode(substr($wrong, 0, 30)));
 }
 check_same(null, problemConfFromText(array('a 1'))[0], 'what is no text is no problem.conf');
+
+// ---- a problem.conf with comments: they are for people, and the judgers never see them
+$commented = "\xEF\xBB\xBF# 评测设置\r\nuse_builtin_judger on   # 用内置的评测程序\r\n\ttime_limit\t1\t# 秒\r\n  # n_tests 10\r\n#memory_limit 512\r\ntoken a#b\r\n";
+check_same(array(array('use_builtin_judger' => 'on', 'time_limit' => '1', 'token' => 'a#b'), ''), problemConfFromText($commented), 'comments, tabs and a byte order mark say nothing');
+check_same("\nuse_builtin_judger on  \n time_limit 1\n\n\ntoken a#b\n", problemConfStripComments($commented), 'every line stays where it was');
+check_same(array(true, true, true, false, false), array(problemConfHasComments($commented), problemConfHasComments("a 1 # b\n"), problemConfHasComments("a\t1\n"), problemConfHasComments("a 1\ntoken a#b\n"), problemConfHasComments(null)), 'which texts have to be cleaned');
+$conf_file = tempnam(sys_get_temp_dir(), 'uoj_conf_');
+file_put_contents($conf_file, $commented);
+check_same(array(true, "use_builtin_judger on\ntime_limit 1\ntoken a#b\n"), array(problemConfCleanFile($conf_file), file_get_contents($conf_file)), 'a file that came with comments is kept without them');
+check_same(array(false, "use_builtin_judger on\ntime_limit 1\ntoken a#b\n"), array(problemConfCleanFile($conf_file), file_get_contents($conf_file)), 'and is then left as it is');
+file_put_contents($conf_file, "# broken\nn_tests\n\na 1\n");
+check_same(array(true, "n_tests\na 1\n"), array(problemConfCleanFile($conf_file), file_get_contents($conf_file)), 'one that is wrong loses its comments and is still wrong');
+unlink($conf_file);
+check_same(false, problemConfCleanFile($conf_file), 'no file, nothing to clean');
 
 // ---- what each file is to the problem
 $roles = problemFileRoles(array('data1.in', 'data1.out', 'ex_data1.in', 'ex_data2.out', 'my_checker.cpp', 'std.cpp', 'val.cpp', 'require/lib.h', 'download/tool.py', 'notes.md', 'chk.cpp'),

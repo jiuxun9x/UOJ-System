@@ -893,6 +893,7 @@ $(document).ready(function() {
 					<small class="form-text text-muted" id="conf-text-hint">
 						这是评测机读的配置，每行一个“键 值”。平时不用管它：右边的选项改了，这里跟着变，保存之后才写进题目。
 						选项里没有的设置（个别测试点的时限 <code>time_limit_3 5</code>、子任务依赖 <code>subtask_dependence_2 1</code> 等）打开“直接编辑”写在这里；之后再用右边的选项保存，这些行也会保留。
+						可以贴带注释的内容（以 <code>#</code> 开头的行，或行尾空格后的 <code># …</code>），保存时注释会去掉：评测机不认注释。
 					</small>
 				</form>
 			</div>

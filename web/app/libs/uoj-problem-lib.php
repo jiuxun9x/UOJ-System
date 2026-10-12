@@ -645,14 +645,32 @@ function problemConfText($conf) {
 	}
 	return $text;
 }
+// A problem.conf may be written with comments: a line that begins with "#", and whatever
+// follows a "#" that has a blank before it. The judgers read words and know no comments, so
+// the comments are taken out wherever a problem.conf comes in, and the file that is kept has
+// none. A tab is a blank. Every line stays where it was: what is wrong with one is said by
+// its number.
+function problemConfStripComments($text) {
+	$lines = preg_split('/\r\n|\r|\n/', preg_replace('/^\xEF\xBB\xBF/', '', (string)$text));
+	foreach ($lines as $index => $line) {
+		$line = str_replace("\t", ' ', $line);
+		$lines[$index] = preg_match('/^ *#/', $line) ? '' : preg_replace('/ #.*$/', '', $line);
+	}
+	return join("\n", $lines);
+}
+// whether a text that is to be a problem.conf has anything in it that the judgers can not read
+function problemConfHasComments($text) {
+	return is_string($text) && (strncmp($text, "\xEF\xBB\xBF", 3) === 0 || strpos($text, "\t") !== false || preg_match('/(^|[ \t\r\n])#/', $text) === 1);
+}
 // What a text says as a problem.conf: array(the conf, '') or array(null, what is wrong with
-// it). Every line is a key and a value with blanks between them; empty lines say nothing.
+// it). Every line is a key and a value with blanks between them; empty lines and comments
+// say nothing.
 function problemConfFromText($text) {
 	if (!is_string($text) || strlen($text) > 200000 || !mb_check_encoding($text, 'UTF-8')) {
 		return array(null, 'problem.conf 太长，或者不是 UTF-8 的文本');
 	}
 	$conf = array();
-	foreach (preg_split('/\r\n|\r|\n/', $text) as $index => $line) {
+	foreach (preg_split('/\n/', problemConfStripComments($text)) as $index => $line) {
 		if (trim($line) === '') {
 			continue;
 		}
@@ -697,6 +715,27 @@ function problemSaveConfText($problem, $text, $actor) {
 	putUOJConf("$upload_dir/problem.conf", $conf);
 	auditLog('problem.edit_conf', 'problem', $problem['id'], is_array($old_conf) ? $old_conf : null, $conf + array('written_as_text' => 1), $actor);
 	return '';
+}
+// A problem.conf that was uploaded with comments in it is written down without them, in the
+// place of the one that came. One that has none is left exactly as it came. Returns whether
+// the file was written anew.
+function problemConfCleanFile($path) {
+	if (!is_file($path) || is_link($path) || filesize($path) > 200000) {
+		return false;
+	}
+	$text = file_get_contents($path);
+	if (!problemConfHasComments($text)) {
+		return false;
+	}
+	list($conf, $err) = problemConfFromText($text);
+	if ($err === '') {
+		file_put_contents($path, problemConfText($conf));
+	} else {
+		// what is wrong with it is said when the data is checked: of its own lines then, not
+		// of its comments
+		file_put_contents($path, preg_replace('/\n+/', "\n", ltrim(problemConfStripComments($text), "\n")));
+	}
+	return true;
 }
 
 // ---- the files of a problem, one by one
@@ -944,6 +983,9 @@ function problemTakeUploadedFiles($problem, $field, $actor) {
 	if ($taken) {
 		auditLog('problem.upload_data', 'problem', $problem['id'], null, array('files' => count($taken), 'names' => array_slice(array_keys($taken), 0, 50), 'size' => array_sum($taken)), $actor);
 	}
+	if ($written > 0) {
+		problemConfCleanFile("$upload_dir/problem.conf");
+	}
 	return array($written, $refused);
 }
 
@@ -1147,6 +1189,7 @@ function problemTakeUploadedData($problem, $field, $actor) {
 		return array('refused', $errmsg);
 	}
 	auditLog('problem.upload_data', 'problem', $problem['id'], null, $upload_facts + array('files' => $unpacked), $actor);
+	problemConfCleanFile("/var/uoj_data/upload/{$problem['id']}/problem.conf");
 	return array('ok', $unpacked);
 }
 // whether the data that was uploaded for a problem says how it is to be judged
