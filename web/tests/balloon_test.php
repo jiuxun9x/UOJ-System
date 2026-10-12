@@ -68,7 +68,7 @@ foreach ($palette as $preset) {
 }
 check_same(array('color' => $palette[0][0], 'name' => $palette[0][1]), balloonDefaultColor(0), 'the first problem has the first colour');
 check_same(balloonDefaultColor(1), balloonDefaultColor(1 + count($palette)), 'more problems than colours: the colours come round again');
-foreach (array('#12ab9F' => '', '#000000' => '', 'red' => 'x', '#12345' => 'x', '#1234567' => 'x', '#12345g' => 'x', "#123456\n" => 'x', '' => 'x') as $color => $refused) {
+foreach (array('#12ab9F' => '', '#000000' => '', 'red' => '', '12ab9f' => '', '#1af' => '', '#12345' => 'x', '#1234567' => 'x', '#12345g' => 'x', 'reddish' => 'x', '' => 'x') as $color => $refused) {
 	check_same($refused === '', balloonColorError($color, '绿色') === '', 'the colour ' . json_encode($color));
 }
 check_same(false, balloonColorError(null, '绿色') === '', 'a colour that is not text');
@@ -76,6 +76,39 @@ foreach (array('' => '', '荧光绿' => '', 'light green' => '', '一二三四�
 	check_same($refused === '', balloonColorError('#00ff00', $name) === '', 'the name ' . json_encode($name, JSON_UNESCAPED_UNICODE));
 }
 check_same(false, balloonColorError('#00ff00', array('x')) === '', 'a name that is not text');
+// ---- a colour is written by its code, the way Hydro has it written, or by its name, as DOMjudge takes it
+check_same(array('#e53935', '#e53935', '#ee5533', '#ee5533', '#ff0000', '#add8e6', '#add8e6', '#663399', '#e53935', '#1e88e5', '#00ff00'),
+	array(balloonParseColor('#E53935'), balloonParseColor(' e53935 '), balloonParseColor('#e53'), balloonParseColor('E53'), balloonParseColor('Red'), balloonParseColor('lightblue'),
+		balloonParseColor('Light Blue'), balloonParseColor('rebeccapurple'), balloonParseColor('红色'), balloonParseColor('蓝'), balloonParseColor("#00ff00\n")),
+	'codes with and without their #, short codes, names in English, the names of the palette');
+check_same(array(null, null, null, null, null, null, null), array(balloonParseColor(''), balloonParseColor('#12'), balloonParseColor('#1234'), balloonParseColor('#12345g'), balloonParseColor('nocolour'), balloonParseColor(null), balloonParseColor(array('red'))),
+	'what is no colour');
+check_same(true, count(balloonColorNames()) >= 140 && count(array_filter(balloonColorNames(), function($code) {
+	return preg_match('/^#[0-9a-f]{6}$/D', $code) !== 1;
+})) == 0, 'every colour that has a name has a code');
+check_same('红色', balloonPaletteNames()['#e53935'], 'what the colours of the palette are called');
+
+// the colours of several problems at once, a line each
+$letters = array('A', 'B', 'C', 'D');
+check_same(array(array('A' => array('#e53935', '红色'), 'B' => array('#add8e6', 'lightblue'), 'C' => array('#fdd835', '黄色'), 'D' => array('#123456', '')), ''),
+	balloonParseBulk("A #e53935 红色\r\n\r\nb: lightblue\n  C 黄色   # 手里只有这种黄\nD，#123456\n", $letters),
+	'a letter, a colour and what it is called; a colour without a name is called what the palette or the page calls it');
+check_same(array('A' => array('#00ff00', '荧光 绿')), balloonParseBulk("A lime 荧光 绿\n", $letters)[0], 'a name of several words');
+check_same(array('A' => array('#e53935', '大红')), balloonParseBulk("A red\nA #e53935 大红\n", $letters)[0], 'said twice, a problem has the colour that was said last');
+foreach (array("A\n" => '第 1 行应是', "A #e53935\nE red\n" => '第 2 行：比赛里没有 E 题', "A nocolour\n" => '不是颜色', "\n# 只有说明\n" => '一行也没有写',
+		"A red <b>\n" => '第 1 行：颜色的名字', "红色 A\n" => '第 1 行应是') as $wrong => $said) {
+	list($chosen, $err) = balloonParseBulk($wrong, $letters);
+	check_same(array(null, true), array($chosen, strpos($err, $said) !== false), 'colours that are not taken: ' . json_encode($wrong, JSON_UNESCAPED_UNICODE));
+}
+$as_text = balloonBulkText(array(array('letter' => 'A', 'color' => '#e53935', 'name' => '红色'), array('letter' => 'B', 'color' => '#123456', 'name' => '')));
+check_same("A #e53935 红色\nB #123456\n", $as_text, 'the colours of a contest as a text');
+check_same(array('A' => array('#e53935', '红色'), 'B' => array('#123456', '')), balloonParseBulk($as_text, $letters)[0], 'which is read back as what it was');
+
+// a balloon is drawn in its colour, with its letter in ink that can be read on it
+$mark = balloonMarkHTML('B', '#fdd835', '黄色');
+check_same(true, strpos($mark, 'class="uoj-balloon" title="B 黄色" data-letter="B"') !== false && strpos($mark, 'fill="#fdd835"') !== false && strpos($mark, 'fill="#000000">B</text>') !== false, 'a balloon');
+check_same(true, strpos(balloonMarkHTML('A', '#212121', '', true), 'class="uoj-balloon uoj-balloon-sm" title="A"') !== false, 'a small one, of a colour without a name');
+
 // what is written on a balloon can be read on it
 check_same(array('#ffffff', '#000000', '#000000', '#ffffff', '#ffffff', '#000000', '#000000'),
 	array(balloonInk('#212121'), balloonInk('#ffffff'), balloonInk('#fdd835'), balloonInk('#1e88e5'), balloonInk('#E53935'), balloonInk('#00ff00'), balloonInk('#fb8c00')),

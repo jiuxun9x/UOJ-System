@@ -250,14 +250,34 @@
 	color: #d00000;
 	font-weight: bold;
 }
-.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a,
-.uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a {
+.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a {
 	color: #00a000;
 	font-weight: bold;
 }
-/* the first to solve a problem */
+/* The first to solve a problem: a cell of solid green with a star in its corner, the way
+   the boards of DOMjudge set the first apart from everybody who solved it after them. */
 .uoj-scoreboard .uoj-icpc-first {
-	background-color: #c3e6cb !important;
+	position: relative;
+	background-color: #1e9e3a !important;
+}
+.uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a, .uoj-scoreboard .uoj-icpc-first .uoj-icpc-under {
+	color: #fff !important;
+	font-weight: bold;
+}
+.uoj-scoreboard .uoj-icpc-first::after {
+	content: "\2605";
+	position: absolute;
+	top: 1px;
+	right: 4px;
+	font-size: 0.7rem;
+	line-height: 1.2;
+	color: #ffe066;
+}
+/* (in the line under the board that says what the colours mean, the cell is a word) */
+.uoj-scoreboard span.uoj-icpc-first {
+	display: inline-block;
+	padding-right: 1.1em !important;
+	border-radius: 0.2rem;
 }
 .uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a {
 	color: #d00000;
@@ -545,33 +565,123 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	cursor: help;
 }
 
-/* ---- balloons: a balloon is its colour with the letter of its problem on it */
+/* ---- balloons: a balloon is drawn as one, in its colour, with the letter of its problem on it */
 .uoj-balloon {
 	display: inline-block;
-	min-width: 2.3em;
-	padding: 0.3em 0.55em;
-	border: 1px solid rgba(0, 0, 0, 0.3);
-	border-radius: 50% 50% 50% 50% / 45% 45% 55% 55%;
-	font-weight: bold;
-	line-height: 1.4;
-	text-align: center;
+	width: 2rem;
+	height: 2.58rem;
+	vertical-align: middle;
+	line-height: 0;
+}
+.uoj-balloon > svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+.uoj-balloon-body {
+	stroke: rgba(0, 0, 0, 0.38);
+	stroke-width: 0.8;
+	stroke-linejoin: round;
+}
+.uoj-balloon-string {
+	fill: none;
+	stroke: #8a8f94;
+	stroke-width: 0.8;
+	stroke-linecap: round;
+}
+.uoj-balloon text {
+	font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	font-size: 11px;
+	font-weight: 700;
 }
 .uoj-balloon-sm {
-	min-width: 1.6em;
-	padding: 0 0.3em;
-	margin-left: 2px;
-	font-size: 80%;
+	width: 1.45rem;
+	height: 1.87rem;
+	margin-right: 1px;
+}
+.uoj-balloon-name {
+	margin-left: 0.3em;
+}
+/* every problem with its colour, and how many of its balloons wait */
+.uoj-balloon-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+.uoj-balloon-count {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	padding: 0.3rem 0.7rem 0.3rem 0.45rem;
+	border: 1px solid #e3e6ea;
+	border-radius: 0.4rem;
+	background-color: #fff;
+}
+.uoj-balloon-count-waiting {
+	border-color: #f0c36d;
+	background-color: #fffaf0;
+}
+.uoj-balloon-count-text {
+	display: flex;
+	flex-direction: column;
+	line-height: 1.25;
+}
+.uoj-balloon-count-text .uoj-balloon-name {
+	margin-left: 0;
+	font-weight: 600;
+}
+.uoj-balloon-count-text small {
+	color: #6c757d;
+	white-space: nowrap;
+}
+.uoj-balloon-count-waiting .uoj-balloon-count-text small b {
+	color: #c0392b;
 }
 .uoj-balloons > tbody > tr > td {
 	vertical-align: middle;
+}
+.uoj-balloons .uoj-bl-time {
+	width: 4.5em;
+	white-space: nowrap;
 }
 .uoj-balloon-seat {
 	font-size: 1.15rem;
 	font-weight: bold;
 	white-space: nowrap;
 }
-/* On a telephone, which is what the list is carried through the room on, a balloon is two
-   lines: what it is, where it goes and the button; under them, who it is for. */
+/* The first to solve anything, and the first to solve a problem: what the room claps for.
+   Seen at a glance in the list, as on the list of DOMjudge. */
+.uoj-award {
+	display: inline-block;
+	padding: 0.2em 0.6em;
+	margin: 1px 0.25em 1px 0;
+	border-radius: 0.3rem;
+	font-size: 0.875rem;
+	font-weight: 700;
+	white-space: nowrap;
+}
+.uoj-award-contest {
+	color: #4a3200;
+	background-color: #ffd54a;
+	box-shadow: inset 0 0 0 1px #d9a400;
+}
+.uoj-award-problem {
+	color: #fff;
+	background-color: #1e9e3a;
+}
+.uoj-balloons tr.uoj-balloon-first > td:first-child {
+	box-shadow: inset 4px 0 0 #1e9e3a;
+}
+.uoj-balloons tr.uoj-balloon-first-of-all > td:first-child {
+	box-shadow: inset 4px 0 0 #e0a800;
+}
+.uoj-balloons tr.uoj-balloon-first-of-all.uoj-balloon-pending > td {
+	background-color: #fffbea;
+}
+/* On a telephone, which is what the list is carried through the room on, a balloon is its
+   colour, where it goes and the button on one line; under them who it is for and what is
+   special about it. */
 @media (max-width: 575.98px) {
 	.uoj-balloons, .uoj-balloons > tbody {
 		display: block;
@@ -590,23 +700,33 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 		padding: 0.1rem 0.5rem;
 		border: 0;
 	}
-	.uoj-balloons > tbody > tr > td:nth-child(2) {
+	.uoj-balloons > tbody > tr > td.uoj-bl-time, .uoj-balloons > tbody > tr > td.uoj-bl-has {
+		display: none;
+	}
+	.uoj-balloons > tbody > tr > td.uoj-bl-balloon {
+		order: 1;
+	}
+	.uoj-balloons > tbody > tr > td.uoj-balloon-seat {
+		order: 2;
 		flex: 1 1 auto;
 	}
-	.uoj-balloons > tbody > tr > td:last-child {
-		order: 1;
+	.uoj-balloons > tbody > tr > td.uoj-bl-act {
+		order: 3;
 		margin-left: auto;
 	}
-	.uoj-balloons > tbody > tr > td:nth-child(3) {
-		order: 2;
-		flex: 0 0 100%;
+	.uoj-balloons > tbody > tr > td.uoj-bl-who {
+		order: 4;
+	}
+	.uoj-balloons > tbody > tr > td.uoj-bl-awards {
+		order: 5;
+		flex: 1 1 auto;
 	}
 	.uoj-balloons > tbody > tr > td#balloons-none {
 		flex: 0 0 100%;
 		margin: 0;
 	}
 }
-.uoj-balloons tr.uoj-balloon-done > td:not(:last-child) {
+.uoj-balloons tr.uoj-balloon-done > td:not(.uoj-bl-act) {
 	opacity: 0.5;
 }
 .uoj-balloons tr.uoj-balloon-new > td {
@@ -623,12 +743,32 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 .uoj-balloon-colors td {
 	vertical-align: middle;
 }
-.uoj-balloon-colors input[type=color] {
-	width: 3em;
-	height: calc(1.5em + 0.5rem + 2px);
+/* the colour of a problem: its code, which is typed, and beside it the picker */
+.uoj-balloon-code {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
 }
-#balloon-settings > summary {
+.uoj-balloon-code input[type=text] {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+.uoj-balloon-code input[type=color] {
+	flex: 0 0 auto;
+	width: 2.2rem;
+	height: calc(1.5em + 0.5rem + 2px);
+	padding: 1px 2px;
+	border: 1px solid #ced4da;
+	border-radius: 0.2rem;
+	background-color: #fff;
 	cursor: pointer;
+}
+#balloon-settings > summary, #balloon-bulk > summary {
+	cursor: pointer;
+}
+#balloon-bulk > summary {
+	color: #495057;
 }
 
 /* ---- the row that makes or copies problems of a domain: a button, where from, what, a button */

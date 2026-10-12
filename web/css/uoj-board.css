@@ -11,8 +11,9 @@
 	--ob-head-yes: #bdeec5;
 	--ob-head-no: #f7c6c6;
 	--ob-solved: #c8f1cd;
-	--ob-first: #4ec565;
-	--ob-first-fg: #06310f;
+	--ob-first: #1e9e3a;
+	--ob-first-fg: #ffffff;
+	--ob-first-star: #ffe066;
 	--ob-part: #fde9b3;
 	--ob-failed: #f8cdcf;
 	--ob-pending: #cddafa;
@@ -38,8 +39,9 @@ body.uoj-ob-dark-page .uoj-ob {
 	--ob-head-yes: #1f5c2d;
 	--ob-head-no: #6c2731;
 	--ob-solved: #1e5a2b;
-	--ob-first: #36b950;
+	--ob-first: #2fbf4f;
 	--ob-first-fg: #03200a;
+	--ob-first-star: #fff3b0;
 	--ob-part: #6b5617;
 	--ob-failed: #6a2630;
 	--ob-pending: #2b4079;
@@ -332,9 +334,29 @@ body.uoj-ob-dark-page .uoj-ob {
 .uoj-ob-table td.uoj-ob-solved, .uoj-ob-legend i.uoj-ob-solved {
 	background-color: var(--ob-solved);
 }
+/* the first to solve a problem: the darkest green of the board, with a star in its corner */
 .uoj-ob-table td.uoj-ob-first, .uoj-ob-legend i.uoj-ob-first {
+	position: relative;
 	color: var(--ob-first-fg);
 	background-color: var(--ob-first);
+}
+.uoj-ob-table td.uoj-ob-first small {
+	opacity: 0.95;
+}
+.uoj-ob-table td.uoj-ob-first::after, .uoj-ob-legend i.uoj-ob-first::after {
+	content: "\2605";
+	position: absolute;
+	top: 0.1em;
+	right: 0.3em;
+	font-size: 0.7em;
+	font-style: normal;
+	line-height: 1;
+	color: var(--ob-first-star);
+}
+.uoj-ob-legend i.uoj-ob-first::after {
+	top: 0.12em;
+	right: 0.14em;
+	font-size: 0.75em;
 }
 .uoj-ob-table td.uoj-ob-part {
 	background-color: var(--ob-part);

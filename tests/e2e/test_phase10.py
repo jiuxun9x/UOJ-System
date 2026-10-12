@@ -348,3 +348,91 @@ class ListPagesTest(unittest.TestCase):
             page = student.get(path).text
             self.assertNotIn("button-new-", page)
             self.assertNotIn("button-import-problems", page)
+
+
+class BalloonColoursTest(unittest.TestCase):
+    """the colour of a balloon is written the way people have colours written - its code, as
+    in Hydro, or its name, as in DOMjudge - and the list of the balloons says at a glance what
+    is special about one"""
+
+    def test_colours_are_written_and_the_first_to_solve_are_marked(self):
+        admin = uoj.admin()
+        first, second, third = (admin.create_problem(ab_problem_files()) for _ in range(3))
+        contest_id = admin.new_contest("p10 气球赛", minutes=300, rule="ICPC", problems="%d, %d, %d" % (first, second, third))
+        here, manage, balloons = "/contest/%d" % contest_id, "/contest/%d/manage" % contest_id, "/contest/%d/balloons" % contest_id
+        ann, bob, runner = (p3.account("p10_bal_" + name) for name in ("ann", "bob", "runner"))
+        self.assertEqual(admin.form(manage, "add_manager", tab="managers", username="p10_bal_runner", role="assistant"), "")
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p10_bal_ann A-1\np10_bal_bob B-2"), "")
+        self.assertEqual(admin.form(balloons, "settings", balloons="on"), "")
+        uoj.move_contest(contest_id, -100 * 60, 300)
+        colors = lambda: {int(row[0]): (row[1], row[2]) for row in db("select problem_id, color, name from contest_balloon_colors where contest_id = %d" % contest_id)}
+
+        # ---- a colour is written as its code, long or short, with its # or without, or by its
+        # name; a problem that is given the colour it would have anyway has none of its own
+        self.assertEqual(admin.form(balloons, "colors", **{
+            "color_%d" % first: "0A7", "name_%d" % first: "薄荷绿", "color_%d" % second: "LightBlue", "name_%d" % second: "",
+            "color_%d" % third: "#FDD835", "name_%d" % third: "黄色",
+        }), "")  # fmt: skip
+        self.assertEqual(colors(), {first: ("#00aa77", "薄荷绿"), second: ("#add8e6", "")})
+        # what is no colour is refused, and what was typed is still in the form
+        self.assertIn("A 题：颜色要写成代码", admin.form(balloons, "colors", **{"color_%d" % first: "#12345", "name_%d" % first: "打错了"}))
+        r = admin.post(balloons, {"form": "colors", "color_%d" % first: "#12345", "name_%d" % first: "打错了"})
+        self.assertRegex(r.text, r'name="color_%d" value="#12345"' % first)
+        self.assertRegex(r.text, r'name="name_%d" value="打错了"' % first)
+        self.assertRegex(r.text, r'<details class="text-left mt-4" id="balloon-settings" open>')
+        self.assertEqual(colors(), {first: ("#00aa77", "薄荷绿"), second: ("#add8e6", "")})
+
+        # ---- the colours of all the problems as a text: a line for a problem
+        page = admin.get(balloons).text
+        self.assertEqual(re.search(r'(?s)<textarea[^>]*id="input-balloon-bulk"[^>]*>(.*?)</textarea>', page).group(1), "A #00aa77 薄荷绿\nB #add8e6\nC #fdd835 黄色\n")
+        self.assertEqual(admin.form(balloons, "colors_bulk", bulk="# 这场手里的气球\nA red 大红\n\nc: 紫色\n"), "")
+        self.assertEqual(colors(), {first: ("#ff0000", "大红"), second: ("#add8e6", ""), third: ("#8e24aa", "紫色")})
+        for wrong, said in (("A\n", "第 1 行应是"), ("A blue\nD blue\n", "第 2 行：比赛里没有 D 题"), ("B nocolour\n", "不是颜色"), ("\n", "一行也没有写")):
+            r = admin.post(balloons, {"form": "colors_bulk", "bulk": wrong})
+            self.assertEqual(r.status_code, 200)
+            self.assertIn(said, uoj.text_of(r.text), wrong)
+        # nothing of a text that is wrong somewhere is taken, and it is still there to be put right
+        self.assertEqual(colors()[first], ("#ff0000", "大红"))
+        r = admin.post(balloons, {"form": "colors_bulk", "bulk": "A blue\nD blue\n"})
+        self.assertEqual(re.search(r'(?s)<textarea[^>]*id="input-balloon-bulk"[^>]*>(.*?)</textarea>', r.text).group(1), "A blue\nD blue\n")
+        self.assertRegex(r.text, r'<details class="mt-3" id="balloon-bulk" open>')
+        # the colours are for who decides about the contest
+        for form in ("colors", "colors_bulk"):
+            self.assertEqual(runner.post(balloons, {"form": form, "bulk": "A blue\n", "color_%d" % first: "blue"}).status_code, 403)
+        self.assertIn('id="link-balloon-settings" href="#balloon-settings"', admin.get(balloons).text)
+        self.assertNotIn('id="link-balloon-settings"', runner.get(balloons).text)
+
+        # ---- the list: who was first, of the contest and of a problem, is seen at a glance
+        def at(minutes, submission_id):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
+               " where id = %d" % (contest_id, minutes, submission_id))  # fmt: skip
+
+        at(10, ann.submit_in_contest(contest_id, first, AB))
+        at(20, bob.submit_in_contest(contest_id, first, AB))
+        at(30, bob.submit_in_contest(contest_id, second, AB))
+        uoj.wait_idle()
+        rows, page = p9.balloon_list(runner, contest_id)
+        self.assertEqual(rows, [
+            ("p10_bal_ann", "A", "A-1", False, ("contest", "problem"), "A"),
+            ("p10_bal_bob", "A", "B-2", False, (), "A"),
+            ("p10_bal_bob", "B", "B-2", False, ("problem",), "AB"),
+        ])  # fmt: skip
+        self.assertRegex(page, r'(?s)<tr class="uoj-balloon-pending uoj-balloon-first-of-all" data-balloon="p10_bal_ann/A".*?★ 全场一血.*?★ A 题一血')
+        self.assertRegex(page, r'(?s)<tr class="uoj-balloon-pending uoj-balloon-first" data-balloon="p10_bal_bob/B".*?★ B 题一血')
+        self.assertRegex(page, r'<tr class="uoj-balloon-pending" data-balloon="p10_bal_bob/A"')
+        # a balloon is drawn in the colour that was written, and called what it was called
+        self.assertRegex(page, r'(?s)data-balloon="p10_bal_ann/A".*?class="uoj-balloon" title="A 大红".*?fill="#ff0000".*?>A</text>.*?大红')
+        # a colour without a name is called by its code
+        self.assertRegex(page, r'(?s)data-balloon="p10_bal_bob/B".*?fill="#add8e6".*?<span class="uoj-balloon-name">#add8e6</span>')
+        # what a contestant has with a balloon is drawn as the balloons they are
+        self.assertRegex(page, r'(?s)data-balloon="p10_bal_bob/B".*?data-has="AB"[^>]*>(<span class="uoj-balloon uoj-balloon-sm"[^>]*>.*?</span>){2}</td>')
+
+        # ---- every problem with its colour, and how many of its balloons wait and were brought
+        counts = lambda page: {letter: (int(waiting), int(brought)) for letter, waiting, brought in re.findall(
+            r'class="uoj-balloon-count[^"]*" data-problem="(\w)" data-color="#\w+" data-waiting="(\d+)" data-brought="(\d+)"', page)}  # fmt: skip
+        self.assertEqual(counts(page), {"A": (2, 0), "B": (1, 0), "C": (0, 0)})
+        self.assertEqual(runner.form(balloons, "done", username="p10_bal_bob", problem_id=str(first)), "")
+        page = runner.get(balloons + "?show=pending").text
+        # (the numbers are of the whole contest, whatever part of the list is shown)
+        self.assertEqual(counts(page), {"A": (1, 1), "B": (1, 0), "C": (0, 0)})
+        self.assertNotIn("uoj-balloon", ann.get(here).text)

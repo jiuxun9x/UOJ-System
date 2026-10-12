@@ -467,7 +467,7 @@ def balloon_list(client, contest_id, query=""):
     r = client.get("/contest/%d/balloons%s" % (contest_id, query))
     assert r.status_code == 200, r.status_code
     rows = []
-    for attrs, body in re.findall(r'(?s)<tr class="uoj-balloon-(?:pending|done)"([^>]*)>(.*?)</tr>', r.text):
+    for attrs, body in re.findall(r'(?s)<tr class="uoj-balloon-(?:pending|done)[^"]*"([^>]*)>(.*?)</tr>', r.text):
         said = lambda name: re.search(r'data-%s="([^"]*)"' % name, attrs).group(1)
         seat = uoj.text_of(re.search(r'(?s)<td class="uoj-balloon-seat">(.*?)</td>', body).group(1))
         rows.append((said("username"), said("problem"), seat, said("done") == "1", tuple(re.findall(r'data-award="(\w+)"', body)), re.search(r'data-has="(\w*)"', body).group(1)))
@@ -488,7 +488,7 @@ class BalloonTest(unittest.TestCase):
         self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p9_bal_ann A-12\np9_bal_bob B-3\np9_bal_cat"), "")
         seat_of = lambda name: db_value("select seat from contests_registrants where contest_id = %d and username = '%s'" % (contest_id, name))
         marks = lambda: db("select username, problem_id, done_by from contest_balloons where contest_id = %d order by username, problem_id" % contest_id)
-        legend = lambda page: re.findall(r'data-problem="(\w)" data-color="(#\w+)"', page[page.index('id="balloon-legend"'):page.index('id="form-balloon-filter"')])
+        legend = lambda page: re.findall(r'class="uoj-balloon-count[^"]*" data-problem="(\w)" data-color="(#\w+)"', page)
         # a hundred minutes into its three hundred; the last sixty are frozen
         uoj.move_contest(contest_id, -100 * 60, 300)
 
@@ -569,14 +569,14 @@ class BalloonTest(unittest.TestCase):
         # ---- the colours are chosen by who decides about the contest
         chosen = {"color_%d" % first: "#e53935", "name_%d" % first: "红色", "color_%d" % second: "#00FF00", "name_%d" % second: "荧光绿"}
         self.assertEqual(runner.post(balloons, dict(chosen, form="colors")).status_code, 403)
-        self.assertIn("B 题：颜色要写成", admin.form(balloons, "colors", **dict(chosen, **{"color_%d" % second: "green"})))
+        self.assertIn("B 题：颜色要写成", admin.form(balloons, "colors", **dict(chosen, **{"color_%d" % second: "greenish"})))
         self.assertEqual(db_value("select count(*) from contest_balloon_colors where contest_id = %d" % contest_id), "0")
         self.assertEqual(admin.form(balloons, "colors", **chosen), "")
         # a problem that keeps the colour it had has no colour of its own
         self.assertEqual(db("select problem_id, color, name from contest_balloon_colors where contest_id = %d" % contest_id), [[str(second), "#00ff00", "荧光绿"]])
         rows, page = balloon_list(runner, contest_id)
         self.assertEqual(legend(page), [("A", "#e53935"), ("B", "#00ff00")])
-        self.assertRegex(page, r'(?s)data-balloon="p9_bal_bob/B".*?background-color:#00ff00;color:#000000.*?荧光绿')
+        self.assertRegex(page, r'(?s)data-balloon="p9_bal_bob/B".*?fill="#00ff00".*?fill="#000000">B</text>.*?荧光绿')
         self.assertIn('id="balloon-settings"', admin.get(balloons).text)
         # the contestants see what a problem is worth at the head of the board, and the list of
         # the problems is a list of problems
