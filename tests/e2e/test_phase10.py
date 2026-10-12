@@ -346,7 +346,10 @@ class ListPagesTest(unittest.TestCase):
         # what is said of a contest stands behind its name with nothing but the stylesheet
         # between them: no blank here and none there
         self.assertRegex(page, r'<td><span class="uoj-contest-name"><a href="/contest/\d+">[^<]*</a>(<span class="badge[^>]*>[^<]*</span>)?(<sup><a [^>]*>[^<]*</a></sup>)+</span></td>')
-        self.assertNotRegex(page, r'</a> <sup>|</span> <sup>|</sup> <sup>')
+        names = re.findall(r'(?s)<span class="uoj-contest-name">(.*?)</span></td>', page)
+        self.assertGreater(len(names), 3)
+        for name in names:
+            self.assertNotRegex(name, r'>\s+<', name)
         # whoever makes nothing has nothing to press
         for path in ("/problems", "/contests"):
             page = student.get(path).text

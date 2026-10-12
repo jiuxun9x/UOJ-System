@@ -483,7 +483,8 @@ def things_keep_their_distance(page, seeded):
         }
         return gaps;
     }""")
-    assert len(gaps) >= 6, gaps
+    # (on a telephone the navigation is folded away, and what is left to measure is the buttons)
+    assert len(gaps) >= (6 if page.viewport_size["width"] >= 992 else 2), gaps
     assert min(gaps) >= 4 and max(gaps) - min(gaps) <= 2.5, gaps
     # the buttons that make something stand above the table, apart from each other
     made = page.evaluate("""() => {
