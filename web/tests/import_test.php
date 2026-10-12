@@ -78,3 +78,98 @@ check_same(array(array('第一题', '第二题/内层'), array('说明.md')),
 	importFindProblems(array('第一题/problem.yaml', '第一题/testdata/1.in', '第二题/内层/problem_zh.md', '说明.md', 'README.md')), 'a package whose folders are named in Chinese');
 check_same('没有开头', importReadTemplate("## 题目描述\n\n只有题面。\n", importStem('没有开头.md'))['title'], 'a template without a title is named by its file');
 setlocale(LC_CTYPE, $locale);
+
+// ---- a config.yaml of Hydro: what used to be dropped without a word
+$one = importHydroConfig(array('subtasks' => array(array('score' => 100, 'cases' => array(array('input' => 'a1.in', 'output' => 'a1.out'), array('input' => 'a2.in', 'output' => 'a2.out'))))), $names);
+check_same(array('all', array()), array($one['settings']['scoring'], $one['notes']), 'Hydro: one subtask is passed as a whole, which is every test passing');
+$one = importHydroConfig(array('subtasks' => array(array('score' => 100, 'type' => 'sum', 'cases' => array(array('input' => 'a1.in', 'output' => 'a1.out'))))), $names);
+check_same(array(false, 1), array(isset($one['settings']['scoring']), count($one['notes'])), 'one subtask that adds its tests up is scored test by test, and it is said');
+$own = importHydroConfig(array('langs' => array('cc'), 'validator' => 'val.cc', 'user_extra_files' => array(), 'subtasks' => array(
+	array('score' => 50, 'time' => '2s', 'cases' => array(array('input' => 'a1.in', 'output' => 'a1.out', 'score' => 10))),
+	array('score' => 50, 'cases' => array(array('input' => 'a2.in', 'output' => 'a2.out', 'memory' => '64m'))))), $names);
+check_same(array('subtasks', 3), array($own['settings']['scoring'], count($own['notes'])), 'limits and scores of single tests, and settings this site has no word for, are said to be left behind');
+check_same(true, strpos(join("\n", $own['notes']), 'langs、validator') !== false && strpos(join("\n", $own['notes']), 'user_extra_files') === false, 'the ones that say something, by their names');
+
+// ---- the problem.conf that is handed out
+list($template_conf, $err) = problemConfFromText(importConfTemplateText());
+check_same(array(array('use_builtin_judger' => 'on', 'time_limit' => '1', 'memory_limit' => '256', 'use_builtin_checker' => 'wcmp'), ''), array($template_conf, $err),
+	'what is in force in it is what a problem has when nobody says anything');
+check_same(array('traditional', '1', 256, 'wcmp', 'per_test', false), array_values(array_intersect_key(problemSettingsOfConf($template_conf), array_flip(array('time_limit', 'memory_limit', 'checker', 'scoring', 'type', 'validate_input')))),
+	'which are the settings the form starts with');
+// every setting it holds back is one that can be put in force by taking its "#" away
+$held_back = array();
+foreach (explode("\n", importConfTemplateText()) as $line) {
+	if (preg_match('/^# ([a-z][a-z0-9_]*) +(\S+)( +#.*)?$/', $line, $matches)) {
+		list($conf, $err) = problemConfFromText(substr($line, 2));
+		check_same(array(array($matches[1] => $matches[2]), ''), array($conf, $err), "a line of the template without its #: $matches[1]");
+		$held_back[$matches[1]] = true;
+	}
+}
+foreach (array('n_tests', 'n_ex_tests', 'n_sample_tests', 'input_pre', 'input_suf', 'output_pre', 'output_suf', 'n_subtasks', 'subtask_end_1', 'subtask_score_1', 'subtask_dependence_3', 'point_score_1',
+		'chk_source', 'interaction_mode', 'interactor_source', 'multi_pass', 'submit_answer', 'with_implementer', 'validate_input_before_test', 'val_source', 'std_source', 'output_limit', 'time_limit_3') as $key) {
+	check_same(true, isset($held_back[$key]), "the template speaks of $key");
+}
+
+// ---- a problem.conf that does not say which its tests are is the settings of the problem
+$partial = array('use_builtin_judger' => 'on', 'time_limit' => '2', 'chk_source' => 'chk.cpp', 'n_subtasks' => '2', 'subtask_end_1' => '2', 'subtask_score_1' => '40', 'subtask_score_2' => '60', 'subtask_dependence_2' => '1');
+$settings = importSettingsOfConf($partial, array('time_limit' => '9', 'memory_limit' => 64), array('1.in', '1.out', 'chk.cpp'));
+check_same(array('2', 64, 'custom', 'chk.cpp', 'subtasks', array(array(2, 40), array(null, 60))),
+	array($settings['time_limit'], $settings['memory_limit'], $settings['checker'], $settings['checker_file'], $settings['scoring'], $settings['subtasks']),
+	'what it says counts, the statement fills in what it leaves open, and the last subtask ends where the tests end');
+check_same(array('wcmp', 'custom', 'custom'), array(
+	importSettingsOfConf(array('time_limit' => '1'), array(), array('1.in', '1.out'))['checker'],
+	importSettingsOfConf(array('time_limit' => '1'), array(), array('1.in', '1.out', 'checker.cpp'))['checker'],
+	importSettingsOfConf(array('time_limit' => '1', 'chk_source' => 'judge.cpp'), array(), array('1.in', 'judge.cpp'))['checker']
+), 'no word about comparing: the checker that came along, or the usual way');
+check_same(array('all', 'interactive', 'multi_pass', 3), array(
+	importSettingsOfConf(array('n_subtasks' => '1'), array(), array())['scoring'],
+	importSettingsOfConf(array('interaction_mode' => 'on', 'interactor_source' => 'i.cpp'), array(), array())['type'],
+	importSettingsOfConf(array('multi_pass' => '3', 'chk_source' => 'chk.cpp'), array(), array())['type'],
+	importSettingsOfConf(array('multi_pass' => '3', 'chk_source' => 'chk.cpp'), array(), array())['passes']
+), 'the kinds of problems a problem.conf can say');
+// the settings come back as the problem.conf they stand for, with the tests that were found
+$found = problemDetectTests(array('1.in', '1.out', '2.in', '2.out', '3.in', '3.out', 'ex_1.in', 'ex_1.out', 'chk.cpp'));
+$settings['subtasks'][1][0] = count($found['tests']);
+list($built, $err) = problemConfFromSettings($settings + problemDefaultSettings(), $found, $partial, array('data1.in', 'chk.cpp'));
+check_same(array('', '3', '1', 'chk.cpp', '2', '2', '3', '1', false), array($err, (string)$built['n_tests'], (string)$built['n_ex_tests'], $built['chk_source'], (string)$built['n_subtasks'],
+	(string)$built['subtask_end_1'], (string)$built['subtask_end_2'], $built['subtask_dependence_2'], isset($built['use_builtin_checker'])),
+	'and what the form has no word for stays in it');
+
+// ---- the package that is handed out is a package: it is read as the two problems it holds
+$template = importPackageTemplate();
+check_same(array(array('a-plus-b', 'with-checker'), array()), importFindProblems(array_keys($template)), 'two folders, and a README that is no problem');
+$unpacked = sys_get_temp_dir() . '/uoj_import_test_' . getmypid();
+foreach ($template as $name => $content) {
+	@mkdir(dirname("$unpacked/$name"), 0755, true);
+	file_put_contents("$unpacked/$name", $content);
+}
+$read = importReadPackage($unpacked, 'a-plus-b', array_keys($template));
+check_same(array('A + B 问题', array('入门'), false, false, array()), array($read['title'], $read['tags'], $read['public'], $read['native'], $read['notes']), 'the first: what its statement says about it');
+check_same(array('1', 256, 'wcmp', 'per_test'), array($read['settings']['time_limit'], $read['settings']['memory_limit'], $read['settings']['checker'], $read['settings']['scoring']), 'and its problem.conf, which is the one that is handed out');
+check_same(array('1.in', '1.out', '2.in', '2.out', '3.in', '3.out', 'ex_1.in', 'ex_1.out'), array_keys($read['data']), 'its data, without the problem.conf that is written anew');
+check_same(true, strpos($read['statement_md'], "## 题目描述\n") === 0 && strpos($read['statement_md'], 'title:') === false, 'its statement begins after the lines');
+$read = importReadPackage($unpacked, 'with-checker', array_keys($template));
+check_same(array('拆成两个数', 'custom', 'chk.cpp', 'subtasks', array(array(2, 40), array(null, 60)), array('figure.png'), array()),
+	array($read['title'], $read['settings']['checker'], $read['settings']['checker_file'], $read['settings']['scoring'], $read['settings']['subtasks'], array_keys($read['attachments']), $read['notes']),
+	'the second: a checker of its own, two subtasks, a picture');
+check_same(true, strpos($read['statement_md'], '](file://figure.png)') !== false, 'which its statement shows');
+// a problem.conf that says how many tests there are is taken at its word, wherever it lies
+file_put_contents("$unpacked/a-plus-b/data/problem.conf", "n_tests 3\ninput_pre x\n");
+$read = importReadPackage($unpacked, 'a-plus-b', array_merge(array_keys($template), array('a-plus-b/data/problem.conf')));
+check_same(array(false, '1'), array($read['native'], $read['conf']['time_limit']), 'the one beside the statement counts before one among the data');
+unlink("$unpacked/a-plus-b/problem.conf");
+$read = importReadPackage($unpacked, 'a-plus-b', array_diff(array_merge(array_keys($template), array('a-plus-b/data/problem.conf')), array('a-plus-b/problem.conf')));
+check_same(array(true, array('n_tests' => '3', 'input_pre' => 'x'), false), array($read['native'], $read['conf'], isset($read['data']['problem.conf'])), 'a problem.conf with n_tests is taken as it is');
+// one that can not be read is said to be, and the problem is still a problem
+file_put_contents("$unpacked/a-plus-b/data/problem.conf", "time_limit 1\ntime_limit 2\n");
+$read = importReadPackage($unpacked, 'a-plus-b', array_diff(array_merge(array_keys($template), array('a-plus-b/data/problem.conf')), array('a-plus-b/problem.conf')));
+check_same(array(null, false, true), array($read['conf'], $read['native'], strpos(join("\n", $read['notes']), 'problem.conf 没有采用') !== false && strpos(join("\n", $read['notes']), '写了两次') !== false), 'a problem.conf that is wrong');
+// a config.yaml beside a problem.conf is not read
+file_put_contents("$unpacked/with-checker/data/config.yaml", "time: 9s\n");
+$read = importReadPackage($unpacked, 'with-checker', array_merge(array_keys($template), array('with-checker/data/config.yaml')));
+check_same(array('1', false, 1), array($read['settings']['time_limit'], isset($read['data']['config.yaml']), count($read['notes'])), 'the problem.conf decides, and it is said that the config.yaml was not read');
+// what is compiled with the programs of the contestants comes along in its folder
+file_put_contents("$unpacked/with-checker/data/require", '');
+$read = importReadPackage($unpacked, 'with-checker', array_merge(array_keys($template), array('with-checker/data/require/implementer.cpp', 'with-checker/data/download/lib.h', 'with-checker/data/other/x.txt')));
+check_same(array(true, true, false), array(isset($read['data']['require/implementer.cpp']), isset($read['data']['download/lib.h']), isset($read['data']['other/x.txt'])), 'require/ and download/, and no other folder of the data');
+exec('rm -rf ' . escapeshellarg($unpacked));

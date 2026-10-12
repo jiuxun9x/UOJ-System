@@ -13,8 +13,26 @@
 	$here = $domain ? domainUrl($domain, '/problems/import') : '/problems/import';
 	$list = $domain ? domainUrl($domain, '/problems') : '/problems';
 
-	// the template, for people to fill in
+	// what is handed out for people to fill in: the statement of one problem, the settings
+	// of one problem with what each of them does, and a package of problems as an example
 	if (isset($_GET['template'])) {
+		if ($_GET['template'] === 'zip') {
+			$zip_path = importPackageTemplateZip();
+			if ($zip_path === null) {
+				become404Page();
+			}
+			header('Content-Type: application/zip');
+			header("Content-Disposition: attachment; filename=\"problem-package-template.zip\"; filename*=UTF-8''" . rawurlencode('题目包模板.zip'));
+			header('Content-Length: ' . filesize($zip_path));
+			readfile($zip_path);
+			unlink($zip_path);
+			die();
+		}
+		if ($_GET['template'] === 'conf') {
+			header('Content-Type: text/plain; charset=utf-8');
+			header('Content-Disposition: attachment; filename="problem.conf"');
+			die(importConfTemplateText());
+		}
 		header('Content-Type: text/markdown; charset=utf-8');
 		header("Content-Disposition: attachment; filename=\"problem-template.md\"; filename*=UTF-8''" . rawurlencode('题目模板.md'));
 		die(importTemplateText());
@@ -78,7 +96,7 @@
 				<div class="form-group">
 					<label for="input-import-packages">选择文件 <small class="text-muted">（可以一次选好几个）</small></label>
 					<input type="file" class="form-control-file" id="input-import-packages" name="packages[]" multiple="multiple" accept=".md,.zip,text/markdown,application/zip" required="required" />
-					<small class="form-text text-muted">填好的模板（.md），或者题目包（.zip）。一次最多导入 <?= UOJ_IMPORT_MAX_PROBLEMS ?> 道题，每道题的数据解压后不超过 <?= round($limits['bytes'] / 1048576) ?> MB。</small>
+					<small class="form-text text-muted">题目包（.zip），或者填好的题面模板（.md）。一次最多导入 <?= UOJ_IMPORT_MAX_PROBLEMS ?> 道题，每道题的数据解压后不超过 <?= round($limits['bytes'] / 1048576) ?> MB。</small>
 				</div>
 				<div class="custom-control custom-checkbox mb-3">
 					<input type="checkbox" class="custom-control-input" id="input-import-public" name="public" />
@@ -91,29 +109,37 @@
 		</form>
 	</div>
 	<div class="col-lg-5">
-		<div class="card mb-3">
-			<div class="card-header">题目模板</div>
+		<div class="card mb-3" id="import-about-package">
+			<div class="card-header">题目包 <small class="text-muted">一次导入很多题，连同数据</small></div>
 			<div class="card-body">
-				<p class="mb-2">一个 Markdown 文件：开头几行写题目名称、时间和内存限制、标签，后面是题面。填好后在左边选它，题目就建好了，数据之后再传。</p>
-				<a class="btn btn-outline-primary btn-sm" id="link-import-template" href="<?= $here ?>?template=1"><span class="glyphicon glyphicon-download-alt"></span> 下载模板</a>
-				<p class="text-muted small mb-0 mt-2">想一次建很多题：每道题填一个模板，一起选上，或者打成一个 zip。</p>
+				<p class="mb-2">一个 zip，每道题一个文件夹：</p>
+<pre class="mb-2 small">a-plus-b/
+  problem.md          题面，开头几行写题目名称、标签
+  problem.conf        评测设置（时限、比较方式、子任务……）
+  data/               测试数据、校验器
+  additional_file/    附件、题面里的图片</pre>
+				<a class="btn btn-primary btn-sm" id="link-import-package-template" href="<?= $here ?>?template=zip"><span class="glyphicon glyphicon-download-alt"></span> 下载题目包模板</a>
+				<a class="btn btn-outline-secondary btn-sm" id="link-import-conf-template" href="<?= $here ?>?template=conf">只要 problem.conf</a>
+				<ul class="pl-3 mb-0 mt-3 small text-muted">
+					<li>模板本身就能导入，里面有两道例题和一份完整的格式说明（<code>README.md</code>）。把说明和你的题目一起交给 AI，可以让它批量整理成这个格式。</li>
+					<li><code>problem.conf</code> 里每个设置都有注释，用不到的默认注释掉了；注释在导入时自动去掉。</li>
+					<li>不写 <code>n_tests</code> 时测试点按文件名自动识别（推荐）；写了就完全按 problem.conf 来，文件名不会改。</li>
+				</ul>
 			</div>
 		</div>
-		<div class="card mb-3">
-			<div class="card-header">题目包</div>
-			<div class="card-body small">
-				<p class="mb-2">和 Hydro 导出的题目包同一种格式，一个 zip 里可以有很多题，每道题一个文件夹：</p>
-<pre class="mb-2">A/
-  problem.yaml        题目名称（title）、标签（tag）
-  problem_zh.md       题面
-  testdata/           测试数据、校验器，和 config.yaml
-  additional_file/    给做题的人下载的文件</pre>
-				<ul class="pl-3 mb-0 text-muted">
-					<li>时间、内存限制、子任务、校验器按 <code>testdata/config.yaml</code> 导入；没有 config.yaml 时测试点按文件名自动识别。</li>
-					<li><code>testdata/</code> 里放本站的 <code>problem.conf</code> 的话，完全按它来评测。</li>
-					<li>题面里写 <code>file://图片名</code> 的地方会换成导入后的附件地址。</li>
-					<li>这里没有的功能（文件输入输出、非 testlib 的校验器、子任务依赖）会在导入结果里逐条说明。</li>
-				</ul>
+		<div class="card mb-3" id="import-about-template">
+			<div class="card-header">题面模板 <small class="text-muted">只建题目，数据之后再传</small></div>
+			<div class="card-body">
+				<p class="mb-2">一个 Markdown 文件：开头几行写题目名称、时间和内存限制、标签，后面是题面。想一次建很多题：每道题填一个，一起选上。</p>
+				<a class="btn btn-outline-secondary btn-sm" id="link-import-template" href="<?= $here ?>?template=1"><span class="glyphicon glyphicon-download-alt"></span> 下载题面模板</a>
+			</div>
+		</div>
+		<div class="card mb-3" id="import-about-hydro">
+			<div class="card-header">从 Hydro 搬题</div>
+			<div class="card-body small text-muted">
+				Hydro 导出的题目包（<code>problem.yaml</code>、<code>problem_zh.md</code>、<code>testdata/config.yaml</code>）可以直接导入：
+				<code>config.yaml</code> 会被翻译成本站的评测设置，翻译不了的地方在导入结果里逐条说明。
+				两边的功能并不完全对应，所以建议整理成上面的格式，用 <code>problem.conf</code> 写评测设置；包里有 <code>problem.conf</code> 时不读 <code>config.yaml</code>。
 			</div>
 		</div>
 	</div>

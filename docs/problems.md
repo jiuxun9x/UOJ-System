@@ -81,26 +81,44 @@ public: false          # true 表示导入后直接公开
 （`标题`、`时间限制`、`内存限制`、`标签`、`公开`），时间可以写 `1s`、`1500ms`，内存可以写 `256m`、`1g`。
 没写开头那几行的 .md 文件也能导入：题目名称取文件名，限制用默认值。要一次建很多题，每题填一个模板一起选上，或打成一个 zip。
 
-### 题目包（和 Hydro 导出的格式相同）
+### 题目包
 
-一个 zip，每道题一个文件夹（文件夹叫什么都行；整个 zip 只有一道题时可以不套文件夹）：
+一个 zip，每道题一个文件夹（文件夹叫什么都行；整个 zip 只有一道题时可以不套文件夹）。导入页可以下载一个**题目包模板**：
+它本身就能导入，里面有两道例题和一份完整的格式说明 `README.md`。把说明和手头的题目一起交给 AI，可以让它批量整理成这个格式。
 
 ```
-A/
-  problem.yaml        title（题目名称）、tag（标签列表）
-  problem_zh.md       题面；也认 problem.md，开头可以带模板的那几行
-  testdata/           测试数据、校验器、交互器，和 Hydro 的 config.yaml
-  additional_file/    给做题的人下载的文件，导入成附件
+a-plus-b/
+  problem.md          题面：开头两行 --- 之间写 title、tags、public，后面是题面
+  problem.conf        评测设置，可以带注释
+  data/               测试数据、校验器、交互器（也认 testdata/）
+  additional_file/    给做题的人下载的文件、题面里的图片，导入成附件
 ```
 
-- `testdata/config.yaml` 里的 `time`、`memory`、`subtasks`（含每个子任务的 `cases` 和 `score`）、`checker`
-  （`checker_type: testlib`）、`interactor`、`type`（`default`、`interactive`、`submit_answer`）会转成本站的评测设置。
-  没有 config.yaml 时测试点按文件名自动识别。
-- `testdata/` 里如果放的是本站的 `problem.conf`，就完全按它来（从别的 UOJ 搬题用这个）。
-- 校验器、交互器的 `.cc` 文件导入时改名为 `.cpp`。
-- 题面里的 `file://文件名`（Hydro 引用附件的写法）会换成导入后的附件地址，图片能直接显示。
-- 本站没有对应功能的地方不会让导入失败，而是在结果里说明：文件输入输出（`filename`）、非 testlib 写法的校验器、
-  子任务依赖（`if`）和非“全部通过才得分”的子任务、`communication` 等类型。这些题导入后请到评测设置里检查。
+- **评测设置写在 `problem.conf` 里**，就是本站评测机读的那个文件，放在题目文件夹里或 `data/` 里都行。
+  模板里的 `problem.conf` 把常用设置逐项列出并加了注释，没启用的用 `#` 注释掉，去掉行首的 `#` 就启用。
+  注释（`#` 开头的行、行尾空格后的 `# …`）在导入时去掉，评测机读到的文件里没有注释。
+- **没写 `n_tests` 的 problem.conf 是“只写了设置”**：测试点按文件名自动识别（`1.in`/`1.out`、`1.ans`、
+  `input1.txt`/`output1.txt`；`ex_` 或 `sample` 开头的是额外测试点），必要时改名成 `data1.in`……，
+  `n_tests`、`input_pre` 等由导入补上；其他行（`time_limit_3 5`、`subtask_dependence_2 1`、`output_limit 32` 等）原样保留。
+  最后一个子任务不用写 `subtask_end`，它到最后一个测试点为止。
+- **写了 `n_tests` 的 problem.conf 是完整的**：完全按它来，文件名不改（从别的 UOJ 搬题就是这种）。
+- 时间、内存限制以 problem.conf 为准；它没写时才看题面开头几行里的 `time_limit`、`memory_limit`。
+- problem.conf 写错了（少了值、同一个键写了两次）不会让导入失败：题目照样建出来，评测设置用默认值，结果里说明是第几行。
+- `data/` 里只认两个子文件夹：`require/`（和选手程序一起编译）和 `download/`（给选手下载）。
+- 校验器、交互器的 `.cc` 文件导入时改名为 `.cpp`，problem.conf 里的文件名跟着改。
+- 题面里的 `file://文件名` 会换成导入后的附件地址，图片能直接显示。
+
+#### 从 Hydro 搬题
+
+Hydro 导出的题目包（`problem.yaml`、`problem_zh.md`、`testdata/config.yaml`）可以直接导入：包里**没有 problem.conf 时**，
+`config.yaml` 会被翻译成本站的评测设置——`time`、`memory`、`subtasks`（每个子任务的 `cases` 和 `score`）、`checker`
+（`checker_type: testlib`）、`interactor`、`type`（`default`、`interactive`、`submit_answer`）。
+只有一个子任务时按“全部测试点通过才得分”导入。
+
+两边的功能并不完全对应。翻译不了的地方不会让导入失败，而是在结果里逐条说明：文件输入输出（`filename`）、
+非 testlib 写法的校验器、子任务依赖（`if`）和非“全部通过才得分”的子任务、`communication` 等类型、
+个别测试点自己的时限和分值、`langs`、`validator` 等。所以**建议把题目整理成上面的格式，用 problem.conf 写评测设置**；
+包里两个文件都有时只读 problem.conf。
 
 ## 数据包怎么准备
 
@@ -138,6 +156,7 @@ A/
 
 **自带 `problem.conf` 的数据包**（比如从别的 UOJ 导出的）完全按它来，表单里选的类型和评测设置不起作用，
 文件也不会被重命名。
+上传的 `problem.conf` 可以带注释（`#` 开头的行、行尾空格后的 `# …`），保存下来的文件里注释会去掉：评测机不认注释。
 
 单个数据包解压后的大小、文件数有上限，见 [deployment.md](deployment.md) 的 `data.upload`。
 
@@ -201,6 +220,7 @@ A/
 选项里没有的设置（个别测试点的时限 `time_limit_3 5`、输出上限 `output_limit 128`、子任务依赖
 `subtask_dependence_2 1` 等）：打开左边的“直接编辑”，在 `problem.conf` 里写上，点“保存 problem.conf 并同步数据”。
 每行一个“键 值”，写错了（少了值、同一个键写了两次）会指出是第几行，不会保存。
+可以贴带注释的内容，保存时注释去掉。
 直接编辑时写的是什么就保存什么，不会重命名文件；之后再用右边的选项保存，这些选项不认识的行原样保留。
 
 `problem.conf` 里和程序有关的键：`chk_source`、`interactor_source`、`std_source`、`val_source`，值是上传的文件名。

@@ -6,17 +6,24 @@
 // what the problem is called and what its limits are, between two lines of "---", and the
 // rest is the statement. importTemplateText() is the one that is handed out.
 //
-// A package: a zip with a folder for every problem, laid out the way Hydro exports problems:
+// A package: a zip with a folder for every problem.
 //
-//     <any name>/problem.yaml            title, tag
-//     <any name>/problem_zh.md           the statement (or problem.md, with or without the
-//                                        lines of a template at its top)
-//     <any name>/testdata/               the tests and the programs that judge them, with
-//                                        Hydro's config.yaml or a problem.conf of this site
+//     <any name>/problem.md              the statement, with the lines of a template at its top
+//                                        (also problem_zh.md; or title and tag in a problem.yaml)
+//     <any name>/problem.conf            how it is judged, as this site says it; comments allowed
+//     <any name>/data/                   the tests and the programs that judge them (also
+//                                        testdata/; the problem.conf may lie here as well)
 //     <any name>/additional_file/        files for the people who solve it
 //
 // A zip that is one such folder is one problem, and so is a zip of filled-in templates a
-// problem for each. What Hydro says about a problem in config.yaml is turned into the
+// problem for each. importPackageTemplate() is the package that is handed out as an example.
+//
+// A problem.conf that says how many tests there are is taken at its word. One that does not
+// is the settings of the problem, and the tests are found by the names of their files: that
+// is what the one that is handed out is, so that nobody has to count files to import one.
+//
+// A package that Hydro exported is laid out the same way, and has a config.yaml where this
+// site has a problem.conf. It is read where there is no problem.conf, and turned into the
 // settings of this site as far as they say the same thing; where they do not, the problem is
 // imported with what could be kept, and it is said what could not.
 
@@ -66,6 +73,333 @@ public: false          # 写 true 表示导入后直接公开；不写就是隐�
 对于 $100\%$ 的数据，$1 \le n \le 10^5$。
 
 EOD;
+}
+
+// The problem.conf that is handed out: every setting people use, with what it does. What is
+// in force is what a problem has when nobody says anything; the rest is commented out, to be
+// put in force by taking the "#" at the beginning of its line away.
+function importConfTemplateText() {
+	return <<<'EOD'
+# ===== 评测设置（problem.conf）=====
+# 每行一个“键 值”，中间用空格分开，值里不能有空格。
+# 以 # 开头的行是说明，或者是没有启用的设置：要启用哪一项，就去掉那一行开头的 # 。
+# 导入时注释会自动去掉，不用手工清理。
+
+use_builtin_judger on           # 用本站自带的评测程序，不用改
+
+# ---- 限制
+time_limit 1                    # 时间限制，单位是秒，可以写小数（如 2.5）
+memory_limit 256                # 内存限制，单位是 MB
+# output_limit 64               # 输出上限，单位是 MB，不写是 64
+# time_limit_3 5                # 只给第 3 个测试点改时间限制；memory_limit_3 同理
+
+# ---- 怎么比较选手的输出和答案：下面两种写法选一种
+use_builtin_checker wcmp        # 用内置的比较方式，可以写：
+                                #   wcmp    逐个单词比较，忽略空格和换行的多少（最常用）
+                                #   lcmp    逐行比较，忽略行内多余的空格
+                                #   fcmp    逐行严格比较，只忽略文末的换行
+                                #   ncmp    整数序列
+                                #   rcmp4 / rcmp6 / rcmp9   实数，绝对或相对误差不超过 1e-4 / 1e-6 / 1e-9
+                                #   yesno   只有 YES 或 NO（不分大小写）
+# chk_source chk.cpp            # 用自己的校验器（testlib.h 写的 C++ 程序，放在 data/ 里）：
+                                # 启用这一行，并删掉上面 use_builtin_checker 那一行
+
+# ---- 测试点：不用写。导入时按文件名自动识别：1.in 和 1.out（或 1.ans）是一个测试点，
+#      input1.txt 和 output1.txt 也认；文件名以 ex_ 或 sample 开头的是额外测试点（放样例）。
+#      只有文件名很特别、识别不出来时才需要写，而且要把下面七行全部写对：
+# n_tests 10                    # 正式测试点的个数
+# n_ex_tests 2                  # 额外测试点的个数
+# n_sample_tests 2              # 额外测试点里前几个是样例
+# input_pre data                # 第 3 个测试点的输入文件叫 data3.in，额外测试点叫 ex_data3.in
+# input_suf in
+# output_pre data               # 第 3 个测试点的答案文件叫 data3.out
+# output_suf out
+
+# ---- 计分：什么都不写时，每个测试点分值相同，通过几个得几个的分（OI 的做法）
+# n_subtasks 1                  # 全部测试点通过才得分（ICPC 的做法）：只启用这一行
+#
+# 子任务：一个子任务里的测试点全部通过才得到它的分。例如 10 个测试点分成三个子任务：
+# n_subtasks 3
+# subtask_end_1 3               # 子任务 1 是测试点 1～3
+# subtask_score_1 20
+# subtask_end_2 6               # 子任务 2 是测试点 4～6
+# subtask_score_2 30
+# subtask_score_3 50            # 最后一个子任务到最后一个测试点为止，不用写 subtask_end
+# subtask_dependence_3 2        # 子任务 3 依赖子任务 2：2 没通过，3 也不得分
+#
+# point_score_1 20              # 不分子任务时，单独指定第 1 个测试点的分值
+
+# ---- 题目类型：什么都不写是传统题（读标准输入，写标准输出）。其他类型启用对应的行：
+# interaction_mode on               # 交互题：选手的程序通过标准输入输出和交互器对话
+# interactor_source interactor.cpp  # 交互器（testlib.h 写的），放在 data/ 里
+#
+# multi_pass 2                  # 通信题：同一个程序运行 2 轮，需要自己的校验器（chk_source）
+#
+# submit_answer on              # 提交答案题：选手提交每个测试点的答案，不提交程序
+#
+# with_implementer on           # 函数交互题：交互库放在 data/require/implementer.cpp
+
+# ---- 其他
+# validate_input_before_test on # 评测前先用数据校验器检查每个测试点的输入
+# val_source val.cpp            # 数据校验器（testlib.h 写的）
+# std_source std.cpp            # 标程：题目允许 Hack 时用它算答案
+
+EOD;
+}
+
+// The package that is handed out: a zip as it is imported, with two problems in it and the
+// rules of the format written out, for people and for the programs people have do such work.
+// Returns its files: path => content.
+function importPackageTemplate() {
+	$readme = <<<'EOD'
+# 题目包格式说明
+
+这个压缩包本身就是一个可以直接导入的例子：在“导入题目”页面选上它，会建出两道题。
+照着它的样子准备题目即可。一个 zip 里可以放很多道题（一次最多 50 道），每道题一个文件夹。
+
+也可以把这份说明连同手头的题目一起交给 AI，让它“按这份说明把这些题整理成题目包”：
+下面的规则是完整的，照做就能导入。
+
+## 目录结构
+
+```
+题目包.zip
+├── README.md               这份说明（导入时忽略）
+├── a-plus-b/               一道题一个文件夹，文件夹叫什么都行（建议用英文和数字）
+│   ├── problem.md          题面（必须有）
+│   ├── problem.conf        评测设置（没有就用默认设置：1 秒、256 MB、逐词比较）
+│   ├── data/               测试数据和评测用的程序（没有也行，之后在网页上传）
+│   │   ├── 1.in  1.out
+│   │   ├── 2.in  2.out
+│   │   └── ex_1.in  ex_1.out
+│   └── additional_file/    给做题的人下载的文件、题面里的图片（可以没有）
+└── with-checker/
+    └── ……
+```
+
+整个 zip 只有一道题时，可以不套文件夹，直接把 problem.md 等放在 zip 的最外层。
+
+## problem.md：题面
+
+开头是夹在两行 `---` 之间的几行，写题目名称等；之后全部是题面，用 Markdown 写。
+
+```
+---
+title: A + B 问题
+tags: [入门, 模拟]
+public: false
+---
+
+## 题目描述
+
+给出两个整数 $a$ 和 $b$，求它们的和。
+```
+
+- `title`：题目名称，必须有，不超过 100 个字节。
+- `tags`：标签，可以不写；最多 10 个。
+- `public`：`true` 表示导入后直接公开；不写或写 `false` 是隐藏，检查无误后再公开。
+- 文件用 UTF-8 编码。
+- 公式写在美元符号之间：行内 `$a+b$`，独占一行 `$$a+b$$`。真正的美元符号写成 `\$`。
+- 样例的输入和输出各用一个代码块，代码块的“语言”写 `input1`、`output1`；第二组写 `input2`、`output2`。
+  这样网页上会显示成并排的样例，并带复制按钮。
+- 建议的小节（用 `##` 开头）：题目描述、输入格式、输出格式、样例、样例说明、数据范围。
+- 图片：把图片文件放进 `additional_file/`，题面里写 `![说明文字](file://图片文件名)`。
+- 时间和内存限制不用写进题面，网页会根据 problem.conf 自动显示。
+
+## problem.conf：评测设置
+
+每行一个“键 值”，中间用空格分开，值里不能有空格，同一个键只能写一次。`#` 开头的行和行尾 `#` 之后是注释。
+
+`a-plus-b/problem.conf` 列出了全部常用设置并逐项说明，没启用的都用 `#` 注释掉了：
+要用哪一项，去掉那一行开头的 `#` 即可。一道普通的题只需要四行：
+
+```
+use_builtin_judger on
+time_limit 1
+memory_limit 256
+use_builtin_checker wcmp
+```
+
+- **不要写** `n_tests`、`input_pre` 这些说明测试点文件名的行：不写时测试点按文件名自动识别，这是推荐的做法。
+- 答案不唯一的题需要自己的校验器：删掉 `use_builtin_checker` 那一行，写 `chk_source chk.cpp`，
+  并把 `chk.cpp` 放进 `data/`。见 `with-checker/` 这个例子。
+- ICPC 式的“全部通过才得分”：加一行 `n_subtasks 1`。
+- 子任务的写法见 `with-checker/problem.conf`。
+
+## data/：测试数据
+
+- 一个测试点是一对文件：输入和答案，文件名除后缀外相同。`1.in` + `1.out`、`1.in` + `1.ans`、
+  `input1.txt` + `output1.txt` 都可以。导入时按文件名里的数字从小到大排成第 1、2、3……个测试点。
+- 文件名以 `ex_` 或 `sample` 开头的是**额外测试点**，样例放在这里（`ex_1.in`、`ex_1.out`）。
+  正式测试点全部通过后还会再测额外测试点。
+- 每个测试点都要有答案文件，即使用了自己的校验器（交互题除外）。
+- 自己的校验器、交互器等程序也放在 `data/` 里，文件名写在 problem.conf 里。它们必须是用
+  [testlib.h](https://github.com/MikeMirzayanov/testlib) 写的 C++ 程序，后缀 `.cpp`。
+- 除了 `data/require/`（和选手程序一起编译的文件）与 `data/download/`（给选手下载的文件）之外，
+  `data/` 里不要再放文件夹。标程、数据生成器等用不到的文件不要放进来。
+- 换行符用 `\n`（不要 `\r\n`），文件末尾留一个换行。
+
+## additional_file/：附件
+
+放在这里的文件会成为题目的附件，显示在题面下方供下载。题面里用 `file://文件名` 引用的图片也放在这里。
+
+## 整理好之后自查
+
+1. 每道题一个文件夹，文件夹里有 `problem.md`，它的开头两行 `---` 之间有 `title`。
+2. `problem.conf` 里每一行都是“键 值”两个词（注释除外），没有重复的键，没有 `n_tests`。
+3. `data/` 里输入和答案成对，文件名里的编号从 1 开始连续。
+4. 用了 `chk_source`、`interactor_source` 时，对应的 `.cpp` 文件在 `data/` 里，而且没有 `use_builtin_checker` 那一行。
+5. 子任务的分值加起来是 100，`subtask_end_i` 从小到大。
+6. 题面里的样例和 `data/` 里的额外测试点内容一致。
+7. 打包时 zip 里直接是各题的文件夹（外面再套一层文件夹也可以）。
+
+导入后页面会逐题说明识别到了多少测试点、有什么没有采用；数据同步完成后就可以提交测试。
+
+EOD;
+	$ab_statement = <<<'EOD'
+---
+title: A + B 问题
+tags: [入门]
+public: false
+---
+
+## 题目描述
+
+给出两个整数 $a$ 和 $b$，求它们的和。
+
+## 输入格式
+
+一行两个整数 $a$ 和 $b$。
+
+## 输出格式
+
+一行一个整数，表示 $a + b$。
+
+## 样例
+
+```input1
+1 2
+```
+
+```output1
+3
+```
+
+## 数据范围
+
+对于 $100\%$ 的数据，$|a|, |b| \le 10^9$。
+
+EOD;
+	$split_statement = <<<'EOD'
+---
+title: 拆成两个数
+tags: [构造, 特殊评测]
+public: false
+---
+
+## 题目描述
+
+给出一个整数 $n$，请写出两个正整数 $a$ 和 $b$，使得 $a + b = n$。答案不唯一，输出任意一组即可。
+
+![示意图](file://figure.png)
+
+## 输入格式
+
+一行一个整数 $n$。
+
+## 输出格式
+
+一行两个正整数 $a$ 和 $b$。
+
+## 样例
+
+```input1
+5
+```
+
+```output1
+2 3
+```
+
+## 样例说明
+
+输出 `1 4`、`4 1`、`3 2` 也都算对。
+
+## 数据范围
+
+| 子任务 | 分值 | $n$ 的范围 |
+| :-: | :-: | :-: |
+| 1 | 40 | $2 \le n \le 100$ |
+| 2 | 60 | $2 \le n \le 10^{18}$ |
+
+EOD;
+	$split_conf = <<<'EOD'
+# 这道题的答案不唯一，用自己的校验器；测试点分成两个子任务。
+# 没有写 n_tests：测试点按 data/ 里的文件名自动识别。
+
+use_builtin_judger on
+time_limit 1                    # 秒
+memory_limit 256                # MB
+chk_source chk.cpp              # 自己的校验器，文件在 data/ 里；所以没有 use_builtin_checker 这一行
+
+n_subtasks 2
+subtask_end_1 2                 # 子任务 1 是测试点 1～2
+subtask_score_1 40
+subtask_score_2 60              # 子任务 2 是测试点 3～4：到最后一个测试点为止
+
+EOD;
+	$split_checker = <<<'EOD'
+// 校验器：读入题目的输入（inf）和选手的输出（ouf），判断选手的输出对不对。
+// 用 testlib.h 写；标准答案在 ans 里，这道题用不到。
+#include "testlib.h"
+
+int main(int argc, char *argv[]) {
+	registerTestlibCmd(argc, argv);
+	long long n = inf.readLong();
+	long long a = ouf.readLong(1, n - 1, "a");
+	long long b = ouf.readLong(1, n - 1, "b");
+	if (a + b != n) {
+		quitf(_wa, "a + b = %lld, expected %lld", a + b, n);
+	}
+	quitf(_ok, "%lld = %lld + %lld", n, a, b);
+}
+
+EOD;
+	$files = array(
+		'README.md' => $readme,
+		'a-plus-b/problem.md' => $ab_statement,
+		'a-plus-b/problem.conf' => importConfTemplateText(),
+		'with-checker/problem.md' => $split_statement,
+		'with-checker/problem.conf' => $split_conf,
+		'with-checker/data/chk.cpp' => $split_checker,
+		'with-checker/additional_file/figure.png' => base64_decode('iVBORw0KGgoAAAANSUhEUgAAAGAAAAAwCAIAAABhdOiYAAAAf0lEQVR42u3bsQnAIBRFUcfJEE6SSTKOUzmBZAN7C8EyhBDU4sAd4HOK1/1wnEkPBQSvgHKpO3RfsbfDMYAAAQIECBAgQIAAAQIECBAgQIAAAQIECNASoHGZRoAA/Qhkg4w0IECAAAECBAgQIECAAAECBAgQIECAAM0Ckm+fjzXoiDxbDSiqDAAAAABJRU5ErkJggg==')
+	);
+	foreach (array(array('1 2', '3'), array('-7 7', '0'), array('1000000000 1000000000', '2000000000')) as $index => $test) {
+		$files['a-plus-b/data/' . ($index + 1) . '.in'] = $test[0] . "\n";
+		$files['a-plus-b/data/' . ($index + 1) . '.out'] = $test[1] . "\n";
+	}
+	$files['a-plus-b/data/ex_1.in'] = "1 2\n";
+	$files['a-plus-b/data/ex_1.out'] = "3\n";
+	foreach (array(array('2', '1 1'), array('100', '1 99'), array('1000000007', '1 1000000006'), array('1000000000000000000', '1 999999999999999999')) as $index => $test) {
+		$files['with-checker/data/' . ($index + 1) . '.in'] = $test[0] . "\n";
+		$files['with-checker/data/' . ($index + 1) . '.out'] = $test[1] . "\n";
+	}
+	$files['with-checker/data/ex_1.in'] = "5\n";
+	$files['with-checker/data/ex_1.out'] = "2 3\n";
+	return $files;
+}
+// the package that is handed out, as the zip it is: the path of a file that whoever asked for it removes
+function importPackageTemplateZip() {
+	$path = tempnam(sys_get_temp_dir(), 'uoj_template_');
+	$zip = new ZipArchive();
+	if ($zip->open($path, ZipArchive::OVERWRITE) !== true) {
+		return null;
+	}
+	foreach (importPackageTemplate() as $name => $content) {
+		$zip->addFromString($name, $content);
+	}
+	$zip->close();
+	return $path;
 }
 
 // ---- reading what a file says
@@ -321,6 +655,8 @@ function importHydroConfig($config, $names) {
 		$cases = array();
 		$rows = array();
 		$plain = true;
+		$own_limits = false;
+		$own_scores = false;
 		foreach ($config['subtasks'] as $subtask) {
 			if (!is_array($subtask) || !isset($subtask['cases']) || !is_array($subtask['cases'])) {
 				$cases = null;
@@ -340,6 +676,13 @@ function importHydroConfig($config, $names) {
 			if ($kind !== 'min' || !empty($subtask['if'])) {
 				$plain = false;
 			}
+			// limits and scores of single subtasks and tests are not carried over
+			foreach (array_merge(array($subtask), array_filter($subtask['cases'], 'is_array')) as $part) {
+				$own_limits = $own_limits || isset($part['time']) || isset($part['memory']);
+			}
+			foreach (array_filter($subtask['cases'], 'is_array') as $case) {
+				$own_scores = $own_scores || isset($case['score']);
+			}
 		}
 		if ($cases !== null) {
 			$total = array_sum(array_column($rows, 1));
@@ -347,15 +690,60 @@ function importHydroConfig($config, $names) {
 			if (count($rows) >= 2 && $plain && $total == 100 && count(array_unique($ends)) == count($ends) && !in_array(0, $ends, true)) {
 				$settings['scoring'] = 'subtasks';
 				$settings['subtasks'] = $rows;
+			} elseif (count($rows) == 1 && $plain) {
+				// one subtask that is passed as a whole: every test has to pass
+				$settings['scoring'] = 'all';
+			} elseif (count($rows) == 1) {
+				$notes[] = '只有一个子任务，而且不是“全部通过才得分”的：现在按测试点平均给分，请在评测设置里检查';
 			} elseif (count($rows) >= 2) {
 				$notes[] = '子任务没有照原样导入（' . (!$plain ? '有子任务依赖或不是“全部通过才得分”' : ($total != 100 ? "分值加起来是 $total 不是 100" : '有空的子任务')) . '），现在按测试点平均给分，请在评测设置里重新填';
 			}
 			if (!$cases) {
 				$cases = null;
 			}
+			if ($own_limits) {
+				$notes[] = 'config.yaml 给个别子任务或测试点单独写了时间、内存限制，这里没有照搬：需要的话在 problem.conf 里写 time_limit_3 5 这样的行';
+			}
+			if ($own_scores) {
+				$notes[] = 'config.yaml 给个别测试点单独写了分值，这里没有照搬：需要的话在 problem.conf 里写 point_score_3 20 这样的行';
+			}
 		}
 	}
+	// what Hydro can be told and this site is not told this way
+	$dropped = array();
+	foreach (array('langs', 'user_extra_files', 'judge_extra_files', 'validator', 'template', 'time_limit_rate', 'memory_limit_rate') as $key) {
+		if (isset($config[$key]) && $config[$key] !== '' && $config[$key] !== array()) {
+			$dropped[] = $key;
+		}
+	}
+	if ($dropped) {
+		$notes[] = 'config.yaml 里这些设置没有导入：' . join('、', $dropped);
+	}
 	return array('settings' => $settings, 'cases' => $cases, 'notes' => $notes);
+}
+
+// The settings of a problem whose problem.conf does not say which its tests are: what the
+// conf says, and for what it leaves open what the lines at the top of the statement say.
+//   $conf       the problem.conf, read
+//   $said       the settings the statement speaks of
+//   $names      the files that come as data, among which a checker may be
+function importSettingsOfConf($conf, $said, $names) {
+	$settings = problemSettingsOfConf($conf);
+	foreach (array('time_limit', 'memory_limit') as $key) {
+		if (!isset($conf[$key]) && isset($said[$key])) {
+			$settings[$key] = $said[$key];
+		}
+	}
+	// no word about how answers are compared: by the checker that came along, or the usual way
+	if (!isset($conf['use_builtin_checker']) && !isset($conf['chk_source'])) {
+		$settings['checker'] = problemGuessProgram($names, 'chk') !== '' ? 'custom' : problemDefaultSettings()['checker'];
+	}
+	// the last subtask ends with the last test, which is not known before the tests are found
+	if ($settings['scoring'] === 'subtasks' && $settings['subtasks']) {
+		$last = count($settings['subtasks']);
+		$settings['subtasks'][$last - 1][0] = isset($conf["subtask_end_$last"]) ? (int)$conf["subtask_end_$last"] : null;
+	}
+	return $settings;
 }
 
 // ---- taking a package apart
@@ -507,6 +895,8 @@ function importReadTemplate($text, $fallback_title) {
 		'settings' => $settings,
 		'data' => array(),
 		'cases' => null,
+		// the problem.conf that came with it, read; null when there is none
+		'conf' => null,
 		'native' => false,
 		'attachments' => array(),
 		'notes' => $notes
@@ -571,13 +961,39 @@ function importReadPackage($dir, $root, $files) {
 		if (preg_match('/^(testdata|data)\/([^\/]+)$/D', $name, $matches)) {
 			$package['data'][$matches[2]] = "$dir/$prefix$name";
 			$data_names[] = $matches[2];
+		} elseif (preg_match('/^(testdata|data)\/((require|download)\/[^\/]+)$/D', $name, $matches)) {
+			// what is compiled with the programs of the contestants, and what they may download
+			$package['data'][$matches[2]] = "$dir/$prefix$name";
 		} elseif (preg_match('/^(additional_file|attachments)\/([^\/]+)$/D', $name, $matches)) {
 			$package['attachments'][$matches[2]] = "$dir/$prefix$name";
 		}
 	}
+	// How it is judged: a problem.conf says so, beside the statement or among the data. Only
+	// where there is none is a config.yaml of Hydro read.
+	if (in_array('problem.conf', $own, true)) {
+		$package['data']['problem.conf'] = "$dir/{$prefix}problem.conf";
+	}
 	if (isset($package['data']['problem.conf'])) {
-		// a problem of this site: its problem.conf says everything
-		$package['native'] = true;
+		list($conf, $err) = problemConfFromText(file_get_contents($package['data']['problem.conf']));
+		// it is written anew from what it says, without its comments
+		unset($package['data']['problem.conf']);
+		if ($err !== '') {
+			$package['notes'][] = "problem.conf 没有采用（{$err}）：限制和评测方式用了默认值，请到“数据与评测”里检查";
+		} else {
+			$package['conf'] = $conf;
+			// One that says how many tests there are says everything, and is taken at its word.
+			// One that does not is the settings of the problem: its tests are found by their names.
+			$package['native'] = isset($conf['n_tests']) || (isset($conf['use_builtin_judger']) && $conf['use_builtin_judger'] !== 'on');
+			if (!$package['native']) {
+				$package['settings'] = importSettingsOfConf($conf, $package['settings'], $data_names);
+			}
+		}
+		foreach (array('config.yaml', 'config.yml') as $name) {
+			if (isset($package['data'][$name])) {
+				unset($package['data'][$name]);
+				$package['notes'][] = "数据里同时有 problem.conf 和 {$name}：按 problem.conf 导入，{$name} 没有读";
+			}
+		}
 	} else {
 		foreach (array('config.yaml', 'config.yml') as $name) {
 			if (!isset($package['data'][$name])) {
@@ -591,6 +1007,7 @@ function importReadPackage($dir, $root, $files) {
 				$package['settings'] = $package['settings'] + $said['settings'];
 				$package['cases'] = $said['cases'];
 				$package['notes'] = array_merge($package['notes'], $said['notes']);
+				$package['notes'][] = "评测设置是从 Hydro 的 {$name} 翻译来的，请在“数据与评测”里核对；建议以后改用 problem.conf";
 			}
 			unset($package['data'][$name]);
 		}
@@ -634,6 +1051,9 @@ function importCreate($package, $actor, $domain, $public) {
 	$put = function($path, $name) use ($upload_dir, &$written, &$skipped, &$renamed) {
 		// a C++ source is called .cpp here, which is how the judgers know what it is
 		$as = preg_replace('/\.(cc|cxx|c\+\+)$/i', '.cpp', $name);
+		if (strpos($as, '/') !== false && !is_dir(dirname("$upload_dir/$as"))) {
+			@mkdir(dirname("$upload_dir/$as"), 0755, true);
+		}
 		if (problemFileNameError($as) !== '' || !@copy($path, "$upload_dir/$as")) {
 			$skipped[] = $name;
 			return;
@@ -673,18 +1093,40 @@ function importCreate($package, $actor, $domain, $public) {
 	if ($written > 0) {
 		auditLog('problem.upload_data', 'problem', $id, null, array('files' => $written, 'imported' => true), $actor);
 	}
-	if ($package['native']) {
-		$notes[] = '数据里带有 problem.conf，按它来评测';
-	} else {
-		foreach (array('checker_file', 'interactor_file') as $field) {
-			if (isset($settings[$field]) && isset($renamed[$settings[$field]])) {
-				$settings[$field] = $renamed[$settings[$field]];
+	// a program that the package names is that program under the name it has here
+	$here = function($name) use ($renamed) {
+		return isset($renamed[$name]) ? $renamed[$name] : $name;
+	};
+	if ($package['conf'] !== null) {
+		// the problem.conf of the package, written anew from what it says
+		$conf = $package['conf'];
+		foreach (problemProgramFields() as $field => $kind) {
+			if (isset($conf["{$kind}_source"])) {
+				$conf["{$kind}_source"] = $here($conf["{$kind}_source"]);
 			}
+		}
+		putUOJConf("$upload_dir/problem.conf", $conf);
+	}
+	if ($package['native']) {
+		$notes[] = '按题目包里的 problem.conf 评测：它写明了测试点，文件名没有改动';
+		auditLog('problem.edit_conf', 'problem', $id, null, $conf + array('imported' => 1), $actor);
+	} else {
+		foreach (problemProgramFields() as $field => $kind) {
+			if (isset($settings[$field])) {
+				$settings[$field] = $here($settings[$field]);
+			}
+		}
+		if ($settings['scoring'] === 'subtasks' && $settings['subtasks'] && $settings['subtasks'][count($settings['subtasks']) - 1][0] === null) {
+			$tests = problemDetectTests(problemUploadedNames($upload_dir), $settings['type'] === 'interactive' || $settings['type'] === 'multi_pass');
+			$settings['subtasks'][count($settings['subtasks']) - 1][0] = count($tests['tests']);
 		}
 		list($found, $err) = problemApplySettings($problem, $settings, $actor);
 		if ($err !== '') {
 			$notes[] = '评测设置没有保存：' . $err;
 		} elseif ($written > 0) {
+			if ($package['conf'] !== null) {
+				$notes[] = '按题目包里的 problem.conf 评测：它没有写测试点个数，测试点是按文件名找的';
+			}
 			$notes = array_merge($notes, $found);
 		}
 	}

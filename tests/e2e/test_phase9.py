@@ -1259,7 +1259,7 @@ class ImportTest(unittest.TestCase):
         conf = published_conf(c)
         self.assertEqual((conf["time_limit"], conf["use_builtin_checker"], conf["n_tests"]), ("4", "ncmp", "3"))
         self.assertEqual(uoj.wait_submission(solver.submit(c, AB)).score, 100)
-        self.assertIn("数据里带有 problem.conf", uoj.text_of(page))
+        self.assertIn("按题目包里的 problem.conf 评测：它写明了测试点", uoj.text_of(page))
         # ---- D: a checker written with testlib, in a file called the way Hydro calls C++
         conf = published_conf(d)
         self.assertEqual((conf["chk_source"], conf["time_limit"], conf["memory_limit"], conf["n_tests"]), ("chk.cpp", "1", "64", "1"))
