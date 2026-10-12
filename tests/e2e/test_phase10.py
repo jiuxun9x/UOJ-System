@@ -436,3 +436,64 @@ class BalloonColoursTest(unittest.TestCase):
         # (the numbers are of the whole contest, whatever part of the list is shown)
         self.assertEqual(counts(page), {"A": (1, 1), "B": (1, 0), "C": (0, 0)})
         self.assertNotIn("uoj-balloon", ann.get(here).text)
+
+
+class VerdictOrScoreTest(unittest.TestCase):
+    """the ICPC rule says whether a submission passed, the other rules how much of it did, and
+    the lists of submissions tell a submission the way its rule does"""
+
+    def told(self, page, submission_id):
+        """how a list tells what a submission came to: ('verdict', its letters) or ('score', the number)"""
+        found = re.search(r'href="/submission/%d" class="uoj-(verdict|score)[^"]*"[^>]*>(?:<strong>)?\s*([^<\s]*)' % submission_id, page)
+        self.assertIsNotNone(found, submission_id)
+        return found.groups()
+
+    def test_icpc_problems_say_ac_and_the_others_say_a_score(self):
+        admin, solver = uoj.admin(), p3.account("p10_verdict_solver")
+        # a problem like any other; one that is scored as a whole; one of a contest under the
+        # ICPC rule; one of a contest under another rule
+        plain, in_icpc, in_ioi = (admin.create_problem(ab_problem_files()) for _ in range(3))
+        whole = admin.create_problem(ab_problem_files(n_subtasks=1))
+        self.assertEqual(published_conf(whole)["n_subtasks"], "1")
+        icpc = admin.new_contest("p10 ICPC 赛", minutes=60, rule="ICPC", problems=str(in_icpc))
+        ioi = admin.new_contest("p10 IOI 赛", minutes=60, rule="IOI", problems=str(in_ioi))
+        for contest_id in (icpc, ioi):
+            uoj.move_contest(contest_id, -7200, 60)
+
+        # ---- submitted outside of any contest: the problem decides how it is told
+        made = {}
+        for name, problem_id in (("plain", plain), ("whole", whole), ("in_icpc", in_icpc), ("in_ioi", in_ioi)):
+            made[name] = (solver.submit(problem_id, AB), solver.submit(problem_id, AB_WRONG))
+        for right, wrong in made.values():
+            self.assertEqual(uoj.wait_submission(right).score, 100)
+            self.assertEqual(uoj.wait_submission(wrong).score, 0)
+        for client in (solver, uoj.Client()):
+            page = client.get("/submissions?submitter=p10_verdict_solver").text
+            told = {name: (self.told(page, right), self.told(page, wrong)) for name, (right, wrong) in made.items()}
+            self.assertEqual(told, {
+                "plain": (("score", "100"), ("score", "0")),
+                "whole": (("verdict", "AC"), ("verdict", "WA")),
+                "in_icpc": (("verdict", "AC"), ("verdict", "WA")),
+                "in_ioi": (("score", "100"), ("score", "0")),
+            })  # fmt: skip
+        # what passed has the mark beside it either way
+        self.assertRegex(page, r'href="/submission/%d" class="uoj-verdict text-success" title="Accepted"><strong>AC</strong> <svg class="uoj-passed-mark"' % made["whole"][0])
+        self.assertRegex(page, r'href="/submission/%d" class="uoj-score">100 <svg class="uoj-passed-mark"' % made["plain"][0])
+        # the page of a submission tells it the way the lists do
+        self.assertEqual(self.told(solver.get("/submission/%d" % made["in_icpc"][1]).text, made["in_icpc"][1]), ("verdict", "WA"))
+        self.assertEqual(self.told(solver.get("/submission/%d" % made["plain"][1]).text, made["plain"][1]), ("score", "0"))
+        # and so does the list of one problem
+        page = solver.get("/submissions?problem_id=%d" % whole).text
+        self.assertEqual(self.told(page, made["whole"][0]), ("verdict", "AC"))
+
+        # ---- submitted in a contest: the rule of the contest decides, whatever its problems are
+        running = admin.new_contest("p10 IOI 赛（进行中）", minutes=300, rule="IOI", problems="%d, %d" % (whole, in_icpc))
+        self.assertEqual(admin.form("/contest/%d/manage" % running, "add_contestants", tab="contestants", names="p10_verdict_solver"), "")
+        uoj.move_contest(running, -600, 300)
+        in_contest = [solver.submit_in_contest(running, problem_id, AB) for problem_id in (whole, in_icpc)]
+        for submission_id in in_contest:
+            self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        page = solver.get("/contest/%d/submissions" % running).text
+        self.assertEqual([self.told(page, submission_id) for submission_id in in_contest], [("score", "100"), ("score", "100")])
+        # the help says which is which
+        self.assertIn("ICPC 赛制的比赛和题目显示下面这些字母", uoj.text_of(admin.get("/faq").text))

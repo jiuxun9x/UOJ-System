@@ -737,3 +737,11 @@ foreach (array('', '.htaccess', '../x', 'a/b.txt', 'a\\b.txt', "a\nb", ' a.txt',
 check_same(array('0 B', '1023 B', '1 KB', '1.5 KB', '2 MB'), array(attachmentSizeText(0), attachmentSizeText(1023), attachmentSizeText(1024), attachmentSizeText(1536), attachmentSizeText(2097152)), 'the size of a file for people');
 check_same(array(true, true, false, false), array(attachmentIsShownInline('a.pdf'), attachmentIsShownInline('A.PDF'), attachmentIsShownInline('a.html'), attachmentIsShownInline('pdf')), 'only a PDF is shown in the browser');
 
+
+// ---- a verdict or a score: the ICPC rule says passed or not, the others how much
+check_same(array(true, false, false), array(submissionSaysVerdict('ICPC', false), submissionSaysVerdict('OI', true), submissionSaysVerdict('IOI', true)), 'in a contest, the rule of the contest decides');
+check_same(array(true, false), array(submissionSaysVerdict(null, true), submissionSaysVerdict(null, false)), 'outside of any, the problem does');
+check_same(array(true, true, true), array(problemConfScoresAsWhole("use_builtin_judger on\nn_subtasks 1\nn_tests 5\n"), problemConfScoresAsWhole("n_subtasks 1"), problemConfScoresAsWhole("n_tests 5\r\n  n_subtasks\t1 \r\n")),
+	'a problem.conf with one subtask scores its problem as a whole');
+check_same(array(false, false, false, false, false), array(problemConfScoresAsWhole("n_subtasks 10\n"), problemConfScoresAsWhole("n_tests 1\n"), problemConfScoresAsWhole("subtask_end_1 1\nn_subtasks 12\n"),
+	problemConfScoresAsWhole(''), problemConfScoresAsWhole(false)), 'one with several subtasks, or with none, does not');

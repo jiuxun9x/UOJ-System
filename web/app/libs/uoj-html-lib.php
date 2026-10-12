@@ -363,6 +363,27 @@ function submissionContestRule($contest_id) {
 	}
 	return $rules[$contest_id];
 }
+// Whether a problem is an ICPC problem, looked up once a page: it is scored as a whole, or a
+// contest under the ICPC rule has it among its problems. What is submitted to it outside of
+// a contest - before the contest by who sets it, afterwards by who practises - is told by a
+// verdict then, as it is in the contest.
+function problemIsIcpc($problem_id) {
+	static $known = array();
+	$problem_id = (int)$problem_id;
+	if (!isset($known[$problem_id])) {
+		$conf = @file_get_contents("/var/uoj_data/$problem_id/problem.conf");
+		$known[$problem_id] = $conf !== false && problemConfScoresAsWhole($conf);
+		if (!$known[$problem_id]) {
+			foreach (DB::selectAll("select contest_id from contests_problems where problem_id = $problem_id") as $row) {
+				if (submissionContestRule($row['contest_id']) === 'ICPC') {
+					$known[$problem_id] = true;
+					break;
+				}
+			}
+		}
+	}
+	return $known[$problem_id];
+}
 function submissionVerdict($submission) {
 	if ($submission['score'] == 100) {
 		return 'Accepted';
@@ -426,7 +447,7 @@ function echoSubmission($submission, $config, $user) {
 				} else {
 					echo '<a href="/submission/', $submission['id'], '" class="small">', $submission['result_error'], '</a>';
 				}
-			} elseif (!empty($in_contest) && submissionContestRule($in_contest) === 'ICPC') {
+			} elseif (submissionSaysVerdict(!empty($in_contest) ? submissionContestRule($in_contest) : null, empty($in_contest) && problemIsIcpc($submission['problem_id']))) {
 				// under the ICPC rule a submission passed or did not, and is said to
 				$verdict = submissionVerdict($submission);
 				echo '<a href="/submission/', $submission['id'], '" class="uoj-verdict ', $verdict === 'Accepted' ? 'text-success' : 'text-danger', '" title="', HTML::escape($verdict), '"><strong>', HTML::escape(verdictShort($verdict)), '</strong>', $verdict === 'Accepted' ? passedMark() : '', '</a>';

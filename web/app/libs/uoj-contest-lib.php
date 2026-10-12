@@ -380,6 +380,20 @@ function submissionVerdictOf($score, $details) {
 	}
 	return 'Wrong Answer';
 }
+// Whether what a submission came to is told by a verdict - AC, WA - where a score would tell
+// how much of it passed. It is under the ICPC rule, where a submission passes or does not:
+// a submission that was made in a contest is shown by the rule of that contest, and one
+// that was made outside of any by its problem.
+//   $contest_rule      the rule of the contest it was made in, or is shown as made in; null for none
+//   $problem_is_icpc   whether its problem is an ICPC problem: see problemConfScoresAsWhole()
+function submissionSaysVerdict($contest_rule, $problem_is_icpc) {
+	return $contest_rule !== null ? $contest_rule === 'ICPC' : (bool)$problem_is_icpc;
+}
+// Whether a problem.conf, as its text, scores its problem as a whole: every test has to pass
+// for any points, which is how the problems of ICPC contests are scored.
+function problemConfScoresAsWhole($text) {
+	return is_string($text) && preg_match('/^[ \t]*n_subtasks[ \t]+1[ \t]*\r?$/m', $text) === 1;
+}
 // How a verdict is written: by the letters everybody knows it by. AC, WA, TLE take less
 // room than what they stand for and are read faster. A verdict that has no such letters is
 // written as it is; what the letters stand for is on the page of the help.

@@ -66,6 +66,7 @@
 			</div>
 			<div id="collapseFour" class="collapse">
 				<div class="card-body">
+					<p class="mb-2">提交记录里，<strong>ICPC 赛制</strong>的比赛和题目显示下面这些字母（通过就是 AC），<strong>OI、IOI 赛制</strong>的显示分数（通过就是 100）。一道题在比赛之外按 ICPC 显示，是因为它的计分方式是“全部测试点通过才得分”，或者它是某场 ICPC 比赛的题目。</p>
 					<ul>
 						<li><strong>AC</strong>（Accepted）：答案正确。恭喜大佬，您通过了这道题。</li>
 						<li><strong>WA</strong>（Wrong Answer）：答案错误。仅仅通过样例数据的测试并不一定是正确答案，一定还有你没想到的地方。</li>
