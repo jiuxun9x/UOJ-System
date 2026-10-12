@@ -503,7 +503,7 @@ class VerdictOrScoreTest(unittest.TestCase):
         page = solver.get("/contest/%d/submissions" % running).text
         self.assertEqual([self.told(page, submission_id) for submission_id in in_contest], [("score", "100"), ("score", "100")])
         # the help says which is which
-        self.assertIn("ICPC 赛制的比赛和题目显示下面这些字母", uoj.text_of(admin.get("/faq").text))
+        self.assertIn("的比赛和题目显示下面这些字母（通过就是 AC）", uoj.text_of(admin.get("/faq").text))
 
 
 class ContestPageTest(unittest.TestCase):
