@@ -420,8 +420,11 @@ class BalloonColoursTest(unittest.TestCase):
         self.assertRegex(page, r'(?s)<tr class="uoj-balloon-pending uoj-balloon-first-of-all" data-balloon="p10_bal_ann/A".*?★ 全场一血.*?★ A 题一血')
         self.assertRegex(page, r'(?s)<tr class="uoj-balloon-pending uoj-balloon-first" data-balloon="p10_bal_bob/B".*?★ B 题一血')
         self.assertRegex(page, r'<tr class="uoj-balloon-pending" data-balloon="p10_bal_bob/A"')
-        # a balloon is drawn in the colour that was written, and called what it was called
-        self.assertRegex(page, r'(?s)data-balloon="p10_bal_ann/A".*?class="uoj-balloon" title="A 大红".*?fill="#ff0000".*?>A</text>.*?大红')
+        # a balloon is drawn in the colour that was written, and called what it was called; the
+        # one of who solved its problem first has a star on it, and no other has
+        self.assertRegex(page, r'(?s)data-balloon="p10_bal_ann/A".*?class="uoj-balloon uoj-balloon-starred" title="A 大红（一血）".*?fill="#ff0000".*?>A</text><path class="uoj-balloon-star".*?大红')
+        self.assertRegex(page, r'(?s)data-balloon="p10_bal_bob/A"[^>]*>\s*<td[^>]*>.*?</td>\s*<td[^>]*><span class="uoj-balloon" title="A 大红"')
+        self.assertEqual(page.count('class="uoj-balloon-star"'), 2)
         # a colour without a name is called by its code
         self.assertRegex(page, r'(?s)data-balloon="p10_bal_bob/B".*?fill="#add8e6".*?<span class="uoj-balloon-name">#add8e6</span>')
         # what a contestant has with a balloon is drawn as the balloons they are

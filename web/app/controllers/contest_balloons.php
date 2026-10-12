@@ -108,8 +108,8 @@
 	foreach ($problems as $problem) {
 		$letter_color[$problem['letter']] = $problem;
 	}
-	$balloon_mark = function($problem, $small = false) {
-		return balloonMarkHTML($problem['letter'], $problem['color'], $problem['name'], $small);
+	$balloon_mark = function($problem, $small = false, $first = false) {
+		return balloonMarkHTML($problem['letter'], $problem['color'], $problem['name'], $small, $first);
 	};
 
 	$queue = $enabled ? balloonQueue($contest) : array('balloons' => array(), 'held_back' => 0);
@@ -292,7 +292,7 @@
 				?>
 				<tr class="<?= $is_done ? 'uoj-balloon-done' : 'uoj-balloon-pending' ?><?= $first_class ?>" data-balloon="<?= $balloon['username'] ?>/<?= $balloon['letter'] ?>" data-username="<?= $balloon['username'] ?>" data-problem="<?= $balloon['letter'] ?>" data-done="<?= $is_done ? 1 : 0 ?>" data-submission="<?= $balloon['submission'] ?>">
 					<td class="uoj-bl-time"><a class="text-muted" href="/submission/<?= $balloon['submission'] ?>"><?= contestClock($balloon['offset']) ?></a></td>
-					<td class="uoj-bl-balloon text-nowrap"><?= $balloon_mark($problem) ?> <span class="uoj-balloon-name"><?= HTML::escape($problem['name'] !== '' ? $problem['name'] : $problem['color']) ?></span></td>
+					<td class="uoj-bl-balloon text-nowrap"><?= $balloon_mark($problem, false, $balloon['first_for_problem']) ?> <span class="uoj-balloon-name"><?= HTML::escape($problem['name'] !== '' ? $problem['name'] : $problem['color']) ?></span></td>
 					<td class="uoj-balloon-seat"><?= $balloon['seat'] !== '' ? HTML::escape($balloon['seat']) : '<span class="text-muted font-weight-normal">未填</span>' ?></td>
 					<td class="uoj-bl-who">
 						<?= getUserLink($balloon['username']) ?>

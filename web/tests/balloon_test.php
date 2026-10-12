@@ -108,6 +108,9 @@ check_same(array('A' => array('#e53935', '红色'), 'B' => array('#123456', ''))
 $mark = balloonMarkHTML('B', '#fdd835', '黄色');
 check_same(true, strpos($mark, 'class="uoj-balloon" title="B 黄色" data-letter="B"') !== false && strpos($mark, 'fill="#fdd835"') !== false && strpos($mark, 'fill="#000000">B</text>') !== false, 'a balloon');
 check_same(true, strpos(balloonMarkHTML('A', '#212121', '', true), 'class="uoj-balloon uoj-balloon-sm" title="A"') !== false, 'a small one, of a colour without a name');
+check_same(false, strpos($mark, 'uoj-balloon-star') !== false, 'a balloon like any other has no star');
+$starred = balloonMarkHTML('B', '#fdd835', '黄色', false, true);
+check_same(true, strpos($starred, 'class="uoj-balloon uoj-balloon-starred" title="B 黄色（一血）"') !== false && strpos($starred, '<path class="uoj-balloon-star"') !== false, 'the balloon of who solved the problem first has one');
 
 // what is written on a balloon can be read on it
 check_same(array('#ffffff', '#000000', '#000000', '#ffffff', '#ffffff', '#000000', '#000000'),

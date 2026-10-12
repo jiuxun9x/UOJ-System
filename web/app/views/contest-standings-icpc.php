@@ -115,7 +115,7 @@
 	<small class="mr-3">表头：通过人数/尝试人数</small>
 	<small class="mr-3"><strong class="text-success">+2</strong> 通过，此前 2 次未通过；下面是通过的时间</small>
 	<small class="mr-3"><strong class="text-danger">-3</strong> 交了 3 次都没通过</small>
-	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 一血：最先通过这道题</small>
+	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 最先通过</small>
 	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-pending px-2">?</span></span> 有还不知道结果的提交<?= $frozen ? '（封榜后交的，或正在评测）' : '（正在评测）' ?>：“1 + 2”是 1 次未通过、2 次结果未知</small>
 	<?php
 		// the people who sat the contest virtually are on the board, and are not its contestants

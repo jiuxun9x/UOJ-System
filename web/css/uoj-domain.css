@@ -250,34 +250,14 @@
 	color: #d00000;
 	font-weight: bold;
 }
-.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a {
+.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a,
+.uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a {
 	color: #00a000;
 	font-weight: bold;
 }
-/* The first to solve a problem: a cell of solid green with a star in its corner, the way
-   the boards of DOMjudge set the first apart from everybody who solved it after them. */
+/* the first to solve a problem */
 .uoj-scoreboard .uoj-icpc-first {
-	position: relative;
-	background-color: #1e9e3a !important;
-}
-.uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a, .uoj-scoreboard .uoj-icpc-first .uoj-icpc-under {
-	color: #fff !important;
-	font-weight: bold;
-}
-.uoj-scoreboard .uoj-icpc-first::after {
-	content: "\2605";
-	position: absolute;
-	top: 1px;
-	right: 4px;
-	font-size: 0.7rem;
-	line-height: 1.2;
-	color: #ffe066;
-}
-/* (in the line under the board that says what the colours mean, the cell is a word) */
-.uoj-scoreboard span.uoj-icpc-first {
-	display: inline-block;
-	padding-right: 1.1em !important;
-	border-radius: 0.2rem;
+	background-color: #c3e6cb !important;
 }
 .uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a {
 	color: #d00000;
@@ -594,6 +574,13 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 	font-size: 11px;
 	font-weight: 700;
+}
+/* the balloon of who solved its problem first has a star on it */
+.uoj-balloon-star {
+	fill: #ffd21f;
+	stroke: #7a5200;
+	stroke-width: 0.7;
+	stroke-linejoin: round;
 }
 .uoj-balloon-sm {
 	width: 1.45rem;

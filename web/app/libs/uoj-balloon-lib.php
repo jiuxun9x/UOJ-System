@@ -169,13 +169,16 @@ function balloonBulkText($problems) {
 	return $text;
 }
 // A balloon as a page draws it: in its colour, with the letter of its problem on it.
-function balloonMarkHTML($letter, $color, $name = '', $small = false) {
-	$title = htmlspecialchars($letter . ($name !== '' ? ' ' . $name : ''), ENT_QUOTES, 'UTF-8');
-	return '<span class="uoj-balloon' . ($small ? ' uoj-balloon-sm' : '') . '" title="' . $title . '" data-letter="' . $letter . '">'
+//   $first   whether it is the balloon of who solved the problem first: it has a star then,
+//            which is how whoever carries it sees that it is one to make something of
+function balloonMarkHTML($letter, $color, $name = '', $small = false, $first = false) {
+	$title = htmlspecialchars($letter . ($name !== '' ? ' ' . $name : '') . ($first ? '（一血）' : ''), ENT_QUOTES, 'UTF-8');
+	return '<span class="uoj-balloon' . ($small ? ' uoj-balloon-sm' : '') . ($first ? ' uoj-balloon-starred' : '') . '" title="' . $title . '" data-letter="' . $letter . '">'
 		. '<svg viewBox="0 0 24 31" aria-hidden="true" focusable="false">'
 		. '<path class="uoj-balloon-string" d="M12 25.5c0 2.2-1.8 2.6-1 5" />'
 		. '<path class="uoj-balloon-body" fill="' . $color . '" d="M12 1.2c-5.6 0-9.6 4.2-9.6 9.8 0 5.3 4 9.9 8.3 11.3l-1.3 2.6h5.2l-1.3-2.6c4.3-1.4 8.3-6 8.3-11.3 0-5.6-4-9.8-9.6-9.8z" />'
 		. '<text x="12" y="15.4" text-anchor="middle" fill="' . balloonInk($color) . '">' . $letter . '</text>'
+		. ($first ? '<path class="uoj-balloon-star" d="M19.2 0.4L20.5 3.8L24.1 4.0L21.3 6.3L22.3 9.8L19.2 7.8L16.1 9.8L17.1 6.3L14.3 4.0L17.9 3.8z" />' : '')
 		. '</svg></span>';
 }
 
