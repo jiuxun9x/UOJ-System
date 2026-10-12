@@ -11,9 +11,9 @@
 <a href="/contest/{$contest['id']}">{$contest['name']}</a>
 EOD;
 		if ($contest['join_mode'] === 'password') {
-			$contest_name_link .= ' <span class="badge badge-secondary" title="需要参赛密码才能报名">需要密码</span>';
+			$contest_name_link .= '<span class="badge badge-secondary" title="需要参赛密码才能报名">需要密码</span>';
 		} elseif ($contest['join_mode'] === 'list') {
-			$contest_name_link .= ' <span class="badge badge-secondary" title="只有名单里的人能看到这场比赛">仅名单</span>';
+			$contest_name_link .= '<span class="badge badge-secondary" title="只有名单里的人能看到这场比赛">仅名单</span>';
 		}
 		genMoreContestInfo($contest);
 		if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
@@ -32,11 +32,11 @@ EOD;
 			$contest_name_link .= '<sup><a style="color:blue" href="/contest/'.$contest['id'].'">'.UOJLocale::get('contests::in progress').'</a></sup>';
 			// whoever may get into it may watch it: its outer board
 			if (can($myUser, 'contest.enter', $contest)) {
-				$contest_name_link .= ' <sup><a class="uoj-outer-board-link" href="/contest/'.$contest['id'].'/board">外榜</a></sup>';
+				$contest_name_link .= '<sup><a class="uoj-outer-board-link" href="/contest/'.$contest['id'].'/board">外榜</a></sup>';
 			}
 			// it can be joined while it runs
 			if ($myUser != null && can($myUser, 'contest.register', $contest)) {
-				$contest_name_link .= ' <sup><a style="color:red" href="/contest/'.$contest['id'].'/register">'.UOJLocale::get('contests::register').'</a></sup>';
+				$contest_name_link .= '<sup><a style="color:red" href="/contest/'.$contest['id'].'/register">'.UOJLocale::get('contests::register').'</a></sup>';
 			}
 		} elseif ($contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST) {
 			$contest_name_link .= '<sup><a style="color:blue" href="/contest/'.$contest['id'].'">'.UOJLocale::get('contests::pending final test').'</a></sup>';
@@ -50,7 +50,7 @@ EOD;
 		
 		$click_zan_block = getClickZanBlock('C', $contest['id'], $contest['zan']);
 		echo '<tr>';
-		echo '<td>', $contest_name_link, '</td>';
+		echo '<td><span class="uoj-contest-name">', $contest_name_link, '</span></td>';
 		echo '<td>', '<a href="'.HTML::timeanddate_url($contest['start_time'], array('duration' => $contest['last_min'])).'">'.$contest['start_time_str'].'</a>', '</td>';
 		echo '<td>', UOJLocale::get('hours', $last_hour), '</td>';
 		echo '<td>', '<a href="/contest/'.$contest['id'].'/registrants"><span class="glyphicon glyphicon-user"></span> &times;'.$contest['player_num'].'</a>', '</td>';

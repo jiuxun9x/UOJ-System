@@ -712,8 +712,8 @@ EOD;
 	<div class="col-sm-3">
 	<?php endif ?>
 	<?php $contest_rule = contestRule($contest); ?>
-	<div id="contest-rule" data-rule="<?= $contest_rule ?>" class="text-left mb-2">
-		<h4 class="mt-2 mb-2">赛制：<?= $contest_rule ?></h4>
+	<div id="contest-rule" data-rule="<?= $contest_rule ?>" class="text-left mt-3 mb-2">
+		<h4 class="mt-0 mb-2">赛制：<?= $contest_rule ?></h4>
 		<ul class="list-group">
 			<?php foreach (contestRuleFacts($contest) as $fact): ?>
 			<li class="list-group-item py-2"><?= HTML::escape($fact) ?></li>

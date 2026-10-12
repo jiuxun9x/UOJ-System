@@ -343,6 +343,10 @@ class ListPagesTest(unittest.TestCase):
         page = admin.get("/contests").text
         self.assertEqual(page.count('id="button-new-contest" href="/contest/new"'), 1)
         self.assertLess(page.index('id="button-new-contest"'), page.index("<table"))
+        # what is said of a contest stands behind its name with nothing but the stylesheet
+        # between them: no blank here and none there
+        self.assertRegex(page, r'<td><span class="uoj-contest-name"><a href="/contest/\d+">[^<]*</a>(<span class="badge[^>]*>[^<]*</span>)?(<sup><a [^>]*>[^<]*</a></sup>)+</span></td>')
+        self.assertNotRegex(page, r'</a> <sup>|</span> <sup>|</sup> <sup>')
         # whoever makes nothing has nothing to press
         for path in ("/problems", "/contests"):
             page = student.get(path).text
@@ -399,7 +403,7 @@ class BalloonColoursTest(unittest.TestCase):
         # the colours are for who decides about the contest
         for form in ("colors", "colors_bulk"):
             self.assertEqual(runner.post(balloons, {"form": form, "bulk": "A blue\n", "color_%d" % first: "blue"}).status_code, 403)
-        self.assertIn('id="link-balloon-settings" href="#balloon-settings"', admin.get(balloons).text)
+        self.assertIn('href="#balloon-settings" id="link-balloon-settings"', admin.get(balloons).text)
         self.assertNotIn('id="link-balloon-settings"', runner.get(balloons).text)
 
         # ---- the list: who was first, of the contest and of a problem, is seen at a glance

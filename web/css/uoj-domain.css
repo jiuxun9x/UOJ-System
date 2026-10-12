@@ -20,7 +20,6 @@
 	font-size: 0.9rem;
 }
 .uoj-domain-actions {
-	white-space: nowrap;
 	margin-bottom: 0.5rem;
 }
 .uoj-domain-role {
@@ -830,6 +829,89 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	gap: 0.5rem;
 }
 
+/* ---- distances. What stands side by side on the pages keeps the same distance wherever it
+   stands: a picture and the word it belongs to, a button and the next, a mark and what it
+   marks. The pages were written over years, here with a blank between two such things and
+   there with none, and looked it. None of what follows depends on those blanks. */
+
+/* A picture and its word, in what is pressed and in what leads somewhere: they are laid out
+   side by side with one gap between them, whatever blanks the page has there. */
+.btn, .nav-link, .dropdown-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4em;
+}
+.btn {
+	justify-content: center;
+}
+.nav-link, .dropdown-item, .btn-block {
+	display: flex;
+}
+/* (a picture is as high as the line it stands in: a button that is a picture and nothing else
+   is as high as a button with a word) */
+.btn > .glyphicon, .nav-link > .glyphicon, .dropdown-item > .glyphicon {
+	top: 0;
+	line-height: inherit;
+}
+/* the arrow of what opens a menu is one of the things that stand side by side */
+.btn.dropdown-toggle::after, .nav-link.dropdown-toggle::after {
+	margin-left: 0;
+}
+/* the tabs of a page whose tabs share its width */
+.nav-fill .nav-link, .nav-justified .nav-link {
+	justify-content: center;
+}
+/* what is liked and what is not: a thumb and a word each, and then how many */
+.uoj-click-zan-block {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.75em;
+	vertical-align: top;
+}
+.uoj-click-zan-up, .uoj-click-zan-down {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3em;
+}
+.uoj-click-zan-up, .uoj-click-zan-down, .uoj-click-zan-cnt {
+	margin-left: 0;
+	margin-right: 0;
+}
+.uoj-click-zan-up > .glyphicon, .uoj-click-zan-down > .glyphicon {
+	top: 0;
+	line-height: inherit;
+}
+/* a picture before a heading, a line of a card, a warning: the word keeps its distance */
+.card-header > .glyphicon:first-child, .alert > .glyphicon:first-child, .uoj-domain-meta > .glyphicon:first-child,
+.uoj-domain-back .glyphicon:first-child, h1 > .glyphicon:first-child, h2 > .glyphicon:first-child, h3 > .glyphicon:first-child,
+h4 > .glyphicon:first-child, h5 > .glyphicon:first-child {
+	margin-right: 0.25em;
+}
+/* the name of a contest in a list, with what is said of the contest behind it: each mark
+   stands the same distance from what is before it */
+.uoj-contest-name > .badge {
+	margin-left: 0.45em;
+	vertical-align: 0.1em;
+}
+.uoj-contest-name > sup {
+	margin-left: 0.3em;
+}
+/* the way back to where a page belongs, with what is said of that place behind it */
+.uoj-domain-back > .badge {
+	margin: 0 0.35em;
+	vertical-align: 0.1em;
+}
+/* who the user is in a domain, and the button beside it */
+.uoj-domain-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+/* a field with its name before it, in the forms that are one line */
+.form-inline .control-label, .form-inline label.mr-1 {
+	margin-right: 0.45rem !important;
+}
 /* ---- the small things of every page. The pages are set in 14px, and what Bootstrap calls
    small is 80% of that: help texts, dates and the labels of small buttons came out at 11px,
    which is read with effort. They are a size up, and the things that are pressed are a

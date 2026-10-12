@@ -462,6 +462,43 @@ def balloon_settings_are_opened(page, seeded):
     page.locator("#balloon-settings").scroll_into_view_if_needed()
 
 
+def things_keep_their_distance(page, seeded):
+    """a picture and the word it belongs to stand the same distance apart in everything that is
+    pressed, whatever blanks the page has between them; and what is made in a list is made from
+    above it"""
+    gaps = page.evaluate("""() => {
+        const gaps = [];
+        for (const el of document.querySelectorAll('.navbar .nav-link, .nav-tabs .nav-link, .btn, .dropdown-item')) {
+            const icon = el.querySelector(':scope > .glyphicon');
+            const word = Array.from(el.childNodes).find(node => node.nodeType === 3 && node.textContent.trim() !== '');
+            if (!icon || !word || el.offsetParent === null) {
+                continue;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(word);
+            const boxes = Array.from(range.getClientRects()).filter(box => box.width > 0);
+            if (boxes.length) {
+                gaps.push(Math.round((boxes[0].left - icon.getBoundingClientRect().right) * 10) / 10);
+            }
+        }
+        return gaps;
+    }""")
+    assert len(gaps) >= 6, gaps
+    assert min(gaps) >= 4 and max(gaps) - min(gaps) <= 2.5, gaps
+    # the buttons that make something stand above the table, apart from each other
+    made = page.evaluate("""() => {
+        const buttons = Array.from(document.querySelectorAll('.uoj-bar .uoj-actions .btn')).map(el => el.getBoundingClientRect());
+        const table = document.querySelector('table').getBoundingClientRect();
+        return {below: buttons.filter(box => box.bottom > table.top).length, count: buttons.length,
+            apart: buttons.length > 1 ? Math.round(buttons[1].left - buttons[0].right) : 8};
+    }""")
+    assert made["count"] >= 1 and made["below"] == 0 and made["apart"] >= 6, made
+    # the choices of how a list is shown do not run into each other
+    labels = page.evaluate("""() => Array.from(document.querySelectorAll('.uoj-bar-options label')).map(el => { const box = el.getBoundingClientRect(); return [box.left, box.right, box.top]; })""")
+    for left, right in zip(labels, labels[1:]):
+        assert right[2] != left[2] or right[0] - left[1] >= 12, labels
+
+
 def outer_board_keeps_itself_up_to_date(page, seeded):
     """the outer board of a contest that runs, to somebody who is not logged in: its clock goes
     on, and when something happens in the contest the rows move without the page being loaded
@@ -675,6 +712,11 @@ def pages(seeded):
         ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
         ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),
         ("problem-attachments", "teacher", d + "/problem/%d/manage/attachments" % uoj.pid(seeded["problem"])),
+        ("problems", "admin", "/problems", things_keep_their_distance),
+        ("problems-visitor", "visitor", "/problems"),
+        ("problem-import", "admin", "/problems/import"),
+        ("contests-admin", "admin", "/contests", things_keep_their_distance),
+        ("homework-problem", "student", current + "/problem/%d" % uoj.pid(seeded["problem"])),
         ("contest-new", "admin", "/contest/new"),
         ("contest-manage", "admin", "/contest/%d/manage" % seeded["icpc"]),
         ("contest-manage-problems", "admin", "/contest/%d/manage#tab-problems" % seeded["icpc"]),
