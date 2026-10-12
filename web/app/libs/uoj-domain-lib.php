@@ -533,13 +533,21 @@ function domainCopyProblem($source, $domain, $actor) {
 	if ($id === null) {
 		return array(null, '复制失败');
 	}
-	$content = queryProblemContent($source['id']);
-	DB::insert("insert into problems_contents (id, statement, statement_md) values ($id, '".DB::escape($content['statement'])."', '".DB::escape($content['statement_md'])."')");
 	foreach (queryProblemTags($source['id']) as $tag) {
 		DB::insert("insert into problems_tags (problem_id, tag) values ($id, '".DB::escape($tag)."')");
 	}
 	dataNewProblem($id);
-	attachmentsCopy('problem', $source['id'], $id, $actor);
+	// The statement, with the files it shows: the pictures of the copy are the copies of the
+	// pictures. A copy whose statement can not be written down is no copy.
+	if (!domainCopyStatement($source, $id, $actor)) {
+		DB::delete("delete from problems where id = $id");
+		DB::delete("delete from problems_tags where problem_id = $id");
+		foreach (attachmentsOf('problem', $id) as $attachment) {
+			attachmentDelete($attachment, $actor);
+		}
+		exec("rm -rf ".escapeshellarg("/var/uoj_data/upload/$id")." ".escapeshellarg("/var/uoj_data/$id")." ".escapeshellarg("/var/uoj_data/$id.zip"));
+		return array(null, "复制题目 " . problemLabel($source) . " 失败：题面没有保存下来");
+	}
 	auditLog('problem.copy', 'problem', $id, null, array('domain_id' => (int)$domain['id'], 'source_problem_id' => (int)$source['id'], 'source_data_version' => (int)$source_version['version']), $actor);
 	exec("cp -a ".escapeshellarg("/var/uoj_data/upload/{$source['id']}/.")." ".escapeshellarg("/var/uoj_data/upload/$id/"), $output, $status);
 	$err = $status === 0 ? dataSyncProblemData(queryProblemBrief($id), $actor, array('reason' => 'copy')) : '复制数据文件失败';
@@ -556,6 +564,32 @@ function domainCopyProblem($source, $domain, $actor) {
 		return array(null, "复制题目 " . problemLabel($source) . " 失败：" . strip_tags($err));
 	}
 	return array($id, '');
+}
+
+// Writes the statement of a problem down as the statement of its copy, and gives the copy
+// the files that come with the problem. Returns whether the copy has the statement.
+function domainCopyStatement($source, $copy_id, $actor) {
+	requirePHPLib('problem');
+	$content = queryProblemContent($source['id']);
+	$copies = attachmentsCopy('problem', $source['id'], $copy_id, $actor);
+	return problemSaveStatement($copy_id, attachmentsRelink($content ? $content['statement'] : '', $copies), attachmentsRelink($content ? $content['statement_md'] : '', $copies));
+}
+// Takes the statement of a copy from the problem it was copied from once more, as that
+// problem has it now: a copy is a problem of its own, and does not follow the one it was
+// copied from unless somebody says so. Returns '' or why not.
+function domainRefreshCopyStatement($problem, $actor) {
+	$source = !empty($problem['source_problem_id']) ? queryProblemBrief($problem['source_problem_id']) : null;
+	if (!$source) {
+		return '这道题不是复制来的，或者它的来源已经不在了';
+	}
+	if (!can($actor, 'problem.copy', $source)) {
+		return '你现在没有权限复制它的来源 ' . problemLabel($source);
+	}
+	if (!domainCopyStatement($source, (int)$problem['id'], $actor)) {
+		return '题面没有保存下来';
+	}
+	auditLog('problem.refresh_statement', 'problem', $problem['id'], null, array('source_problem_id' => (int)$source['id']), $actor);
+	return '';
 }
 
 // whether the data of a problem can be judged with: its newest version is published

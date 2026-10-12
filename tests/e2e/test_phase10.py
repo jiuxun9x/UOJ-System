@@ -10,7 +10,9 @@ import unittest
 import zipfile
 
 import test_phase3 as p3
+import test_phase4 as p4
 import test_phase6 as p6
+import test_phase8 as p8
 import test_phase9 as p9
 import uoj
 from fixtures import *
@@ -210,3 +212,118 @@ class ConfImportTest(unittest.TestCase):
         self.assertNotIn("#", uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/%d/problem.conf" % problem_id))
         # the page says that comments may be typed
         self.assertIn("保存时注释会去掉", uoj.text_of(admin.get(manage).text))
+
+
+class CopiedStatementTest(unittest.TestCase):
+    """a copy of a problem says what the problem says, to everybody the copy is for: in its
+    domain and in the homework it is set in"""
+
+    STATEMENT = "## 题目描述\n\n把 $a$ 和 $b$ 加起来，价格 \\$5。\n\n看图：![示意图](/attachment/%d)\n\n```input1\n1 2\n```\n\n```output1\n3\n```\n"
+
+    def test_copy_in_a_homework_says_what_the_problem_says(self):
+        admin = uoj.admin()
+        teacher, student = p3.account("p10_copy_teacher"), p3.account("p10_copy_student")
+        self.assertEqual(admin.change_user("p10_copy_teacher", "grant:teacher"), "")
+        slug = "p10-copy"
+        teacher.new_domain(slug)
+        self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username="p10_copy_student", role="member"), "")
+
+        # ---- a public problem of the site, whose statement shows a picture of its own
+        source = admin.create_problem(ab_problem_files())
+        self.assertEqual(p6.attach(admin, "/problem/%d/manage/attachments" % source, [("figure.png", p9.picture_bytes())]), "")
+        picture = p6.attachments_of("problem", source)["figure.png"][0]
+        p8.save_statement(admin, source, self.STATEMENT % picture, title="p10 有题面的题", hidden=False)
+        page = student.get("/problem/%d" % source).text
+        self.assertIn("把 $a$ 和 $b$ 加起来", uoj.text_of(page))
+        self.assertNotIn('id="statement-empty"', page)
+
+        # ---- copied into a domain: the copy says the same, and the picture it shows is its own
+        copy = teacher.copy_problem(slug, source)
+        self.assertEqual(uoj.wait_data_version(copy), "")
+        number = uoj.pid(copy)
+        copied_picture = p6.attachments_of("problem", copy)["figure.png"][0]
+        self.assertNotEqual(copied_picture, picture)
+        shown, kept = (bytes.fromhex(c).decode() for c in db("select hex(statement), hex(statement_md) from problems_contents where id = %d" % copy)[0])
+        self.assertIn("<p>把 $a$ 和 $b$ 加起来，价格 \\$5。</p>", shown)
+        self.assertIn('<pre><code class="language-input1">1 2</code></pre>', shown)
+        self.assertEqual(re.findall(r"/attachment/(\d+)", shown), [str(copied_picture)])
+        self.assertEqual(re.findall(r"/attachment/(\d+)", kept), [str(copied_picture)])
+        in_domain = "/d/%s/problem/%d" % (slug, number)
+        page = teacher.get(in_domain).text
+        self.assertIn("把 $a$ 和 $b$ 加起来", uoj.text_of(page))
+        self.assertIn('src="/attachment/%d"' % copied_picture, page)
+        self.assertNotIn('id="statement-empty"', page)
+        # (a copy starts hidden: the members of the domain do not see it there yet)
+        self.assertEqual(student.get(in_domain).status_code, 404)
+
+        # ---- set as homework: whoever takes part reads it there, picture and all, also when
+        # the problem it was copied from is hidden from them
+        db("update problems set is_hidden = 1 where id = %d" % source)
+        homework_id = p4.new_homework(teacher, slug, title="p10 作业")
+        self.assertEqual(p4.homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(number), score="100"), "")
+        self.assertEqual(p4.homework_form(teacher, slug, homework_id, "publish"), "")
+        uoj.wait_until("the homework is published", lambda: p4.tick() and p4.homework_row(homework_id, "status")[0] == "published", timeout=300)
+        self.assertEqual(student.form("/d/%s/homework/%d" % (slug, homework_id), "claim"), "")
+        in_homework = "/d/%s/homework/%d/problem/%d" % (slug, homework_id, number)
+        for client in (teacher, student):
+            r = client.get(in_homework)
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("把 $a$ 和 $b$ 加起来", uoj.text_of(r.text))
+            self.assertIn('src="/attachment/%d"' % copied_picture, r.text)
+            self.assertNotIn('id="statement-empty"', r.text)
+        r = student.get("/attachment/%d" % copied_picture)
+        self.assertEqual((r.status_code, r.headers["Content-Type"]), (200, "image/png"))
+        self.assertEqual(student.get("/attachment/%d" % picture).status_code, 404)
+        self.assertEqual(uoj.wait_submission(student.submit(copy, AB, path=in_homework)).score, 100)
+
+        # ---- the problem it was copied from changes: the copy says what it said, until
+        # somebody who manages it has it say what the problem says now
+        p8.save_statement(admin, source, "## 题目描述\n\n改过的题面：求 $a+b$，图换了位置：![新图](/attachment/%d)\n" % picture, title="p10 有题面的题", hidden=True)
+        self.assertIn("把 $a$ 和 $b$ 加起来", uoj.text_of(student.get(in_homework).text))
+        manage = "/d/%s/problem/%d/manage/statement" % (slug, number)
+        page = teacher.get(manage).text
+        self.assertIn('id="statement-source"', page)
+        self.assertIn("复制自 主站 #%d" % source, uoj.text_of(page))
+        # (the problem is hidden from the teacher now: there is nothing to take from it)
+        self.assertNotIn('id="button-refresh-statement"', page)
+        self.assertIn("没有权限复制它的来源", teacher.form(manage, "refresh_statement"))
+        db("update problems set is_hidden = 0 where id = %d" % source)
+        self.assertIn('id="button-refresh-statement"', teacher.get(manage).text)
+        self.assertEqual(student.post(manage, {"form": "refresh_statement"}).status_code, 403)
+        self.assertIn("把 $a$ 和 $b$ 加起来", uoj.text_of(student.get(in_homework).text))
+        self.assertEqual(teacher.form(manage, "refresh_statement"), "")
+        page = student.get(in_homework).text
+        self.assertIn("改过的题面：求 $a+b$", uoj.text_of(page))
+        self.assertNotIn("把 $a$ 和 $b$ 加起来", uoj.text_of(page))
+        # the picture is still the one of the copy: the same file, which kept its number
+        self.assertIn('src="/attachment/%d" alt="新图"' % copied_picture, page)
+        self.assertEqual(sorted(p6.attachments_of("problem", copy)), ["figure.png"])
+        self.assertEqual(db_value("select count(*) from audit_logs where action = 'problem.refresh_statement' and resource_id = '%d'" % copy), "1")
+        # a problem that was not copied has nothing to take a statement from
+        own = teacher.new_problem(domain=slug, title="p10 自己的题")
+        page = teacher.get("/d/%s/problem/%d/manage/statement" % (slug, uoj.pid(own))).text
+        self.assertNotIn('id="statement-source"', page)
+        self.assertNotEqual(teacher.form("/d/%s/problem/%d/manage/statement" % (slug, uoj.pid(own)), "refresh_statement"), "")
+
+    def test_problem_without_a_statement_says_so(self):
+        admin, student = uoj.admin(), p3.account("p10_empty_student")
+        problem_id = admin.new_problem(title="p10 没有题面的题", public="on")
+        # whoever manages it is told what its readers see and where to change it
+        page = admin.get("/problem/%d" % problem_id).text
+        self.assertRegex(page, r'<div class="alert alert-warning[^"]*" role="alert" id="statement-empty">')
+        self.assertIn('href="/problem/%d/manage/statement"' % problem_id, page)
+        # its readers are told that there is nothing to read
+        page = student.get("/problem/%d" % problem_id).text
+        self.assertIn('<p class="text-muted top-buffer-md" id="statement-empty">这道题还没有题面。</p>', page)
+        self.assertNotIn("去写题面", page)
+        # a statement that is a picture and nothing else is a statement
+        self.assertEqual(p6.attach(admin, "/problem/%d/manage/attachments" % problem_id, [("statement.png", p9.picture_bytes())]), "")
+        picture = p6.attachments_of("problem", problem_id)["statement.png"][0]
+        # (a problem whose statement is a file it comes with: its readers find the file under it)
+        page = student.get("/problem/%d" % problem_id).text
+        self.assertNotIn('id="statement-empty"', page)
+        self.assertIn('href="/attachment/%d"' % picture, page)
+        self.assertIn('id="statement-empty"', admin.get("/problem/%d" % problem_id).text)
+        p8.save_statement(admin, problem_id, "![题面](/attachment/%d)\n" % picture, title="p10 没有题面的题", hidden=False)
+        for client in (admin, student):
+            self.assertNotIn('id="statement-empty"', client.get("/problem/%d" % problem_id).text)

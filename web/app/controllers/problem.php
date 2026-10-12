@@ -357,6 +357,16 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 </ul>
 <div class="tab-content">
 	<div class="tab-pane active" id="tab-statement">
+		<?php // a statement that says nothing says so, and tells who can change that where to ?>
+		<?php $statement_is_empty = trim(strip_tags((string)$problem_content['statement'], '<img><video><audio><iframe><embed><object><table>')) === ''; ?>
+		<?php if ($statement_is_empty && can($myUser, 'problem.manage', $problem)): ?>
+		<div class="alert alert-warning top-buffer-md text-left" role="alert" id="statement-empty">
+			这道题还没有题面，做题的人现在只能看到标题和限制。
+			<a class="alert-link" href="<?= problemUrl($problem, '/manage/statement') ?>">去写题面</a><?= !empty($problem['source_problem_id']) ? '，复制来的题也可以在那里“从来源更新题面”' : '' ?>；题面是 PDF 的话，在“管理 → 附件”里上传，它会列在题面下方供打开。
+		</div>
+		<?php elseif ($statement_is_empty && !attachmentsOf('problem', $problem['id'])): ?>
+		<p class="text-muted top-buffer-md" id="statement-empty">这道题还没有题面。</p>
+		<?php endif ?>
 		<article class="top-buffer-md"><?= $problem_content['statement'] ?></article>
 		<?php echoAttachments(attachmentsOf('problem', $problem['id'])) ?>
 	</div>

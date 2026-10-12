@@ -33,3 +33,12 @@ check_same('#12', problemLabel(array('id' => '12', 'owner_domain_id' => null)), 
 check_same('/problem/12/manage/data', problemUrl(array('id' => '12', 'owner_domain_id' => null), '/manage/data'), 'the address of a page of a problem of the site');
 check_same(true, UOJ_DOMAIN_PROBLEM_ID_BASE >= 1000000, 'the ids of the problems of domains start far above those of the site');
 
+
+// ---- the statement of a copy shows the files of the copy
+require_once __DIR__ . '/../app/libs/uoj-attachment-lib.php';
+$copies = array(12 => 340, 1 => 341);
+check_same('<img src="/attachment/340" alt="图" /> <a href="/attachment/341">工具</a> <a href="/attachment/123">别的题的</a> /attachment/1234',
+	attachmentsRelink('<img src="/attachment/12" alt="图" /> <a href="/attachment/1">工具</a> <a href="/attachment/123">别的题的</a> /attachment/1234', $copies),
+	'the files that were copied are shown as their copies, and a number is taken whole');
+check_same('![图](/attachment/340)，见 https://oj.example/attachment/341 。', attachmentsRelink('![图](/attachment/12)，见 https://oj.example/attachment/1 。', $copies), 'in the text as it was written as well');
+check_same(array('', 'no files here'), array(attachmentsRelink(null, $copies), attachmentsRelink('no files here', array())), 'a statement without files is what it was');

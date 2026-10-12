@@ -174,13 +174,30 @@ function attachmentsWereUploaded($field) {
 	}
 	return false;
 }
-// a copy of a problem has copies of the files of the problem
+// A copy of a problem has copies of the files of the problem. Returns which file of the copy
+// is which file of the problem: array(id of the file there => id of its copy here). A file
+// of the same name that the copy has already is replaced, and keeps its id.
 function attachmentsCopy($owner_type, $from_id, $to_id, $actor) {
+	$copies = array();
 	foreach (attachmentsOf($owner_type, $from_id) as $attachment) {
-		if (is_file(attachmentPath($attachment))) {
-			attachmentAdd($owner_type, $to_id, attachmentPath($attachment), $attachment['name'], $actor, true);
+		if (!is_file(attachmentPath($attachment)) || attachmentAdd($owner_type, $to_id, attachmentPath($attachment), $attachment['name'], $actor, true) !== '') {
+			continue;
+		}
+		$copy = DB::selectFirst("select id from attachments where owner_type = '".DB::escape($owner_type)."' and owner_id = ".(int)$to_id." and name = '".DB::escape($attachment['name'])."'", MYSQLI_ASSOC);
+		if ($copy) {
+			$copies[(int)$attachment['id']] = (int)$copy['id'];
 		}
 	}
+	return $copies;
+}
+// A text that shows files, as the text of a copy that shows the copies of the files: the
+// pictures of a statement are files of its problem, and whoever reads the copy may read the
+// files of the copy and perhaps not the ones of the problem it was copied from.
+//   $copies   what attachmentsCopy() returned
+function attachmentsRelink($text, $copies) {
+	return preg_replace_callback('/\/attachment\/([0-9]+)(?![0-9])/', function($matches) use ($copies) {
+		return isset($copies[(int)$matches[1]]) ? '/attachment/' . $copies[(int)$matches[1]] : $matches[0];
+	}, (string)$text);
 }
 
 // The list of the files of a problem or a contest as its readers see it. Prints nothing when

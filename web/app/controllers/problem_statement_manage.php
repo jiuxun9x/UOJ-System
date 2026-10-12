@@ -11,6 +11,22 @@
 		become403Page();
 	}
 	
+	// A copy takes its statement from the problem it was copied from once more when somebody
+	// who manages it says so: with the files it shows, in the place of what the copy says now.
+	$source = !empty($problem['source_problem_id']) ? queryProblemBrief($problem['source_problem_id']) : null;
+	$may_refresh = $source && can($myUser, 'problem.copy', $source);
+	$refresh_error = domainHandleForms(array(
+		'refresh_statement' => function() use ($problem) {
+			global $myUser;
+			$err = domainRefreshCopyStatement($problem, $myUser);
+			if ($err === '') {
+				domainFlash('题面已换成来源题目现在的题面，附件也一并复制了。');
+			}
+			return $err;
+		}
+	), problemUrl($problem, '/manage/statement'));
+	$flash = domainTakeFlash();
+
 	$problem_content = queryProblemContent($problem['id']);
 	$problem_tags = queryProblemTags($problem['id']);
 	
@@ -80,5 +96,25 @@
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - 编辑 - 题目管理') ?>
 <h1 class="page-header" align="center">#<?= problemNumber($problem) ?> : <?=$problem['title']?> 管理</h1>
 <?php echoProblemManageTabs($problem, 'statement') ?>
+<?php if ($flash): ?>
+<div class="alert alert-<?= $flash[0] ?> text-left" role="alert" id="statement-flash"><?= HTML::escape($flash[1]) ?></div>
+<?php endif ?>
+<?php echoDomainError($refresh_error) ?>
+<?php if (!empty($problem['source_problem_id'])): ?>
+<div class="card mb-3 text-left" id="statement-source">
+	<div class="card-body py-2 d-flex flex-wrap align-items-center">
+		<span class="mr-auto py-1">
+			这道题<?= HTML::escape(problemSourceNote($problem['source_problem_id'], $problem['source_data_version'])) ?>。副本是一道独立的题：来源题目之后的修改不会自动同步到这里。
+		</span>
+		<?php if ($may_refresh): ?>
+		<form method="post" class="py-1" onsubmit="return confirm('会用来源题目现在的题面和附件，替换这道题现在的题面。这里对题面做过的修改会丢失，确定吗？');">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="refresh_statement" />
+			<button type="submit" class="btn btn-outline-secondary btn-sm" id="button-refresh-statement"><span class="glyphicon glyphicon-refresh"></span> 从来源更新题面</button>
+		</form>
+		<?php endif ?>
+	</div>
+</div>
+<?php endif ?>
 <?php $problem_editor->printHTML() ?>
 <?php echoUOJPageFooter() ?>
