@@ -3,10 +3,6 @@
 	requirePHPLib('judger');
 	requirePHPLib('data');
 	
-	// where a problem is made: one form for everything it needs
-	$new_problem_link = '<div class="text-right"><a class="btn btn-light border mr-2" id="button-import-problems" href="/problems/import"><span class="glyphicon glyphicon-import"></span> 导入题目</a>'
-		. '<a class="btn btn-primary" id="button-new-problem" href="/problem/new"><span class="glyphicon glyphicon-plus"></span> ' . UOJLocale::get('problems::add new') . '</a></div>';
-	
 	function echoProblem($problem) {
 		global $myUser;
 		if (can($myUser, 'problem.view', $problem)) {
@@ -106,13 +102,6 @@ EOD;
 		'echoProblem',
 		array('page_len' => 3,
 			'table_classes' => array('table', 'table-bordered', 'table-hover', 'table-striped'),
-			'print_after_table' => function() {
-				global $myUser;
-				if (can($myUser, 'problem.create')) {
-					global $new_problem_link;
-					echo $new_problem_link;
-				}
-			},
 			'head_pagination' => true
 		)
 	);
@@ -133,19 +122,23 @@ EOD;
 <?php if ($flash): ?>
 <div class="alert alert-<?= $flash[0] ?>" role="alert" id="problems-flash"><?= HTML::escape($flash[1]) ?></div>
 <?php endif ?>
-<div class="row">
-	<div class="col-sm-4">
+<?php // above the list: which list it is, how it is shown, and - for who makes problems - where a problem is made ?>
+<div class="uoj-bar" id="problems-bar">
+	<div class="uoj-bar-lead">
 		<?= HTML::tablist($tabs_info, $cur_tab, 'nav-pills') ?>
 	</div>
-	<div class="col-sm-4 order-sm-9 checkbox text-right">
-		<label class="checkbox-inline" for="input-show_tags_mode"><input type="checkbox" id="input-show_tags_mode" <?= isset($_COOKIE['show_tags_mode']) ? 'checked="checked" ': ''?>/> <?= UOJLocale::get('problems::show tags') ?></label>
-		<label class="checkbox-inline" for="input-show_submit_mode"><input type="checkbox" id="input-show_submit_mode" <?= isset($_COOKIE['show_submit_mode']) ? 'checked="checked" ': ''?>/> <?= UOJLocale::get('problems::show statistics') ?></label>
+	<div class="uoj-bar-options">
+		<label for="input-show_tags_mode"><input type="checkbox" id="input-show_tags_mode" <?= isset($_COOKIE['show_tags_mode']) ? 'checked="checked" ': ''?>/> <?= UOJLocale::get('problems::show tags') ?></label>
+		<label for="input-show_submit_mode"><input type="checkbox" id="input-show_submit_mode" <?= isset($_COOKIE['show_submit_mode']) ? 'checked="checked" ': ''?>/> <?= UOJLocale::get('problems::show statistics') ?></label>
 	</div>
-	<div class="col-sm-4 order-sm-5">
-	<?php echo $pag->pagination(); ?>
+	<?php if (can($myUser, 'problem.create')): ?>
+	<div class="uoj-actions">
+		<a class="btn btn-light border" id="button-import-problems" href="/problems/import"><span class="glyphicon glyphicon-import"></span> 导入题目</a>
+		<a class="btn btn-primary" id="button-new-problem" href="/problem/new"><span class="glyphicon glyphicon-plus"></span> <?= UOJLocale::get('problems::add new') ?></a>
 	</div>
+	<?php endif ?>
 </div>
-<div class="top-buffer-sm"></div>
+<?php echo $pag->pagination(); ?>
 <?php if ($search !== ''): ?>
 <p class="text-muted mb-2" id="problem-search-note">题号、标题或标签里有“<?= HTML::escape($search) ?>”的题目。<a href="/problems">显示全部</a></p>
 <?php endif ?>
@@ -186,10 +179,6 @@ $('#input-show_submit_mode').click(function() {
 	echo '</tbody>';
 	echo '</table>';
 	echo '</div>';
-	
-	if (can($myUser, 'problem.create')) {
-		echo $new_problem_link;
-	}
 	
 	echo $pag->pagination();
 ?>

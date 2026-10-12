@@ -327,3 +327,24 @@ class CopiedStatementTest(unittest.TestCase):
         p8.save_statement(admin, problem_id, "![题面](/attachment/%d)\n" % picture, title="p10 没有题面的题", hidden=False)
         for client in (admin, student):
             self.assertNotIn('id="statement-empty"', client.get("/problem/%d" % problem_id).text)
+
+
+class ListPagesTest(unittest.TestCase):
+    """what can be made in a list is made from above it: a list may be long"""
+
+    def test_problems_and_contests_are_made_from_above_their_lists(self):
+        admin, student = uoj.admin(), p3.account("p10_list_student")
+        page = admin.get("/problems").text
+        for button in ('id="button-import-problems" href="/problems/import"', 'id="button-new-problem" href="/problem/new"'):
+            self.assertEqual(page.count(button), 1)
+            self.assertLess(page.index(button), page.index("<table"))
+        # how the list is shown is chosen there as well, each choice apart from the other
+        self.assertRegex(page, r'(?s)<div class="uoj-bar-options">\s*<label for="input-show_tags_mode">.*?</label>\s*<label for="input-show_submit_mode">')
+        page = admin.get("/contests").text
+        self.assertEqual(page.count('id="button-new-contest" href="/contest/new"'), 1)
+        self.assertLess(page.index('id="button-new-contest"'), page.index("<table"))
+        # whoever makes nothing has nothing to press
+        for path in ("/problems", "/contests"):
+            page = student.get(path).text
+            self.assertNotIn("button-new-", page)
+            self.assertNotIn("button-import-problems", page)

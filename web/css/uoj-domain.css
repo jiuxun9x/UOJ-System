@@ -666,6 +666,43 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	}
 }
 
+/* ---- what stands above a list: what the list is on the left, how it is shown and what can
+   be made in it on the right. The things in it keep their distance by themselves, whatever
+   blanks there are between them in the page. */
+.uoj-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 1.25rem;
+	margin-bottom: 0.75rem;
+}
+.uoj-bar > .uoj-bar-lead {
+	margin-right: auto;
+}
+.uoj-bar-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 1.25rem;
+}
+.uoj-bar-options label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4em;
+	margin: 0;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.uoj-bar-options input[type=checkbox] {
+	margin: 0;
+}
+/* buttons that stand side by side */
+.uoj-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+
 /* ---- the small things of every page. The pages are set in 14px, and what Bootstrap calls
    small is 80% of that: help texts, dates and the labels of small buttons came out at 11px,
    which is read with effort. They are a size up, and the things that are pressed are a

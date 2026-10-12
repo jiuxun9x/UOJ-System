@@ -63,7 +63,15 @@ EOD;
 <?php if ($flash): ?>
 <div class="alert alert-<?= $flash[0] ?>" role="alert" id="contests-flash"><?= HTML::escape($flash[1]) ?></div>
 <?php endif ?>
-<h4><?= UOJLocale::get('contests::current or upcoming contests') ?></h4>
+<?php // above the lists, for who holds contests: where one is made ?>
+<div class="uoj-bar" id="contests-bar">
+	<h4 class="uoj-bar-lead mb-0"><?= UOJLocale::get('contests::current or upcoming contests') ?></h4>
+	<?php if (can($myUser, 'contest.create')): ?>
+	<div class="uoj-actions">
+		<a class="btn btn-primary" id="button-new-contest" href="/contest/new"><span class="glyphicon glyphicon-plus"></span> <?= UOJLocale::get('contests::add new contest') ?></a>
+	</div>
+	<?php endif ?>
+</div>
 <?php
 	$table_header = '';
 	$table_header .= '<tr>';
@@ -100,16 +108,7 @@ EOD;
 <?php
 	echoLongTable(array('*'), 'contests', "status = 'finished' and domain_id is null and " . visibleContestsCond($myUser), 'order by start_time desc, id desc', $table_header,
 		echoContest,
-		array('page_len' => 100,
-			'print_after_table' => function() {
-				global $myUser;
-				if (can($myUser, 'contest.create')) {
-					echo '<div class="text-right">';
-					echo '<a href="/contest/new" class="btn btn-primary">'.UOJLocale::get('contests::add new contest').'</a>';
-					echo '</div>';
-				}
-			}
-		)
+		array('page_len' => 100)
 	);
 ?>
 <?php echoUOJPageFooter() ?>
