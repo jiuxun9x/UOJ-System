@@ -907,3 +907,19 @@ small, .small {
 	vertical-align: 0.15em;
 }
 
+/* ---- the files that come with a contest, at the foot of the column beside its pages: the name
+   of a file, which may be long, and how large the file is */
+.uoj-contest-attachments .list-group-item {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+.uoj-contest-attachment-name {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.uoj-contest-attachments small {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}

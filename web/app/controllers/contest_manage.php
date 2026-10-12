@@ -311,7 +311,7 @@
 	</div>
 
 	<div class="tab-pane<?= $active_tab === 'attachments' ? ' active' : '' ?>" id="tab-attachments">
-		<p class="text-muted">比赛附件显示在比赛主页上，比如整场比赛的 PDF 题面。比赛开始之前只有工作人员能看到；开始之后，能进入比赛的人都能下载。单独一道题的附件在那道题的管理页里加。</p>
+		<p class="text-muted">比赛附件显示在比赛页面右侧栏底部的“附件”里，比如整场比赛的 PDF 题面。比赛开始之前只有工作人员能看到；开始之后，能进入比赛的人都能下载。单独一道题的附件在那道题的管理页里加。</p>
 		<?php echoAttachmentsManager($attachments, 'attachments') ?>
 	</div>
 	

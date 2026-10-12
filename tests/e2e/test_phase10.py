@@ -500,3 +500,37 @@ class VerdictOrScoreTest(unittest.TestCase):
         self.assertEqual([self.told(page, submission_id) for submission_id in in_contest], [("score", "100"), ("score", "100")])
         # the help says which is which
         self.assertIn("ICPC 赛制的比赛和题目显示下面这些字母", uoj.text_of(admin.get("/faq").text))
+
+
+class ContestPageTest(unittest.TestCase):
+    """the page of a contest: its problems on the left, and beside them what there is to know
+    about the contest, the way QOJ lays such a page out"""
+
+    def test_files_of_a_contest_stand_at_the_foot_of_the_column_beside_its_pages(self):
+        admin, reader = uoj.admin(), p3.account("p10_page_reader")
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p10 带附件的比赛", minutes=300, rule="ICPC", problems=str(problem_id))
+        here, manage = "/contest/%d" % contest_id, "/contest/%d/manage" % contest_id
+        self.assertEqual(p6.attach(admin, manage, [("statements.pdf", b"%PDF-1.4\n%%EOF\n"), ("大样例.zip", b"PK\x05\x06" + bytes(18))], tab="attachments"), "")
+        files = {name: found[0] for name, found in p6.attachments_of("contest", contest_id).items()}
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p10_page_reader"), "")
+        uoj.move_contest(contest_id, -600, 300)
+        for path in (here, here + "/submissions", here + "/standings"):
+            page = reader.get(path).text
+            self.assertEqual(page.count('id="contest-attachments"'), 1, path)
+            card = page[page.index('id="contest-attachments"'):]
+            # under the rules of the contest and the buttons, not above its problems
+            self.assertLess(page.index('id="contest-rule"'), page.index('id="contest-attachments"'), path)
+            self.assertRegex(card, r'(?s)<h3 class="card-title">附件</h3>.*?href="/attachment/%d" target="_blank" rel="noopener">\s*<span class="uoj-contest-attachment-name">statements\.pdf</span>\s*<small class="text-muted">15 B</small>' % files["statements.pdf"])
+            self.assertRegex(card, r'href="/attachment/%d">\s*<span class="uoj-contest-attachment-name">大样例\.zip</span>' % files["大样例.zip"])
+        # the list of the problems is a list of problems: nothing stands above it
+        page = reader.get(here).text
+        self.assertLess(page.index("<table"), page.index('id="contest-attachments"'))
+        self.assertNotIn("uoj-attachments", page)
+        # a contest without files has no such card, and neither has somebody who is not inside it
+        bare = admin.new_contest("p10 没有附件的比赛", minutes=300, rule="ICPC", problems=str(problem_id))
+        self.assertNotIn('id="contest-attachments"', admin.get("/contest/%d" % bare).text)
+        upcoming = admin.new_contest("p10 还没开始的比赛", minutes=60, problems=str(problem_id))
+        self.assertEqual(p6.attach(admin, "/contest/%d/manage" % upcoming, [("statements.pdf", b"%PDF-1.4\n%%EOF\n")], tab="attachments"), "")
+        self.assertIn('id="contest-attachments"', admin.get("/contest/%d" % upcoming).text)
+        self.assertNotIn('id="contest-attachments"', reader.get("/contest/%d" % upcoming).text)

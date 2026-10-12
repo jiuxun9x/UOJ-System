@@ -401,8 +401,6 @@ EOD;
 		
 		uojIncludeView('contest-dashboard', [
 			'contest' => $contest,
-			// what comes with the contest, for the people who are inside it
-			'attachments' => can(Auth::user(), 'contest.read', $contest) ? attachmentsOf('contest', $contest['id']) : array(),
 			'contest_notice' => $contest_notice,
 			'contest_problems' => $contest_problems,
 			'post_question' => $post_question,
@@ -777,6 +775,30 @@ EOD;
 			</div>
 		</div>
 		<?php } ?>
+
+		<?php // what comes with the contest, for the people who are inside it: at the foot of the column, the way QOJ has it ?>
+		<?php $contest_attachments = can($myUser, 'contest.read', $contest) ? attachmentsOf('contest', $contest['id']) : array(); ?>
+		<?php if ($contest_attachments): ?>
+			<?php if ($cur_tab == 'standings'): ?>
+	</div>
+	<div class="col-sm-3">
+		<div class="card border-success uoj-contest-attachments" id="contest-attachments">
+			<?php else: ?>
+		<div class="card border-success top-buffer-lg uoj-contest-attachments" id="contest-attachments">
+			<?php endif ?>
+			<div class="card-header bg-success">
+				<h3 class="card-title">附件</h3>
+			</div>
+			<div class="list-group list-group-flush text-left">
+				<?php foreach ($contest_attachments as $attachment): ?>
+				<a class="list-group-item list-group-item-action" href="<?= attachmentUrl($attachment) ?>"<?= attachmentIsShownInline($attachment['name']) ? ' target="_blank" rel="noopener"' : '' ?>>
+					<span class="uoj-contest-attachment-name"><?= HTML::escape($attachment['name']) ?></span>
+					<small class="text-muted"><?= attachmentSizeText((int)$attachment['size']) ?></small>
+				</a>
+				<?php endforeach ?>
+			</div>
+		</div>
+		<?php endif ?>
 	</div>
 </div>
 <?php echoUOJPageFooter() ?>
