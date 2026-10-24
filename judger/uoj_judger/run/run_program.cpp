@@ -49,6 +49,8 @@ argp_option run_program_argp_options[] = {
     {"allow-proc", 503, 0, 0, "Allow fork, exec... etc.", 14},
     {"add-readable-raw", 504, "FILE", 0, "Add a readable (don't transform to its real path)", 15},
     {"add-writable-raw", 506, "FILE", 0, "Add a writable (don't transform to its real path)", 15},
+    {"env", 507, "NAME=VALUE", 0, "Set a variable of the environment of the program", 16},
+    {"allow-file-ops", 508, 0, 0, "Allow making, renaming and removing the writable files", 17},
     {0}};
 error_t run_program_argp_parse_opt(int key, char *arg, struct argp_state *state) {
     runp::config *config = (runp::config *)state->input;
@@ -108,6 +110,15 @@ error_t run_program_argp_parse_opt(int key, char *arg, struct argp_state *state)
         case 506:
             config->writable_file_names.push_back(arg);
             break;
+        case 507:
+            if (strchr(arg, '=') == NULL || arg[0] == '=') {
+                argp_usage(state);
+            }
+            config->env.push_back(arg);
+            break;
+        case 508:
+            config->allow_file_ops = true;
+            break;
         case ARGP_KEY_ARG:
             config->program_name = arg;
             for (int i = state->next; i < state->argc; i++) {
@@ -146,6 +157,7 @@ void parse_args(int argc, char **argv) {
     run_program_config.unsafe = false;
     run_program_config.need_show_trace_details = false;
     run_program_config.allow_proc = false;
+    run_program_config.allow_file_ops = false;
 
     argp_parse(&run_program_argp, argc, argv, ARGP_NO_ARGS | ARGP_IN_ORDER, 0, &run_program_config);
 
@@ -255,6 +267,11 @@ void setup_watching_timer() {
     std::string env_shell = env_shell_str ? env_shell_str : "";
 
     clearenv();
+    // what the program is told by whoever runs it, before what every program is told
+    for (const auto &assignment : run_program_config.env) {
+        size_t eq = assignment.find('=');
+        setenv(assignment.substr(0, eq).c_str(), assignment.substr(eq + 1).c_str(), 1);
+    }
     setenv("USER", "poor_program", 1);
     setenv("LOGNAME", "poor_program", 1);
     setenv("HOME", run_program_config.work_path.c_str(), 1);

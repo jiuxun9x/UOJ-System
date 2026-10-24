@@ -240,6 +240,25 @@ std::map<std::string, std::vector<std::pair<int, syscall_info>>> allowed_syscall
          {__NR_execve, syscall_info::with_extra_check(ECT_FILE_OP | ECT_FILE_R)},
      }},
 
+    // A program that may change the files in a folder it may write to: a checker that keeps
+    // what it needs between the passes of a test, and removes what it no longer needs. Every
+    // one of these is checked against the files the program may write.
+    {"allow_file_ops",
+     {
+         {__NR_unlink, syscall_info::with_extra_check(ECT_FILE_OP | ECT_FILE_W)},
+         {__NR_unlinkat, syscall_info::with_extra_check(ECT_FILEAT_OP | ECT_FILE_W)},
+         {__NR_rename, syscall_info::with_extra_check(ECT_FILE_OP | ECT_FILE_W | ECT_FILE2_W)},
+         {__NR_renameat, syscall_info::with_extra_check(ECT_FILEAT_OP | ECT_FILE_W | ECT_FILE2_W)},
+         {__NR_renameat2, syscall_info::with_extra_check(ECT_FILEAT_OP | ECT_FILE_W | ECT_FILE2_W)},
+         {__NR_mkdir, syscall_info::with_extra_check(ECT_FILE_OP | ECT_FILE_W)},
+         {__NR_mkdirat, syscall_info::with_extra_check(ECT_FILEAT_OP | ECT_FILE_W)},
+         {__NR_rmdir, syscall_info::with_extra_check(ECT_FILE_OP | ECT_FILE_W)},
+         {__NR_truncate, syscall_info::with_extra_check(ECT_FILE_OP | ECT_FILE_W)},
+         {__NR_ftruncate, syscall_info::unlimited()},
+         {__NR_getdents, syscall_info::unlimited()},
+         {__NR_getdents64, syscall_info::unlimited()},
+     }},
+
     {"python2",
      {
          {__NR_getdents, syscall_info::unlimited()},
@@ -1267,6 +1286,9 @@ void init_conf() {
     loads.push_back("default");
     if (config.allow_proc) {
         loads.push_back("allow_proc");
+    }
+    if (config.allow_file_ops) {
+        loads.push_back("allow_file_ops");
     }
     if (config.type != "default") {
         loads.push_back(config.type);

@@ -267,6 +267,8 @@ struct InfoBlock {
     string title;
     string content;
     int orig_size;
+    // which of several of the same kind it is, such as "#2" for the input of the second pass
+    string label;
 
     static InfoBlock empty(const string &title) {
         InfoBlock info;
@@ -290,6 +292,11 @@ struct InfoBlock {
         info.orig_size = -1;
         return info;
     }
+    static InfoBlock labeled(const string &title, const string &label, const string &content) {
+        InfoBlock info = from_string(title, content);
+        info.label = label;
+        return info;
+    }
     static InfoBlock from_file_with_size(const string &title, const string &name) {
         InfoBlock info;
         info.title = title;
@@ -299,14 +306,9 @@ struct InfoBlock {
     }
 
     string to_str() const {
-        if (title == "in") {
-            return "<in>" + htmlspecialchars(content) + "</in>";
-        }
-        if (title == "out") {
-            return "<out>" + htmlspecialchars(content) + "</out>";
-        }
-        if (title == "res") {
-            return "<res>" + htmlspecialchars(content) + "</res>";
+        string attrs = label.empty() ? "" : " label=\"" + htmlspecialchars(label) + "\"";
+        if (title == "in" || title == "out" || title == "res") {
+            return "<" + title + attrs + ">" + htmlspecialchars(content) + "</" + title + ">";
         }
 
         string str = "<info-block";
@@ -624,6 +626,15 @@ struct SubtaskInfo {
 };
 
 struct RunCheckerResult {
+    // What a checker says it gave, as a score of a hundred: a part of one ("points 0.4"), or,
+    // more than one, already a score of a hundred ("points 40"), as Hydro reads it.
+    static score_t points_to_score(double points) {
+        if (points < 0) {
+            points = 0;
+        }
+        return points > 1 ? min(points, 100.0) : 100.0 * points;
+    }
+
     int type;
     int ust, usm;
     score_t scr;
@@ -650,8 +661,15 @@ struct RunCheckerResult {
                 if (fscanf(fres, "%lf", &d) != 1) {
                     return RunCheckerResult::failed_result();
                 } else {
-                    res.scr = 100.0 * d;
+                    res.scr = points_to_score(d);
                 }
+            } else if (strcmp(type, "partially") == 0) {
+                // "partially correct (13)": what quitf(_pc(13), ...) says
+                double d;
+                if (fscanf(fres, " correct (%lf)", &d) != 1) {
+                    return RunCheckerResult::failed_result();
+                }
+                res.scr = points_to_score(d);
             } else {
                 res.scr = 0;
             }
@@ -1006,6 +1024,12 @@ bool report_judge_status_f(const char *fmt, ...) {
 struct RunProgramConfig {
     vector<string> readable_file_names;  // other than stdin
     vector<string> writable_file_names;  // other than stdout, stderr
+    // writable as they are named: one that ends with "/" is a folder and everything in it
+    vector<string> writable_raw_file_names;
+    // NAME=VALUE: the environment of the program, besides what every program has
+    vector<string> env;
+    // whether the program may make, rename and remove files where it may write
+    bool allow_file_ops = false;
     string result_file_name;
     string input_file_name;
     string output_file_name;
@@ -1079,6 +1103,15 @@ struct RunProgramConfig {
         for (vector<string>::const_iterator it = writable_file_names.begin();
              it != writable_file_names.end(); it++) {
             sout << " " << "--add-writable=" << escapeshellarg(*it);
+        }
+        for (const auto &name : writable_raw_file_names) {
+            sout << " " << "--add-writable-raw=" << escapeshellarg(name);
+        }
+        for (const auto &assignment : env) {
+            sout << " " << "--env=" << escapeshellarg(assignment);
+        }
+        if (allow_file_ops) {
+            sout << " " << "--allow-file-ops";
         }
         for (vector<string>::const_iterator it = argv.begin(); it != argv.end(); it++) {
             sout << " " << escapeshellarg(*it);
@@ -1188,34 +1221,70 @@ RunCheckerResult run_checker(const RunLimit &limit, const string &program_name,
 }
 
 /**
- * Runs the checker of a multi-pass problem after a pass of the program. The checker is run
- * the way every checker is, with one difference: its work folder is a folder of its own, in
- * which there are two files that it may write and read. In nextpass.in it leaves the input of
- * another pass, to ask for one, and in state.txt whatever it wants to remember for when it is
- * run again. It can make no other file, so what a checker can leave behind is two files of at
- * most its output limit each.
+ * Runs the checker of a multi-pass problem after a pass of the program, the way Hydro runs it.
+ * The checker is run the way every checker is, with three differences. Its work folder is a
+ * folder of its own, which it may change as it likes: in nextpass.in it leaves the input of
+ * another pass, to ask for one, and in state.txt whatever it wants to remember; it may make
+ * other files there and remove them. It is told what Hydro tells it in its environment, which
+ * pass this is above all (HYDRO_MULTI_PASS). And the code that was submitted lies beside it, as
+ * user_code. What it writes is limited by its output limit, file by file.
  */
 RunCheckerResult run_pass_checker(const RunLimit &limit, const string &program_name,
                                   const string &input_file_name, const string &output_file_name,
-                                  const string &answer_file_name, const string &pass_path) {
-    // The names are given as they are, since these files need not exist. What a program may
-    // write it may read as well.
-    string next_file_name = realpath(pass_path) + "/nextpass.in";
-    string state_file_name = realpath(pass_path) + "/state.txt";
-    RunResult ret =
-        run_program((result_path + "/run_checker_result.txt").c_str(), "/dev/null", "/dev/null",
-                    (result_path + "/checker_error.txt").c_str(), limit,
-                    ("--work-path=" + pass_path).c_str(),
-                    ("--add-readable=" + input_file_name).c_str(),
-                    ("--add-readable=" + output_file_name).c_str(),
-                    ("--add-readable=" + answer_file_name).c_str(),
-                    ("--add-writable-raw=" + next_file_name).c_str(),
-                    ("--add-writable-raw=" + state_file_name).c_str(),
-                    ("--type=" + conf_str("chk_run_type", "default")).c_str(),
-                    realpath(program_name).c_str(), realpath(input_file_name).c_str(),
-                    realpath(output_file_name).c_str(), realpath(answer_file_name).c_str(), NULL);
+                                  const string &answer_file_name, const string &pass_path,
+                                  const vector<string> &env) {
+    vector<string> args = {
+        "--work-path=" + pass_path,
+        "--add-readable=" + input_file_name,
+        "--add-readable=" + output_file_name,
+        "--add-readable=" + answer_file_name,
+        "--add-writable-raw=" + realpath(pass_path) + "/",
+        "--allow-file-ops",
+        "--type=" + conf_str("chk_run_type", "default"),
+    };
+    for (const auto &assignment : env) {
+        args.push_back("--env=" + assignment);
+    }
+    args.push_back(realpath(program_name));
+    args.push_back(realpath(input_file_name));
+    args.push_back(realpath(output_file_name));
+    args.push_back(realpath(answer_file_name));
+    RunResult ret = vrun_program((result_path + "/run_checker_result.txt").c_str(), "/dev/null",
+                                 "/dev/null", (result_path + "/checker_error.txt").c_str(), limit,
+                                 args);
 
     return RunCheckerResult::from_file(result_path + "/checker_error.txt", ret);
+}
+
+/**
+ * Runs the output validator of a multi-pass problem after a pass, the way DOMjudge and the
+ * problem package format of ICPC run it:
+ *
+ *     chk input_file answer_file feedback_dir < team_output
+ *
+ * It says what it thinks by its exit code - 42 accepted, 43 wrong - and leaves the input of
+ * another pass as nextpass.in in the feedback folder. The feedback folder is its own, for the
+ * whole test: what else it writes there is there for it in the next pass. The input it is
+ * given is the input of the test, in every pass.
+ */
+RunResult run_domjudge_validator(const RunLimit &limit, const string &program_name,
+                                 const string &input_file_name, const string &answer_file_name,
+                                 const string &team_output_file_name, const string &feedback_path) {
+    vector<string> args = {
+        "--work-path=" + feedback_path,
+        "--add-readable=" + input_file_name,
+        "--add-readable=" + answer_file_name,
+        "--add-writable-raw=" + realpath(feedback_path) + "/",
+        "--allow-file-ops",
+        "--type=" + conf_str("chk_run_type", "default"),
+        realpath(program_name),
+        realpath(input_file_name),
+        realpath(answer_file_name),
+        realpath(feedback_path) + "/",
+    };
+    return vrun_program((result_path + "/run_checker_result.txt").c_str(),
+                        team_output_file_name.c_str(), "/dev/null",
+                        (result_path + "/checker_error.txt").c_str(), limit, args);
 }
 
 template <typename... Args>
@@ -1305,11 +1374,29 @@ void prepare_interactor(int prepared = -1) {
 /**
  * @brief simple: prog <---> interactor <---> data
  */
+RunSimpleInteractionResult run_interaction_to(
+    const string &input_file_name, const string &tout_file_name, const string &answer_file_name,
+    const string &real_input_file_name, const string &real_output_file_name, const RunLimit &limit,
+    const RunLimit &ilimit, const string &name, RunProgramConfig rpc = RunProgramConfig(),
+    RunProgramConfig irpc = RunProgramConfig());
+
 RunSimpleInteractionResult run_simple_interaction(
     const string &input_file_name, const string &answer_file_name,
     const string &real_input_file_name, const string &real_output_file_name, const RunLimit &limit,
     const RunLimit &ilimit, const string &name, RunProgramConfig rpc = RunProgramConfig(),
     RunProgramConfig irpc = RunProgramConfig()) {
+    return run_interaction_to(input_file_name, "/dev/stdin", answer_file_name, real_input_file_name,
+                              real_output_file_name, limit, ilimit, name, rpc, irpc);
+}
+
+/**
+ * The same, with a file the interactor writes to as its tout: a problem of Polygon that is run
+ * twice has the interactor of the first run write the input of the second there.
+ */
+RunSimpleInteractionResult run_interaction_to(
+    const string &input_file_name, const string &tout_file_name, const string &answer_file_name,
+    const string &real_input_file_name, const string &real_output_file_name, const RunLimit &limit,
+    const RunLimit &ilimit, const string &name, RunProgramConfig rpc, RunProgramConfig irpc) {
     prepare_interactor();
 
     rpc.result_file_name = result_path + "/run_submission_program.txt";
@@ -1326,8 +1413,11 @@ RunSimpleInteractionResult run_simple_interaction(
     irpc.output_file_name = "stdout";
     irpc.error_file_name = result_path + "/interactor_error.txt";
     irpc.limit = ilimit;
-    irpc.set_argv("interactor", input_file_name.c_str(), "/dev/stdin", answer_file_name.c_str(),
-                  NULL);
+    if (tout_file_name != "/dev/stdin") {
+        irpc.writable_file_names.push_back(tout_file_name);
+    }
+    irpc.set_argv("interactor", input_file_name.c_str(), tout_file_name.c_str(),
+                  answer_file_name.c_str(), NULL);
     irpc.type = conf_str("interactor_run_type", "default");
 
     rpc.limit.real_time = rpc.limit.time + irpc.limit.time + 1;
@@ -1449,16 +1539,20 @@ struct TestPointConfig {
  * The files of the passes of a test: what a pass wrote, what the next pass reads, and the
  * work folder of the checker with its state. They are kept in the result folder, which no
  * program can look into, and they are there for one test only: made empty when the test
- * begins and removed when it ends, however it ends.
+ * begins and removed when it ends, however it ends. The one exception is what the checker of
+ * a Hydro problem hands on to the program: see hand_state_to_program().
  */
 struct PassFiles {
     string path, input_file_name, output_file_name, next_input_file_name;
+    // where the program of a pass of a Hydro problem finds the state of the checker
+    string program_state_file_name;
 
     PassFiles() {
         path = result_path + "/passes";
         input_file_name = result_path + "/pass_input.txt";
         output_file_name = result_path + "/pass_output.txt";
         next_input_file_name = path + "/nextpass.in";
+        program_state_file_name = work_path + "/state.txt";
         remove();
         executef("mkdir -p %s", escapeshellarg(path).c_str());
     }
@@ -1469,12 +1563,12 @@ struct PassFiles {
     PassFiles &operator=(const PassFiles &) = delete;
 
     void remove() {
-        // A checker of the usual kind can make its two files and nothing else. One that is
-        // run as another kind of program may be allowed more, so nothing is taken for granted
-        // about what is in the folder and who may look into it.
-        executef("chmod -R u+rwx %s 2>/dev/null; rm -rf %s %s %s", escapeshellarg(path).c_str(),
+        // The checker may change its folder as it likes, so nothing is taken for granted about
+        // what is in it and who may look into it.
+        executef("chmod -R u+rwx %s 2>/dev/null; rm -rf %s %s %s %s", escapeshellarg(path).c_str(),
                  escapeshellarg(path).c_str(), escapeshellarg(input_file_name).c_str(),
-                 escapeshellarg(output_file_name).c_str());
+                 escapeshellarg(output_file_name).c_str(),
+                 escapeshellarg(program_state_file_name).c_str());
     }
 
     /**
@@ -1499,24 +1593,87 @@ struct PassFiles {
         return chmod(next_input_file_name.c_str(), 0600) == 0
                && rename(next_input_file_name.c_str(), input_file_name.c_str()) == 0;
     }
+
+    /**
+     * Hydro gives the program of a pass the state.txt the checker left, in its work folder, as
+     * it gives it to the checker: a checker of Hydro that keeps a secret there keeps it in a
+     * form the program can do nothing with. Returns whether there is one to read.
+     */
+    bool hand_state_to_program() {
+        executef("rm -f %s", escapeshellarg(program_state_file_name).c_str());
+        struct stat st;
+        string state_file_name = path + "/state.txt";
+        if (lstat(state_file_name.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+            return false;
+        }
+        return executef("cp %s %s && chmod 644 %s", escapeshellarg(state_file_name).c_str(),
+                        escapeshellarg(program_state_file_name).c_str(),
+                        escapeshellarg(program_state_file_name).c_str())
+               == 0;
+    }
+
+    /** what the output validator of a DOMjudge problem said: to the team, to the judge, or on stderr */
+    string feedback() const {
+        string said;
+        for (const char *name : {"teammessage.txt", "judgemessage.txt"}) {
+            struct stat st;
+            string file_name = path + "/" + name;
+            if (lstat(file_name.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+                said += file_preview(file_name, 1024);
+            }
+        }
+        return !said.empty() ? said : file_preview(result_path + "/checker_error.txt");
+    }
 };
 
 /**
- * A test of a multi-pass problem. The program is run on the input of the test, and the
- * checker looks at what it wrote. A checker that wants the program to run again leaves the
+ * What a test of several passes or runs shows: what each of them read and wrote, numbered,
+ * and then what was said about it.
+ */
+struct PassPreviews {
+    vector<pair<string, string>> runs;
+
+    void add(const string &input_file_name, const string &output_file_name) {
+        runs.push_back(make_pair(file_preview(input_file_name), file_preview(output_file_name)));
+    }
+
+    PointInfo point(const int &num, const score_t &scr, const int &ust, const int &usm,
+                    const string &info, const string &res) const {
+        PointInfo po(num, scr, ust, usm, info);
+        for (size_t i = 0; i < runs.size(); i++) {
+            string label = runs.size() > 1 ? "#" + vtos(i + 1) : "";
+            po.li.push_back(InfoBlock::labeled("in", label, runs[i].first));
+            po.li.push_back(InfoBlock::labeled("out", label, runs[i].second));
+        }
+        po.li.push_back(InfoBlock::from_string("res", res));
+        return po;
+    }
+};
+
+/** the file a program was submitted as: answer.code and the like, or "" when there is none */
+string submission_source_file_name(const string &name) {
+    for (const char *ending : {".code", ".cpp", ".c", ".pas", ".py", ".java"}) {
+        string file_name = work_path + "/" + name + ending;
+        if (access(file_name.c_str(), R_OK) == 0) {
+            return file_name;
+        }
+    }
+    return "";
+}
+
+/**
+ * A test of a multi-pass problem of Hydro. The program is run on the input of the test, and
+ * the checker looks at what it wrote. A checker that wants the program to run again leaves the
  * input of the next pass as nextpass.in in its work folder and says ok; the program is then
- * run on that, and the checker is run on what it wrote, and so on, for at most as many
- * passes as the problem allows. The verdict of the checker that asks for nothing more is
- * the verdict of the test. Between passes the checker keeps what it wants to remember in
- * state.txt in its work folder. This is how Hydro does it, and a checker written for the
- * one works with the other.
+ * run on that, and the checker is run on what it wrote, and so on, for at most as many passes
+ * as the problem allows. The verdict of the checker that asks for nothing more is the verdict
+ * of the test. Between passes the checker keeps what it wants to remember in state.txt in its
+ * work folder, which the program of the next pass can read as well. This is how Hydro does it
+ * (packages/hydrojudge/src/judge/default.ts and checkers.ts), and a checker written for the one
+ * works with the other: see run_pass_checker() for what it is told.
  *
  * Every pass has the limits of the problem to itself, and the time and the memory of the
  * test are those of the pass that used most.
- *
- * Nothing but what the checker hands on may reach a later pass. A program can not write
- * files, but it may list its work folder and look at the size and the age of what is in it.
- * So the files of the passes are kept where no program can look, see PassFiles.
  *
  * Nothing of a pass is left when the next begins. Each run of the program and of the
  * checker is a run of run_program, which ends within the limits of the run and kills and
@@ -1526,6 +1683,12 @@ struct PassFiles {
 PointInfo test_multi_pass_point(const string &name, const int &num, const TestPointConfig &tpc,
                                 int max_passes) {
     PassFiles files;
+    string source_file_name = submission_source_file_name(name);
+    if (!source_file_name.empty()) {
+        executef("cp %s %s", escapeshellarg(source_file_name).c_str(),
+                 escapeshellarg(files.path + "/user_code").c_str());
+    }
+    PassPreviews shown;
 
     // what the program reads in a pass, and what the checker is told it read
     string program_input_file_name = tpc.disable_program_input ? "/dev/null" : tpc.input_file_name;
@@ -1534,35 +1697,41 @@ PointInfo test_multi_pass_point(const string &name, const int &num, const TestPo
     for (int pass = 1;; pass++) {
         string where = "in pass " + vtos(pass);
         file_put_contents(files.output_file_name, "");
+        RunProgramConfig rpc;
+        if (pass > 1 && files.hand_state_to_program()) {
+            rpc.readable_file_names.push_back(files.program_state_file_name);
+        }
         RunResult pro_ret = run_submission_program(
-            program_input_file_name.c_str(), files.output_file_name.c_str(), tpc.limit, name);
+            program_input_file_name.c_str(), files.output_file_name.c_str(), tpc.limit, name, rpc);
         if (conf_has("token")) {
             file_hide_token(files.output_file_name, conf_str("token", ""));
         }
+        shown.add(checker_input_file_name, files.output_file_name);
         if (pro_ret.type != runp::RS_AC) {
-            return PointInfo(num, 0, -1, -1, info_str(pro_ret.type),
-                             file_preview(checker_input_file_name),
-                             file_preview(files.output_file_name), where);
+            return shown.point(num, 0, -1, -1, info_str(pro_ret.type), where);
         }
         ust = max(ust, pro_ret.ust);
         usm = max(usm, pro_ret.usm);
 
         executef("rm -rf %s", escapeshellarg(files.next_input_file_name).c_str());
+        vector<string> env = {
+            "HYDRO_MULTI_PASS=" + vtos(pass),
+            "HYDRO_TESTCASE=" + vtos(num),
+            "HYDRO_TIME_USAGE=" + vtos(pro_ret.ust),
+            "HYDRO_MEMORY_USAGE=" + vtos(pro_ret.usm),
+        };
         RunCheckerResult chk_ret = run_pass_checker(
             conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker,
-            checker_input_file_name, files.output_file_name, tpc.answer_file_name, files.path);
+            checker_input_file_name, files.output_file_name, tpc.answer_file_name, files.path, env);
         if (chk_ret.type != runp::RS_AC) {
-            return PointInfo(num, 0, -1, -1, "Checker " + info_str(chk_ret.type),
-                             file_preview(checker_input_file_name),
-                             file_preview(files.output_file_name), where);
+            return shown.point(num, 0, -1, -1, "Checker " + info_str(chk_ret.type),
+                               file_preview(result_path + "/checker_error.txt") + " (" + where + ")");
         }
         // only a checker that is content so far gets another pass
         string problem;
         bool wants_another_pass = files.next_pass_asked_for(problem) && chk_ret.scr == 100;
         if (!wants_another_pass) {
-            return PointInfo(num, chk_ret.scr, ust, usm, "default",
-                             file_preview(checker_input_file_name),
-                             file_preview(files.output_file_name), chk_ret.info);
+            return shown.point(num, chk_ret.scr, ust, usm, "default", chk_ret.info);
         }
         if (problem.empty() && pass >= max_passes) {
             problem = "the checker asked for another pass after pass " + vtos(pass)
@@ -1572,13 +1741,172 @@ PointInfo test_multi_pass_point(const string &name, const int &num, const TestPo
             problem = "nextpass.in of the checker could not be made the input of a pass";
         }
         if (!problem.empty()) {
-            return PointInfo(num, 0, -1, -1, "Checker Judgment Failed",
-                             file_preview(checker_input_file_name),
-                             file_preview(files.output_file_name), problem + " (" + where + ")");
+            return shown.point(num, 0, -1, -1, "Checker Judgment Failed", problem + " (" + where + ")");
         }
         program_input_file_name = files.input_file_name;
         checker_input_file_name = files.input_file_name;
     }
+}
+
+/**
+ * A test of a multi-pass problem of DOMjudge, or of the problem package format of ICPC. The
+ * program is run on the input of the test, and the output validator on what it wrote (see
+ * run_domjudge_validator()). A validator that accepts and leaves nextpass.in in its feedback
+ * folder asks for another pass, which reads nextpass.in; the files it leaves besides stay for
+ * it. It is a judge error to leave nextpass.in and not to accept, or to ask for more passes
+ * than the problem allows (validation_passes). Every pass has the limits of the problem.
+ */
+PointInfo test_domjudge_multi_pass_point(const string &name, const int &num,
+                                         const TestPointConfig &tpc, int max_passes) {
+    PassFiles files;
+    PassPreviews shown;
+    string program_input_file_name = tpc.disable_program_input ? "/dev/null" : tpc.input_file_name;
+    string shown_input_file_name = tpc.input_file_name;
+    int ust = 0, usm = 0;
+    for (int pass = 1;; pass++) {
+        string where = "in pass " + vtos(pass);
+        file_put_contents(files.output_file_name, "");
+        RunResult pro_ret = run_submission_program(
+            program_input_file_name.c_str(), files.output_file_name.c_str(), tpc.limit, name);
+        if (conf_has("token")) {
+            file_hide_token(files.output_file_name, conf_str("token", ""));
+        }
+        shown.add(shown_input_file_name, files.output_file_name);
+        if (pro_ret.type != runp::RS_AC) {
+            return shown.point(num, 0, -1, -1, info_str(pro_ret.type), where);
+        }
+        ust = max(ust, pro_ret.ust);
+        usm = max(usm, pro_ret.usm);
+
+        executef("rm -rf %s", escapeshellarg(files.next_input_file_name).c_str());
+        RunResult val_ret = run_domjudge_validator(
+            conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker, tpc.input_file_name,
+            tpc.answer_file_name, files.output_file_name, files.path);
+        string said = files.feedback();
+        if (val_ret.type != runp::RS_AC) {
+            return shown.point(num, 0, -1, -1, "Checker " + info_str(val_ret.type),
+                               said + " (" + where + ")");
+        }
+        string problem;
+        bool wants_another_pass = files.next_pass_asked_for(problem);
+        if (val_ret.exit_code == 43 && !wants_another_pass) {
+            return shown.point(num, 0, ust, usm, "Wrong Answer", said);
+        }
+        if (val_ret.exit_code != 42) {
+            return shown.point(num, 0, -1, -1, "Checker Judgment Failed",
+                               (wants_another_pass ? "the output validator left nextpass.in and exited with code "
+                                                   : "the output validator exited with code ")
+                                   + vtos(val_ret.exit_code) + ", not 42 or 43 (" + where + "): " + said);
+        }
+        if (!wants_another_pass) {
+            return shown.point(num, 100, ust, usm, "default", said);
+        }
+        if (problem.empty() && pass >= max_passes) {
+            problem = "the output validator asked for another pass after pass " + vtos(pass)
+                      + ", the last that the problem allows";
+        }
+        if (problem.empty() && !files.take_next_input()) {
+            problem = "nextpass.in of the output validator could not be made the input of a pass";
+        }
+        if (!problem.empty()) {
+            return shown.point(num, 0, -1, -1, "Checker Judgment Failed", problem + " (" + where + ")");
+        }
+        program_input_file_name = files.input_file_name;
+        shown_input_file_name = files.input_file_name;
+    }
+}
+
+/**
+ * A test of a problem of Polygon that is run twice. The first run talks to the interactor:
+ *
+ *     interactor input_file second_input_file answer_file
+ *
+ * which reads the input of the test, talks to the program, and writes the input of the second
+ * run into second_input_file (its tout). Then, as polygon_runtwice_interactive says:
+ *
+ * - off: the program reads second_input_file like the input of any problem, and the checker
+ *   looks at what it wrote, with the input and the answer of the test;
+ * - on: the program talks to the interactor once more, which reads second_input_file now and
+ *   writes into a file of its own (its tout) what the checker is to look at. With
+ *   polygon_runtwice_interactor_verdict on, what the interactor says is the verdict, and there
+ *   is no checker.
+ *
+ * A run in which the interactor does not say ok ends the test with what it said. Every run has
+ * the limits of the problem; the time and the memory of the test are those of the run that
+ * used most. This is how QOJ judges such problems.
+ */
+PointInfo test_polygon_run_twice_point(const string &name, const int &num,
+                                       const TestPointConfig &tpc) {
+    bool interactive = conf_is("polygon_runtwice_interactive", "on");
+    bool interactor_decides = interactive && conf_is("polygon_runtwice_interactor_verdict", "on");
+    string second_input_file_name = result_path + "/second_input.txt";
+    string second_tout_file_name = result_path + "/second_tout.txt";
+    string talk_file_name[2][2] = {
+        {result_path + "/run1_input.txt", result_path + "/run1_output.txt"},
+        {result_path + "/run2_input.txt", result_path + "/run2_output.txt"}};
+    RunLimit ilimit = conf_run_limit("interactor", num, RL_INTERACTOR_DEFAULT);
+    PassPreviews shown;
+
+    file_put_contents(second_input_file_name, "");
+    RunSimpleInteractionResult first = run_interaction_to(
+        tpc.input_file_name, second_input_file_name, tpc.answer_file_name, talk_file_name[0][0],
+        talk_file_name[0][1], tpc.limit, ilimit, name);
+    shown.add(talk_file_name[0][0], talk_file_name[0][1]);
+    if (first.ires.type != runp::RS_AC) {
+        return shown.point(num, 0, -1, -1, "Interactor " + info_str(first.ires.type), "in run 1");
+    }
+    if (first.res.type != runp::RS_AC) {
+        return shown.point(num, 0, -1, -1, info_str(first.res.type), "in run 1");
+    }
+    if (first.ires.scr != 100) {
+        return shown.point(num, first.ires.scr, first.res.ust, first.res.usm, "default",
+                           first.ires.info + " (run 1)");
+    }
+    int ust = first.res.ust, usm = first.res.usm;
+
+    string checked_file_name;
+    if (!interactive) {
+        RunResult second = run_submission_program(second_input_file_name, tpc.output_file_name,
+                                                  tpc.limit, name);
+        if (conf_has("token")) {
+            file_hide_token(tpc.output_file_name, conf_str("token", ""));
+        }
+        shown.add(second_input_file_name, tpc.output_file_name);
+        if (second.type != runp::RS_AC) {
+            return shown.point(num, 0, -1, -1, info_str(second.type), "in run 2");
+        }
+        ust = max(ust, second.ust);
+        usm = max(usm, second.usm);
+        checked_file_name = tpc.output_file_name;
+    } else {
+        file_put_contents(second_tout_file_name, "");
+        RunSimpleInteractionResult second = run_interaction_to(
+            second_input_file_name, second_tout_file_name, tpc.answer_file_name,
+            talk_file_name[1][0], talk_file_name[1][1], tpc.limit, ilimit, name);
+        shown.add(talk_file_name[1][0], talk_file_name[1][1]);
+        if (second.ires.type != runp::RS_AC) {
+            return shown.point(num, 0, -1, -1, "Interactor " + info_str(second.ires.type),
+                               "in run 2");
+        }
+        if (second.res.type != runp::RS_AC) {
+            return shown.point(num, 0, -1, -1, info_str(second.res.type), "in run 2");
+        }
+        ust = max(ust, second.res.ust);
+        usm = max(usm, second.res.usm);
+        if (interactor_decides || second.ires.scr != 100) {
+            return shown.point(num, second.ires.scr, ust, usm, "default",
+                               second.ires.info + (interactor_decides ? "" : " (run 2)"));
+        }
+        checked_file_name = second_tout_file_name;
+    }
+
+    RunCheckerResult chk_ret =
+        run_checker(conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker,
+                    tpc.input_file_name, checked_file_name, tpc.answer_file_name);
+    if (chk_ret.type != runp::RS_AC) {
+        return shown.point(num, 0, -1, -1, "Checker " + info_str(chk_ret.type), "");
+    }
+    return shown.point(num, chk_ret.scr, ust, usm, "default", chk_ret.info);
 }
 
 PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = TestPointConfig()) {
@@ -1597,8 +1925,19 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
         }
     }
 
-    if (conf_int("multi_pass", 0) > 1 && !tpc.submit_answer && !conf_is("interaction_mode", "on")) {
-        return test_multi_pass_point(name, num, tpc, conf_int("multi_pass", 0));
+    // A problem whose program runs more than once on a test: in one of the ways other judges
+    // have, so that a problem made for one of them runs here as it is.
+    if (!tpc.submit_answer && !conf_is("interaction_mode", "on")) {
+        if (conf_is("polygon_runtwice", "on")) {
+            return test_polygon_run_twice_point(name, num, tpc);
+        }
+        if (conf_is("domjudge_multipass", "on")) {
+            return test_domjudge_multi_pass_point(name, num, tpc,
+                                                  max(2, conf_int("validation_passes", 2)));
+        }
+        if (conf_int("multi_pass", 0) > 1) {
+            return test_multi_pass_point(name, num, tpc, conf_int("multi_pass", 0));
+        }
     }
 
     if (!conf_is("interaction_mode", "on")) {

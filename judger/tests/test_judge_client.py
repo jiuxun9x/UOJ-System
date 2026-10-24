@@ -762,11 +762,23 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
             {"type": "compile", "name": "../../evil"},
             {"type": "compile", "name": "chk", "path": "/etc"},
             {"type": "compile", "name": "chk", "impl": "; rm -rf /"},
+            {"type": "compile", "name": "chk", "define": ["DOMJUDGE -include /etc/passwd"]},
+            {"type": "compile", "name": "chk", "define": ["1X"]},
+            {"type": "compile", "name": "chk", "define": [7]},
         ):
             with mock.patch.object(self.jc, "run_compiler") as run_compiler:
                 with self.assertRaises(self.jc.PrepareError):
                     self.jc.build_problem_programs(self.root, [step], self.root)
             self.assertEqual(run_compiler.call_count, 0)
+
+    def test_a_program_is_built_with_the_macros_its_step_names(self):
+        commands = []
+        with mock.patch.object(self.jc, "run_compiler", side_effect=lambda scratch, work, limit, command, what: commands.append(command)):
+            self.jc.build_problem_programs(self.root, [{"type": "compile", "name": "chk", "include": True, "define": ["DOMJUDGE"]},
+                                                      {"type": "compile", "name": "interactor"}], self.root)
+        self.assertIn("--define=DOMJUDGE", commands[0])
+        self.assertEqual(commands[0][-1], "chk")
+        self.assertFalse(any(arg.startswith("--define") for arg in commands[1]))
 
     # ---- programs that were built before are not built again
 
@@ -838,6 +850,7 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
         self.assertEqual(self.build(files)[1], ["chk"], "the toolchain")
         # how it is built
         self.assertEqual(self.build(files, [{"type": "compile", "name": "chk"}])[1], ["chk"], "the flags")
+        self.assertEqual(self.build(files, [{"type": "compile", "name": "chk", "include": True, "define": ["DOMJUDGE"]}])[1], ["chk"], "the macros")
         # and what it is called: the validator is not the checker, whatever is in it
         self.assertEqual(self.build({"val.cpp": self.CHECKER, "tables.h": files["tables.h"], "sub/deep.h": files["sub/deep.h"]},
                                     [{"type": "compile", "name": "val", "include": True}])[1], ["val"])  # fmt: skip

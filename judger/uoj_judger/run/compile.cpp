@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <regex>
 #include <utility>
 #include <vector>
 
@@ -69,6 +70,9 @@ struct compile_config {
     std::string implementer;
     std::string custom_compiler_path;
     std::vector<std::string> cinclude_dirs;
+    // macros that a program of C or C++ is compiled with, such as DOMJUDGE for an output
+    // validator written for DOMjudge
+    std::vector<std::string> defines;
 
     void auto_find_src() {
         if (!src.empty()) {
@@ -106,6 +110,12 @@ error_t compile_argp_parse_opt(int key, char *arg, struct argp_state *state) {
             case 'I':
                 config->cinclude_dirs.push_back(arg);
                 break;
+            case 'D':
+                if (!std::regex_match(std::string(arg), std::regex("[A-Za-z_][A-Za-z0-9_]{0,63}"))) {
+                    argp_usage(state);
+                }
+                config->defines.push_back(arg);
+                break;
             case ARGP_KEY_ARG:
                 config->name = arg;
                 break;
@@ -135,6 +145,7 @@ compile_config parse_args(int argc, char **argv) {
          "add the directory dir to the list of directories to be searched for header files during "
          "preprocessing (for C/C++)",
          5},
+        {"define", 'D', "NAME", 0, "define a macro (for C/C++)", 6},
         {0}};
     char argp_args_doc[] = "name";
     char argp_doc[] = "compile: a tool to compile programs";
@@ -349,6 +360,9 @@ int compile_cpp(const compile_config &conf, const std::string &std) {
     for (auto dir : conf.cinclude_dirs) {
         add_spaced_out(sflags, "-I" + dir);
     }
+    for (const auto &name : conf.defines) {
+        add_spaced_out(sflags, "-D" + name);
+    }
 
     if (conf.implementer.empty()) {
         return execute(UOJ_GPLUSPLUS, sflags.str(), "-o", conf.name, "-x", "c++", conf.src);
@@ -362,6 +376,9 @@ int compile_c(const compile_config &conf, const std::string &std) {
     spaced_out(sflags, "-lm", "-O2", "-DONLINE_JUDGE", "-std=" + std);
     for (auto dir : conf.cinclude_dirs) {
         add_spaced_out(sflags, "-I" + dir);
+    }
+    for (const auto &name : conf.defines) {
+        add_spaced_out(sflags, "-D" + name);
     }
 
     if (conf.implementer.empty()) {

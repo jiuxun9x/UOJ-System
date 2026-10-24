@@ -313,6 +313,10 @@ struct config {
     bool unsafe = false;
     bool allow_proc = false;
     bool need_show_trace_details = false;
+    // NAME=VALUE: the environment of the program, besides what every program has
+    std::vector<std::string> env;
+    // whether the program may make, rename and remove files where it may write
+    bool allow_file_ops = false;
 
     config(std::string program_name = "", const std::vector<std::string> &rest_args = {}) :
         program_name(program_name), rest_args(rest_args) {}
@@ -353,6 +357,10 @@ struct config {
         if (this->allow_proc) {
             add_runp_arg(sout, "--allow-proc");
         }
+        if (this->allow_file_ops) {
+            add_runp_arg(sout, "--allow-file-ops");
+        }
+        add_runp_arg(sout, std::make_pair("env", this->env));
 
         if (!this->work_path.empty()) {
             add_runp_arg(sout, std::make_pair("work-path", this->work_path));

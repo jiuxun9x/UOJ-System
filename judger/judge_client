@@ -634,7 +634,7 @@ def program_cache_key(data_dir, step):
     def add(part):
         digest.update(b"%d:" % len(part) + part)
 
-    add(json.dumps({key: step.get(key) for key in ("name", "include", "impl", "path")}, sort_keys=True).encode())
+    add(json.dumps({key: step.get(key) for key in ("name", "include", "impl", "path", "define")}, sort_keys=True).encode())
     identity = describe_judger()
     add((identity["judger_version"] + "\n" + identity["toolchain"]).encode())
     add(include_dir_digest().encode())
@@ -690,6 +690,11 @@ def build_problem_programs(data_dir, steps, scratch_dir):
             command = [main_path + "/run/compile"]
             if step.get("include"):
                 command.append("--cinclude=" + main_path + "/include")
+            for macro in step.get("define") or []:
+                # a macro the program is compiled with, such as DOMJUDGE for an output validator
+                if not isinstance(macro, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", macro):
+                    raise PrepareError("unknown macro to build with: %r" % (macro,))
+                command.append("--define=" + macro)
             if step.get("impl") is not None:
                 if step["impl"] != "implementer":
                     raise PrepareError("unknown implementer: %r" % (step["impl"],))
