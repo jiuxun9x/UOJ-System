@@ -173,3 +173,20 @@ file_put_contents("$unpacked/with-checker/data/require", '');
 $read = importReadPackage($unpacked, 'with-checker', array_merge(array_keys($template), array('with-checker/data/require/implementer.cpp', 'with-checker/data/download/lib.h', 'with-checker/data/other/x.txt')));
 check_same(array(true, true, false), array(isset($read['data']['require/implementer.cpp']), isset($read['data']['download/lib.h']), isset($read['data']['other/x.txt'])), 'require/ and download/, and no other folder of the data');
 exec('rm -rf ' . escapeshellarg($unpacked));
+
+// ---- a config.yaml of Hydro whose program runs several times, or whose checker is written for the ICPC format
+$names = array('a1.in', 'a1.out', 'chk.cc', 'validate.cc');
+$said = importHydroConfig(array('multi_pass' => 3, 'checker_type' => 'testlib', 'checker' => 'chk.cc'), $names);
+check_same(array('multi_pass', 'hydro', 3, 'custom', 'chk.cc', array()), array($said['settings']['type'], $said['settings']['comm_style'], $said['settings']['passes'], $said['settings']['checker'], $said['settings']['checker_file'], $said['notes']),
+	'Hydro: several passes, a checker of testlib');
+$said = importHydroConfig(array('checker_type' => 'kattis', 'checker' => 'validate.cc'), $names);
+check_same(array('multi_pass', 'domjudge', 2, 'validate.cc', array()), array($said['settings']['type'], $said['settings']['comm_style'], $said['settings']['passes'], $said['settings']['checker_file'], $said['notes']),
+	'Hydro: an output validator of the ICPC format is judged the way DOMjudge judges it');
+$said = importHydroConfig(array('multi_pass' => 30, 'checker_type' => 'kattis', 'checker' => 'validate.cc'), $names);
+check_same(array(20, 1), array($said['settings']['passes'], count($said['notes'])), 'and passes beyond what this site has are said to be cut');
+check_same(false, isset(importHydroConfig(array('multi_pass' => 1, 'checker_type' => 'testlib', 'checker' => 'chk.cc'), $names)['settings']['type']), 'one pass is no multi-pass problem');
+// a package of QOJ says it in problem.conf, and is the settings of the problem as it is
+$settings = importSettingsOfConf(array('use_builtin_judger' => 'on', 'polygon_runtwice' => 'on', 'use_builtin_checker' => 'ncmp'), array(), array('1.in', 'interactor.cpp'));
+check_same(array('multi_pass', 'polygon', 'ncmp'), array($settings['type'], $settings['comm_style'], $settings['checker']), 'a problem of Polygon run twice, from a package of QOJ');
+$settings = importSettingsOfConf(array('use_builtin_judger' => 'on', 'domjudge_multipass' => 'on', 'validation_passes' => '3'), array(), array('1.in', 'chk.cpp'));
+check_same(array('multi_pass', 'domjudge', 3, 'custom'), array($settings['type'], $settings['comm_style'], $settings['passes'], $settings['checker']), 'a problem of DOMjudge, from a package of QOJ');

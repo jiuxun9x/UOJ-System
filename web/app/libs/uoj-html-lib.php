@@ -993,16 +993,15 @@ class JudgementDetailsPrinter {
 
 				echo '</div>';
 			}
-		} elseif ($node->nodeName == 'in') {
-			echo "<h4>input:</h4><pre>\n";
+		} elseif ($node->nodeName == 'in' || $node->nodeName == 'out' || $node->nodeName == 'res') {
+			// a test of several passes or runs shows what each of them read and wrote: "#2"
+			$label = $node->getAttribute('label');
+			$label = preg_match('/^#[0-9]{1,2}$/D', $label) ? ' ' . $label : '';
+			echo '<h4>', array('in' => 'input', 'out' => 'output', 'res' => 'result')[$node->nodeName], $label, ":</h4><pre>\n";
 			$this->_print_c($node);
 			echo "\n</pre>";
-		} elseif ($node->nodeName == 'out') {
-			echo "<h4>output:</h4><pre>\n";
-			$this->_print_c($node);
-			echo "\n</pre>";
-		} elseif ($node->nodeName == 'res') {
-			echo "<h4>result:</h4><pre>\n";
+		} elseif ($node->nodeName == 'info-block') {
+			echo '<h4>', HTML::escape($node->getAttribute('title')), ":</h4><pre>\n";
 			$this->_print_c($node);
 			echo "\n</pre>";
 		} else {

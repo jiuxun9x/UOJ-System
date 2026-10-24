@@ -631,12 +631,23 @@ function importHydroConfig($config, $names) {
 	// the checker: Hydro's own way of comparing is the usual one here; a checker written
 	// with testlib is a checker here as well; the other kinds are programs of other judges
 	$checker_type = isset($config['checker_type']) && is_scalar($config['checker_type']) ? strtolower((string)$config['checker_type']) : 'default';
+	// A problem whose program runs several times (multi_pass), and a checker written the way
+	// the problem package format of ICPC has it (kattis): the ways of Hydro and of DOMjudge.
+	$passes = isset($config['multi_pass']) && is_scalar($config['multi_pass']) && validateUInt((string)$config['multi_pass']) ? (int)$config['multi_pass'] : 0;
+	if ($checker_type === 'kattis' || $passes > 1) {
+		$settings['type'] = 'multi_pass';
+		$settings['comm_style'] = $checker_type === 'kattis' ? 'domjudge' : 'hydro';
+		$settings['passes'] = max(2, min(20, $passes));
+		if ($passes > 20) {
+			$notes[] = "config.yaml 里允许运行 {$passes} 轮，这里最多 20 轮";
+		}
+	}
 	if (isset($config['checker']) && is_string($config['checker']) && $config['checker'] !== '') {
 		if ($has($config['checker'])) {
 			$settings['checker'] = 'custom';
 			$settings['checker_file'] = $config['checker'];
-			if ($checker_type !== 'testlib') {
-				$notes[] = "校验器 {$config['checker']} 是按 {$checker_type} 的约定写的，这里只支持 testlib 的写法：需要改写后重新上传";
+			if ($checker_type !== 'testlib' && $checker_type !== 'kattis') {
+				$notes[] = "校验器 {$config['checker']} 是按 {$checker_type} 的约定写的，这里只支持 testlib 和 kattis 的写法：需要改写后重新上传";
 			}
 		} else {
 			$notes[] = "config.yaml 说校验器是 {$config['checker']}，但数据里没有这个文件";

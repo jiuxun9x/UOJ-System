@@ -395,7 +395,7 @@
 			if (isset($this->problem_extra_config['dont_use_formatter'])) {
 				exec("cp $src $dest -fT", $output, $ret);
 			} else {
-				exec("$uojMainJudgerWorkPath/run/formatter <$src >$dest", $output, $ret);
+				exec("$uojMainJudgerWorkPath/run/formatter" . (isset($this->problem_extra_config['remove_cr']) ? ' --remove-cr' : '') . " <$src >$dest", $output, $ret);
 			}
 			if ($ret) {
 				throw new UOJFileNotFoundException($file_name);
@@ -412,7 +412,8 @@
 			if (isset($this->problem_extra_config['dont_use_formatter']) || !is_file("{$this->upload_dir}/$file_name")) {
 				exec("cp $src $dest -rfT", $output, $ret);
 			} else {
-				exec("$uojMainJudgerWorkPath/run/formatter <$src >$dest", $output, $ret);
+				// what the problem says it is to be done to its files: see problemFormatters()
+				exec("$uojMainJudgerWorkPath/run/formatter" . (isset($this->problem_extra_config['remove_cr']) ? ' --remove-cr' : '') . " <$src >$dest", $output, $ret);
 			}
 			if ($ret) {
 				throw new UOJFileNotFoundException($file_name);
@@ -436,6 +437,9 @@
 			}
 			if (isset($config['path'])) {
 				$step['path'] = $config['path'];
+			}
+			if (isset($config['define'])) {
+				$step['define'] = $config['define'];
 			}
 			$this->prepare_steps[] = $step;
 		}
@@ -519,7 +523,11 @@
 						$this->copy_file_to_prepare($output_file_name);
 					}
 
-					if (!$this->check_conf_on('interaction_mode')) {
+					// A problem of Polygon that is run twice and whose interactor says the verdict has
+					// no checker; any other problem compares answers, or has its interactor do it.
+					$interactor_decides = $this->check_conf_on('polygon_runtwice') && $this->check_conf_on('polygon_runtwice_interactive')
+						&& $this->check_conf_on('polygon_runtwice_interactor_verdict');
+					if (!$this->check_conf_on('interaction_mode') && !$interactor_decides) {
 						if (isset($this->problem_conf['use_builtin_checker'])) {
 							if (!preg_match('/^[a-zA-Z0-9_]{1,20}$/', $this->problem_conf['use_builtin_checker'])) {
 								throw new Exception("<strong>" . htmlspecialchars($this->problem_conf['use_builtin_checker']) . "</strong> is not a valid checker");
@@ -528,7 +536,8 @@
 							if (!$this->copy_program_source('chk')) {
 								throw new UOJFileNotFoundException('chk.*');
 							}
-							$this->need_compile('chk', array('need_include_header' => true));
+							// an output validator of DOMjudge is compiled the way DOMjudge compiles it
+							$this->need_compile('chk', array('need_include_header' => true) + ($this->check_conf_on('domjudge_multipass') ? array('define' => array('DOMJUDGE')) : array()));
 						}
 					}
 
@@ -617,6 +626,41 @@
 									throw new UOJProblemConfException("multi_pass needs a checker of the problem's own (chk), a builtin checker never asks for another pass");
 								}
 							}
+						}
+
+						// A problem whose program runs more than once on a test, in the way of another
+						// judge: one way, with what that way needs.
+						$ways = 0;
+						foreach (array('polygon_runtwice', 'domjudge_multipass') as $key) {
+							$ways += $this->check_conf_on($key) ? 1 : 0;
+						}
+						$ways += isset($this->problem_conf['multi_pass']) && validateUInt($this->problem_conf['multi_pass']) && $this->problem_conf['multi_pass'] > 1 ? 1 : 0;
+						if ($ways > 1) {
+							throw new UOJProblemConfException("only one of multi_pass, polygon_runtwice and domjudge_multipass can be on");
+						}
+						if ($ways == 1 && $this->problem['hackable']) {
+							throw new UOJProblemConfException("the problem can't be hackable if its program runs more than once on a test");
+						}
+						if ($this->check_conf_on('domjudge_multipass')) {
+							$n_passes = getUOJConfVal($this->problem_conf, 'validation_passes', 2);
+							if (!validateUInt($n_passes) || $n_passes < 2 || $n_passes > 20) {
+								throw new UOJProblemConfException("validation_passes must be an integer between 2 and 20");
+							}
+							if ($this->check_conf_on('interaction_mode')) {
+								throw new UOJProblemConfException("domjudge_multipass can't be combined with interaction_mode");
+							}
+							if (isset($this->problem_conf['use_builtin_checker'])) {
+								throw new UOJProblemConfException("domjudge_multipass needs an output validator of the problem's own (chk)");
+							}
+						}
+						if ($this->check_conf_on('polygon_runtwice')) {
+							if ($this->check_conf_on('interaction_mode')) {
+								throw new UOJProblemConfException("polygon_runtwice can't be combined with interaction_mode: it talks to the interactor by itself");
+							}
+							if (!$this->copy_program_source('interactor')) {
+								throw new UOJFileNotFoundException('interactor.*');
+							}
+							$this->need_compile('interactor', array('need_include_header' => true));
 						}
 
 						$n_sample_tests = getUOJConfVal($this->problem_conf, 'n_sample_tests', $n_tests);

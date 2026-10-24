@@ -22,8 +22,8 @@ function problemTypes() {
 		),
 		'multi_pass' => array(
 			'name' => '通信题',
-			'description' => '同一个程序运行两轮或更多轮：每一轮结束后校验器检查它的输出，并给出下一轮的输入，最后由校验器判定结果。',
-			'needs' => '需要自己的校验器（用 testlib.h 写）：上传后在下面选它是哪个文件。要再运行一轮，校验器就把下一轮的输入写到 nextpass.in 并以 ok 结束，要记住的东西写到 state.txt，写法和 Hydro 的 Multi Pass 相同。测试点可以只有输入文件。'
+			'description' => '同一个程序运行两轮或更多轮，后一轮的输入由前一轮决定。有三种做法，分别和 Hydro、DOMjudge、Polygon（QOJ）的一样，在下面选：为哪个 OJ 写的题就选哪种，题目可以原样搬过来。',
+			'needs' => '测试点可以只有输入文件。'
 		),
 		'submit_answer' => array(
 			'name' => '提交答案题',
@@ -37,6 +37,37 @@ function problemTypes() {
 		)
 	);
 }
+// The ways a problem of several runs of one program is judged, as other judges judge them:
+// a problem written for one of them is judged here as it is written. key => name, what it
+// is, what it needs.
+function problemCommStyles() {
+	return array(
+		'hydro' => array(
+			'name' => 'Hydro 多轮',
+			'description' => '每一轮之后调用校验器（testlib：chk 输入 输出 答案）。要再运行一轮，校验器把下一轮的输入写进工作目录的 nextpass.in 并以 ok 结束；要记住的东西写进 state.txt。下一轮的选手程序也能读到 state.txt（和 Hydro 一样，所以里面不要放明文的秘密）。校验器从环境变量 HYDRO_MULTI_PASS 知道是第几轮，工作目录里有选手代码 user_code，可以建、删自己的文件。',
+			'needs' => '需要自己的校验器（testlib.h）。'
+		),
+		'domjudge' => array(
+			'name' => 'DOMjudge / ICPC 多轮',
+			'description' => '每一轮之后调用输出检验器：chk 输入 答案 feedback_dir < 选手输出，编译时定义了 DOMJUDGE。以 42 退出是通过、43 是答案错误；通过时在 feedback_dir 里留下 nextpass.in 就再运行一轮，feedback_dir 里的其他文件留到下一轮，judgemessage.txt / teammessage.txt 显示在评测结果里。',
+			'needs' => '需要自己的输出检验器。'
+		),
+		'polygon' => array(
+			'name' => 'Polygon 二次运行',
+			'description' => '程序运行两次。第一次和交互器对话（interactor 输入 第二次的输入 答案），交互器把第二次的输入写进它的 tout。第二次：默认程序直接读这个文件作为输入，由校验器检查输出；勾选“第二次也交互”后，第二次也和交互器对话，交互器读这个文件。',
+			'needs' => '需要交互器（testlib.h），以及校验器或内置的比较方式。'
+		)
+	);
+}
+// what syncing does to the line breaks and the blanks of the uploaded files: key => what it is
+function problemFormatters() {
+	return array(
+		'auto' => '自动整理（推荐）：\\r\\n 换成 \\n，去掉行末空格，文件末尾补换行',
+		'remove_cr' => '只把 \\r\\n 换成 \\n，行末空格保留',
+		'none' => '原样保留，一个字节也不改'
+	);
+}
+
 // how what a program wrote is compared with the answer
 function problemCheckers() {
 	return array(
@@ -71,6 +102,15 @@ function problemDefaultSettings() {
 		'n_samples' => null,
 		// how many times at most the program of a multi-pass problem is run on a test
 		'passes' => 2,
+		// in which way of problemCommStyles() it is run several times
+		'comm_style' => 'hydro',
+		// a problem of Polygon that is run twice: whether the second run talks to the
+		// interactor as well, and whether the interactor of the second run gives the verdict
+		'run_twice_interactive' => false,
+		'run_twice_interactor_verdict' => false,
+		// what syncing does to the files: a key of problemFormatters(). It is kept with the
+		// problem (extra_config), not in problem.conf
+		'formatter' => 'auto',
 		// which of the uploaded files are the programs of the problem; '' for one that was
 		// not chosen, which is then looked for by its name
 		'checker_file' => '',
@@ -116,11 +156,26 @@ function problemSettingsFromForm($input) {
 	}
 	$settings['memory_limit'] = (int)$get('memory_limit');
 
-	if ($settings['type'] === 'multi_pass' && $get('passes') !== '') {
+	if ($settings['type'] === 'multi_pass') {
+		$style = $get('comm_style') === '' ? 'hydro' : $get('comm_style');
+		if (!isset(problemCommStyles()[$style])) {
+			return array(null, '请选择通信题的做法');
+		}
+		$settings['comm_style'] = $style;
+		$settings['run_twice_interactive'] = $style === 'polygon' && isset($input['run_twice_interactive']);
+		$settings['run_twice_interactor_verdict'] = $settings['run_twice_interactive'] && isset($input['run_twice_interactor_verdict']);
+	}
+	if ($settings['type'] === 'multi_pass' && $settings['comm_style'] !== 'polygon' && $get('passes') !== '') {
 		if (!validateUInt($get('passes')) || $get('passes') < 2 || $get('passes') > 20) {
 			return array(null, '多轮运行的轮数应是 2 到 20 之间的整数');
 		}
 		$settings['passes'] = (int)$get('passes');
+	}
+	if ($get('formatter') !== '') {
+		if (!isset(problemFormatters()[$get('formatter')])) {
+			return array(null, '请选择怎么整理数据文件');
+		}
+		$settings['formatter'] = $get('formatter');
 	}
 
 	// the name of another builtin checker is taken as it is: a problem that has one keeps it
@@ -187,12 +242,26 @@ function problemSettingsOfConf($conf) {
 	$on = function($key) use ($conf) {
 		return isset($conf[$key]) && $conf[$key] === 'on';
 	};
+	$passes_of = function($key) use ($conf) {
+		return isset($conf[$key]) && validateUInt((string)$conf[$key]) && $conf[$key] >= 2 && $conf[$key] <= 20 ? (int)$conf[$key] : 2;
+	};
 	if ($on('submit_answer')) {
 		$settings['type'] = 'submit_answer';
+	} elseif ($on('polygon_runtwice')) {
+		// as QOJ says it
+		$settings['type'] = 'multi_pass';
+		$settings['comm_style'] = 'polygon';
+		$settings['run_twice_interactive'] = $on('polygon_runtwice_interactive');
+		$settings['run_twice_interactor_verdict'] = $on('polygon_runtwice_interactive') && $on('polygon_runtwice_interactor_verdict');
+	} elseif ($on('domjudge_multipass')) {
+		$settings['type'] = 'multi_pass';
+		$settings['comm_style'] = 'domjudge';
+		$settings['passes'] = $passes_of('validation_passes');
 	} elseif ($on('interaction_mode')) {
 		$settings['type'] = 'interactive';
 	} elseif (isset($conf['multi_pass']) && validateUInt((string)$conf['multi_pass']) && $conf['multi_pass'] > 1) {
 		$settings['type'] = 'multi_pass';
+		$settings['comm_style'] = 'hydro';
 		$settings['passes'] = (int)$conf['multi_pass'];
 	} elseif ($on('with_implementer')) {
 		$settings['type'] = 'grader';
@@ -230,6 +299,36 @@ function problemSettingsOfConf($conf) {
 	}
 	$settings['validate_input'] = $on('validate_input_before_test');
 	return $settings;
+}
+
+// ---- what syncing does to the files
+
+// what syncing does to the files of a problem, as it keeps it: a key of problemFormatters()
+function problemFormatterOf($problem) {
+	$extra_config = json_decode($problem['extra_config'], true);
+	if (is_array($extra_config) && isset($extra_config['dont_use_formatter'])) {
+		return 'none';
+	}
+	return is_array($extra_config) && isset($extra_config['remove_cr']) ? 'remove_cr' : 'auto';
+}
+// Keeps what syncing is to do to the files of a problem: in extra_config, as dont_use_formatter
+// and remove_cr, which is where QOJ keeps it. It takes effect with the next sync.
+function problemSaveFormatter($problem, $formatter, $actor) {
+	$problem = queryProblemBrief($problem['id']);
+	$before = problemFormatterOf($problem);
+	if ($formatter === $before || !isset(problemFormatters()[$formatter])) {
+		return;
+	}
+	$extra_config = json_decode($problem['extra_config'], true);
+	$extra_config = is_array($extra_config) ? $extra_config : array();
+	unset($extra_config['dont_use_formatter'], $extra_config['remove_cr']);
+	if ($formatter === 'none') {
+		$extra_config['dont_use_formatter'] = true;
+	} elseif ($formatter === 'remove_cr') {
+		$extra_config['remove_cr'] = true;
+	}
+	DB::update("update problems set extra_config = '".DB::escape(json_encode($extra_config))."' where id = {$problem['id']}");
+	auditLog('problem.edit_formatter', 'problem', $problem['id'], array('formatter' => $before), array('formatter' => $formatter), $actor);
 }
 
 // ---- which files are the programs
@@ -427,11 +526,31 @@ function problemConfIsManagedKey($key) {
 		'use_builtin_judger', 'use_builtin_checker', 'n_tests', 'n_ex_tests', 'n_sample_tests', 'input_pre', 'input_suf',
 		'output_pre', 'output_suf', 'time_limit', 'memory_limit', 'interaction_mode', 'multi_pass', 'submit_answer',
 		'with_implementer', 'n_subtasks', 'chk_source', 'interactor_source', 'std_source', 'val_source',
+		'polygon_runtwice', 'polygon_runtwice_interactive', 'polygon_runtwice_interactor_verdict', 'domjudge_multipass', 'validation_passes',
 		// A problem.conf that came from somewhere with this line in it had every submission
 		// fail at a validator nobody had chosen, and the form had no way to say otherwise.
 		'validate_input_before_test'
 	);
 	return in_array($key, $managed, true) || preg_match('/^subtask_(end|score)_[0-9]+$/D', $key) === 1;
+}
+// Which programs of its own a problem needs, as its settings say: array(a checker, an
+// interactor, whether answers are compared at all - by a builtin checker or by a checker).
+// Hydro and DOMjudge judge several passes by a checker of the problem's own; a problem of
+// Polygon that is run twice has an interactor, and a checker unless the interactor decides.
+function problemProgramsNeeded($settings) {
+	$type = $settings['type'];
+	$style = $type === 'multi_pass' ? (isset($settings['comm_style']) ? $settings['comm_style'] : 'hydro') : null;
+	if ($type === 'interactive') {
+		return array(false, true, false);
+	}
+	if ($style === 'hydro' || $style === 'domjudge') {
+		return array(true, false, false);
+	}
+	if ($style === 'polygon') {
+		$decides = !empty($settings['run_twice_interactive']) && !empty($settings['run_twice_interactor_verdict']);
+		return array(!$decides && $settings['checker'] === 'custom', true, !$decides);
+	}
+	return array($settings['checker'] === 'custom', false, true);
 }
 // Builds problem.conf: array(the conf, '') or array(null, why not).
 //   $settings   what the form said
@@ -442,11 +561,9 @@ function problemConfIsManagedKey($key) {
 function problemConfFromSettings($settings, $found, $old_conf = array(), $names = null) {
 	$conf = array('use_builtin_judger' => 'on');
 	$type = $settings['type'];
-	// an interactive problem is judged by its interactor, a multi-pass problem by a checker of its own
-	if ($type !== 'interactive' && $type !== 'multi_pass') {
-		if ($settings['checker'] !== 'custom') {
-			$conf['use_builtin_checker'] = $settings['checker'];
-		}
+	list($needs_checker_file, $needs_interactor_file, $compares) = problemProgramsNeeded($settings);
+	if ($compares && $settings['checker'] !== 'custom') {
+		$conf['use_builtin_checker'] = $settings['checker'];
 	}
 	$n_tests = count($found['tests']);
 	$n_extra = $type === 'submit_answer' ? 0 : count($found['extra']);
@@ -463,15 +580,30 @@ function problemConfFromSettings($settings, $found, $old_conf = array(), $names 
 		$conf[$flags[$type]] = 'on';
 	}
 	if ($type === 'multi_pass') {
-		$conf['multi_pass'] = $settings['passes'];
+		$style = isset($settings['comm_style']) ? $settings['comm_style'] : 'hydro';
+		if ($style === 'polygon') {
+			$conf['polygon_runtwice'] = 'on';
+			if (!empty($settings['run_twice_interactive'])) {
+				$conf['polygon_runtwice_interactive'] = 'on';
+				if (!empty($settings['run_twice_interactor_verdict'])) {
+					$conf['polygon_runtwice_interactor_verdict'] = 'on';
+				}
+			}
+		} elseif ($style === 'domjudge') {
+			$conf['domjudge_multipass'] = 'on';
+			$conf['validation_passes'] = $settings['passes'];
+		} else {
+			$conf['multi_pass'] = $settings['passes'];
+		}
 	}
 	// Which file is which program. One that was chosen is named; one that was not is looked
 	// for among the files by what such files are called. The solution and the validator of a
 	// problem that can be hacked are named only when they were chosen.
 	$programs = array();
-	if ($type === 'interactive') {
+	if ($needs_interactor_file) {
 		$programs['interactor_file'] = true;
-	} elseif ($type === 'multi_pass' || $settings['checker'] === 'custom') {
+	}
+	if ($needs_checker_file) {
 		$programs['checker_file'] = true;
 	}
 	$validates = !empty($settings['validate_input']) && $type !== 'submit_answer';
@@ -594,9 +726,9 @@ function problemPlanSettings($problem, $settings) {
 	if ($found['unpaired']) {
 		$notes[] = '有 ' . count($found['unpaired']) . ' 个文件像是测试数据，却配不成对：' . join('、', array_slice($found['unpaired'], 0, 6)) . (count($found['unpaired']) > 6 ? ' 等' : '');
 	}
-	foreach (array('chk' => array('interactive' => false, 'needed' => $settings['type'] === 'multi_pass' || $settings['checker'] === 'custom'),
-			'interactor' => array('interactive' => true, 'needed' => true)) as $kind => $when) {
-		if (($settings['type'] === 'interactive') === $when['interactive'] && $when['needed']) {
+	list($needs_checker_file, $needs_interactor_file) = problemProgramsNeeded($settings);
+	foreach (array('chk' => $needs_checker_file, 'interactor' => $needs_interactor_file) as $kind => $needed) {
+		if ($needed) {
 			$notes[] = isset($conf["{$kind}_source"])
 				? dataProgramKinds()[$kind] . '是 ' . $conf["{$kind}_source"]
 				: '还没有' . dataProgramKinds()[$kind] . '：上传它的源文件后在评测设置里选上';
@@ -805,7 +937,7 @@ function problemFileRoles($names, $conf) {
 			continue;
 		}
 		// one that is not named is the file the judgers find by its name
-		$wanted = $kind === 'interactor' ? $on('interaction_mode') : ($kind === 'chk' ? !$on('interaction_mode') && !isset($conf['use_builtin_checker']) : true);
+		$wanted = $kind === 'interactor' ? $on('interaction_mode') || $on('polygon_runtwice') : ($kind === 'chk' ? !$on('interaction_mode') && !isset($conf['use_builtin_checker']) : true);
 		foreach (array("$kind.cpp", "$kind.c", "$kind.pas") as $file) {
 			if ($wanted && isset($has[$file])) {
 				$roles[$file] = $label;

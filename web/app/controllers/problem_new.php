@@ -40,6 +40,8 @@
 				$notes[] = '有附件没有添加：' . join('；', $refused);
 				$all_well = false;
 			}
+			// what syncing is to do to the files, before the first sync
+			problemSaveFormatter($problem, $settings['formatter'], $myUser);
 			list($uploaded, $message) = problemTakeUploadedData($problem, 'data', $myUser);
 			if ($uploaded === 'refused') {
 				$notes[] = '数据包没有被接受：' . $message;
@@ -75,9 +77,11 @@
 		return isset($_POST[$name]) && is_string($_POST[$name]) ? $_POST[$name] : $default;
 	};
 	if ($error !== '') {
-		foreach (array('type', 'time_limit', 'memory_limit', 'checker', 'scoring') as $field) {
+		foreach (array('type', 'time_limit', 'memory_limit', 'checker', 'scoring', 'comm_style', 'formatter') as $field) {
 			$settings[$field] = $typed($field, $settings[$field]);
 		}
+		$settings['run_twice_interactive'] = isset($_POST['run_twice_interactive']);
+		$settings['run_twice_interactor_verdict'] = isset($_POST['run_twice_interactor_verdict']);
 		if (!isset(problemTypes()[$settings['type']])) {
 			$settings['type'] = 'traditional';
 		}

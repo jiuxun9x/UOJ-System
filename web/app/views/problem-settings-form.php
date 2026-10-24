@@ -53,6 +53,29 @@
 	<small class="form-text text-muted" id="problem-type-description"></small>
 	<small class="form-text text-info" id="problem-type-needs"></small>
 </div>
+<?php // a problem whose program runs several times: in which of the ways other judges have ?>
+<div class="form-group" id="group-problem-comm">
+	<label class="d-block">通信题的做法 <small class="text-muted">（为哪个 OJ 写的题就选哪种）</small></label>
+	<?php foreach (problemCommStyles() as $style => $info): ?>
+	<div class="custom-control custom-radio mb-1">
+		<input type="radio" class="custom-control-input" id="input-problem-comm_style-<?= $style ?>" name="comm_style" value="<?= $style ?>"<?= $settings['comm_style'] === $style ? ' checked="checked"' : '' ?> data-description="<?= HTML::escape($info['description']) ?>" data-needs="<?= HTML::escape($info['needs']) ?>" />
+		<label class="custom-control-label" for="input-problem-comm_style-<?= $style ?>"><?= $info['name'] ?></label>
+	</div>
+	<?php endforeach ?>
+	<small class="form-text text-muted" id="problem-comm-description"></small>
+	<small class="form-text text-info" id="problem-comm-needs"></small>
+	<div class="mt-2 pl-4" id="group-problem-run-twice">
+		<div class="custom-control custom-checkbox mb-1">
+			<input type="checkbox" class="custom-control-input" id="input-problem-run_twice_interactive" name="run_twice_interactive"<?= !empty($settings['run_twice_interactive']) ? ' checked="checked"' : '' ?> />
+			<label class="custom-control-label" for="input-problem-run_twice_interactive">第二次也和交互器对话 <small class="text-muted">（polygon_runtwice_interactive）</small></label>
+			<small class="form-text text-muted">第二次运行时，交互器以第一次写下的文件为输入，和程序实时交互；它把结果写进自己的 tout，交给校验器判分。</small>
+		</div>
+		<div class="custom-control custom-checkbox mb-1" id="group-problem-run-twice-verdict">
+			<input type="checkbox" class="custom-control-input" id="input-problem-run_twice_interactor_verdict" name="run_twice_interactor_verdict"<?= !empty($settings['run_twice_interactor_verdict']) ? ' checked="checked"' : '' ?> />
+			<label class="custom-control-label" for="input-problem-run_twice_interactor_verdict">以第二次交互器的结论为准，不用校验器 <small class="text-muted">（polygon_runtwice_interactor_verdict）</small></label>
+		</div>
+	</div>
+</div>
 <div class="form-row" id="group-problem-limits">
 	<div class="form-group col-sm-4">
 		<label for="input-problem-time_limit">时间限制（秒）</label>
@@ -108,6 +131,15 @@
 	<input type="number" class="form-control" id="input-problem-n_samples" name="n_samples" min="0" placeholder="全部额外测试点" value="<?= $settings['n_samples'] === null ? '' : (int)$settings['n_samples'] ?>" />
 	<small class="form-text text-muted">文件名以 sample 或 ex_ 开头的测试点是“额外测试点”：不计分，但不通过就不算满分。其中前几个是样例，选手可以下载，OI 赛制的比赛中只测它们。不填就是全部。</small>
 </div>
+<div class="form-group" id="group-problem-formatter" style="max-width:34em">
+	<label for="input-problem-formatter">同步数据时怎么整理数据文件</label>
+	<select class="form-control" id="input-problem-formatter" name="formatter">
+		<?php foreach (problemFormatters() as $formatter => $label): ?>
+		<option value="<?= $formatter ?>"<?= $settings['formatter'] === $formatter ? ' selected="selected"' : '' ?>><?= HTML::escape($label) ?></option>
+		<?php endforeach ?>
+	</select>
+	<small class="form-text text-muted">从 Windows 上传的数据常带 \r\n，会让逐行比较的校验器判错。题目对行末空格有要求（比如要原样输出空格）时选“只换行符”，数据要一个字节都不变时选“原样保留”。和 QOJ 的 remove_cr、dont_use_formatter 相同。</small>
+</div>
 <?php if ($files !== null): ?>
 <div id="group-problem-hack">
 	<?php // The validator of the inputs. It is off unless somebody turns it on here, and what is turned on here is seen here: no problem.conf keeps it on behind the form. ?>
@@ -136,16 +168,28 @@ $(document).ready(function() {
 		var kind = type.val();
 		$('#problem-type-description').text(type.data('description') || '');
 		$('#problem-type-needs').text(type.data('needs') || '');
+		var style = kind === 'multi_pass' ? $('input[name=comm_style]:checked').val() || 'hydro' : '';
+		var comm = $('input[name=comm_style]:checked');
+		var twice = style === 'polygon';
+		var interactorDecides = twice && $('#input-problem-run_twice_interactive').prop('checked') && $('#input-problem-run_twice_interactor_verdict').prop('checked');
+		// what compares the answers: a builtin checker or a checker of the problem; Hydro and
+		// DOMjudge have a checker of the problem's own, an interactor that decides needs none
+		var compares = kind !== 'interactive' && style !== 'hydro' && style !== 'domjudge' && !interactorDecides;
+		$('#group-problem-comm').toggle(kind === 'multi_pass');
+		$('#problem-comm-description').text(kind === 'multi_pass' ? comm.data('description') || '' : '');
+		$('#problem-comm-needs').text(kind === 'multi_pass' ? comm.data('needs') || '' : '');
+		$('#group-problem-run-twice').toggle(twice);
+		$('#group-problem-run-twice-verdict').toggle(twice && $('#input-problem-run_twice_interactive').prop('checked'));
 		$('#group-problem-limits').toggle(kind !== 'submit_answer');
-		$('#group-problem-passes, #note-problem-passes').toggle(kind === 'multi_pass');
-		$('#group-problem-checker').toggle(kind !== 'interactive' && kind !== 'multi_pass');
-		$('#group-problem-checker_file').toggle(kind === 'multi_pass' || (kind !== 'interactive' && $('#input-problem-checker').val() === 'custom'));
-		$('#group-problem-interactor_file').toggle(kind === 'interactive');
+		$('#group-problem-passes, #note-problem-passes').toggle(kind === 'multi_pass' && !twice);
+		$('#group-problem-checker').toggle(compares);
+		$('#group-problem-checker_file').toggle(style === 'hydro' || style === 'domjudge' || (compares && $('#input-problem-checker').val() === 'custom'));
+		$('#group-problem-interactor_file').toggle(kind === 'interactive' || twice);
 		$('#group-problem-samples, #group-problem-hack').toggle(kind !== 'submit_answer');
 		$('#group-problem-val_file').toggle(<?= $hackable ? 'true' : 'false' ?> || $('#input-problem-validate_input').prop('checked'));
 		$('#group-problem-subtasks').toggle($('input[name=scoring]:checked').val() === 'subtasks');
 	};
-	$('input[name=type], input[name=scoring], #input-problem-checker, #input-problem-validate_input').on('change', refresh);
+	$('input[name=type], input[name=comm_style], input[name=scoring], #input-problem-checker, #input-problem-validate_input, #input-problem-run_twice_interactive, #input-problem-run_twice_interactor_verdict').on('change', refresh);
 	refresh();
 
 	// The subtasks are written into a table, a row for each; the field they are sent in holds

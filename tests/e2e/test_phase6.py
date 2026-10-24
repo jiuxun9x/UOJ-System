@@ -82,25 +82,32 @@ class MultiPassTest(unittest.TestCase):
 
     def test_later_pass_can_not_get_at_what_the_checker_keeps(self):
         # The checker remembers the very numbers in state.txt, and what the first pass wrote
-        # has a size that says them. A second pass that looks for those files, where the
-        # judger has them and where it has its own files, by reading and by asking for sizes.
-        for place in ("/opt/uoj_judger/uoj_judger/result/passes", "../result/passes", ".", "passes"):
+        # has a size that says them. A second pass that looks for those files where the judger
+        # has them, by reading and by asking for sizes.
+        for place in ("/opt/uoj_judger/uoj_judger/result/passes", "../result/passes", "passes"):
             for read in (True, False):
                 j = self.judge(messages_cheat_reading_the_checker(place, read))
                 self.assertEqual(j.score, 0, (place, read, j))
                 self.assertIn(j.infos[1], ("Wrong Answer", "Dangerous Syscalls"), (place, read, j))
                 self.assertNotIn("Accepted", j.infos, (place, read, j))
+        # Hydro gives the program of a later pass the state.txt of the checker in its own work
+        # folder, and so does this site: a checker that keeps the very answer there in plain
+        # text, as this one does, has it read. (A checker of Hydro keeps such things in a form
+        # the program can do nothing with.)
+        j = self.judge(messages_cheat_reading_the_checker(".", True))
+        self.assertEqual(j.score, 100, j)
         # the state of the checker is there all the while: it is what tells the honest program right
         self.assertEqual(self.judge(messages_solution()).score, 100)
 
     def test_work_folder_tells_a_later_pass_nothing(self):
         # A program may list its work folder and see how large everything in it is. This one
         # does, in its second pass, and looks for a file as large as its first pass made it,
-        # and for the files of the checker.
+        # and for the files of the checker. What it finds is state.txt, which Hydro hands to
+        # it as well (-2), and nothing of what its first pass wrote.
         j = self.judge(MESSAGES_LIST_WORK_FOLDER, "Python3")
         self.assertEqual(j.score, 0, j)
         self.assertEqual(j.infos[1], "Wrong Answer", j)
-        self.assertIn("expected 7, found -1", j.details)
+        self.assertIn("expected 7, found -2", j.details)
 
     # ---- as many passes as the problem allows
 

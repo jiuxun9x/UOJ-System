@@ -186,6 +186,7 @@
 			list($found, $settings_error) = problemApplySettings($problem, $checked, $myUser);
 		}
 		if ($settings_error === '') {
+			problemSaveFormatter($problem, $checked['formatter'], $myUser);
 			$went_well = true;
 			// the settings take effect when the data is published with them
 			if (problemUploadedTestCount($problem) > 0) {
@@ -774,9 +775,9 @@ EOD
 	// that in a problem.conf somebody wrote, which no form knows how to write.
 	$current_conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
 	$has_own_judger = is_array($current_conf) && isset($current_conf['use_builtin_judger']) && $current_conf['use_builtin_judger'] !== 'on';
-	$judge_settings = problemSettingsOfConf($current_conf);
+	$judge_settings = array('formatter' => problemFormatterOf($problem)) + problemSettingsOfConf($current_conf);
 	if ($settings_error !== '') {
-		foreach (array_merge(array('type', 'time_limit', 'memory_limit', 'checker', 'scoring'), array_keys(problemProgramFields())) as $field) {
+		foreach (array_merge(array('type', 'time_limit', 'memory_limit', 'checker', 'scoring', 'comm_style', 'formatter'), array_keys(problemProgramFields())) as $field) {
 			if (isset($_POST[$field]) && is_string($_POST[$field])) {
 				$judge_settings[$field] = $_POST[$field];
 			}
@@ -787,6 +788,8 @@ EOD
 		if (isset($_POST['passes']) && is_string($_POST['passes']) && validateUInt($_POST['passes'])) {
 			$judge_settings['passes'] = (int)$_POST['passes'];
 		}
+		$judge_settings['run_twice_interactive'] = isset($_POST['run_twice_interactive']);
+		$judge_settings['run_twice_interactor_verdict'] = isset($_POST['run_twice_interactor_verdict']);
 	}
 	// the files that were uploaded, and what each of them is to the problem
 	$data_files = problemDataFiles($problem);

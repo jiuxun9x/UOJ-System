@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../app/libs/uoj-validate-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-judger-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-data-lib.php';
+require_once __DIR__ . '/../app/libs/uoj-upload-lib.php';
 
 // builds an upload folder of a problem with a custom judger and returns its fingerprint
 function fingerprint_of($files, $conf) {
@@ -158,6 +159,73 @@ check_same(array('on', false), array($conf_of(array('type' => 'interactive'))['i
 $passes = $conf_of(array('type' => 'multi_pass', 'passes' => 3));
 check_same(array(3, false), array($passes['multi_pass'], isset($passes['use_builtin_checker'])), 'a multi-pass problem says how many passes, and is judged by a checker of its own');
 check_same(false, isset($conf_of(array('type' => 'traditional', 'passes' => 3))['multi_pass']), 'a problem of another kind has no passes');
+
+// ---- a problem whose program runs several times, in the way of Hydro, of DOMjudge or of Polygon
+$names = array('data1.in', 'data2.in', 'chk.cpp', 'interactor.cpp', 'judge.cpp');
+$of = function($changes) use ($settings, $ten, $names) {
+	return problemConfFromSettings($changes + $settings, $ten, array(), $names)[0];
+};
+$hydro = $of(array('type' => 'multi_pass', 'comm_style' => 'hydro', 'passes' => 3));
+check_same(array(3, 'chk.cpp', false, false, false), array($hydro['multi_pass'], $hydro['chk_source'], isset($hydro['use_builtin_checker']), isset($hydro['domjudge_multipass']), isset($hydro['polygon_runtwice'])),
+	'Hydro: the passes, and a checker of its own');
+$domjudge = $of(array('type' => 'multi_pass', 'comm_style' => 'domjudge', 'passes' => 4));
+check_same(array('on', 4, 'chk.cpp', false, false), array($domjudge['domjudge_multipass'], $domjudge['validation_passes'], $domjudge['chk_source'], isset($domjudge['multi_pass']), isset($domjudge['use_builtin_checker'])),
+	'DOMjudge: the keys QOJ has, and an output validator of its own');
+$polygon = $of(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'checker' => 'ncmp'));
+check_same(array('on', false, 'interactor.cpp', 'ncmp', false, false), array($polygon['polygon_runtwice'], isset($polygon['polygon_runtwice_interactive']), $polygon['interactor_source'], $polygon['use_builtin_checker'], isset($polygon['chk_source']), isset($polygon['multi_pass'])),
+	'Polygon: run twice, an interactor, and answers compared the usual way');
+$polygon = $of(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'checker' => 'custom', 'run_twice_interactive' => true, 'interactor_file' => 'judge.cpp'));
+check_same(array('on', 'on', false, 'judge.cpp', 'chk.cpp'), array($polygon['polygon_runtwice'], $polygon['polygon_runtwice_interactive'], isset($polygon['polygon_runtwice_interactor_verdict']), $polygon['interactor_source'], $polygon['chk_source']),
+	'Polygon, the second run talking as well, with a checker of its own and an interactor that was chosen');
+$polygon = $of(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'checker' => 'custom', 'run_twice_interactive' => true, 'run_twice_interactor_verdict' => true));
+check_same(array('on', false, false), array($polygon['polygon_runtwice_interactor_verdict'], isset($polygon['chk_source']), isset($polygon['use_builtin_checker'])), 'an interactor that decides has no checker beside it');
+check_same(array(array(true, false, false), array(true, false, false), array(false, true, true), array(true, true, true), array(false, true, false), array(false, true, false), array(false, false, true), array(true, false, true)), array(
+	problemProgramsNeeded(array('type' => 'multi_pass', 'comm_style' => 'hydro', 'checker' => 'wcmp')),
+	problemProgramsNeeded(array('type' => 'multi_pass', 'comm_style' => 'domjudge', 'checker' => 'wcmp')),
+	problemProgramsNeeded(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'checker' => 'wcmp')),
+	problemProgramsNeeded(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'checker' => 'custom', 'run_twice_interactive' => true)),
+	problemProgramsNeeded(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'checker' => 'custom', 'run_twice_interactive' => true, 'run_twice_interactor_verdict' => true)),
+	problemProgramsNeeded(array('type' => 'interactive', 'checker' => 'custom')),
+	problemProgramsNeeded(array('type' => 'traditional', 'checker' => 'wcmp')),
+	problemProgramsNeeded(array('type' => 'traditional', 'checker' => 'custom'))
+), 'which programs of its own each kind of problem needs');
+// what problem.conf says is what the form shows, and the form writes it back the same
+foreach (array(
+	'hydro' => array('multi_pass' => '3', 'chk_source' => 'chk.cpp'),
+	'domjudge' => array('domjudge_multipass' => 'on', 'validation_passes' => '5', 'chk_source' => 'chk.cpp'),
+	'polygon' => array('polygon_runtwice' => 'on', 'polygon_runtwice_interactive' => 'on', 'polygon_runtwice_interactor_verdict' => 'on', 'interactor_source' => 'interactor.cpp')
+) as $style => $keys) {
+	$shown = problemSettingsOfConf(array('use_builtin_judger' => 'on', 'n_tests' => '2') + $keys);
+	check_same(array('multi_pass', $style), array($shown['type'], $shown['comm_style']), "problem.conf of a $style problem, as the form shows it");
+	$written = problemConfFromSettings($shown, $ten, array(), $names)[0];
+	foreach ($keys as $key => $value) {
+		check_same($value, (string)$written[$key], "and writes it back: $style $key");
+	}
+}
+$shown = problemSettingsOfConf(array('domjudge_multipass' => 'on'));
+check_same(2, $shown['passes'], 'DOMjudge has two passes when nothing is said, as the format of ICPC has it');
+$shown = problemSettingsOfConf(array('polygon_runtwice' => 'on', 'polygon_runtwice_interactor_verdict' => 'on'));
+check_same(array(false, false), array($shown['run_twice_interactive'], $shown['run_twice_interactor_verdict']), 'the interactor decides only where the second run talks to it');
+// the form
+foreach (array(array('comm_style' => 'domjudge', 'passes' => '3'), array('comm_style' => 'polygon', 'run_twice_interactive' => 'on', 'run_twice_interactor_verdict' => 'on'), array()) as $fields) {
+	list($chosen, $err) = problemSettingsFromForm(array('type' => 'multi_pass') + $fields + $form);
+	check_same('', $err, 'the form of a communication problem: ' . json_encode($fields));
+	check_same(isset($fields['comm_style']) ? $fields['comm_style'] : 'hydro', $chosen['comm_style'], 'its way');
+}
+check_same(array(3, true, true), array(problemSettingsFromForm(array('type' => 'multi_pass', 'comm_style' => 'domjudge', 'passes' => '3') + $form)[0]['passes'],
+	problemSettingsFromForm(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'run_twice_interactive' => 'on', 'run_twice_interactor_verdict' => 'on') + $form)[0]['run_twice_interactor_verdict'],
+	problemSettingsFromForm(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'run_twice_interactive' => 'on') + $form)[0]['run_twice_interactive']), 'what the form says of the passes and of the runs');
+check_same(false, problemSettingsFromForm(array('type' => 'multi_pass', 'comm_style' => 'polygon', 'run_twice_interactor_verdict' => 'on') + $form)[0]['run_twice_interactor_verdict'], 'an interactor decides only where it talks in the second run');
+check_same(false, problemSettingsFromForm(array('type' => 'traditional', 'comm_style' => 'polygon', 'run_twice_interactive' => 'on') + $form)[0]['run_twice_interactive'], 'a problem of another kind runs once');
+check_same(true, strpos(problemSettingsFromForm(array('type' => 'multi_pass', 'comm_style' => 'kattis') + $form)[1], '做法') !== false, 'a way that there is not');
+
+// ---- what syncing does to the files
+check_same(array('', 'auto', 'remove_cr', 'none'), array(problemSettingsFromForm($form)[1], problemSettingsFromForm($form)[0]['formatter'],
+	problemSettingsFromForm(array('formatter' => 'remove_cr') + $form)[0]['formatter'], problemSettingsFromForm(array('formatter' => 'none') + $form)[0]['formatter']), 'the form says how the files are formatted');
+check_same(true, strpos(problemSettingsFromForm(array('formatter' => 'sometimes') + $form)[1], '整理') !== false, 'in one of the ways there are');
+check_same(array('auto', 'remove_cr', 'none', 'none', 'auto'), array(problemFormatterOf(array('extra_config' => '{"view_content_type":"ALL"}')), problemFormatterOf(array('extra_config' => '{"remove_cr":true}')),
+	problemFormatterOf(array('extra_config' => '{"dont_use_formatter":true}')), problemFormatterOf(array('extra_config' => '{"dont_use_formatter":true,"remove_cr":true}')), problemFormatterOf(array('extra_config' => 'not json'))),
+	'what a problem keeps about it, the way QOJ keeps it');
 check_same(false, isset($conf_of(array(), array('multi_pass' => '2', 'n_tests' => '2'))['multi_pass']), 'and loses them when it becomes one');
 check_same(array(2, 5), array(problemSettingsFromForm(array('type' => 'multi_pass') + $form)[0]['passes'], problemSettingsFromForm(array('type' => 'multi_pass', 'passes' => '5') + $form)[0]['passes']), 'two passes unless the form says more');
 foreach (array('1', '0', '21', 'many', '2.5') as $bad) {
