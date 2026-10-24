@@ -133,7 +133,13 @@ use_builtin_checker wcmp        # 用内置的比较方式，可以写：
 # interaction_mode on               # 交互题：选手的程序通过标准输入输出和交互器对话
 # interactor_source interactor.cpp  # 交互器（testlib.h 写的），放在 data/ 里
 #
-# multi_pass 2                  # 通信题：同一个程序运行 2 轮，需要自己的校验器（chk_source）
+# 通信题：同一个程序在一个测试点上运行多次，三种做法选一种（和 QOJ 的写法相同）：
+# multi_pass 2                  # Hydro 多轮：最多 2 轮，校验器（chk_source）写 nextpass.in 要求下一轮
+# domjudge_multipass on         # DOMjudge 多轮：检验器（chk_source）以 42/43 退出，在 feedback_dir 写 nextpass.in
+# validation_passes 2           #   DOMjudge 多轮最多几轮
+# polygon_runtwice on           # Polygon 二次运行：第一次和交互器（interactor_source）对话，第二次读它写下的输入
+# polygon_runtwice_interactive on       # 第二次也和交互器对话
+# polygon_runtwice_interactor_verdict on  # 以第二次交互器的结论为准，不用校验器
 #
 # submit_answer on              # 提交答案题：选手提交每个测试点的答案，不提交程序
 #
@@ -168,6 +174,7 @@ function importPackageTemplate() {
 ├── a-plus-b/               一道题一个文件夹，文件夹叫什么都行（建议用英文和数字）
 │   ├── problem.md          题面（必须有）
 │   ├── problem.conf        评测设置（没有就用默认设置：1 秒、256 MB、逐词比较）
+│   ├── zh_cn.pdf  en.pdf   PDF 题面，每种语言一份（可以没有）
 │   ├── data/               测试数据和评测用的程序（没有也行，之后在网页上传）
 │   │   ├── 1.in  1.out
 │   │   ├── 2.in  2.out
@@ -225,6 +232,8 @@ use_builtin_checker wcmp
   并把 `chk.cpp` 放进 `data/`。见 `with-checker/` 这个例子。
 - ICPC 式的“全部通过才得分”：加一行 `n_subtasks 1`。
 - 子任务的写法见 `with-checker/problem.conf`。
+- 通信题（程序运行多次）有三种写法：Hydro 的 `multi_pass`、DOMjudge 的 `domjudge_multipass`、Polygon 的
+  `polygon_runtwice`，在 `a-plus-b/problem.conf` 的“题目类型”一段里，为哪个 OJ 写的校验器就用哪种。
 
 ## data/：测试数据
 
@@ -237,7 +246,14 @@ use_builtin_checker wcmp
   [testlib.h](https://github.com/MikeMirzayanov/testlib) 写的 C++ 程序，后缀 `.cpp`。
 - 除了 `data/require/`（和选手程序一起编译的文件）与 `data/download/`（给选手下载的文件）之外，
   `data/` 里不要再放文件夹。标程、数据生成器等用不到的文件不要放进来。
-- 换行符用 `\n`（不要 `\r\n`），文件末尾留一个换行。
+- 换行符用 `\n`（不要 `\r\n`），文件末尾留一个换行。同步数据时默认也会把 `\r\n` 换成 `\n`、去掉行末空格；
+  数据要一个字节都不变的题，导入后在“数据与评测”页把“怎么整理数据文件”改成“原样保留”再同步。
+
+## PDF 题面（可以没有）
+
+题面是 PDF 时，把它放在题目文件夹里，按语言命名：`zh_cn.pdf`（中文）、`en.pdf`（英文），其他语言写
+`ja.pdf`、`statement-de.pdf` 这样；只有一份时叫 `statement.pdf` 也行，算中文。导入后它直接显示在题目页上，
+有几种语言就能切换几种。`problem.md` 仍然要有，写上 `title`，正文可以只写几句说明。
 
 ## additional_file/：附件
 
@@ -251,7 +267,8 @@ use_builtin_checker wcmp
 4. 用了 `chk_source`、`interactor_source` 时，对应的 `.cpp` 文件在 `data/` 里，而且没有 `use_builtin_checker` 那一行。
 5. 子任务的分值加起来是 100，`subtask_end_i` 从小到大。
 6. 题面里的样例和 `data/` 里的额外测试点内容一致。
-7. 打包时 zip 里直接是各题的文件夹（外面再套一层文件夹也可以）。
+7. 有 PDF 题面时，文件名是 `zh_cn.pdf`、`en.pdf` 这样的语言标签，而且确实是 PDF 文件。
+8. 打包时 zip 里直接是各题的文件夹（外面再套一层文件夹也可以）。
 
 导入后页面会逐题说明识别到了多少测试点、有什么没有采用；数据同步完成后就可以提交测试。
 

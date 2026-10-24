@@ -1,4 +1,4 @@
-# 出题：新建题目、数据文件、评测设置、通信题（多轮运行）
+# 出题：新建题目、PDF 题面、数据文件、评测设置、通信题（多轮运行）
 
 ## 新建题目
 
@@ -55,6 +55,20 @@
   如果在那之后题面又被别人（或你在另一台电脑上）保存过，不会自动覆盖，而是让你选用哪一份。
 - 审计日志里，一次连续的编辑只记一条修改记录，不会每停顿一次记一条。
 
+### PDF 题面
+
+题面已经是 PDF（比赛的题面册、从 Codeforces、QOJ 搬来的题）时，不用转成 Markdown：题目管理 → 题面 →
+“PDF 题面”一栏，选语言、选文件、上传。
+
+- 每种语言一份：常用的（中文 `zh_cn`、English `en`、繁體中文、日本語、한국어、Русский）在下拉框里，其他的选“其他”，
+  写 `de`、`pt_br` 这样的语言标签。同一种语言再传一次就是替换；表格里的垃圾桶图标删除。
+- 题目页上，PDF 直接显示在 Markdown 题面的下方；有几种语言就有几个切换按钮，旁边是“在新窗口打开”。
+  手机等不能内嵌 PDF 的浏览器显示一个下载链接。
+- 只用 PDF 时，Markdown 题面可以空着，或者只写几句说明（比如输入输出文件名、提交注意事项）。
+- PDF 题面存成这道题的附件（名字是 `statement-zh_cn.pdf` 这样），大小受附件上限约束（见 [deployment.md](deployment.md) 的
+  `attachment.*`），谁能看到和题面相同；它不在页面右下角的附件列表里重复出现。
+- 复制到域里的题，PDF 题面跟着复制；“从来源更新题面”也会更新它。
+
 ## 导入题目：模板和题目包
 
 题库页（和域的“题目”页）在“新建题目”旁边有“导入”。一次可以选好几个文件，最多导入 50 道题；导入结果会逐题列出
@@ -107,13 +121,16 @@ a-plus-b/
 - `data/` 里只认两个子文件夹：`require/`（和选手程序一起编译）和 `download/`（给选手下载）。
 - 校验器、交互器的 `.cc` 文件导入时改名为 `.cpp`，problem.conf 里的文件名跟着改。
 - 题面里的 `file://文件名` 会换成导入后的附件地址，图片能直接显示。
+- **PDF 题面**放在题目文件夹里（或 `statements/` 里），按语言命名：`zh_cn.pdf`、`en.pdf`，或者
+  `statement-en.pdf`、`problem_en.pdf`；只有一份时叫 `statement.pdf` 或 `problem.pdf` 就行，算中文。导入后直接显示在题目页上。
 
 #### 从 Hydro 搬题
 
 Hydro 导出的题目包（`problem.yaml`、`problem_zh.md`、`testdata/config.yaml`）可以直接导入：包里**没有 problem.conf 时**，
 `config.yaml` 会被翻译成本站的评测设置——`time`、`memory`、`subtasks`（每个子任务的 `cases` 和 `score`）、`checker`
 （`checker_type: testlib`）、`interactor`、`type`（`default`、`interactive`、`submit_answer`）。
-只有一个子任务时按“全部测试点通过才得分”导入。
+只有一个子任务时按“全部测试点通过才得分”导入。`multi_pass` 导入成 Hydro 做法的通信题，
+`checker_type: kattis` 的多轮题导入成 DOMjudge 做法；题面里单独一行的 `@[pdf](file://名字)` 导入后成为 PDF 题面。
 
 两边的功能并不完全对应。翻译不了的地方不会让导入失败，而是在结果里逐条说明：文件输入输出（`filename`）、
 非 testlib 写法的校验器、子任务依赖（`if`）和非“全部通过才得分”的子任务、`communication` 等类型、
@@ -147,8 +164,8 @@ Hydro 导出的题目包（`problem.yaml`、`problem_zh.md`、`testdata/config.y
 
 | 程序 | 什么时候需要 | 不选时自动认的名字 |
 |---|---|---|
-| 校验器 | 答案比较方式选了“自己的校验器”；通信题必须有 | `chk.cpp`、`checker.cpp`，以及名字里带 `check`、`chk`、`spj` 的 |
-| 交互器 | 交互题 | `interactor.cpp`，以及名字里带 `interact` 的 |
+| 校验器 | 答案比较方式选了“自己的校验器”；Hydro、DOMjudge 做法的通信题必须有 | `chk.cpp`、`checker.cpp`，以及名字里带 `check`、`chk`、`spj` 的 |
+| 交互器 | 交互题；Polygon 做法的通信题 | `interactor.cpp`，以及名字里带 `interact` 的 |
 | 标准程序、数据校验器 | 开启 Hack 时 | `std.cpp`、`val.cpp` |
 | 交互库 | 函数交互题 | 固定是 `require/implementer.cpp` |
 
@@ -182,7 +199,7 @@ Hydro 导出的题目包（`problem.yaml`、`problem_zh.md`、`testdata/config.y
 - **题目类型**
   - 传统题：读入数据、输出答案。
   - 交互题：程序通过标准输入输出和交互器对话，由交互器判定对错。交互器在“交互器文件”里选。
-  - 通信题：同一个程序在一个测试点上运行两轮或更多轮，见下一节。校验器在“校验器文件”里选。
+  - 通信题：同一个程序在一个测试点上运行两轮或更多轮，有 Hydro、DOMjudge、Polygon 三种做法可选，见下一节。
   - 提交答案题：选手下载输入文件，提交每个测试点的答案。
   - 函数交互题：选手实现指定的函数，和 `require/implementer.cpp` 一起编译。
 - **时间限制、内存限制**：对每个测试点。时间可以写小数。
@@ -204,6 +221,14 @@ Hydro 导出的题目包（`problem.yaml`、`problem_zh.md`、`testdata/config.y
   - 子任务：在表格里一行写一个，填“最后一个测试点的编号”和“分值”，例如到 3 得 30、到 7 得 30、到 10 得 40 是
     1–3、4–7、8–10 三个子任务。一个子任务里的测试点全部通过才得到它的分；分值加起来要是 100。
 - **样例个数**：额外测试点里前几个是样例，不填就是全部。
+- **同步数据时怎么整理数据文件**（和 QOJ 相同）：
+  - 自动整理（默认）：`\r\n` 换成 `\n`，去掉行末空格，文件末尾补一个换行。从 Windows 上传的数据常带 `\r\n`，
+    会让逐行比较的校验器判错，所以默认整理。
+  - 只换行符：只把 `\r\n` 换成 `\n`，行末空格保留（QOJ 的 `remove_cr`）。题目要原样输出行末空格时用。
+  - 原样保留：一个字节也不改（QOJ 的 `dont_use_formatter`）。二进制数据、要求字节完全一致的题用。
+
+  同步时复制给评测机的文件（测试点、样例、校验器等程序的源文件）都按这一项处理，上传的原文件不变；
+  改了这一项，重新“保存并同步数据”后对已有的数据生效。
 - **Hack 用的标准程序、数据校验器**：题目开启了 Hack 时出现，同样是从上传的文件里选；不选就按文件名找 `std.cpp`、`val.cpp`。
 
 ### 评测前校验输入（一般不用开）
@@ -234,107 +259,134 @@ Hydro 导出的题目包（`problem.yaml`、`problem_zh.md`、`testdata/config.y
 
 ## 通信题（多轮运行）
 
-选手的**同一个程序在一个测试点上运行多轮**。每一轮结束后，出题人的校验器 `chk` 检查这一轮的输出，然后二选一：
+选手的**同一个程序在一个测试点上运行多次**，后一次的输入由前一次决定。本站有三种做法，分别和 Hydro、DOMjudge
+（ICPC 题目包格式）、Polygon（QOJ）的做法一致：**为哪个 OJ 写的题就选哪种**，校验器、交互器原样拿来用。
 
-- **结束**：给出结论，这就是这个测试点的结果；
-- **再运行一轮**：把下一轮的输入写进 `nextpass.in`，程序在这份输入上重新运行，之后校验器再被调用一次。
+怎么建：新建题目或在“数据与评测”页，题目类型选“通信题”，再在“通信题的做法”里三选一，各自需要的选项和程序文件
+会跟着出现；测试点可以只有输入文件。也可以直接写 `problem.conf`，键名和 QOJ 的相同：
 
-两轮之间，除了校验器写进 `nextpass.in` 的内容，选手的程序带不走任何东西。“运行两次”（run twice）就是最多两轮的情形。
+| 做法 | problem.conf | 需要的程序 | 下一轮的输入 |
+|---|---|---|---|
+| Hydro 多轮 | `multi_pass 2`（2 到 20） | 校验器（testlib） | 校验器写在工作目录的 `nextpass.in` |
+| DOMjudge / ICPC 多轮 | `domjudge_multipass on`、`validation_passes 2`（默认 2，最多 20） | 输出检验器 | 检验器写在 feedback_dir 的 `nextpass.in` |
+| Polygon 二次运行 | `polygon_runtwice on`，可加 `polygon_runtwice_interactive on`、`polygon_runtwice_interactor_verdict on` | 交互器（testlib），以及校验器或内置比较方式 | 第一次运行时交互器写进它的 tout |
 
-```
-测试点输入 ─► 第 1 轮 ─► chk ─ nextpass.in ─► 第 2 轮 ─► chk ─ … ─► 结果
-                         └────── state.txt ─────────────┘
-```
+QOJ 导出的题（`problem.conf` 里带这些键）导入后直接能用；Hydro 的 `config.yaml` 里有 `multi_pass`，或者校验器是
+`checker_type: kattis` 写法的，导入后分别是 Hydro 和 DOMjudge 做法。
 
-这和 Hydro 的 Multi Pass 是同一套约定，为 Hydro 写的校验器可以直接拿来用。
+三种做法共同的地方：每一轮（每一次运行）**各自**受题目的时间和内存限制，显示的用时和内存取最大的；评测详情里每一轮的
+输入和输出分开显示（input #1、output #1、input #2……）；任何一轮出错（超时、运行错误……），这个测试点就是那个结果，
+并注明是第几轮（`in pass 2`、`in run 2`）。
 
-怎么建：新建题目时类型选“通信题”，填“最多运行几轮”（2 到 20），数据里放校验器的源文件（叫 `chk.cpp`、
-`checker.cpp` 会自动认出来，叫别的就在“数据与评测”页的“校验器文件”里选），测试点可以只有输入文件。
-之后在“数据与评测”页可以改轮数，也可以改回传统题。
+### Hydro 多轮
 
-### 校验器怎么写
-
-每一轮之后，`chk` 按普通 testlib 校验器的方式被调用一次（`registerTestlibCmd`）：
+每一轮之后，校验器 `chk` 按普通 testlib 校验器的方式被调用一次（`registerTestlibCmd`），和 Hydro 一样：
 
 | | 是什么 |
 |---|---|
-| `inf` | **这一轮**程序读到的输入：第 1 轮是测试点的输入，之后是校验器上一次写的 `nextpass.in` |
+| `inf` | **这一轮**程序读到的输入：第 1 轮是测试点的输入，之后是上一次写的 `nextpass.in` |
 | `ouf` | 这一轮程序的输出 |
-| `ans` | 测试点的答案文件，每一轮都是它（数据包里没有的话是空文件） |
-| 当前目录下的 `nextpass.in` | 写了它并以 `_ok` 结束 = 要求再运行一轮，内容就是下一轮的输入 |
-| 当前目录下的 `state.txt` | 校验器自己的记事本：这一次写下的，下一次被调用时还能读到 |
+| `ans` | 测试点的答案文件，每一轮都是它（数据包里没有的话是空文件），**选手读不到** |
+| 环境变量 `HYDRO_MULTI_PASS` | 现在是第几轮（从 1 开始）；还有 `HYDRO_TESTCASE`（第几个测试点）、`HYDRO_TIME_USAGE`（这一轮的用时，毫秒）、`HYDRO_MEMORY_USAGE`（KB） |
+| 工作目录下的 `user_code` | 选手提交的代码 |
+| 工作目录下的 `nextpass.in` | 写了它并以 `_ok` 结束 = 要求再运行一轮，内容就是下一轮的输入 |
+| 工作目录下的 `state.txt` | 想跨轮记住的东西：这一次写下的，下一次被调用时还能读到 |
 
-- 以 `quitf(_ok, …)` 结束且写了 `nextpass.in`：再运行一轮。
-- 以 `_ok` 结束、没写 `nextpass.in`：这个测试点通过。
-- 以 `_wa` 等结束：这个测试点不通过，到此为止（即使写了 `nextpass.in` 也不会再运行）。消息显示在评测详情里。
-- 校验器不会被告知现在是第几轮，要自己从输入的内容或 `state.txt` 判断。
+- 以 `quitf(_ok, …)` 结束且写了 `nextpass.in`：再运行一轮。以 `_ok` 结束、没写 `nextpass.in`：这个测试点通过。
+- 以 `_wa` 等结束：这个测试点不通过，到此为止。部分分写 `quitp(…)` 或 `quitf(_pc(n), …)`，和 Hydro 的算法相同。
+- 工作目录是校验器自己的：可以建、改名、删除里面的文件（例如用完后 `remove("state.txt")`），每个文件不超过校验器的
+  输出上限（默认 64 MB）。测试点开始前目录是空的（只有 `user_code`），测试点结束时整个删除。
 - 到了最后一轮还要求再运行一轮，这个测试点是 `Checker Judgment Failed`——这是题目的问题，不是选手的。
-- 校验器**只能写这两个文件**（写别的文件、建目录都会被沙箱终止，结果是 `Checker Dangerous Syscalls`），
-  每个文件不超过校验器的输出上限（默认 64 MB）。它们在每个测试点开始前不存在，测试点结束时删除。
+- **下一轮的选手程序也能读到 `state.txt`**：和 Hydro 一样，它被放进选手程序的工作目录。所以 `state.txt` 里**不要放明文的答案**：
+  要核对的东西放在答案文件里（选手读不到），或者像一些 Hydro 题那样，用答案文件里的密钥把 `state.txt` 加密并签名。
 
 一个例子（最多两轮）：第一轮拿到几个数，为每个数写一条不超过 40 位的 01 串；校验器把这些串倒序交给第二轮，
-第二轮要还原出这些数。校验器把“倒序之后每个位置上应该是哪个数”记在 `state.txt` 里。
+第二轮要还原出这些数。要核对的数放在答案文件里。
 
 ```cpp
-// chk.cpp
+// chk.cpp：答案文件第一行是个数 t，后面是这 t 个数
 #include "testlib.h"
+#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <vector>
 int main(int argc, char **argv) {
     registerTestlibCmd(argc, argv);
-    std::string pass = inf.readToken();     // 输入的第一行是 first 或 second
-    int t = inf.readInt();
-    if (pass == "first") {
-        // 第一轮之后：inf 里是那几个数，ouf 里是选手写的串
-        std::vector<long long> numbers(t);
-        for (int i = 0; i < t; i++) numbers[i] = inf.readLong();
+    int t = ans.readInt();
+    std::vector<long long> numbers(t);
+    for (int i = 0; i < t; i++) numbers[i] = ans.readLong();
+    if (std::string(getenv("HYDRO_MULTI_PASS")) == "1") {
+        // 第一轮之后：ouf 里是选手为每个数写的串
         std::vector<std::string> messages(t);
         for (int i = 0; i < t; i++) {
             messages[i] = ouf.readToken();
             if (messages[i].size() > 40) quitf(_wa, "message %d is longer than 40 characters", i + 1);
         }
-        std::ofstream next("nextpass.in");  // 第二轮的输入
-        std::ofstream state("state.txt");   // 留给自己：每个位置上应该是哪个数
+        std::ofstream next("nextpass.in");  // 第二轮的输入：倒序的串
         next << "second\n" << t << "\n";
-        for (int i = t - 1; i >= 0; i--) {
-            next << messages[i] << "\n";
-            state << numbers[i] << "\n";
-        }
+        for (int i = t - 1; i >= 0; i--) next << messages[i] << "\n";
         next.close();
-        state.close();
         quitf(_ok, "%d messages passed on", t);
     }
-    // 第二轮之后：inf 是上面写的 nextpass.in，ouf 是选手还原出的数
-    std::ifstream state("state.txt");
-    for (int i = 0; i < t; i++) {
-        long long expected;
-        state >> expected;
+    // 第二轮之后：ouf 是选手还原出的数，应当是倒序的
+    for (int i = t - 1; i >= 0; i--) {
         long long found = ouf.readLong();
-        if (found != expected) quitf(_wa, "number %d: expected %lld, found %lld", i + 1, expected, found);
+        if (found != numbers[i]) quitf(_wa, "number %d: expected %lld, found %lld", t - i, numbers[i], found);
     }
     quitf(_ok, "%d numbers", t);
 }
 ```
 
-题面里通常约定输入的第一行是 `first` 或 `second`，让程序知道这是第几轮（上面的例子就是这样）。
-这由出题人在测试数据和校验器里自己安排，系统不往输入里加任何东西。
+题面里通常约定输入的第一行是 `first` 或 `second`，让程序知道这是第几轮；这由出题人在测试数据和校验器里安排，
+系统不往输入里加任何东西。
 
-### 规则
+### DOMjudge / ICPC 多轮
 
-- 每一轮**各自**受题目的时间和内存限制；显示的用时和内存取各轮中最大的。
-- 任何一轮出错（超时、运行错误……），这个测试点就是那个结果，评测详情里注明是第几轮（`in pass 2`）。
-- 校验器每次被调用的限制默认是 5 秒、256 MB，可以在 `problem.conf` 里用 `checker_time_limit`、`checker_memory_limit` 改。
-- 通信题不能开启 Hack，不能同时是交互题或提交答案题，也不能用内置的比较方式（内置校验器不会要求下一轮）。
-- “自定义测试”只运行一轮：输入里自己写 `first` 或 `second` 来试其中一轮。
+每一轮之后调用输出检验器，和 DOMjudge、ICPC 题目包格式一致：
+
+```
+chk 测试点输入 答案文件 feedback_dir/ < 这一轮选手的输出
+```
+
+- 检验器编译时定义了宏 `DOMJUDGE`（`-DDOMJUDGE`），为 DOMjudge 写的检验器可以用 `#ifdef DOMJUDGE` 区分。
+- **以 42 退出是通过，43 是答案错误**，其他退出码（包括 0）算检验器出错（`Checker Judgment Failed`）。
+- 以 42 退出并在 feedback_dir 里写了 `nextpass.in`：再运行一轮，`nextpass.in` 就是下一轮的输入（它会被拿走）；
+  feedback_dir 里的**其他文件留到下一轮**，可以用来记状态。写了 `nextpass.in` 却不是以 42 退出，算检验器出错。
+- 每一轮检验器拿到的都是**测试点本身的输入**，不是这一轮的输入（和 ICPC 题目包格式相同）。
+- `judgemessage.txt`、`teammessage.txt` 的内容显示在评测详情里；多轮时建议追加写，不要覆盖。
+- 最多运行 `validation_passes` 轮，再要求下一轮算检验器出错。选手程序看不到 feedback_dir。
+
+### Polygon 二次运行
+
+程序运行两次，和 Codeforces Polygon 的“二次运行”题、QOJ 的 `polygon_runtwice` 一致：
+
+1. **第一次**：程序和交互器通过管道对话。交互器的参数是 `输入文件 第二次的输入 答案文件`（testlib 的 `registerInteraction`
+   里分别是 `inf`、`tout`、`ans`），它把第二次运行的输入写进 `tout`。这一次交互器的结论不是满分（`_ok`），测试点就以它为准，不再运行第二次。
+2. **第二次**，看设置：
+   - 默认：程序像传统题一样，以第一次写下的文件为标准输入运行，输出交给**校验器**，校验器拿到的是测试点的输入、
+     第二次的输出和答案文件。比较方式可以是内置的，也可以是自己的校验器。
+   - 勾选“第二次也和交互器对话”（`polygon_runtwice_interactive on`）：第二次也和交互器对话，交互器的输入文件换成
+     第一次写下的那个文件，它把结果写进自己的 `tout`，交给校验器判分。
+   - 再勾选“以第二次交互器的结论为准”（`polygon_runtwice_interactor_verdict on`）：第二次交互器的结论就是结果，不用校验器。
+
+交互器怎么知道是第几次：看自己的输入——第一次是测试点，第二次是它第一次写下的内容（比如第一行写个 `second`）。
+
+### 其他规则
+
+- 校验器、检验器每次被调用的限制默认是 5 秒、256 MB，可以在 `problem.conf` 里用 `checker_time_limit`、`checker_memory_limit` 改；
+  交互器用 `interactor_time_limit`、`interactor_memory_limit`。
+- 通信题不能开启 Hack，不能同时是交互题或提交答案题；Hydro 和 DOMjudge 做法必须用自己的校验器（内置比较方式不会要求下一轮）。
+- “自定义测试”只运行一次：输入里自己写 `first` 或 `second` 来试其中一轮。
 - 和所有题目一样，一份提交的整次评测（所有测试点、所有轮加起来）不能超过 10 分钟，否则是 `Judgment Failed`。
   测试点多、轮数多、时限又长的题要算一下最坏情况；确实需要时在 `problem.conf` 里用 `judger_time_limit`（秒）调大。
 
-### 两轮之间藏不住东西
+### 两轮之间能带过去什么
 
 - 选手的程序不能写文件，也不能创建共享内存之类能留到进程结束之后的东西（沙箱不放行这些系统调用）。
-- 每一轮的输出、下一轮的输入、校验器的 `state.txt` 都放在选手程序读不到、也看不到大小的目录里。
-- 这些有端到端测试看守：一个测试程序在第一轮里想尽办法留信息，第二轮去找（读文件、看文件大小、列目录），必须一无所获。
+- 每一轮的输出、下一轮的输入、校验器和检验器的工作目录都放在选手程序读不到、也看不到大小的目录里。
+  唯一的例外是 Hydro 做法的 `state.txt`：和 Hydro 一样，它被交给下一轮的选手程序（见上）。
+- 这些有端到端测试看守：一个测试程序在第一轮里想尽办法留信息，第二轮去找（读文件、看文件大小、列目录），
+  除了 Hydro 交给它的 `state.txt` 之外必须一无所获。
 - 剩下的只有时间这条路：程序可以让某一轮“恰好”在某个时刻结束，下一轮去读时钟，一个测试点最多带过几个比特。
   出题时让需要传递的信息远多于此即可（一个测试点里放多组数据是通常的做法）。
 
@@ -345,14 +397,14 @@ int main(int argc, char **argv) {
 - **进程**：每一轮、每一次校验器都是一次独立的受限运行。超时的（包括睡着不动、不占 CPU 的）会被杀掉；
   一次运行结束时，它启动过的所有进程都被杀掉并回收，然后才开始下一步。选手的程序本来就不能创建子进程。
 - **轮数**：最多 20 轮，由题目设定；校验器要求更多就判校验器出错，不会一直跑下去。
-- **文件**：校验器只能留下 `nextpass.in` 和 `state.txt` 两个有大小上限的文件，测试点结束时删除；
-  每份提交开始评测前，工作目录和结果目录整个清空。评测程序是每份提交一个进程，评完即退出，内存不会累积。
+- **文件**：校验器写的每个文件都有大小上限，它的目录在测试点结束时删除；每份提交开始评测前，工作目录和结果目录整个清空。
+  评测程序是每份提交一个进程，评完即退出，内存不会累积。
 - **总时限**：整次评测有 10 分钟的上限（见上）。在它之外，评测机还给每次评测设了一个最长时间
   （默认 1 小时，见 [deployment.md](deployment.md) 的 `MAX_JUDGING_SECONDS`）：到时间还没结束，就杀掉这次评测的全部进程，
   结果记为 `Judgment Failed`，评测机继续评下一份。
 - **收尾**：每次评测结束后，评测机都会清点这次评测启动的所有进程，还活着的一律杀掉。
 - 这些同样有端到端测试看守：某一轮睡死、死循环、试图留后台进程，校验器死循环、无休止地要求下一轮、
-  无休止地写下一轮的输入、把 `nextpass.in` 建成目录、写别的文件，自定义评测程序挂死并留下脱离进程组的子进程——
+  无休止地写下一轮的输入、把 `nextpass.in` 建成目录，自定义评测程序挂死并留下脱离进程组的子进程——
   之后评测机上不能有任何残留的进程和文件，并且照常评测下一份提交。
 
 ## 附件
