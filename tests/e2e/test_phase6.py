@@ -93,9 +93,11 @@ class MultiPassTest(unittest.TestCase):
         # Hydro gives the program of a later pass the state.txt of the checker in its own work
         # folder, and so does this site: a checker that keeps the very answer there in plain
         # text, as this one does, has it read. (A checker of Hydro keeps such things in a form
-        # the program can do nothing with.)
+        # the program can do nothing with.) The cheat writes one message only, so it is the
+        # test of one number that it gets right.
         j = self.judge(messages_cheat_reading_the_checker(".", True))
-        self.assertEqual(j.score, 100, j)
+        self.assertEqual(j.infos, ["Wrong Answer", "Accepted"], j)
+        self.assertIn("<out label=\"#2\">7\n</out>", j.details)
         # the state of the checker is there all the while: it is what tells the honest program right
         self.assertEqual(self.judge(messages_solution()).score, 100)
 
