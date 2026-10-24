@@ -23,6 +23,9 @@
 	<?php endif ?>
 	<?php echoDomainError($error) ?>
 	<p class="text-muted">附件显示在题面下面，能看到这道题的人都能下载：比赛或作业里的题，就是能在比赛或作业里看到它的人。它们和评测数据无关，改动不需要同步数据。</p>
-	<?php echoAttachmentsManager(attachmentsOf('problem', $problem['id'])) ?>
+	<?php if (attachmentPdfStatements($problem['id'])): ?>
+	<p class="text-muted small" id="attachments-pdf-note">PDF 题面不在这里，在 <a href="<?= problemUrl($problem, '/manage/statement') ?>">题面</a> 页管理。</p>
+	<?php endif ?>
+	<?php echoAttachmentsManager(attachmentsListed('problem', $problem['id'])) ?>
 </div>
 <?php echoUOJPageFooter() ?>

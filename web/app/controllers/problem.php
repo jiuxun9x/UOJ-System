@@ -358,17 +358,51 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 <div class="tab-content">
 	<div class="tab-pane active" id="tab-statement">
 		<?php // a statement that says nothing says so, and tells who can change that where to ?>
-		<?php $statement_is_empty = trim(strip_tags((string)$problem_content['statement'], '<img><video><audio><iframe><embed><object><table>')) === ''; ?>
+		<?php $pdf_statements = attachmentPdfStatements($problem['id']); ?>
+		<?php $listed_attachments = attachmentsListed('problem', $problem['id']); ?>
+		<?php $statement_is_empty = !$pdf_statements && trim(strip_tags((string)$problem_content['statement'], '<img><video><audio><iframe><embed><object><table>')) === ''; ?>
 		<?php if ($statement_is_empty && can($myUser, 'problem.manage', $problem)): ?>
 		<div class="alert alert-warning top-buffer-md text-left" role="alert" id="statement-empty">
 			这道题还没有题面，做题的人现在只能看到标题和限制。
-			<a class="alert-link" href="<?= problemUrl($problem, '/manage/statement') ?>">去写题面</a><?= !empty($problem['source_problem_id']) ? '，复制来的题也可以在那里“从来源更新题面”' : '' ?>；题面是 PDF 的话，在“管理 → 附件”里上传，它会列在题面下方供打开。
+			<a class="alert-link" href="<?= problemUrl($problem, '/manage/statement') ?>">去写题面</a><?= !empty($problem['source_problem_id']) ? '，复制来的题也可以在那里“从来源更新题面”' : '' ?>；题面是 PDF 的话，也在那里上传，它会直接显示在这里。
 		</div>
-		<?php elseif ($statement_is_empty && !attachmentsOf('problem', $problem['id'])): ?>
+		<?php elseif ($statement_is_empty && !$listed_attachments): ?>
 		<p class="text-muted top-buffer-md" id="statement-empty">这道题还没有题面。</p>
 		<?php endif ?>
 		<article class="top-buffer-md"><?= $problem_content['statement'] ?></article>
-		<?php echoAttachments(attachmentsOf('problem', $problem['id'])) ?>
+		<?php if ($pdf_statements): ?>
+		<?php // the statement as a PDF file, in the languages it is written in: one is shown at a time ?>
+		<div class="uoj-pdf-statement text-left" id="pdf-statement">
+			<div class="uoj-pdf-bar">
+				<?php if (count($pdf_statements) > 1): ?>
+				<div class="btn-group btn-group-sm" role="group" aria-label="题面的语言" id="pdf-statement-langs">
+					<?php foreach ($pdf_statements as $index => $attachment): ?>
+					<button type="button" class="btn btn-outline-secondary<?= $index == 0 ? ' active' : '' ?>" data-pdf="<?= (int)$attachment['id'] ?>" data-url="<?= attachmentUrl($attachment) ?>"><?= HTML::escape(attachmentStatementLangName($attachment['statement_lang'])) ?></button>
+					<?php endforeach ?>
+				</div>
+				<?php else: ?>
+				<span class="text-muted small">PDF 题面</span>
+				<?php endif ?>
+				<a class="btn btn-light border btn-sm ml-auto" href="<?= attachmentUrl($pdf_statements[0]) ?>" target="_blank" rel="noopener" id="link-pdf-statement"><span class="glyphicon glyphicon-new-window"></span> 在新窗口打开</a>
+			</div>
+			<?php foreach ($pdf_statements as $index => $attachment): ?>
+			<object class="uoj-pdf-frame" data="<?= attachmentUrl($attachment) ?>" type="application/pdf" data-pdf="<?= (int)$attachment['id'] ?>" data-lang="<?= $attachment['statement_lang'] ?>"<?= $index == 0 ? '' : ' hidden="hidden"' ?>>
+				<p class="p-3 mb-0">这个浏览器不能在页面里显示 PDF，<a href="<?= attachmentUrl($attachment) ?>" target="_blank" rel="noopener">点这里打开题面</a>。</p>
+			</object>
+			<?php endforeach ?>
+		</div>
+		<script type="text/javascript">
+		$('#pdf-statement-langs').on('click', 'button', function() {
+			var chosen = $(this).attr('data-pdf');
+			$(this).addClass('active').siblings().removeClass('active');
+			$('#pdf-statement .uoj-pdf-frame').each(function() {
+				$(this).prop('hidden', $(this).attr('data-pdf') !== chosen);
+			});
+			$('#link-pdf-statement').attr('href', $(this).attr('data-url'));
+		});
+		</script>
+		<?php endif ?>
+		<?php echoAttachments($listed_attachments) ?>
 	</div>
 	<div class="tab-pane" id="tab-submit-answer">
 		<div class="top-buffer-sm"></div>

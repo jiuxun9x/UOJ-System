@@ -1005,3 +1005,27 @@ small, .small {
 	flex: 0 0 auto;
 	white-space: nowrap;
 }
+
+/* ---- a statement that is a PDF file: the languages it is in above it, and the file in the page */
+.uoj-pdf-statement {
+	margin: 1rem 0;
+}
+.uoj-pdf-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.5rem;
+}
+.uoj-pdf-frame {
+	display: block;
+	width: 100%;
+	height: 85vh;
+	min-height: 420px;
+	border: 1px solid #dee2e6;
+	border-radius: 0.25rem;
+	background-color: #f8f9fa;
+}
+.uoj-pdf-frame[hidden] {
+	display: none;
+}

@@ -62,8 +62,13 @@ function attachmentIsShownInline($name) {
 function queryAttachment($id) {
 	return DB::selectFirst("select * from attachments where id = ".(int)$id, MYSQLI_ASSOC);
 }
+// all the files of a problem, a contest or an announcement, its statements that are PDF files as well
 function attachmentsOf($owner_type, $owner_id) {
 	return DB::selectAll("select * from attachments where owner_type = '".DB::escape($owner_type)."' and owner_id = ".(int)$owner_id." order by name", MYSQLI_ASSOC);
+}
+// the files that come with a problem or a contest, as a list of files: without its statements
+function attachmentsListed($owner_type, $owner_id) {
+	return DB::selectAll("select * from attachments where owner_type = '".DB::escape($owner_type)."' and owner_id = ".(int)$owner_id." and statement_lang is null order by name", MYSQLI_ASSOC);
 }
 function attachmentPath($attachment) {
 	return UOJ_ATTACHMENT_DIR . '/' . (int)$attachment['id'];
@@ -174,7 +179,8 @@ function attachmentsWereUploaded($field) {
 	}
 	return false;
 }
-// A copy of a problem has copies of the files of the problem. Returns which file of the copy
+// A copy of a problem has copies of the files of the problem, its statements that are PDF
+// files as statements. Returns which file of the copy
 // is which file of the problem: array(id of the file there => id of its copy here). A file
 // of the same name that the copy has already is replaced, and keeps its id.
 function attachmentsCopy($owner_type, $from_id, $to_id, $actor) {
@@ -186,6 +192,7 @@ function attachmentsCopy($owner_type, $from_id, $to_id, $actor) {
 		$copy = DB::selectFirst("select id from attachments where owner_type = '".DB::escape($owner_type)."' and owner_id = ".(int)$to_id." and name = '".DB::escape($attachment['name'])."'", MYSQLI_ASSOC);
 		if ($copy) {
 			$copies[(int)$attachment['id']] = (int)$copy['id'];
+			DB::update("update attachments set statement_lang = ".($attachment['statement_lang'] === null ? 'null' : "'".DB::escape($attachment['statement_lang'])."'")." where id = ".(int)$copy['id']);
 		}
 	}
 	return $copies;
@@ -268,4 +275,72 @@ function attachmentForms($owner_type, $owner_id, $done) {
 			return $done('附件已删除。', 'success');
 		}
 	);
+}
+
+// ---- statements that are PDF files
+//
+// A problem may have its statement as a PDF file, one for every language it is written in: the
+// way QOJ has them, by the tags of the languages (zh_cn.pdf, en.pdf). Such a file is an
+// attachment of the problem that knows its language; the page of the problem shows it as the
+// statement, and the list of the files that come with the problem leaves it out.
+
+// the languages that have a name here: tag => name, in the order the statements are offered
+function attachmentStatementLanguages() {
+	return array('zh_cn' => '中文', 'en' => 'English', 'zh_tw' => '繁體中文', 'ja' => '日本語', 'ko' => '한국어', 'ru' => 'Русский');
+}
+// '' when a tag can be the language of a statement, or why not
+function attachmentStatementLangError($lang) {
+	return is_string($lang) && preg_match('/^[a-z]{2,3}(_[a-z]{2,4})?$/D', $lang) ? '' : '语言要写成 zh_cn、en 这样的标签';
+}
+function attachmentStatementLangName($lang) {
+	$names = attachmentStatementLanguages();
+	return isset($names[$lang]) ? $names[$lang] : $lang;
+}
+// what a file is called when it is the statement of a problem in a language
+function attachmentStatementFileName($lang) {
+	return "statement-$lang.pdf";
+}
+// the statements of a problem that are PDF files, in the order they are offered
+function attachmentPdfStatements($problem_id) {
+	$rows = DB::selectAll("select * from attachments where owner_type = 'problem' and owner_id = ".(int)$problem_id." and statement_lang is not null", MYSQLI_ASSOC);
+	$order = array_flip(array_keys(attachmentStatementLanguages()));
+	usort($rows, function($lhs, $rhs) use ($order) {
+		$lhs_at = isset($order[$lhs['statement_lang']]) ? $order[$lhs['statement_lang']] : count($order);
+		$rhs_at = isset($order[$rhs['statement_lang']]) ? $order[$rhs['statement_lang']] : count($order);
+		return $lhs_at != $rhs_at ? $lhs_at - $rhs_at : strcmp($lhs['statement_lang'], $rhs['statement_lang']);
+	});
+	return $rows;
+}
+// whether what lies at a path is a PDF file, by how it begins
+function attachmentIsPdf($path) {
+	return is_file($path) && file_get_contents($path, false, null, 0, 5) === '%PDF-';
+}
+// Makes a PDF file the statement of a problem in a language, in the place of the one there
+// was. $path is where the file lies; it is moved, or copied when $keep says so. Returns '' or
+// why not.
+function attachmentSetPdfStatement($problem_id, $lang, $path, $actor, $keep = false) {
+	$err = attachmentStatementLangError($lang);
+	if ($err !== '') {
+		return $err;
+	}
+	if (!attachmentIsPdf($path)) {
+		return '这不是 PDF 文件';
+	}
+	$name = attachmentStatementFileName($lang);
+	$err = attachmentAdd('problem', $problem_id, $path, $name, $actor, $keep);
+	if ($err !== '') {
+		return $err;
+	}
+	DB::update("update attachments set statement_lang = '".DB::escape($lang)."' where owner_type = 'problem' and owner_id = ".(int)$problem_id." and name = '".DB::escape($name)."'");
+	return '';
+}
+// Makes a file that was attached to a problem its statement in a language: one that came with
+// a package of Hydro, whose statement shows it as a PDF. Returns '' or why not.
+function attachmentMakePdfStatement($attachment, $lang) {
+	if ($attachment['owner_type'] !== 'problem' || !attachmentIsPdf(attachmentPath($attachment))) {
+		return '这不是题目的 PDF 文件';
+	}
+	DB::update("update attachments set statement_lang = null where owner_type = 'problem' and owner_id = ".(int)$attachment['owner_id']." and statement_lang = '".DB::escape($lang)."'");
+	DB::update("update attachments set statement_lang = '".DB::escape($lang)."' where id = ".(int)$attachment['id']);
+	return '';
 }

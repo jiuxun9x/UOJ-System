@@ -432,3 +432,102 @@ class FormatterTest(unittest.TestCase):
         data_settings(admin, problem_id, formatter="remove_cr", **fields)
         self.assertEqual(json.loads(db_value("select extra_config from problems where id = %d" % problem_id)).get("remove_cr"), True)
         self.assertIn("problem.edit_formatter", [row[0] for row in db("select action from audit_logs where resource_type = 'problem' and resource_id = '%d'" % problem_id)])
+
+
+# ---------------------------------------------------------------------- PDF statements
+
+def pdf_bytes(text):
+    """a small file that begins the way every PDF file does"""
+    return b"%PDF-1.4\n% " + text.encode() + b"\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"
+
+
+def pdf_statements(problem_id):
+    """lang => (id, name, size) of the statements of a problem that are PDF files"""
+    return {row[1]: (int(row[0]), row[2], int(row[3])) for row in db(
+        "select id, statement_lang, name, size from attachments where owner_type = 'problem' and owner_id = %d and statement_lang is not null" % problem_id)}  # fmt: skip
+
+
+class PdfStatementTest(unittest.TestCase):
+    """a statement may be a PDF file, one for each language, shown in the page of the problem"""
+
+    def upload(self, client, manage, lang, content, other_lang=""):
+        return client.post(manage, {"form": "add_pdf_statement", "lang": lang, "other_lang": other_lang},
+                           [("pdf", ("题面.pdf", content, "application/pdf"))])  # fmt: skip
+
+    def test_pdf_statement_is_uploaded_and_shown_in_its_languages(self):
+        admin, student = uoj.admin(), p3.account("p11_pdf_student")
+        problem_id = admin.create_problem(ab_problem_files())
+        manage = "/problem/%d/manage/statement" % problem_id
+        here = "/problem/%d" % problem_id
+        # a problem without a statement says so, before
+        self.assertIn('id="statement-empty"', student.get(here).text)
+        self.assertIn('id="form-pdf-statement"', admin.get(manage).text)
+        # ---- uploaded in Chinese, English and a language of somebody's choosing
+        self.assertEqual(self.upload(admin, manage, "zh_cn", pdf_bytes("中文")).status_code, 302)
+        self.assertEqual(self.upload(admin, manage, "en", pdf_bytes("English")).status_code, 302)
+        self.assertEqual(self.upload(admin, manage, "other", pdf_bytes("Deutsch"), "de").status_code, 302)
+        statements = pdf_statements(problem_id)
+        self.assertEqual(sorted(statements), ["de", "en", "zh_cn"])
+        self.assertEqual(statements["en"][1], "statement-en.pdf")
+        # what is no PDF, and a language that is no language, are refused
+        r = self.upload(admin, manage, "zh_cn", b"hello, not a pdf")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("这不是 PDF 文件", uoj.text_of(r.text))
+        self.assertIn("语言要写成", uoj.text_of(self.upload(admin, manage, "other", pdf_bytes("?"), "zh-CN!").text))
+        self.assertEqual(student.post(manage, {"form": "add_pdf_statement", "lang": "en"}).status_code, 403)
+        # ---- the page of the problem shows them, Chinese first, one at a time
+        page = student.get(here).text
+        self.assertNotIn('id="statement-empty"', page)
+        self.assertEqual(re.findall(r'data-pdf="\d+" data-url="/attachment/\d+">([^<]+)</button>', page), ["中文", "English", "de"])
+        frames = re.findall(r'<object class="uoj-pdf-frame" data="/attachment/(\d+)" type="application/pdf" data-pdf="\d+" data-lang="(\w+)"( hidden="hidden")?>', page)
+        self.assertEqual([(int(f[0]), f[1], f[2] != "") for f in frames],
+                         [(statements["zh_cn"][0], "zh_cn", False), (statements["en"][0], "en", True), (statements["de"][0], "de", True)])  # fmt: skip
+        self.assertIn('id="link-pdf-statement"', page)
+        r = student.get("/attachment/%d" % statements["en"][0])
+        self.assertEqual((r.status_code, r.headers["Content-Type"], r.content), (200, "application/pdf", pdf_bytes("English")))
+        # they are no files that come with the problem
+        self.assertNotIn("uoj-attachments", page)
+        attachments_page = admin.get("/problem/%d/manage/attachments" % problem_id).text
+        self.assertIn('id="attachments-pdf-note"', attachments_page)
+        self.assertNotIn("statement-en.pdf", attachments_page)
+        # ---- a statement that is uploaded again takes the place of the one there was
+        self.assertEqual(self.upload(admin, manage, "en", pdf_bytes("English, v2")).status_code, 302)
+        self.assertEqual(pdf_statements(problem_id)["en"][0], statements["en"][0])
+        self.assertEqual(student.get("/attachment/%d" % statements["en"][0]).content, pdf_bytes("English, v2"))
+        # and one is removed
+        self.assertEqual(admin.form(manage, "delete_pdf_statement", attachment_id=str(statements["de"][0])), "")
+        self.assertEqual(sorted(pdf_statements(problem_id)), ["en", "zh_cn"])
+        # ---- a copy of the problem has them as its statements
+        teacher = p3.account("p11_pdf_teacher")
+        self.assertEqual(admin.change_user("p11_pdf_teacher", "grant:teacher"), "")
+        teacher.new_domain("p11-pdf")
+        copy = teacher.copy_problem("p11-pdf", problem_id)
+        self.assertEqual(sorted(pdf_statements(copy)), ["en", "zh_cn"])
+        self.assertNotEqual(pdf_statements(copy)["zh_cn"][0], pdf_statements(problem_id)["zh_cn"][0])
+        self.assertIn('data-lang="zh_cn"', teacher.get("/d/p11-pdf/problem/%d" % uoj.pid(copy)).text)
+
+    def test_package_brings_its_pdf_statements(self):
+        admin = uoj.admin()
+        package = uoj.make_zip({
+            "qoj/problem.md": "---\ntitle: p11 PDF 题面的题\n---\n\n题面见 PDF。\n",
+            "qoj/zh_cn.pdf": pdf_bytes("zh"), "qoj/en.pdf": pdf_bytes("en"),
+            "qoj/data/1.in": "1 2\n", "qoj/data/1.out": "3\n",
+            "hydro/problem.yaml": "title: p11 Hydro 的 PDF 题面\n",
+            "hydro/problem_zh.md": "@[pdf](file://statement.pdf)\n\n样例见上。\n",
+            "hydro/additional_file/statement.pdf": pdf_bytes("hydro"),
+            "hydro/testdata/1.in": "1 2\n", "hydro/testdata/1.out": "3\n",
+        })  # fmt: skip
+        import test_phase9 as p9
+
+        made, page = p9.import_files(admin, "/problems/import", [("pdf.zip", package)])
+        self.assertEqual(len(made), 2, uoj.text_of(page)[-500:])
+        hydro, qoj = made
+        self.assertEqual(sorted(pdf_statements(qoj)), ["en", "zh_cn"])
+        self.assertIn("English的 PDF 题面已导入", uoj.text_of(page))
+        # the PDF that the statement of Hydro shows is the statement, and the line that showed it is gone
+        self.assertEqual(sorted(pdf_statements(hydro)), ["zh_cn"])
+        self.assertEqual(pdf_statements(hydro)["zh_cn"][1], "statement.pdf")
+        kept = bytes.fromhex(db_value("select hex(statement_md) from problems_contents where id = %d" % hydro)).decode()
+        self.assertNotIn("@[pdf]", kept)
+        self.assertIn("样例见上", kept)
+        self.assertIn("成了 PDF 题面", uoj.text_of(page))

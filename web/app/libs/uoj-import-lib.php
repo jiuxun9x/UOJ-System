@@ -910,6 +910,8 @@ function importReadTemplate($text, $fallback_title) {
 		'conf' => null,
 		'native' => false,
 		'attachments' => array(),
+		// statements that are PDF files: language => where the file is
+		'pdf_statements' => array(),
 		'notes' => $notes
 	);
 }
@@ -977,6 +979,8 @@ function importReadPackage($dir, $root, $files) {
 			$package['data'][$matches[2]] = "$dir/$prefix$name";
 		} elseif (preg_match('/^(additional_file|attachments)\/([^\/]+)$/D', $name, $matches)) {
 			$package['attachments'][$matches[2]] = "$dir/$prefix$name";
+		} elseif (($lang = importPdfStatementLang($name)) !== null) {
+			$package['pdf_statements'][$lang] = "$dir/$prefix$name";
 		}
 	}
 	// How it is judged: a problem.conf says so, beside the statement or among the data. Only
@@ -1024,6 +1028,22 @@ function importReadPackage($dir, $root, $files) {
 		}
 	}
 	return $package;
+}
+
+// The language a PDF file of a package is the statement in, by its name, or null for a file
+// that is no statement: zh_cn.pdf and en.pdf as QOJ names them, statement.pdf and problem.pdf
+// (Chinese), statement-en.pdf, and the same in a folder statement/ or statements/.
+function importPdfStatementLang($name) {
+	if (!preg_match('/^(?:statements?\/)?(?:(?:statement|problem)(?:[-_.]([a-z]{2,3}(?:_[a-z]{2,4})?))?|([a-z]{2,3}(?:_[a-z]{2,4})?))\.pdf$/Di', $name, $matches)) {
+		return null;
+	}
+	if (isset($matches[2]) && $matches[2] !== '') {
+		// a file called by a language alone is one only where the language is one there is a name for
+		$lang = strtolower($matches[2]);
+		return isset(attachmentStatementLanguages()[$lang]) || $lang === 'zh' ? ($lang === 'zh' ? 'zh_cn' : $lang) : null;
+	}
+	$lang = isset($matches[1]) && $matches[1] !== '' ? strtolower($matches[1]) : 'zh_cn';
+	return $lang === 'zh' ? 'zh_cn' : $lang;
 }
 
 // ---- making the problems
@@ -1156,16 +1176,33 @@ function importCreate($package, $actor, $domain, $public) {
 			$notes[] = "附件 $name 没有添加：$err";
 		}
 	}
+	// the statements that are PDF files
+	foreach ($package['pdf_statements'] as $lang => $path) {
+		$err = attachmentSetPdfStatement($id, $lang, $path, $actor, true);
+		$notes[] = $err === '' ? attachmentStatementLangName($lang) . '的 PDF 题面已导入，题目页上直接显示' : "PDF 题面（{$lang}）没有导入：$err";
+	}
 	foreach (attachmentsOf('problem', $id) as $attachment) {
 		$urls[$attachment['name']] = attachmentUrl($attachment);
 	}
-	if ($urls) {
+	// Hydro shows a PDF file of the problem as its statement with @[pdf](file://name): the file
+	// is the statement here, and the line is no more
+	$package['statement_md'] = preg_replace_callback('/^[ \t]*@\[pdf\]\(file:\/\/([^\s)]+)\)[ \t]*\n?/m', function($matches) use ($id, &$notes) {
+		$name = rawurldecode($matches[1]);
+		foreach (attachmentsOf('problem', $id) as $attachment) {
+			if ($attachment['name'] === $name && !attachmentPdfStatements($id) && attachmentMakePdfStatement($attachment, 'zh_cn') === '') {
+				$notes[] = "题面里引用的 {$name} 成了 PDF 题面，题目页上直接显示";
+				return '';
+			}
+		}
+		return $matches[0];
+	}, $package['statement_md'], -1, $pdf_lines);
+	if ($pdf_lines > 0 || $urls) {
 		// Hydro writes "file://name" for a file of the problem
 		$statement_md = preg_replace_callback('/file:\/\/([^\s)"\'<>]+)/', function($matches) use ($urls) {
 			$name = rawurldecode($matches[1]);
 			return isset($urls[$name]) ? $urls[$name] : $matches[0];
 		}, $package['statement_md']);
-		if ($statement_md !== $package['statement_md']) {
+		if ($statement_md !== $package['statement_md'] || $pdf_lines > 0) {
 			problemSaveStatement($id, HTML::pruifier()->purify(HTML::parsedown()->text($statement_md)), $statement_md);
 		}
 	}

@@ -179,6 +179,10 @@ def seed():
     # a contest of the site that is over, and a student who sits it again
     second_public = admin.create_problem(ab_problem_files())
     db("update problems set title = '括号匹配' where id = %d" % second_public)
+    # its statement is a PDF file as well, in two languages
+    for lang, text in (("zh_cn", "Bracket matching (zh_cn)"), ("en", "Bracket matching (en)")):
+        admin.post("/problem/%d/manage/statement" % second_public, {"form": "add_pdf_statement", "lang": lang},
+                   [("pdf", (lang + ".pdf", pdf_document(text), "application/pdf"))])  # fmt: skip
     contest_id = admin.new_contest("2026 秋 月赛（一）", minutes=180)
     admin.contest_commands(contest_id, "problems", "+%d\n+%d" % (public_id, second_public))
     for client in students[:2]:
@@ -299,6 +303,29 @@ CONF_STATE = "document.querySelector('#conf-preview-state').textContent"
 CONF_TEXT = "document.querySelector('#conf-text').value"
 
 
+def pdf_document(text):
+    """a PDF file of one page with a line of text on it, as small as one can be"""
+    stream = b"BT /F1 24 Tf 72 720 Td (" + text.encode() + b") Tj ET"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return out
+
+
 def communication_ways_are_chosen(page, seeded):
     """the page of the data of a problem: a communication problem is judged in one of three
     ways, each with the fields it needs, and problem.conf follows what is chosen"""
@@ -328,6 +355,24 @@ def communication_ways_are_chosen(page, seeded):
     assert not page.is_visible("#group-problem-checker") and not page.is_visible("#group-problem-checker_file")
     assert page.is_visible("#group-problem-formatter")
     page.locator("#group-problem-comm").scroll_into_view_if_needed()
+
+
+def pdf_statement_switches_language(page, seeded):
+    """the page of a problem whose statement is a PDF file in two languages: one is shown, and
+    the other when it is chosen"""
+    page.wait_for_selector("#pdf-statement")
+    frames = page.locator("#pdf-statement .uoj-pdf-frame")
+    assert frames.count() == 2, frames.count()
+    shown = lambda: [frames.nth(i).get_attribute("hidden") is None for i in range(2)]
+    assert shown() == [True, False], shown()
+    first_link = page.get_attribute("#link-pdf-statement", "href")
+    page.click("#pdf-statement-langs button:nth-child(2)")
+    assert shown() == [False, True], shown()
+    assert page.get_attribute("#link-pdf-statement", "href") != first_link
+    assert page.get_attribute("#pdf-statement-langs button:nth-child(2)", "class").find("active") >= 0
+    page.click("#pdf-statement-langs button:nth-child(1)")
+    assert shown() == [True, False], shown()
+    page.locator("#pdf-statement").scroll_into_view_if_needed()
 
 
 def conf_follows_the_form(page, seeded):
@@ -742,6 +787,8 @@ def pages(seeded):
         ("statement-edit", "admin", "/problem/%d/manage/statement" % seeded["second_public"], statement_saves_itself),
         ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_follows_the_form),
         ("problem-data-comm", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), communication_ways_are_chosen),
+        ("problem-pdf", "visitor", "/problem/%d" % seeded["second_public"], pdf_statement_switches_language),
+        ("statement-pdf-manage", "admin", "/problem/%d/manage/statement" % seeded["second_public"]),
         ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
         ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),
         ("problem-attachments", "teacher", d + "/problem/%d/manage/attachments" % uoj.pid(seeded["problem"])),

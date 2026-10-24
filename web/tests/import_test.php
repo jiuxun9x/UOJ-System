@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../app/libs/uoj-problem-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-import-lib.php';
+require_once __DIR__ . '/../app/libs/uoj-attachment-lib.php';
 
 // ---- the template that is handed out reads as what it is
 list($meta, $statement) = importFrontMatter(importTemplateText());
@@ -190,3 +191,24 @@ $settings = importSettingsOfConf(array('use_builtin_judger' => 'on', 'polygon_ru
 check_same(array('multi_pass', 'polygon', 'ncmp'), array($settings['type'], $settings['comm_style'], $settings['checker']), 'a problem of Polygon run twice, from a package of QOJ');
 $settings = importSettingsOfConf(array('use_builtin_judger' => 'on', 'domjudge_multipass' => 'on', 'validation_passes' => '3'), array(), array('1.in', 'chk.cpp'));
 check_same(array('multi_pass', 'domjudge', 3, 'custom'), array($settings['type'], $settings['comm_style'], $settings['passes'], $settings['checker']), 'a problem of DOMjudge, from a package of QOJ');
+
+// ---- statements that are PDF files, as QOJ and others name them in a package
+$langs = array();
+foreach (array('zh_cn.pdf', 'en.pdf', 'statement.pdf', 'problem.pdf', 'statement-en.pdf', 'statement_zh_cn.pdf', 'statements/ja.pdf', 'statement/en.pdf', 'zh.pdf', 'EN.PDF',
+		'a.pdf', 'abc.pdf', 'notes.pdf', 'statement.md', 'other/en.pdf', 'en.pdf.zip') as $name) {
+	$langs[$name] = importPdfStatementLang($name);
+}
+check_same(array('zh_cn.pdf' => 'zh_cn', 'en.pdf' => 'en', 'statement.pdf' => 'zh_cn', 'problem.pdf' => 'zh_cn', 'statement-en.pdf' => 'en', 'statement_zh_cn.pdf' => 'zh_cn',
+	'statements/ja.pdf' => 'ja', 'statement/en.pdf' => 'en', 'zh.pdf' => 'zh_cn', 'EN.PDF' => 'en', 'a.pdf' => null, 'abc.pdf' => null, 'notes.pdf' => null, 'statement.md' => null,
+	'other/en.pdf' => null, 'en.pdf.zip' => null), $langs, 'which PDF files of a package are its statements, and in which language');
+check_same(array('', '', true), array(attachmentStatementLangError('zh_cn'), attachmentStatementLangError('de'), attachmentStatementLangError('zh-CN') !== ''), 'what a language can be called');
+check_same(array('中文', 'English', 'de'), array(attachmentStatementLangName('zh_cn'), attachmentStatementLangName('en'), attachmentStatementLangName('de')), 'what a language is called on the page');
+$unpacked = sys_get_temp_dir() . '/uoj_import_pdf_test_' . getmypid();
+$files = array('p/problem.md' => "---\ntitle: PDF 题\n---\n\n见 PDF。\n", 'p/zh_cn.pdf' => "%PDF-1.4\n", 'p/en.pdf' => "%PDF-1.4\n", 'p/additional_file/tool.pdf' => "%PDF-1.4\n", 'p/data/1.in' => "1\n", 'p/data/1.out' => "1\n");
+foreach ($files as $name => $content) {
+	@mkdir(dirname("$unpacked/$name"), 0755, true);
+	file_put_contents("$unpacked/$name", $content);
+}
+$read = importReadPackage($unpacked, 'p', array_keys($files));
+check_same(array(array('zh_cn', 'en'), array('tool.pdf')), array(array_keys($read['pdf_statements']), array_keys($read['attachments'])), 'a package with its statement in two languages, and a PDF that is only a file of it');
+exec('rm -rf ' . escapeshellarg($unpacked));

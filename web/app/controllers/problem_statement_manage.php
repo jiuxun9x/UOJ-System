@@ -16,6 +16,36 @@
 	$source = !empty($problem['source_problem_id']) ? queryProblemBrief($problem['source_problem_id']) : null;
 	$may_refresh = $source && can($myUser, 'problem.copy', $source);
 	$refresh_error = domainHandleForms(array(
+		// a statement that is a PDF file, in a language
+		'add_pdf_statement' => function() use ($problem) {
+			global $myUser;
+			$lang = isset($_POST['lang']) && is_string($_POST['lang']) ? trim($_POST['lang']) : '';
+			if ($lang === 'other') {
+				$lang = isset($_POST['other_lang']) && is_string($_POST['other_lang']) ? strtolower(trim($_POST['other_lang'])) : '';
+			}
+			if (!isset($_FILES['pdf']) || is_array($_FILES['pdf']['name']) || $_FILES['pdf']['error'] == UPLOAD_ERR_NO_FILE) {
+				return '请选择 PDF 文件';
+			}
+			if ($_FILES['pdf']['error'] != UPLOAD_ERR_OK) {
+				return 'PDF 没有传完（错误 ' . (int)$_FILES['pdf']['error'] . '），可能是文件太大';
+			}
+			$err = attachmentSetPdfStatement($problem['id'], $lang, $_FILES['pdf']['tmp_name'], $myUser);
+			if ($err === '') {
+				domainFlash(attachmentStatementLangName($lang) . '的 PDF 题面已上传，题目页上直接显示。');
+			}
+			return $err;
+		},
+		'delete_pdf_statement' => function() use ($problem) {
+			global $myUser;
+			foreach (attachmentPdfStatements($problem['id']) as $attachment) {
+				if (isset($_POST['attachment_id']) && (string)$attachment['id'] === (string)$_POST['attachment_id']) {
+					attachmentDelete($attachment, $myUser);
+					domainFlash(attachmentStatementLangName($attachment['statement_lang']) . '的 PDF 题面已删除。');
+					return '';
+				}
+			}
+			return '没有这个 PDF 题面';
+		},
 		'refresh_statement' => function() use ($problem) {
 			global $myUser;
 			$err = domainRefreshCopyStatement($problem, $myUser);
@@ -116,5 +146,53 @@
 	</div>
 </div>
 <?php endif ?>
+<?php $pdf_statements = attachmentPdfStatements($problem['id']); ?>
+<div class="card mb-3 text-left" id="pdf-statements">
+	<div class="card-header py-2">PDF 题面 <small class="text-muted">可以不传；传了就显示在题目页上，每种语言一份</small></div>
+	<div class="card-body py-3">
+		<?php if ($pdf_statements): ?>
+		<table class="table table-sm mb-3" id="table-pdf-statements" style="max-width:44em">
+			<thead><tr><th style="width:9em">语言</th><th>文件</th><th style="width:7em">大小</th><th style="width:5em"></th></tr></thead>
+			<tbody>
+				<?php foreach ($pdf_statements as $attachment): ?>
+				<tr data-lang="<?= $attachment['statement_lang'] ?>">
+					<td><?= HTML::escape(attachmentStatementLangName($attachment['statement_lang'])) ?> <small class="text-muted"><?= $attachment['statement_lang'] ?></small></td>
+					<td><a href="<?= attachmentUrl($attachment) ?>" target="_blank" rel="noopener"><?= HTML::escape($attachment['name']) ?></a></td>
+					<td><?= attachmentSizeText((int)$attachment['size']) ?></td>
+					<td class="text-right">
+						<form method="post" class="d-inline" onsubmit="return confirm('删除这份 PDF 题面？');">
+							<?= HTML::hiddenToken() ?>
+							<input type="hidden" name="form" value="delete_pdf_statement" />
+							<input type="hidden" name="attachment_id" value="<?= (int)$attachment['id'] ?>" />
+							<button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+						</form>
+					</td>
+				</tr>
+				<?php endforeach ?>
+			</tbody>
+		</table>
+		<?php endif ?>
+		<form method="post" enctype="multipart/form-data" class="form-inline" id="form-pdf-statement">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="add_pdf_statement" />
+			<label class="mr-2 mb-2" for="input-pdf-lang">语言</label>
+			<select class="form-control mr-2 mb-2" id="input-pdf-lang" name="lang">
+				<?php foreach (attachmentStatementLanguages() as $lang => $name): ?>
+				<option value="<?= $lang ?>"><?= HTML::escape($name) ?>（<?= $lang ?>）</option>
+				<?php endforeach ?>
+				<option value="other">其他…</option>
+			</select>
+			<input type="text" class="form-control mr-2 mb-2" id="input-pdf-other-lang" name="other_lang" placeholder="语言标签，如 de" maxlength="10" style="width:9em;display:none" />
+			<input type="file" class="form-control-file mr-2 mb-2" id="input-pdf" name="pdf" accept="application/pdf,.pdf" required="required" style="width:auto" />
+			<button type="submit" class="btn btn-primary mb-2" id="button-upload-pdf-statement">上传</button>
+		</form>
+		<small class="form-text text-muted">同一种语言再传一次就是替换。PDF 显示在下面 Markdown 题面的下方；只用 PDF 时，Markdown 题面可以空着，或者只写几句说明。题目包里的 <code>zh_cn.pdf</code>、<code>en.pdf</code>、<code>statement.pdf</code> 导入时会自动成为 PDF 题面。</small>
+	</div>
+</div>
+<script type="text/javascript">
+$('#input-pdf-lang').on('change', function() {
+	$('#input-pdf-other-lang').toggle($(this).val() === 'other');
+});
+</script>
 <?php $problem_editor->printHTML() ?>
 <?php echoUOJPageFooter() ?>
