@@ -299,6 +299,37 @@ CONF_STATE = "document.querySelector('#conf-preview-state').textContent"
 CONF_TEXT = "document.querySelector('#conf-text').value"
 
 
+def communication_ways_are_chosen(page, seeded):
+    """the page of the data of a problem: a communication problem is judged in one of three
+    ways, each with the fields it needs, and problem.conf follows what is chosen"""
+    page.wait_for_function(CONF_STATE + ".length > 0")
+    page.click("label[for=input-problem-type-multi_pass]")
+    page.wait_for_selector("#group-problem-comm", state="visible")
+    # Hydro: passes, and a checker of its own
+    page.wait_for_function(CONF_TEXT + ".indexOf('multi_pass 2') >= 0")
+    assert page.is_visible("#group-problem-passes") and page.is_visible("#group-problem-checker_file")
+    assert not page.is_visible("#group-problem-interactor_file") and not page.is_visible("#group-problem-run-twice")
+    assert "HYDRO_MULTI_PASS" in page.inner_text("#problem-comm-description")
+    # DOMjudge: the keys of QOJ
+    page.click("label[for=input-problem-comm_style-domjudge]")
+    page.wait_for_function(CONF_TEXT + ".indexOf('domjudge_multipass on') >= 0")
+    assert "validation_passes 2" in page.input_value("#conf-text") and "multi_pass 2" not in page.input_value("#conf-text").replace("domjudge_multipass", "")
+    # Polygon: an interactor and a way of comparing, no passes
+    page.click("label[for=input-problem-comm_style-polygon]")
+    page.wait_for_function(CONF_TEXT + ".indexOf('polygon_runtwice on') >= 0")
+    assert page.is_visible("#group-problem-interactor_file") and page.is_visible("#group-problem-checker")
+    assert not page.is_visible("#group-problem-passes") and not page.is_visible("#group-problem-run-twice-verdict")
+    page.click("label[for=input-problem-run_twice_interactive]")
+    page.wait_for_selector("#group-problem-run-twice-verdict", state="visible")
+    page.wait_for_function(CONF_TEXT + ".indexOf('polygon_runtwice_interactive on') >= 0")
+    page.click("label[for=input-problem-run_twice_interactor_verdict]")
+    page.wait_for_function(CONF_TEXT + ".indexOf('polygon_runtwice_interactor_verdict on') >= 0")
+    # an interactor that decides needs no way of comparing
+    assert not page.is_visible("#group-problem-checker") and not page.is_visible("#group-problem-checker_file")
+    assert page.is_visible("#group-problem-formatter")
+    page.locator("#group-problem-comm").scroll_into_view_if_needed()
+
+
 def conf_follows_the_form(page, seeded):
     """the page of the data of a problem: problem.conf beside the form shows what saving the
     form would write, while the form is filled in"""
@@ -710,6 +741,7 @@ def pages(seeded):
         ("problem-new", "teacher", d + "/problem/new", new_problem_is_kept),
         ("statement-edit", "admin", "/problem/%d/manage/statement" % seeded["second_public"], statement_saves_itself),
         ("problem-data", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_follows_the_form),
+        ("problem-data-comm", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), communication_ways_are_chosen),
         ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
         ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),
         ("problem-attachments", "teacher", d + "/problem/%d/manage/attachments" % uoj.pid(seeded["problem"])),

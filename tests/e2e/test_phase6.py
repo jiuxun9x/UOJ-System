@@ -220,12 +220,14 @@ class JudgerIsLeftCleanTest(unittest.TestCase):
             "more": "Checker Judgment Failed",
             # the input of a pass is no larger than a checker may write
             "flood": "Checker Output Limit Exceeded",
-            # two files are all that a checker may make: no folder, and no file of its own
-            "folder": "Checker Dangerous Syscalls",
-            "stray": "Checker Dangerous Syscalls",
+            # A checker may change its own folder as it likes, as on Hydro: a file of its own is
+            # its own business. The input of the next pass has to be a plain file, though.
+            "folder": "Checker Judgment Failed",
+            "stray": "Accepted",
             "fine": "Accepted",
         }
         self.assertEqual(j.infos, [expected[kind] for kind in UNRULY_KINDS], j)
+        self.assertIn("nextpass.in of the checker is not a plain file", j.details)
         self.assertIn("asked for another pass after pass 3", j.details)
         self.assertIn("3 passes", j.details)
         # the 64 megabytes that the checker wrote are gone with the test they were written in
