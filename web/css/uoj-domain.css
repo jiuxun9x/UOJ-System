@@ -1029,3 +1029,17 @@ small, .small {
 .uoj-pdf-frame[hidden] {
 	display: none;
 }
+.uoj-pdf-fallback {
+	display: none;
+	margin: 0;
+	padding: 0.75rem 1rem;
+	border: 1px solid #dee2e6;
+	border-radius: 0.25rem;
+	background-color: #f8f9fa;
+}
+.uoj-pdf-no-viewer .uoj-pdf-frame {
+	display: none;
+}
+.uoj-pdf-no-viewer .uoj-pdf-fallback {
+	display: block;
+}

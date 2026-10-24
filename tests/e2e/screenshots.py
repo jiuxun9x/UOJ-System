@@ -372,6 +372,15 @@ def pdf_statement_switches_language(page, seeded):
     assert page.get_attribute("#pdf-statement-langs button:nth-child(2)", "class").find("active") >= 0
     page.click("#pdf-statement-langs button:nth-child(1)")
     assert shown() == [True, False], shown()
+    # a browser that shows no PDF file in a page gets a line with a link instead of an empty box
+    if page.evaluate("navigator.pdfViewerEnabled") is False:
+        assert page.is_visible("#pdf-statement-fallback") and not frames.nth(0).is_visible()
+        assert page.locator("#pdf-statement").bounding_box()["height"] < 200
+    else:
+        assert frames.nth(0).is_visible() and not page.is_visible("#pdf-statement-fallback")
+    page.click("#pdf-statement-langs button:nth-child(2)")
+    assert page.get_attribute("#link-pdf-statement-fallback", "href") == page.get_attribute("#link-pdf-statement", "href") != first_link
+    page.click("#pdf-statement-langs button:nth-child(1)")
     page.locator("#pdf-statement").scroll_into_view_if_needed()
 
 

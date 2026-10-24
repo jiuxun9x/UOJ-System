@@ -390,15 +390,20 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 				<p class="p-3 mb-0">这个浏览器不能在页面里显示 PDF，<a href="<?= attachmentUrl($attachment) ?>" target="_blank" rel="noopener">点这里打开题面</a>。</p>
 			</object>
 			<?php endforeach ?>
+			<p class="uoj-pdf-fallback" id="pdf-statement-fallback">这个浏览器不能在页面里显示 PDF，<a href="<?= attachmentUrl($pdf_statements[0]) ?>" target="_blank" rel="noopener" id="link-pdf-statement-fallback">点这里打开题面</a>。</p>
 		</div>
 		<script type="text/javascript">
+		// a browser that says it shows no PDF file in a page (a phone, mostly) gets a link, not an empty box
+		if (navigator.pdfViewerEnabled === false) {
+			$('#pdf-statement').addClass('uoj-pdf-no-viewer');
+		}
 		$('#pdf-statement-langs').on('click', 'button', function() {
 			var chosen = $(this).attr('data-pdf');
 			$(this).addClass('active').siblings().removeClass('active');
 			$('#pdf-statement .uoj-pdf-frame').each(function() {
 				$(this).prop('hidden', $(this).attr('data-pdf') !== chosen);
 			});
-			$('#link-pdf-statement').attr('href', $(this).attr('data-url'));
+			$('#link-pdf-statement, #link-pdf-statement-fallback').attr('href', $(this).attr('data-url'));
 		});
 		</script>
 		<?php endif ?>
