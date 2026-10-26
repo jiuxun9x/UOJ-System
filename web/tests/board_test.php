@@ -81,3 +81,8 @@ check_same(array(
 ), array_map($line, $oi['rows']), 'the rows of a board of scores: the bands are by the score, and nothing is said of dirt');
 check_same(array(array('solved' => 3, 'tries' => 3), array('solved' => 1, 'tries' => 3), array('solved' => 0, 'tries' => 2)), $oi['problems'],
 	'over a problem of a board of scores: how many got all of it, out of how many tried');
+
+// ---- ratings: who sits a contest alone is rated against nobody, and keeps the rating (PHP 8
+// does not divide by the number of the others when it is zero)
+check_same(array(1500), calcRating(array(array(100, 0, array('ann', 1500, ''), 1))), 'a contest of one changes no rating');
+check_same(array(1700.0, 1300.0), calcRating(array(array(100, 0, array('ann', 1500, ''), 1), array(0, 0, array('bob', 1500, ''), 2))), 'the first of two gains what the second loses');

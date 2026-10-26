@@ -155,7 +155,7 @@ function getProblemLink($problem, $problem_title = '!title_only') {
 	if ($problem_title == '!title_only') {
 		$problem_title = $problem['title'];
 	} elseif ($problem_title == '!id_and_title') {
-		$problem_title = problemLabel($problem) . ". ${problem['title']}";
+		$problem_title = problemLabel($problem) . ". {$problem['title']}";
 	}
 	return '<a href="'.problemUrl($problem).'">'.$problem_title.'</a>';
 }
@@ -646,7 +646,7 @@ function echoPasteContent($paste) {
 	$file_language = htmlspecialchars($config["paste_language"]);
 	$footer_text = UOJLocale::get('problems::source code').', '.UOJLocale::get('problems::language').': '.$file_language;
 	$footer_text .= ", ".UOJLocale::get("problems::submitter") . <<<HTML
-: <a href="/user/profile/${paste['creator']}">${paste['creator']}</a>
+: <a href="/user/profile/{$paste['creator']}">{$paste['creator']}</a>
 HTML;
 	$footer_text .= ", ".UOJLocale::get("problems::submit time").": ".$paste['created_at'];
 
@@ -1020,7 +1020,8 @@ class JudgementDetailsPrinter {
 		$this->styler = $styler;
 		$this->details = $details;
 		$this->dom = new DOMDocument();
-		if (!$this->dom->loadXML($this->details)) {
+		// PHP 8 throws on an empty text, which is no XML either
+		if ((string)$this->details === '' || !$this->dom->loadXML($this->details)) {
 			throw new Exception("XML syntax error");
 		}
 		$this->details = '';

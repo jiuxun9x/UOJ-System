@@ -453,7 +453,7 @@ EOD;
 				if ($field['validator_js'] != null) {
 					if ($field['validator_js'] != 'always_ok') {
 						echo <<<EOD
-		var ${field['name']}_err = (${field['validator_js']})($('#input-${field['name']}').val());
+		var {$field['name']}_err = ({$field['validator_js']})($('#input-{$field['name']}').val());
 
 EOD;
 					}
@@ -470,8 +470,8 @@ EOD;
 				foreach ($this->data as $field) {
 					if ($field['validator_js'] == null) {
 						echo <<<EOD
-		var ${field['name']}_err = 'Unknown error';
-		post_data.${field['name']} = $('#input-${field['name']}').val();
+		var {$field['name']}_err = 'Unknown error';
+		post_data.{$field['name']} = $('#input-{$field['name']}').val();
 
 EOD;
 					}
@@ -480,7 +480,7 @@ EOD;
 		if (post_data != {}) {
 			post_data['check-{$this->form_name}'] = "";
 			$.ajax({
-				url : '${_SERVER['REQUEST_URI']}',
+				url : '{$_SERVER['REQUEST_URI']}',
 				type : 'POST',
 				dataType : 'json',
 				async : false,
@@ -492,7 +492,7 @@ EOD;
 				foreach ($this->data as $field) {
 					if ($field['validator_js'] == null) {
 						echo <<<EOD
-					${field['name']}_err = data.${field['name']};
+					{$field['name']}_err = data.{$field['name']};
 
 EOD;
 					}
@@ -515,13 +515,13 @@ EOD;
 			foreach ($this->data as $field) {
 				if ($field['validator_js'] != 'always_ok') {
 					echo <<<EOD
-		if (${field['name']}_err) {
-			$('#div-${field['name']}').addClass('has-error');
-			$('#help-${field['name']}').text(${field['name']}_err);
+		if ({$field['name']}_err) {
+			$('#div-{$field['name']}').addClass('has-error');
+			$('#help-{$field['name']}').text({$field['name']}_err);
 			ok = false;
 		} else {
-			$('#div-${field['name']}').removeClass('has-error');
-			$('#help-${field['name']}').text('');
+			$('#div-{$field['name']}').removeClass('has-error');
+			$('#help-{$field['name']}').text('');
 		}
 
 EOD;

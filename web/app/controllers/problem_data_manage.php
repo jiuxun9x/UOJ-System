@@ -22,7 +22,7 @@
 		dataFailVersion($waiting_version, 'no judger checked the data in time');
 	}
 
-	$data_dir = "/var/uoj_data/${problem['id']}";
+	$data_dir = "/var/uoj_data/{$problem['id']}";
 
 	function echoFileNotFound($file_name) {
 		echo '<h4>', htmlspecialchars($file_name), '<sub class="text-danger"> ', '文件未找到', '</sub></h4>';

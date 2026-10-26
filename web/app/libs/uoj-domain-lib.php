@@ -38,7 +38,7 @@ function domainRoleName($role) {
 }
 function domainRoleRank($role) {
 	$ranks = array('owner' => 5, 'admin' => 4, 'teacher' => 3, 'ta' => 2, 'member' => 1);
-	return isset($ranks[$role]) ? $ranks[$role] : 0;
+	return is_string($role) && isset($ranks[$role]) ? $ranks[$role] : 0;
 }
 
 // Returns '' when the settings of a domain make sense, or what is wrong with them.

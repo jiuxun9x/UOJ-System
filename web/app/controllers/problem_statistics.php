@@ -17,9 +17,9 @@
 		}
 	}
 
-	function scoreDistributionData() {
+	function scoreDistributionData($problem) {
 		$data = array();
-		$result = DB::select("select score, count(*) from submissions where problem_id = {$problem['id']} and score is not null group by score");
+		$result = DB::select("select score, count(*) from submissions where problem_id = {$problem['id']} and score is not null group by score order by score");
 		$is_res_empty = true;
 		$has_score_0 = false;
 		$has_score_100 = false;
@@ -41,7 +41,7 @@
 		return $data;
 	}
 	
-	$data = scoreDistributionData();
+	$data = scoreDistributionData($problem);
 	$pre_data = $data;
 	$suf_data = $data;
 	for ($i = 0; $i < count($data); $i++) {

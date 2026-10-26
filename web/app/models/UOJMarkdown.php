@@ -4,7 +4,7 @@ require_once __DIR__ . '/../vendor/parsedown/ParsedownMath.php';
 
 class UOJMarkdown extends ParsedownMath {
 	public function __construct($options = '') {
-		if (method_exists(get_parent_class(), "__construct")) {
+		if (method_exists(get_parent_class($this), "__construct")) {
 			parent::__construct($options);
 		}
 

@@ -3,11 +3,21 @@
 // Dependency-free unit tests for the helpers of the web application that need no database.
 // Run with: php web/tests/run.php
 
-// the application still uses syntax that newer PHP versions deprecate
-error_reporting(E_ALL & ~E_DEPRECATED);
+error_reporting(E_ALL);
 
 $n_checks = 0;
 $failures = [];
+
+// What PHP says about the code of the site while it is tested is a failure: a warning of today
+// is the error of the next version of PHP. The libraries of others are theirs to keep up with.
+set_error_handler(function($level, $message, $file, $line) {
+	global $failures;
+	// what the code silences with @ on purpose is not counted
+	if ((error_reporting() & $level) && strpos($file, '/vendor/') === false) {
+		$failures[] = "PHP says \"$message\" in $file on line $line";
+	}
+	return true;
+});
 
 function check_same($expected, $actual, $what) {
 	global $n_checks, $failures;

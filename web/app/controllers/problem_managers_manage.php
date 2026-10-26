@@ -20,10 +20,10 @@
 		function($type, $username) {
 			global $problem;
 			if ($type == '+') {
-				DB::query("insert into problems_permissions (problem_id, username) values (${problem['id']}, '$username')");
+				DB::query("insert into problems_permissions (problem_id, username) values ({$problem['id']}, '$username')");
 				auditLog('problem.add_manager', 'problem', $problem['id'], null, array('username' => $username));
 			} elseif ($type == '-') {
-				DB::query("delete from problems_permissions where problem_id = ${problem['id']} and username = '$username'");
+				DB::query("delete from problems_permissions where problem_id = {$problem['id']} and username = '$username'");
 				auditLog('problem.remove_manager', 'problem', $problem['id'], array('username' => $username), null);
 			}
 		}
@@ -45,7 +45,7 @@
 	<tbody>
 <?php
 	$row_id = 0;
-	$result = DB::query("select username from problems_permissions where problem_id = ${problem['id']}");
+	$result = DB::query("select username from problems_permissions where problem_id = {$problem['id']}");
 	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
 		$row_id++;
 		echo '<tr>', '<td>', $row_id, '</td>', '<td>', getUserLink($row['username']), '</td>', '</tr>';

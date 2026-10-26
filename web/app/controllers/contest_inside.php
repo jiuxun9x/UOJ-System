@@ -101,7 +101,7 @@
 	}
 	
 	if (isset($_POST['check_notice'])) {
-		$result = DB::query("select * from contests_notice where contest_id = '${contest['id']}' order by time desc limit 10");
+		$result = DB::query("select * from contests_notice where contest_id = '{$contest['id']}' order by time desc limit 10");
 		$ch = array();
 		$flag = false;
 		try {
@@ -113,7 +113,7 @@
 		} catch (Exception $e) {
 		}
 		global $myUser;
-		$result=DB::query("select * from contests_asks where contest_id='${contest['id']}' and username='${myUser['username']}' order by reply_time desc limit 10");
+		$result=DB::query("select * from contests_asks where contest_id='{$contest['id']}' and username='{$myUser['username']}' order by reply_time desc limit 10");
 		try {
 			while ($row = DB::fetch($result)) {
 				if (new DateTime($row['reply_time']) > new DateTime($_POST['last_time'])) {
@@ -208,12 +208,12 @@
 					if ($change != 0) {
 						$tail = '<strong style="color:red">' . ($change > 0 ? '+' : '') . $change . '</strong>';
 						$content = <<<EOD
-<p>${user_link} 您好：</p>
-<p class="indent2">您在 <a href="/contest/{$contest['id']}">{$contest['name']}</a> 这场比赛后的Rating变化为${tail}，当前Rating为 <strong style="color:red">{$ratings[$i]}</strong>。</p>
+<p>{$user_link} 您好：</p>
+<p class="indent2">您在 <a href="/contest/{$contest['id']}">{$contest['name']}</a> 这场比赛后的Rating变化为{$tail}，当前Rating为 <strong style="color:red">{$ratings[$i]}</strong>。</p>
 EOD;
 					} else {
 						$content = <<<EOD
-<p>${user_link} 您好：</p>
+<p>{$user_link} 您好：</p>
 <p class="indent2">您在 <a href="/contest/{$contest['id']}">{$contest['name']}</a> 这场比赛后Rating没有变化。当前Rating为 <strong style="color:red">{$ratings[$i]}</strong>。</p>
 EOD;
 					}

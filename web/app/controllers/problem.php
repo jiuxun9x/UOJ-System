@@ -172,12 +172,12 @@
 		// homework has begun or ended: the clock of the web server.
 		$submit_time = UOJTime::$time_now_str;
 		if ($is_in_contest) {
-			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, ${contest['id']}, $domain_id, '$submit_time', '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
+			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, {$contest['id']}, $domain_id, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
 		} elseif ($is_in_homework) {
 			// who sees it is decided by the homework, not by whether the problem is hidden
-			DB::query("insert into submissions (problem_id, domain_id, homework_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, $domain_id, ${homework['id']}, '$submit_time', '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', 0)");
+			DB::query("insert into submissions (problem_id, domain_id, homework_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, {$homework['id']}, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
 		} else {
-			DB::query("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values (${problem['id']}, $domain_id, '$submit_time', '${myUser['username']}', '$esc_content', '$esc_language', $tot_size, '${result['status']}', '$result_json', {$problem['is_hidden']})");
+			DB::query("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', {$problem['is_hidden']})");
 		}
 	}
 	function handleCustomTestUpload($zip_file_name, $content, $tot_size) {

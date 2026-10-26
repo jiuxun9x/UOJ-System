@@ -31,7 +31,23 @@ class DB {
 	}
 	public static function fetch($r, $opt = MYSQLI_ASSOC) {
 		global $uojMySQL;
+		if (!($r instanceof mysqli_result)) {
+			// PHP 7 said so in a warning and went on; PHP 8 stops the page
+			trigger_error('UOJ: rows asked of a query that failed: ' . mysqli_error($uojMySQL), E_USER_WARNING);
+			return null;
+		}
 		return mysqli_fetch_array($r, $opt);
+	}
+	// The result of a query that is read: one that failed is a fault of the code, said in the
+	// log of the web server with the query, and read as no rows.
+	private static function selected($q) {
+		global $uojMySQL;
+		$qr = mysqli_query($uojMySQL, $q);
+		if ($qr === false) {
+			trigger_error('UOJ: a query failed: ' . mysqli_error($uojMySQL) . ' in: ' . substr(preg_replace('/\s+/', ' ', $q), 0, 300), E_USER_WARNING);
+			return null;
+		}
+		return $qr;
 	}
 	
 	public static function query($q) {
@@ -60,22 +76,21 @@ class DB {
 		return mysqli_query($uojMySQL, $q);
 	}
 	public static function selectAll($q, $opt = MYSQLI_ASSOC) {
-		global $uojMySQL;
 		$res = array();
-		$qr = mysqli_query($uojMySQL, $q);
-		while ($row = mysqli_fetch_array($qr, $opt)) {
+		$qr = self::selected($q);
+		while ($qr && ($row = mysqli_fetch_array($qr, $opt))) {
 			$res[] = $row;
 		}
 		return $res;
 	}
 	public static function selectFirst($q, $opt = MYSQLI_ASSOC) {
-		global $uojMySQL;
-		return mysqli_fetch_array(mysqli_query($uojMySQL, $q), $opt);
+		$qr = self::selected($q);
+		return $qr ? mysqli_fetch_array($qr, $opt) : null;
 	}
 	public static function selectCount($q) {
-		global $uojMySQL;
-		list($cnt) = mysqli_fetch_array(mysqli_query($uojMySQL, $q), MYSQLI_NUM);
-		return $cnt;
+		$qr = self::selected($q);
+		$row = $qr ? mysqli_fetch_array($qr, MYSQLI_NUM) : null;
+		return $row ? $row[0] : null;
 	}
 	
 	// runs a script of several statements, returns null or the message of the first error
@@ -85,7 +100,7 @@ class DB {
 		self::query('start transaction');
 		try {
 			$result = $fun();
-		} catch (Exception $e) {
+		} catch (Throwable $e) {
 			self::query('rollback');
 			throw $e;
 		}
@@ -119,10 +134,6 @@ class DB {
 		return DB::query("select 1 from $name") !== false;
 	}
 	
-	public static function num_rows() {
-		global $uojMySQL;
-		return mysqli_num_rows($uojMySQL);
-	}
 	public static function affected_rows() {
 		global $uojMySQL;
 		return mysqli_affected_rows($uojMySQL);
