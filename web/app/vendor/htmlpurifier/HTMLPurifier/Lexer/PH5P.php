@@ -21,7 +21,7 @@ class HTMLPurifier_Lexer_PH5P extends HTMLPurifier_Lexer_DOMLex
     public function tokenizeHTML($html, $config, $context)
     {
         $new_html = $this->normalize($html, $config, $context);
-        $new_html = $this->wrapHTML($new_html, $config, $context);
+        $new_html = $this->wrapHTML($new_html, $config, $context, false /* no div */);
         try {
             $parser = new HTML5($new_html);
             $doc = $parser->save();
@@ -34,10 +34,9 @@ class HTMLPurifier_Lexer_PH5P extends HTMLPurifier_Lexer_DOMLex
         $tokens = array();
         $this->tokenizeDOM(
             $doc->getElementsByTagName('html')->item(0)-> // <html>
-                getElementsByTagName('body')->item(0)-> //   <body>
-                getElementsByTagName('div')->item(0) //     <div>
+                  getElementsByTagName('body')->item(0) //   <body>
             ,
-            $tokens
+            $tokens, $config
         );
         return $tokens;
     }
@@ -1224,14 +1223,14 @@ class HTML5
                 'type' => self::COMMENT
             );
 
-            /* Otherwise if the next seven chacacters are a case-insensitive match
+            /* Otherwise if the next seven characters are a case-insensitive match
             for the word "DOCTYPE", then consume those characters and switch to the
             DOCTYPE state. */
         } elseif (strtolower($this->character($this->char + 1, 7)) === 'doctype') {
             $this->char += 7;
             $this->state = 'doctype';
 
-            /* Otherwise, is is a parse error. Switch to the bogus comment state.
+            /* Otherwise, it is a parse error. Switch to the bogus comment state.
             The next character that is consumed, if any, is the first character
             that will be in the comment. */
         } else {
@@ -1508,7 +1507,7 @@ class HTML5
                 $entity = $this->character($start, $this->char);
                 $cond = strlen($e_name) > 0;
 
-                // The rest of the parsing happens bellow.
+                // The rest of the parsing happens below.
                 break;
 
             // Anything else
@@ -1516,6 +1515,7 @@ class HTML5
                 // Consume the maximum number of characters possible, with the
                 // consumed characters case-sensitively matching one of the
                 // identifiers in the first column of the entities table.
+
                 $e_name = $this->characters('0-9A-Za-z;', $this->char + 1);
                 $len = strlen($e_name);
 
@@ -1535,7 +1535,7 @@ class HTML5
                 }
 
                 $cond = isset($entity);
-                // The rest of the parsing happens bellow.
+                // The rest of the parsing happens below.
                 break;
         }
 
@@ -1548,7 +1548,7 @@ class HTML5
 
         // Return a character token for the character corresponding to the
         // entity name (as given by the second column of the entities table).
-        return html_entity_decode('&' . $entity . ';', ENT_QUOTES, 'UTF-8');
+        return html_entity_decode('&' . rtrim($entity, ';') . ';', ENT_QUOTES, 'UTF-8');
     }
 
     private function emitToken($token)
@@ -4410,7 +4410,7 @@ class HTML5TreeConstructer
 
         foreach ($token['attr'] as $attr) {
             if (!$el->hasAttribute($attr['name'])) {
-                $el->setAttribute($attr['name'], $attr['value']);
+                $el->setAttribute($attr['name'], (string)$attr['value']);
             }
         }
 

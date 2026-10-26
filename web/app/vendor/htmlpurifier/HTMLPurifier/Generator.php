@@ -146,7 +146,7 @@ class HTMLPurifier_Generator
             $attr = $this->generateAttributes($token->attr, $token->name);
             if ($this->_flashCompat) {
                 if ($token->name == "object") {
-                    $flash = new stdclass();
+                    $flash = new stdClass();
                     $flash->attr = $token->attr;
                     $flash->param = array();
                     $this->_flashStack[] = $flash;
@@ -244,7 +244,7 @@ class HTMLPurifier_Generator
             // whitespace (in fact, most don't, at least for attributes
             // like alt, but an extra space at the end is barely
             // noticeable).  Still, we have a configuration knob for
-            // this, since this transformation is not necesary if you
+            // this, since this transformation is not necessary if you
             // don't process user input with innerHTML or you don't plan
             // on supporting Internet Explorer.
             if ($this->_innerHTMLFix) {

@@ -1,6 +1,9 @@
 <?php
 
-require $_SERVER['DOCUMENT_ROOT'].'/app/vendor/phpmailer/PHPMailerAutoload.php';
+// PHPMailer 7, without composer: its three classes are all that is used
+require_once __DIR__ . '/../vendor/phpmailer/Exception.php';
+require_once __DIR__ . '/../vendor/phpmailer/PHPMailer.php';
+require_once __DIR__ . '/../vendor/phpmailer/SMTP.php';
 
 class UOJMail {
 	// The mailbox mails are sent from: the one the system administrators set on the site, or
@@ -35,13 +38,16 @@ class UOJMail {
 	}
 	public static function noreply() {
 		$settings = self::settings();
-		$mailer = new PHPMailer();
+		$mailer = new \PHPMailer\PHPMailer\PHPMailer();
 		$mailer->isSMTP();
 		$mailer->Host = $settings['host'];
 		$mailer->Port = $settings['port'];
 		// a server that asks for no user is not given one
 		$mailer->SMTPAuth = $settings['username'] !== '' && $settings['password'] !== '';
 		$mailer->SMTPSecure = $settings['secure'];
+		// a mailbox set up to be reached without encryption is reached so, as PHPMailer 5 did:
+		// the later ones turn to TLS by themselves wherever the server offers it
+		$mailer->SMTPAutoTLS = $settings['secure'] !== '';
 		$mailer->Username = $settings['username'];
 		$mailer->Password = $settings['password'];
 		// a page that sends a mail does not wait for a server that does not answer

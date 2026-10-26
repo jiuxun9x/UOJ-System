@@ -7,7 +7,7 @@
  * primary concern and you are using an opcode cache. PLEASE DO NOT EDIT THIS
  * FILE, changes will be overwritten the next time the script is run.
  *
- * @version 4.6.0
+ * @version 4.19.1
  *
  * @warning
  *      You must *not* include any other HTML Purifier files before this file,
@@ -101,12 +101,14 @@ require 'HTMLPurifier/AttrDef/CSS/Length.php';
 require 'HTMLPurifier/AttrDef/CSS/ListStyle.php';
 require 'HTMLPurifier/AttrDef/CSS/Multiple.php';
 require 'HTMLPurifier/AttrDef/CSS/Percentage.php';
+require 'HTMLPurifier/AttrDef/CSS/Ratio.php';
 require 'HTMLPurifier/AttrDef/CSS/TextDecoration.php';
 require 'HTMLPurifier/AttrDef/CSS/URI.php';
 require 'HTMLPurifier/AttrDef/HTML/Bool.php';
 require 'HTMLPurifier/AttrDef/HTML/Nmtokens.php';
 require 'HTMLPurifier/AttrDef/HTML/Class.php';
 require 'HTMLPurifier/AttrDef/HTML/Color.php';
+require 'HTMLPurifier/AttrDef/HTML/ContentEditable.php';
 require 'HTMLPurifier/AttrDef/HTML/FrameTarget.php';
 require 'HTMLPurifier/AttrDef/HTML/ID.php';
 require 'HTMLPurifier/AttrDef/HTML/Pixels.php';
@@ -137,6 +139,8 @@ require 'HTMLPurifier/AttrTransform/SafeObject.php';
 require 'HTMLPurifier/AttrTransform/SafeParam.php';
 require 'HTMLPurifier/AttrTransform/ScriptRequired.php';
 require 'HTMLPurifier/AttrTransform/TargetBlank.php';
+require 'HTMLPurifier/AttrTransform/TargetNoopener.php';
+require 'HTMLPurifier/AttrTransform/TargetNoreferrer.php';
 require 'HTMLPurifier/AttrTransform/Textarea.php';
 require 'HTMLPurifier/ChildDef/Chameleon.php';
 require 'HTMLPurifier/ChildDef/Custom.php';
@@ -175,6 +179,8 @@ require 'HTMLPurifier/HTMLModule/StyleAttribute.php';
 require 'HTMLPurifier/HTMLModule/Tables.php';
 require 'HTMLPurifier/HTMLModule/Target.php';
 require 'HTMLPurifier/HTMLModule/TargetBlank.php';
+require 'HTMLPurifier/HTMLModule/TargetNoopener.php';
+require 'HTMLPurifier/HTMLModule/TargetNoreferrer.php';
 require 'HTMLPurifier/HTMLModule/Text.php';
 require 'HTMLPurifier/HTMLModule/Tidy.php';
 require 'HTMLPurifier/HTMLModule/XMLCommonAttributes.php';
@@ -225,5 +231,6 @@ require 'HTMLPurifier/URIScheme/https.php';
 require 'HTMLPurifier/URIScheme/mailto.php';
 require 'HTMLPurifier/URIScheme/news.php';
 require 'HTMLPurifier/URIScheme/nntp.php';
+require 'HTMLPurifier/URIScheme/tel.php';
 require 'HTMLPurifier/VarParser/Flexible.php';
 require 'HTMLPurifier/VarParser/Native.php';
