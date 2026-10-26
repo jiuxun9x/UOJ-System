@@ -1,0 +1,11 @@
+# The site on the database of before MySQL 8.4, for the CI to upgrade with upgrade-mysql.sh:
+#
+#   docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml \
+#       -f tests/e2e/upgrade/docker-compose.mysql57.yml up -d
+
+services:
+  uoj-db:
+    image: uoj-db-mysql57:latest
+    build:
+      context: ./
+      dockerfile: tests/e2e/upgrade/mysql57/Dockerfile

@@ -1,0 +1,32 @@
+#!/bin/bash
+# db/install.sh as it was for MySQL 5.7: the database of a site set up before MySQL 8.4,
+# which the CI upgrades with upgrade-mysql.sh
+
+setLAMPConf(){
+    printf "\n\n==> Setting LAMP configs\n"
+    #Set MySQL connection config
+    cat >/etc/mysql/conf.d/uoj_mysqld.cnf <<UOJEOF
+[mysqld]
+default-time-zone='+8:00'
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+init_connect='SET NAMES utf8mb4'
+init_connect='SET collation_connection = utf8mb4_unicode_ci'
+skip-character-set-client-handshake
+max_allowed_packet=64M
+sql-mode=ONLY_FULL_GROUP_BY,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+UOJEOF
+}
+
+setWebConf(){
+    printf "\n\n==> Setting web files\n"
+    #Import MySQL database
+    cat >/docker-entrypoint-initdb.d/000-native_password.sql <<UOJEOF
+ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'root';
+UOJEOF
+    cp app_uoj233.sql /docker-entrypoint-initdb.d/001-app_uoj233.sql
+    cp add_judger.sql /docker-entrypoint-initdb.d/002-add_judger.sql
+}
+
+echo 'Preparing UOJ System db environment...'
+setLAMPConf;setWebConf

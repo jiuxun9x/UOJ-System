@@ -5,3 +5,4 @@ uoj_data/
 shell.nix
 web/js/mathjax/
 .DS_Store
+upgrade_state.json

@@ -146,3 +146,83 @@ jobs:
         with:
           name: e2e-logs-${{ matrix.judgers }}
           path: e2e-logs
+
+  # A site set up on MySQL 5.7 is upgraded to MySQL 8.4 with upgrade-mysql.sh, as its
+  # administrators would do it, and keeps all it had.
+  upgrade:
+    name: Upgrade from MySQL 5.7
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      UOJ_E2E_JUDGERS: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build images
+        uses: docker/bake-action@v5
+        with:
+          source: .
+          files: docker-compose.yml
+          load: true
+          set: |
+            uoj-db.cache-from=type=gha,scope=uoj-db
+            uoj-web.cache-from=type=gha,scope=uoj-web
+            uoj-judger.cache-from=type=gha,scope=uoj-judger
+
+      - name: Build the database image of MySQL 5.7
+        run: docker build -t uoj-db-mysql57 -f tests/e2e/upgrade/mysql57/Dockerfile .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the dependencies of the tests
+        run: pip install requests
+
+      - name: Start UOJ on MySQL 5.7
+        run: |
+          bash prepare.sh
+          python3 tests/e2e/configure.py
+          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml -f tests/e2e/upgrade/docker-compose.mysql57.yml up -d
+
+      - name: Data written on MySQL 5.7
+        run: python3 tests/e2e/upgrade_check.py seed
+
+      - name: The upgrade
+        env:
+          UOJ_COMPOSE: docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml
+          UOJ_SKIP_BUILD: 1
+        run: bash upgrade-mysql.sh
+
+      - name: The data on MySQL 8.4
+        run: python3 tests/e2e/upgrade_check.py verify
+
+      - name: PHP errors and failed queries in the logs of the web server
+        if: always()
+        run: python3 tests/e2e/check_php_log.py
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p upgrade-logs
+          for c in uoj-db uoj-web uoj-judger uoj-db-upgrade; do
+            docker logs "$c" > "upgrade-logs/$c.log" 2>&1 || true
+          done
+          docker exec uoj-web sh -c 'tail -n 2000 /var/log/apache2/uoj_error.log' > upgrade-logs/apache_error.log 2>&1 || true
+          sudo cp uoj_data/judger/log/judge.log upgrade-logs/judge.log 2>/dev/null || true
+          cp upgrade_state.json upgrade-logs/ 2>/dev/null || true
+          sudo chmod -R a+r upgrade-logs
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-logs
+          path: upgrade-logs
