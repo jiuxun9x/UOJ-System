@@ -224,7 +224,7 @@ EOD;
 					if ($rated) {
 						DB::query("update user_info set rating = {$ratings[$i]} where username = '{$standings[$i][2][0]}'");
 					}
-					DB::query("update contests_registrants set rank = {$standings[$i][3]} where contest_id = {$contest['id']} and username = '{$standings[$i][2][0]}'");
+					DB::query("update contests_registrants set `rank` = {$standings[$i][3]} where contest_id = {$contest['id']} and username = '{$standings[$i][2][0]}'");
 				}
 				DB::query("update contests set status = 'finished' where id = {$contest['id']}");
 				auditLog('contest.publish_results', 'contest', $contest['id'], null, array('rated' => $rated, 'participants' => count($standings)));

@@ -599,7 +599,7 @@ EOD;
 		<script type="text/javascript">
 			new Morris.Line({
 				element: 'search-distribution-chart-week',
-				data: <?= json_encode(DB::selectAll("select DATE_FORMAT(created_at, '%Y-%m-%d %h:00'), count(*) from search_requests  where created_at > now() - interval 1 week group by DATE_FORMAT(created_at, '%Y-%m-%d %h:00')")) ?>,
+				data: <?= json_encode(DB::selectAll("select DATE_FORMAT(created_at, '%Y-%m-%d %h:00'), count(*) from search_requests  where created_at > now() - interval 1 week group by DATE_FORMAT(created_at, '%Y-%m-%d %h:00') order by 1")) ?>,
 				xkey: "DATE_FORMAT(created_at, '%Y-%m-%d %h:00')",
 				ykeys: ["count(*)"],
 				labels: ['number'],
@@ -612,7 +612,7 @@ EOD;
 		<script type="text/javascript">
 			new Morris.Line({
 				element: 'search-distribution-chart-month',
-				data: <?= json_encode(DB::selectAll("select DATE_FORMAT(created_at, '%Y-%m-%d'), count(*) from search_requests  where created_at > now() - interval 1 week group by DATE_FORMAT(created_at, '%Y-%m-%d')")) ?>,
+				data: <?= json_encode(DB::selectAll("select DATE_FORMAT(created_at, '%Y-%m-%d'), count(*) from search_requests  where created_at > now() - interval 1 week group by DATE_FORMAT(created_at, '%Y-%m-%d') order by 1")) ?>,
 				xkey: "DATE_FORMAT(created_at, '%Y-%m-%d')",
 				ykeys: ["count(*)"],
 				labels: ['number'],

@@ -19,8 +19,12 @@ class DB {
 		// errors are reported by return values on every PHP version
 		mysqli_report(MYSQLI_REPORT_OFF);
 		list($host, $port, $socket) = self::connectParams(UOJConfig::$data['database']);
-		@$uojMySQL = mysqli_connect($host, UOJConfig::$data['database']['username'], UOJConfig::$data['database']['password'], UOJConfig::$data['database']['database'], $port, $socket);
-		if (!$uojMySQL) {
+		// utf8mb4 with the collation of the tables, on MySQL 5.7 and 8.4 alike: 8.4 lets a client
+		// choose its character set, and its own default collation is not the one of the tables
+		$uojMySQL = mysqli_init();
+		mysqli_options($uojMySQL, MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
+		mysqli_options($uojMySQL, MYSQLI_INIT_COMMAND, 'SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+		if (!@mysqli_real_connect($uojMySQL, $host, UOJConfig::$data['database']['username'], UOJConfig::$data['database']['password'], UOJConfig::$data['database']['database'], $port, $socket)) {
 			echo 'There is something wrong with database >_<.... ' . mysqli_connect_error() . "\n";
 			exit(1);
 		}

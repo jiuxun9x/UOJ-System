@@ -1,4 +1,4 @@
-FROM mysql:5.7
+FROM mysql:8.4
 MAINTAINER Baoshuo <i@baoshuo.ren>
 LABEL org.opencontainers.image.source=https://github.com/UniversalOJ/UOJ-System
 LABEL org.opencontainers.image.description="UOJ Database"
