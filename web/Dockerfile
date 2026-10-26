@@ -11,18 +11,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV TZ=Asia/Shanghai
 
+# PHP is the one of Ubuntu 24.04 itself, kept up by Ubuntu's security updates until 2029; no
+# repository of anybody else is added. The build stops when the PHP it got is older than the
+# one that fixes CVE-2026-109618 and CVE-2026-109619 (USN-8948-1): a mirror that lags behind
+# makes no vulnerable image. Ubuntu backports its fixes, so the version stays 8.3.6.
+ARG PHP_AT_LEAST=8.3.6-0ubuntu0.24.04.13
 RUN \
-    apt-get update && apt-get install -y --no-install-recommends software-properties-common gnupg curl ca-certificates && \
-    add-apt-repository -y ppa:ondrej/php && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      git vim ntp zip unzip curl wget xxd mysql-client rsync apache2 libapache2-mod-xsendfile \
-      php7.4 libapache2-mod-php7.4 php7.4-dev php-pear php7.4-zip php7.4-mysql php7.4-mbstring php7.4-gd php7.4-intl php7.4-xsl \
-      gcc-14 g++-14 make dpkg-dev re2c libyaml-dev libseccomp-dev && \
+      ca-certificates git vim ntp zip unzip curl wget xxd mysql-client rsync apache2 libapache2-mod-xsendfile \
+      php8.3 libapache2-mod-php8.3 php8.3-cli php8.3-zip php8.3-mysql php8.3-mbstring php8.3-gd php8.3-intl php8.3-xml php-yaml \
+      gcc-14 g++-14 make dpkg-dev re2c libseccomp-dev && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100 && \
     update-alternatives --install /usr/bin/cpp cpp-bin /usr/bin/cpp-14 100 && \
-    yes | pecl install yaml && \
+    php_version="$(dpkg-query -W -f='${Version}' php8.3-common)" && \
+    if ! dpkg --compare-versions "$php_version" ge "$PHP_AT_LEAST"; then \
+      echo "PHP $php_version is older than $PHP_AT_LEAST, which fixes CVE-2026-109618 and CVE-2026-109619" >&2; exit 1; \
+    fi && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -62,8 +68,7 @@ RUN sh web/install.sh -p && \
 
 # The web server never compiles or runs anything that comes with a problem, the judgers do.
 # Once its own tools are built, nothing that could do so is left in the image.
-RUN apt-mark manual libyaml-0-2 && \
-    apt-get purge -y gcc-14 g++-14 make dpkg-dev re2c libyaml-dev libseccomp-dev php7.4-dev && \
+RUN apt-get purge -y gcc-14 g++-14 make dpkg-dev re2c libseccomp-dev && \
     apt-get autoremove -y && \
     apt-get clean
 

@@ -92,6 +92,12 @@ jobs:
       - name: End-to-end tests
         run: python3 -m unittest discover -s tests/e2e -v
 
+      # a PHP error that stops a page, or a query that fails, is a failure even where no test
+      # looked at that page
+      - name: PHP errors and failed queries in the logs of the web server
+        if: always()
+        run: python3 tests/e2e/check_php_log.py
+
       # nothing of the web interface can be rendered where it is developed: these pictures are
       # how its pages are looked at
       - name: Screenshots of the pages

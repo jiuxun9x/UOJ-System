@@ -170,7 +170,8 @@
 		private $buf = '', $off = 0;
 
 		public function __construct($file_name) {
-			$this->f = fopen($file_name, 'r');
+			// a file that is not there is said by failed(), not in the log of the web server
+			$this->f = is_file($file_name) ? fopen($file_name, 'r') : false;
 		}
 
 		public function failed() {
