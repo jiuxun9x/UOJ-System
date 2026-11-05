@@ -1,0 +1,6 @@
+# The context of this image is the repository, of which it needs three files; BuildKit reads
+# this file in place of the .dockerignore of the repository, which leaves the tests out.
+*
+!db/app_uoj233.sql
+!db/add_judger.sql
+!tests/e2e/upgrade/mysql57/install.sh
