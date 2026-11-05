@@ -47,8 +47,10 @@ CPU_BOUND = r"""#include <cstdio>
 int main() {
     long long a, b;
     scanf("%lld%lld", &a, &b);
-    volatile unsigned long long x = 0;
-    for (long long i = 0; i < 150000000LL; i++) x = x + i;
+    // a chain of multiplications, each waiting for the one before: nothing to skip or to overlap
+    unsigned long long x = a;
+    for (long long i = 0; i < 400000000LL; i++) x = x * 6364136223846793005ULL + 1442695040888963407ULL;
+    if (x == 42) puts("never");
     printf("%lld\n", a + b);
 }
 """

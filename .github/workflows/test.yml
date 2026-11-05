@@ -215,6 +215,19 @@ jobs:
           UOJ_SPEED_JUDGERS: speed-cpu0,speed-cpu1,speed-cpu2,speed-cpu3
         run: python3 tests/e2e/judging_speed.py timing judging-speed/timing-4.json
 
+      # the four CPUs of the runners are two cores with two hyperthreads each: the same, with one
+      # judger on each core, as workers.sh does by default
+      - name: Times of programs judged alone and two at once, on two cores
+        run: |
+          docker compose -p speedworkers -f speed-workers.yml down -t 5
+          CPUS=$(for f in /sys/devices/system/cpu/cpu[0-9]*/topology/thread_siblings_list; do cut -d, -f1 "$f" | cut -d- -f1; done | sort -un | head -n 2 | paste -sd, -)
+          echo "one judger on each of the CPUs $CPUS"
+          bash judger/workers.sh --url http://host.docker.internal --name compose_judger_2 --password _judger_password_2_ \
+            --cpus "$CPUS" --image ghcr.io/universaloj/uoj-judger:latest --prefix speed2 \
+            --add-host host.docker.internal:host-gateway --output speed-workers-2.yml
+          docker compose -p speedworkers2 -f speed-workers-2.yml up -d
+          UOJ_SPEED_JUDGERS=$(echo "$CPUS" | sed -E 's/[0-9]+/speed2-cpu&/g') python3 tests/e2e/judging_speed.py timing judging-speed/timing-2.json
+
       - name: Collect logs
         if: always()
         run: |
