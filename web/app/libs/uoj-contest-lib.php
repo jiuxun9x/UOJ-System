@@ -961,6 +961,77 @@ function queryContestData($contest, $config = array()) {
 	return ['problems' => $problems, 'data' => $data, 'people' => $people, 'final' => !$config['pre_final'] && $contest['cur_progress'] >= CONTEST_FINISHED];
 }
 
+// ---- who solved first
+//
+// Who solved a problem first, and who solved anything first, is who passed first: by the second
+// of the contest the submission was made at, and within a second by the number of the
+// submission. That is known only once nothing that was submitted before it waits to be judged
+// any more: a submission that several judgers, a rejudge or the final tests judge later than the
+// ones after it may still pass, and be first. Until then a first is not sure, and the boards and
+// the balloons do not call it first, as DOMjudge does with its first to solve.
+//   $passed   what passed: rows of submission id, seconds into the contest, who, position of
+//             the problem; in any order
+//   $waiting  what is not judged yet: rows of the same
+// Returns array('problems' => position => array('key' => who, 'submission' => id, 'offset' =>
+// seconds, 'sure' => whether it is known to be first), 'contest' => the same of the first to
+// solve anything, or null).
+function contestFirstSolves($passed, $waiting = array()) {
+	usort($passed, function($lhs, $rhs) {
+		return $lhs[1] != $rhs[1] ? $lhs[1] - $rhs[1] : $lhs[0] - $rhs[0];
+	});
+	$firsts = array('problems' => array(), 'contest' => null);
+	foreach ($passed as $row) {
+		$first = array('key' => (string)$row[2], 'submission' => (int)$row[0], 'offset' => (int)$row[1], 'sure' => true);
+		if (!isset($firsts['problems'][(int)$row[3]])) {
+			$firsts['problems'][(int)$row[3]] = $first;
+		}
+		if ($firsts['contest'] === null) {
+			$firsts['contest'] = $first;
+		}
+	}
+	foreach ($waiting as $row) {
+		$before = function($first) use ($row) {
+			return $first !== null && ((int)$row[1] < $first['offset'] || ((int)$row[1] == $first['offset'] && (int)$row[0] < $first['submission']));
+		};
+		if (isset($firsts['problems'][(int)$row[3]]) && $before($firsts['problems'][(int)$row[3]])) {
+			$firsts['problems'][(int)$row[3]]['sure'] = false;
+		}
+		if ($before($firsts['contest'])) {
+			$firsts['contest']['sure'] = false;
+		}
+	}
+	return $firsts;
+}
+// What passed, as the cells of the standings say it: rows for contestFirstSolves(). A cell
+// tells the submission that counts, and under the ICPC rule the time it passed at with the
+// penalty of the attempts before.
+function contestPassedOfScore($rule, $score) {
+	$passed = array();
+	foreach ($score as $key => $cells) {
+		foreach ($cells as $pos => $cell) {
+			if ($rule === 'ICPC' ? $cell[0] != 100 : $cell[0] < 100) {
+				continue;
+			}
+			$at = $rule === 'ICPC' ? $cell[1] - CONTEST_ICPC_PENALTY * (isset($cell[3]) ? (int)$cell[3] : 0) : $cell[1];
+			$passed[] = array((int)$cell[2], (int)$at, (string)$key, (int)$pos);
+		}
+	}
+	return $passed;
+}
+// What of a contest waits to be judged, or to be judged again: rows for contestFirstSolves().
+function contestWaitingSubmissions($contest) {
+	$pos = array_flip(array_map('intval', contestProblemIds($contest['id'])));
+	$rows = array();
+	$start = DB::escape($contest['start_time_str']);
+	foreach (DB::selectAll("select id, timestampdiff(second, '$start', submit_time) as offset, submitter, problem_id from submissions"
+			." where contest_id = {$contest['id']} and status in ('Waiting', 'Judging', 'Waiting Rejudge', 'Judged, Waiting', 'Judged, Judging')", MYSQLI_ASSOC) as $row) {
+		if (isset($pos[(int)$row['problem_id']])) {
+			$rows[] = array((int)$row['id'], (int)$row['offset'], (string)$row['submitter'], $pos[(int)$row['problem_id']]);
+		}
+	}
+	return $rows;
+}
+
 // $freeze_offset: the standings as the people see them who are kept from what was submitted
 // after so many seconds of the contest, see contestCells()
 function calcStandings($contest, $contest_data, &$score, &$standings, $update_contests_submissions = false, $freeze_offset = null) {

@@ -44,6 +44,42 @@ check_same(array(
 	'5 eve 0/0 dirt=NULL band=1 . . . failed:-3@0:05 .',
 	'5 fay 0/0 dirt=NULL band=1 . . . . .'
 ), array_map($line, $board['rows']), 'the rows of an ICPC board: who solved what when, who was first, and the bands by how many were solved');
+// Who solved first is told only when it is sure, and of the same second the smaller number is
+// first, as on the balloon page: bob and cat solved E at the same second, cat with the smaller
+// number though bob stands above him.
+$same_second = $score;
+$same_second['bob'][4] = array(100, 3600, 27, 0, 0);
+$same_second['cat'][4] = array(100, 3600, 26, 0, 0);
+$kinds = function($board, $pos) {
+	$kinds = array();
+	foreach ($board['rows'] as $row) {
+		if ($row['cells'][$pos]['kind'] !== 'none') {
+			$kinds[] = $row['key'] . ':' . $row['cells'][$pos]['kind'];
+		}
+	}
+	return join(' ', $kinds);
+};
+check_same('bob:solved cat:first', $kinds(contestOuterBoard('ICPC', 5, $standings, $same_second, $last_try), 4), 'of the same second, the smaller number is first');
+// a submission of before that is not judged yet may pass and be first: until it is judged nobody is
+check_same('bob:solved cat:solved', $kinds(contestOuterBoard('ICPC', 5, $standings, $same_second, $last_try, array(array(25, 3500, 'eve', 4))), 4),
+	'nobody is first while something submitted before waits');
+check_same('bob:solved cat:first', $kinds(contestOuterBoard('ICPC', 5, $standings, $same_second, $last_try, array(array(28, 3600, 'eve', 4), array(29, 100, 'eve', 3))), 4),
+	'what waits that was submitted after, or to another problem, does not matter');
+check_same('ann:solved bob:solved cat:solved dan:first', $kinds(contestOuterBoard('ICPC', 5, $standings, $score, $last_try, array(array(25, 3500, 'eve', 4))), 0), 'nor to the first of another problem');
+
+// contestFirstSolves(): by the second and then the number, sure once nothing before it waits
+$firsts = contestFirstSolves(array(array(9, 300, 'bob', 1), array(7, 100, 'ann', 0), array(8, 100, 'cat', 1)), array(array(6, 200, 'dan', 1)));
+check_same(array('key' => 'ann', 'submission' => 7, 'offset' => 100, 'sure' => true), $firsts['contest'], 'the first of all, sure');
+check_same(array('key' => 'cat', 'submission' => 8, 'offset' => 100, 'sure' => true), $firsts['problems'][1], 'the first of a problem, sure, though something after it waits');
+$firsts = contestFirstSolves(array(array(9, 300, 'bob', 1)), array(array(6, 200, 'dan', 0)));
+check_same(false, $firsts['contest']['sure'], 'the first of all is not sure while anything submitted before waits');
+check_same(true, $firsts['problems'][1]['sure'], 'the first of a problem is, where it waits for another problem');
+check_same(array('problems' => array(), 'contest' => null), contestFirstSolves(array(), array(array(1, 1, 'ann', 0))), 'nobody solved anything');
+check_same(array(array(11, 3000, 'ann', 0), array(13, 1800, 'ann', 2), array(41, 600, 'dan', 0)),
+	array_values(array_filter(contestPassedOfScore('ICPC', $score), function($row) {
+		return $row[2] === 'ann' && $row[3] != 1 || $row[2] === 'dan';
+	})), 'what passed, with the time it passed at, not the penalty, and nothing that did not');
+
 // of what a row solved, how much was submitted for nothing: ann solved three with five
 // submissions, two of them in vain; what she failed and did not solve is not counted
 check_same(40, $board['rows'][0]['dirt'], 'dirt is counted in what was solved');

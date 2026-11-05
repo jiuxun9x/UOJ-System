@@ -8,7 +8,6 @@
 		$problems[] = queryProblemBrief($problem_id);
 	}
 	// for every problem: who solved it first, how many solved it and how many tried
-	$first = array();
 	$solved_by = array();
 	$tried_by = array();
 	// (everybody who is on the board is counted: with the people who sat the contest virtually
@@ -16,14 +15,17 @@
 	foreach ($score as $username => $cells) {
 		foreach ($cells as $pos => $cell) {
 			$tried_by[$pos] = isset($tried_by[$pos]) ? $tried_by[$pos] + 1 : 1;
-			if ($cell[0] != 100) {
-				continue;
+			if ($cell[0] == 100) {
+				$solved_by[$pos] = isset($solved_by[$pos]) ? $solved_by[$pos] + 1 : 1;
 			}
-			$solved_at = $cell[1] - CONTEST_ICPC_PENALTY * (isset($cell[3]) ? $cell[3] : 0);
-			$solved_by[$pos] = isset($solved_by[$pos]) ? $solved_by[$pos] + 1 : 1;
-			if (!isset($first[$pos]) || $solved_at < $first[$pos][0]) {
-				$first[$pos] = array($solved_at, (string)$username);
-			}
+		}
+	}
+	// who solved a problem first, once nothing submitted before waits to be judged ($waiting:
+	// what does, see contestFirstSolves())
+	$first = array();
+	foreach (contestFirstSolves(contestPassedOfScore('ICPC', $score), isset($waiting) ? $waiting : array())['problems'] as $pos => $solve) {
+		if ($solve['sure']) {
+			$first[$pos] = array($solve['offset'], $solve['key']);
 		}
 	}
 	// a cell of the board: how it went for somebody on a problem

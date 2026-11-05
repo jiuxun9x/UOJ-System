@@ -656,6 +656,13 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 	color: #fff;
 	background-color: #1e9e3a;
 }
+/* first unless something submitted before it passes: nothing to clap for yet */
+.uoj-award-pending {
+	color: #6c757d;
+	font-weight: 400;
+	background-color: transparent;
+	box-shadow: inset 0 0 0 1px #adb5bd;
+}
 .uoj-balloons tr.uoj-balloon-first > td:first-child {
 	box-shadow: inset 4px 0 0 #1e9e3a;
 }

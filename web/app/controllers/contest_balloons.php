@@ -308,6 +308,12 @@
 						<?php if ($balloon['first_for_problem']): ?>
 						<span class="uoj-award uoj-award-problem" data-award="problem" title="第一个通过这道题的选手">★ <?= $balloon['letter'] ?> 题一血</span>
 						<?php endif ?>
+						<?php if ($balloon['first_in_contest_pending']): ?>
+						<span class="uoj-award uoj-award-pending" data-award="contest_pending" title="比它早的提交还在评测，评完才知道是不是全场一血">全场一血待定</span>
+						<?php endif ?>
+						<?php if ($balloon['first_for_problem_pending']): ?>
+						<span class="uoj-award uoj-award-pending" data-award="problem_pending" title="比它早的提交还在评测，评完才知道是不是这道题的一血"><?= $balloon['letter'] ?> 题一血待定</span>
+						<?php endif ?>
 					</td>
 					<td class="uoj-bl-act text-right text-nowrap">
 						<form method="post" class="d-inline">

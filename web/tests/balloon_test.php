@@ -2,15 +2,17 @@
 
 // The balloons of a contest: who is brought one, for what, and what is said of it.
 
+require_once __DIR__ . '/../app/libs/uoj-contest-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-balloon-lib.php';
 
 // a balloon as one line: when, who, which problem, what is special about it, what they have
-$lines = function($passed, $until = null) {
-	list($balloons, $held_back) = balloonsOf($passed, $until);
+$lines = function($passed, $until = null, $waiting = array()) {
+	list($balloons, $held_back) = balloonsOf($passed, $until, $waiting);
 	$lines = array();
 	foreach ($balloons as $balloon) {
 		$lines[] = $balloon['offset'] . ' ' . $balloon['username'] . ' ' . chr(ord('A') + $balloon['pos'])
 			. ($balloon['first_in_contest'] ? ' first' : '') . ($balloon['first_for_problem'] ? ' first-of-problem' : '')
+			. ($balloon['first_in_contest_pending'] ? ' first?' : '') . ($balloon['first_for_problem_pending'] ? ' first-of-problem?' : '')
 			. ' #' . $balloon['nth'] . ' has ' . join('', array_map(function($pos) {
 				return chr(ord('A') + $pos);
 			}, $balloon['has'])) . ' by ' . $balloon['submission'];
@@ -119,3 +121,24 @@ check_same(array('#ffffff', '#000000', '#000000', '#ffffff', '#ffffff', '#000000
 
 // ---- which contests have balloons to give
 check_same(array(true, true, false), array(balloonRuleGives('ICPC'), balloonRuleGives('IOI'), balloonRuleGives('OI')), 'a rule that tells nobody what was solved gives no balloons');
+
+// ---- what was submitted before and is not judged yet
+// (several judgers judge at once: a later submission may be judged before an earlier one)
+$passed = array(array(20, 900, 'bob', 0), array(21, 1000, 'cat', 1));
+check_same(array(array('900 bob A first? first-of-problem? #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines($passed, null, array(array(19, 600, 'ann', 0))),
+	'a first is not sure while something submitted before it to the problem waits to be judged');
+check_same(array(array('900 bob A first first-of-problem #1 has A by 20', '1000 cat B first-of-problem? #1 has B by 21'), 0),
+	$lines($passed, null, array(array(22, 950, 'ann', 1))),
+	'what was submitted after the first of a problem does not matter to it, but to the first of later problems');
+check_same(array(array('900 bob A first first-of-problem #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines($passed, null, array(array(23, 1100, 'ann', 0), array(24, 1100, 'ann', 1))),
+	'nothing waits that was submitted before');
+// within the same second the number decides, there as here
+check_same(array(array('900 bob A first? first-of-problem? #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines($passed, null, array(array(18, 900, 'ann', 0))), 'a submission of the same second with a smaller number waits');
+check_same(array(array('900 bob A first first-of-problem #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines($passed, null, array(array(25, 900, 'ann', 0))), 'one of the same second with a larger number does not');
+// once it is judged and passed, it is the first
+check_same(array(array('600 ann A first first-of-problem #1 has A by 19', '900 bob A #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines(array_merge($passed, array(array(19, 600, 'ann', 0)))), 'and the earlier one that passed is the first');

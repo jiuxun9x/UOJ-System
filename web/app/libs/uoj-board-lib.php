@@ -14,6 +14,8 @@
 //   $score       what calcStandings() made: who => position => cell
 //   $last_try    who => position => seconds into the contest of their last submission to
 //                the problem, where it is known: it stands under what was tried in vain
+//   $waiting     what waits to be judged, see contestFirstSolves(): who solved first is told
+//                only once nothing submitted before waits
 // Returns array(
 //   'problems' => position => array('solved' => how many solved it (under the other rules:
 //                 got all of it), 'tries' => how many submissions to it count (under the
@@ -26,24 +28,22 @@
 //                 => array('kind' => 'none', 'first', 'solved', 'part', 'failed' or
 //                 'pending', 'says', 'under'))
 // )
-function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = array()) {
+function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = array(), $waiting = array()) {
 	$icpc = $rule === 'ICPC';
 	$problems = array();
 	for ($pos = 0; $pos < $n_problems; $pos++) {
 		$problems[$pos] = array('solved' => 0, 'tries' => 0);
 	}
-	// when a problem was solved for the first time, and by whom
-	$first = array();
+	// who solved a problem first, of the people on the board, once that is sure
+	$on_board = array();
 	foreach ($standings as $row) {
 		$key = (string)$row[2][0];
-		foreach (isset($score[$key]) ? $score[$key] : array() as $pos => $cell) {
-			if ($cell[0] < 100) {
-				continue;
-			}
-			$at = $icpc ? $cell[1] - CONTEST_ICPC_PENALTY * (isset($cell[3]) ? (int)$cell[3] : 0) : $cell[1];
-			if (!isset($first[$pos]) || $at < $first[$pos][0]) {
-				$first[$pos] = array($at, $key);
-			}
+		$on_board[$key] = isset($score[$key]) ? $score[$key] : array();
+	}
+	$first = array();
+	foreach (contestFirstSolves(contestPassedOfScore($icpc ? 'ICPC' : $rule, $on_board), $waiting)['problems'] as $pos => $solve) {
+		if ($solve['sure']) {
+			$first[$pos] = array($solve['offset'], $solve['key']);
 		}
 	}
 	$rows = array();
@@ -138,7 +138,7 @@ function boardVersion($contest) {
 function boardTable($contest, $standings, $score, $last_try) {
 	$rule = contestRule($contest);
 	$problem_ids = array_map('intval', contestProblemIds($contest['id']));
-	$board = contestOuterBoard($rule, count($problem_ids), $standings, $score, $last_try);
+	$board = contestOuterBoard($rule, count($problem_ids), $standings, $score, $last_try, contestWaitingSubmissions($contest));
 	$colors = balloonsEnabled($contest) ? balloonColors($contest) : array();
 	$problems = array();
 	foreach ($problem_ids as $pos => $problem_id) {

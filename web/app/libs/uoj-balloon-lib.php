@@ -188,22 +188,25 @@ function balloonRuleGives($rule) {
 }
 
 // The balloons of a contest.
-//   $passed  the submissions of its contestants that passed: rows of id, seconds into the
-//            contest, username, position of the problem; in any order
-//   $until   seconds into the contest from which on no balloon is given, or null
+//   $passed   the submissions of its contestants that passed: rows of id, seconds into the
+//             contest, username, position of the problem; in any order
+//   $until    seconds into the contest from which on no balloon is given, or null
+//   $waiting  the submissions that wait to be judged, rows of the same: a first is a first
+//             only once nothing submitted before it waits (contestFirstSolves())
 // Returns array(the balloons, how many were held back). A balloon is the first time a
 // contestant solved a problem: array('username', 'pos', 'submission', 'offset',
-// 'first_in_contest', 'first_for_problem', 'nth' => the how-manieth balloon of the
-// contestant it is, 'has' => the positions of the balloons they have with this one, in the
-// order they got them). The oldest balloon is first.
-function balloonsOf($passed, $until = null) {
+// 'first_in_contest', 'first_for_problem' (sure firsts only), 'first_in_contest_pending',
+// 'first_for_problem_pending' (it is first unless something submitted before it passes),
+// 'nth' => the how-manieth balloon of the contestant it is, 'has' => the positions of the
+// balloons they have with this one, in the order they got them). The oldest balloon is first.
+function balloonsOf($passed, $until = null, $waiting = array()) {
+	$firsts = contestFirstSolves($passed, $waiting);
 	usort($passed, function($lhs, $rhs) {
 		return $lhs[1] != $rhs[1] ? $lhs[1] - $rhs[1] : $lhs[0] - $rhs[0];
 	});
 	$balloons = array();
 	$held_back = 0;
 	$has = array();
-	$solved = array();
 	foreach ($passed as $row) {
 		list($id, $offset, $username, $pos) = $row;
 		$username = (string)$username;
@@ -217,12 +220,16 @@ function balloonsOf($passed, $until = null) {
 			continue;
 		}
 		$has[$username][] = $pos;
+		$of_contest = $firsts['contest'] !== null && $firsts['contest']['submission'] === (int)$id;
+		$of_problem = isset($firsts['problems'][$pos]) && $firsts['problems'][$pos]['submission'] === (int)$id;
 		$balloons[] = array(
 			'username' => $username, 'pos' => $pos, 'submission' => (int)$id, 'offset' => (int)$offset,
-			'first_in_contest' => !$balloons, 'first_for_problem' => !isset($solved[$pos]),
+			'first_in_contest' => $of_contest && $firsts['contest']['sure'],
+			'first_for_problem' => $of_problem && $firsts['problems'][$pos]['sure'],
+			'first_in_contest_pending' => $of_contest && !$firsts['contest']['sure'],
+			'first_for_problem_pending' => $of_problem && !$firsts['problems'][$pos]['sure'],
 			'nth' => count($has[$username]), 'has' => $has[$username]
 		);
-		$solved[$pos] = true;
 	}
 	return array($balloons, $held_back);
 }
@@ -273,7 +280,7 @@ function balloonQueue($contest) {
 			$passed[] = array((int)$row['id'], strtotime($row['submit_time']) - $start, (string)$row['submitter'], $pos[(int)$row['problem_id']]);
 		}
 	}
-	list($balloons, $held_back) = balloonsOf($passed, balloonsHeldFrom($contest));
+	list($balloons, $held_back) = balloonsOf($passed, balloonsHeldFrom($contest), contestWaitingSubmissions($contest));
 	$done = array();
 	foreach (DB::selectAll("select username, problem_id, done_at, done_by from contest_balloons where contest_id = {$contest['id']}", MYSQLI_ASSOC) as $row) {
 		$done[$row['username'] . '/' . (int)$row['problem_id']] = $row;

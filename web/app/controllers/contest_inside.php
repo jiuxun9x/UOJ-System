@@ -577,7 +577,8 @@ EOD;
 			'contest_data' => $contest_data,
 			'frozen' => $frozen,
 			'mine' => $mine,
-			'me' => $me
+			'me' => $me,
+			'waiting' => contestWaitingSubmissions($contest)
 		]);
 		if ($my_virtual) {
 			// the board moves on with the clock

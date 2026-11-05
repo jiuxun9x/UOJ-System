@@ -15,6 +15,8 @@ import uuid
 
 import requests
 
+import test_phase3 as p3
+import test_phase9 as p9
 import uoj
 from fixtures import AB, AB_SLOW, ab_problem_files
 from uoj import db, db_value
@@ -429,6 +431,89 @@ class JudgeRequestTest(unittest.TestCase):
         self.assertEqual(r.status_code, 403)
         # the pages keep their sessions
         self.assertIn("UOJSESSID=", requests.get(uoj.BASE_URL + "/login").headers.get("Set-Cookie", ""))
+
+
+class FirstSolveTest(unittest.TestCase):
+    """Who solved first is told only once nothing submitted before waits to be judged: several
+    judgers judge at once, and a later submission may be judged before an earlier one (as
+    DOMjudge has it). Of the same second, the smaller number is first, everywhere."""
+
+    JUDGED = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+
+    def judge(self, task, worker):
+        r = uoj.judge_api("/judge/submit", {"fetch_new": "0", "worker": worker, "submit": "1", "id": task["id"], "claim": task["claim"], "result": json.dumps(self.JUDGED)})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(uoj.wait_submission(task["id"]).score, 100)
+
+    def everywhere(self, admin, contest_id):
+        """who is first of what: on the balloon list (awards), on the board of the contest and on
+        the outer board (the cells that say first), by username and letter"""
+        rows, _ = p9.balloon_list(admin, contest_id)
+        balloons = {(name, letter): awards for name, letter, _, _, awards, _ in rows}
+        board, _, _ = p9.icpc_board(admin, contest_id)
+        on_board = {(name, letter) for name, (_, _, cells) in board.items() for letter, (kind, _) in cells.items() if kind == "first"}
+        told = admin.get("/contest/%d/board?json=1" % contest_id).json()
+        letters = [problem["letter"] for problem in told["problems"]]
+        outer = {(row["username"], letters[pos]) for row in told["rows"] for pos, cell in enumerate(row["cells"]) if cell[0] == "first"}
+        return balloons, on_board, outer
+
+    def test_first_is_told_once_nothing_before_it_waits(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p14 一血", minutes=300, rule="ICPC", problems="%d, %d" % (first, second))
+        manage, balloons = "/contest/%d/manage" % contest_id, "/contest/%d/balloons" % contest_id
+        ann, bob = p3.account("p14_fs_ann"), p3.account("p14_fs_bob")
+        self.assertEqual(admin.form(manage, "add_contestants", tab="contestants", names="p14_fs_ann A-1\np14_fs_bob A-2"), "")
+        self.assertEqual(admin.form(balloons, "settings", balloons="on"), "")
+        uoj.move_contest(contest_id, -100 * 60, 300)
+
+        def at(minutes, submission_id):
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute)"
+               " where id = %d" % (contest_id, minutes, submission_id))  # fmt: skip
+            return submission_id
+
+        # nothing is judged meanwhile but what the fake judger is given
+        uoj.wait_idle()
+        names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
+        self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
+
+        # ---- ann submitted first and bob after her; bob's submission is judged first
+        early = at(10, ann.submit_in_contest(contest_id, first, AB))
+        late = at(20, bob.submit_in_contest(contest_id, first, AB))
+        task_early = uoj.fake_fetch(worker="e2e-first-solve-one")
+        task_late = uoj.fake_fetch(worker="e2e-first-solve-two")
+        self.assertEqual((task_early["id"], task_late["id"]), (early, late))
+        self.judge(task_late, "e2e-first-solve-two")
+        # bob passed, but ann's earlier submission may pass too: bob is nobody's first yet
+        balloons_of, on_board, outer = self.everywhere(admin, contest_id)
+        self.assertEqual(balloons_of, {("p14_fs_bob", "A"): ("contest_pending", "problem_pending")})
+        self.assertEqual((on_board, outer), (set(), set()))
+        page = admin.get(balloons).text
+        self.assertIn("A 题一血待定", uoj.text_of(page))
+        self.assertNotIn("uoj-balloon-starred", page)
+
+        # ---- ann's passes: she is the first, and bob is not
+        self.judge(task_early, "e2e-first-solve-one")
+        balloons_of, on_board, outer = self.everywhere(admin, contest_id)
+        self.assertEqual(balloons_of, {("p14_fs_ann", "A"): ("contest", "problem"), ("p14_fs_bob", "A"): ()})
+        self.assertEqual(on_board, {("p14_fs_ann", "A")})
+        self.assertEqual(outer, {("p14_fs_ann", "A")})
+
+        # ---- B: bob and ann at the same second, bob with the smaller number. ann stands above
+        # him on the board, and still bob is first, on the board as on the balloon list.
+        bob_b = at(30, bob.submit_in_contest(contest_id, second, AB))
+        ann_b = at(30, ann.submit_in_contest(contest_id, second, AB))
+        self.assertLess(bob_b, ann_b)
+        for worker in ("e2e-first-solve-one", "e2e-first-solve-two"):
+            self.judge(uoj.fake_fetch(worker=worker), worker)
+        board, _, _ = p9.icpc_board(admin, contest_id)
+        self.assertLess(board["p14_fs_ann"][0], board["p14_fs_bob"][0])
+        balloons_of, on_board, outer = self.everywhere(admin, contest_id)
+        self.assertEqual(balloons_of[("p14_fs_bob", "B")], ("problem",))
+        self.assertEqual(balloons_of[("p14_fs_ann", "B")], ())
+        self.assertEqual(on_board, {("p14_fs_ann", "A"), ("p14_fs_bob", "B")})
+        self.assertEqual(outer, {("p14_fs_ann", "A"), ("p14_fs_bob", "B")})
 
 
 if __name__ == "__main__":
