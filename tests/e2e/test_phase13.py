@@ -164,7 +164,7 @@ class PasswordResetTest(unittest.TestCase):
         uoj.client(("p13_asker", "p13-asker-password"))
         known, token = self.ask("p13_asker")
         self.assertIsNotNone(token)
-        unknown, none = self.ask("p13_nobody_is_called_so")
+        unknown, none = self.ask("p13_nobody")
         self.assertIsNone(none)
         self.assertEqual(answer(known), answer(unknown))
         # who asks again within a minute is told the same, and is sent nothing
