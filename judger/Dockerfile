@@ -42,5 +42,12 @@ WORKDIR /opt/uoj_judger
 # Install environment and set startup script
 RUN sh install.sh -p && sh install.sh -d
 
+# <bits/stdc++.h> compiled ahead, once for every standard of C++, by run/compile itself with the
+# options it compiles programs with: gcc takes a precompiled header only where they are the same
+RUN /opt/uoj_judger/uoj_judger/run/compile --make-pch /usr/local/lib/uoj-pch \
+      "$(echo '#include <bits/stdc++.h>' | g++ -x c++ -H -fsyntax-only - 2>&1 >/dev/null | sed -n 's/^\. //p' | head -n 1)" && \
+    chmod -R a+rX /usr/local/lib/uoj-pch && \
+    du -sh /usr/local/lib/uoj-pch/*
+
 EXPOSE 2333
 CMD ["/opt/up"]

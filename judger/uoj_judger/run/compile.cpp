@@ -62,6 +62,18 @@ const std::vector<std::pair<const char *, const char *>> suffix_search_list = {
     {".py", "Python3"},
 };
 
+// Precompiled <bits/stdc++.h>, one for each standard of C++, in <UOJ_PCH_DIR>/<standard>/bits/.
+// A program whose first line is #include <bits/stdc++.h> is compiled with the folder of its
+// standard ahead of the others; gcc then reads the header already compiled instead of compiling
+// it again, which is most of the time a small program takes to compile. gcc takes a precompiled
+// header only where it was made with the same options, and otherwise goes on to the header
+// itself, so both are made with cpp_options() below. A program with anything before the
+// #include, such as a #define or a #pragma that could change what the header means, is compiled
+// the ordinary way.
+#define UOJ_PCH_DIR "/usr/local/lib/uoj-pch"
+const std::vector<std::string> pch_standards = {"c++98", "c++03", "c++11", "c++14",
+                                                "c++17", "c++20", "c++23", "c++26"};
+
 struct compile_config {
     std::string name;
     std::string src;
@@ -73,6 +85,10 @@ struct compile_config {
     // macros that a program of C or C++ is compiled with, such as DOMJUDGE for an output
     // validator written for DOMjudge
     std::vector<std::string> defines;
+    // whether a precompiled header may be used
+    bool pch = true;
+    // whether the options the compiler is run with are written to stderr
+    bool verbose = false;
 
     void auto_find_src() {
         if (!src.empty()) {
@@ -116,6 +132,12 @@ error_t compile_argp_parse_opt(int key, char *arg, struct argp_state *state) {
                 }
                 config->defines.push_back(arg);
                 break;
+            case 'P':
+                config->pch = false;
+                break;
+            case 'v':
+                config->verbose = true;
+                break;
             case ARGP_KEY_ARG:
                 config->name = arg;
                 break;
@@ -146,6 +168,8 @@ compile_config parse_args(int argc, char **argv) {
          "preprocessing (for C/C++)",
          5},
         {"define", 'D', "NAME", 0, "define a macro (for C/C++)", 6},
+        {"no-pch", 'P', 0, 0, "never use a precompiled header (for C++)", 7},
+        {"verbose", 'v', 0, 0, "write the options of the compiler to stderr (for C/C++)", 8},
         {0}};
     char argp_args_doc[] = "name";
     char argp_doc[] = "compile: a tool to compile programs";
@@ -354,14 +378,113 @@ std::string get_java_main_class(const std::string &src) {
     throw compile_error("Cannot find the main class.");
 }
 
+// the options a program of C++ is compiled with, but where it is and where it goes
+std::string cpp_options(const std::string &std) {
+    std::ostringstream sout;
+    spaced_out(sout, "-O2", "-DONLINE_JUDGE", "-std=" + std);
+    return sout.str();
+}
+
+// Whether the first line of a program that is not empty and not a comment is
+// #include <bits/stdc++.h>. Where that can not be told for sure, it is not.
+bool starts_with_bits_include(const std::string &src) {
+    std::ifstream fin(src, std::ios::binary);
+    if (!fin) {
+        return false;
+    }
+    std::string text(1 << 16, '\0');
+    fin.read(&text[0], text.size());
+    text.resize(fin.gcount());
+
+    size_t p = 0;
+    if (text.compare(0, 3, "\xEF\xBB\xBF") == 0) {
+        p = 3;
+    }
+    while (p < text.size()) {
+        char c = text[p];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v') {
+            p++;
+        } else if (text.compare(p, 2, "//") == 0) {
+            size_t end = text.find('\n', p);
+            if (end == std::string::npos) {
+                return false;
+            }
+            // a backslash at the end makes the next line part of the comment, and so does ??/
+            // where trigraphs are read (-std=c++14 and older)
+            size_t last = end;
+            while (last > p && (text[last - 1] == '\r' || text[last - 1] == ' ' || text[last - 1] == '\t')) {
+                last--;
+            }
+            if (last > p && text[last - 1] == '\\') {
+                return false;
+            }
+            if (last >= p + 3 && text.compare(last - 3, 3, "?\?/") == 0) {
+                return false;
+            }
+            p = end + 1;
+        } else if (text.compare(p, 2, "/*") == 0) {
+            size_t end = text.find("*/", p + 2);
+            if (end == std::string::npos) {
+                return false;
+            }
+            p = end + 2;
+        } else {
+            break;
+        }
+    }
+    size_t end = text.find('\n', p);
+    if (end == std::string::npos) {
+        return false;
+    }
+    static const std::regex bits_include(
+        "#[ \t]*include[ \t]*<bits/stdc\\+\\+\\.h>[ \t]*(//[^\\\\]*)?\r?");
+    return std::regex_match(text.substr(p, end - p), bits_include);
+}
+
+// the folder with the precompiled header that a program is compiled with, or "" for none
+std::string pch_dir_for(const compile_config &conf, const std::string &std) {
+    if (!conf.pch || !conf.implementer.empty()) {
+        return "";
+    }
+    fs::path dir = fs::path(UOJ_PCH_DIR) / std;
+    std::error_code ec;
+    if (!fs::is_regular_file(dir / "bits" / "stdc++.h.gch", ec) || !starts_with_bits_include(conf.src)) {
+        return "";
+    }
+    return dir.string();
+}
+
+// Makes the precompiled headers, from the header that #include <bits/stdc++.h> finds.
+int make_pch(const std::string &dir, const std::string &header) {
+    for (const auto &std : pch_standards) {
+        fs::path target = fs::path(dir) / std / "bits";
+        fs::create_directories(target);
+        int ret = execute(UOJ_GPLUSPLUS, cpp_options(std), "-x", "c++-header", escapeshellarg(header),
+                          "-o", escapeshellarg((target / "stdc++.h.gch").string()));
+        if (ret != 0) {
+            std::cerr << "failed to precompile " << header << " for " << std << std::endl;
+            fs::remove_all(fs::path(dir) / std);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int compile_cpp(const compile_config &conf, const std::string &std) {
     std::ostringstream sflags;
-    spaced_out(sflags, "-lm", "-O2", "-DONLINE_JUDGE", "-std=" + std);
+    spaced_out(sflags, "-lm", cpp_options(std));
+    std::string pch_dir = pch_dir_for(conf, std);
+    if (!pch_dir.empty()) {
+        add_spaced_out(sflags, "-I" + pch_dir);
+    }
     for (auto dir : conf.cinclude_dirs) {
         add_spaced_out(sflags, "-I" + dir);
     }
     for (const auto &name : conf.defines) {
         add_spaced_out(sflags, "-D" + name);
+    }
+    if (conf.verbose) {
+        std::cerr << sflags.str() << std::endl;
     }
 
     if (conf.implementer.empty()) {
@@ -379,6 +502,9 @@ int compile_c(const compile_config &conf, const std::string &std) {
     }
     for (const auto &name : conf.defines) {
         add_spaced_out(sflags, "-D" + name);
+    }
+    if (conf.verbose) {
+        std::cerr << sflags.str() << std::endl;
     }
 
     if (conf.implementer.empty()) {
@@ -518,6 +644,9 @@ int compile(const compile_config &conf) {
 
 int main(int argc, char **argv) {
     try {
+        if (argc == 4 && std::string(argv[1]) == "--make-pch") {
+            return make_pch(argv[2], argv[3]);
+        }
         return compile(parse_args(argc, argv));
     } catch (std::exception &e) {
         std::cerr << e.what() << std::endl;

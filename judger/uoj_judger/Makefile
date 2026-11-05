@@ -30,7 +30,7 @@ EXE = main_judger \
 	builtin/judger/judger \
 	$(EXE_CHECKER)
 
-TESTS = tests/test_conf_run_limit_v1 tests/test_conf_run_limit_v2 tests/test_status_log_v1 tests/test_status_log_v2
+TESTS = tests/test_conf_run_limit_v1 tests/test_conf_run_limit_v2 tests/test_status_log_v1 tests/test_status_log_v2 tests/test_compile_pch
 
 all: $(EXE)
 
@@ -60,6 +60,9 @@ tests/test_status_log_v1: tests/test_status_log.cpp include/*.h
 
 tests/test_status_log_v2: tests/test_status_log.cpp include/*.h
 	$(CXX) $(CXXFLAGS) -DUOJ_TEST_JUDGER_V2 $< -o $@
+
+tests/test_compile_pch: tests/test_compile_pch.cpp run/compile.cpp include/uoj_run.h
+	$(CXX) $(CXXFLAGS) $< -o $@
 
 test: $(TESTS)
 	@for t in $(TESTS); do ./$$t || exit 1; done
