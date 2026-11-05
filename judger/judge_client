@@ -189,6 +189,96 @@ def log_event(event, **fields):
     log(event, json.dumps(fields, sort_keys=True))
 
 
+# ---- where the time of a task goes
+#
+# Every task this judger is given is logged once it is over, as one line "timing {...}": when it
+# was fetched and how long the request took, how long the data of the problem, the download of
+# the submission, the compiler, the tests and the upload of the result took, and how many
+# reports of the progress were sent meanwhile. All times are in milliseconds, but fetched_at,
+# which is in seconds since the epoch.
+
+task_timing = None
+
+
+def ms_since(start, end=None):
+    return int(round(((time.time() if end is None else end) - start) * 1000))
+
+
+def start_task_timing(fetched_at, fetch_ms):
+    global task_timing
+    task_timing = {"fetched_at": round(fetched_at, 3), "fetch_ms": fetch_ms, "reports": 0, "report_ms": 0}
+
+
+def note_timing(**fields):
+    if task_timing is not None:
+        task_timing.update(fields)
+
+
+def task_identity(task):
+    """what a task is, as the timing of it names it"""
+    if "prepare" in task:
+        return {"kind": "prepare", "id": task["prepare"].get("id"), "problem_id": task.get("problem_id")}
+    if "is_hack" in task:
+        return {"kind": "hack", "id": task["hack"].get("id"), "problem_id": task.get("problem_id")}
+    kind = "custom_test" if "is_custom_test" in task else "submission"
+    return {"kind": kind, "id": task.get("id"), "problem_id": task.get("problem_id")}
+
+
+def log_task_timing(outcome, upload_ms):
+    """log the times of the task that is over, once"""
+    global task_timing
+    timing, task_timing = task_timing, None
+    if timing is None or not isinstance(submission, dict):
+        return
+    try:
+        timing.update(task_identity(submission))
+    except Exception:
+        pass
+    timing["outcome"] = outcome
+    timing["upload_ms"] = upload_ms
+    timing["total_ms"] = ms_since(timing["fetched_at"])
+    log_event("timing", **timing)
+
+
+STATUS_LOG = "/result/status_log.txt"
+
+
+def judgement_phases(lines, started, ended):
+    """How long main_judger took to start, to compile and to run the tests, in milliseconds, told
+    from the statuses it reported with their times (status_log.txt) and the times it started and
+    ended at. A status lasts until the next one, the last one until main_judger ended."""
+    entries = []
+    for line in lines:
+        at, _, status = line.strip().partition(" ")
+        try:
+            entries.append((int(at) / 1000.0, status))
+        except ValueError:
+            continue
+    phases = {"startup_ms": ms_since(started, ended), "compile_ms": 0, "tests_ms": 0, "tests": 0}
+    if not entries:
+        return phases
+    phases["startup_ms"] = max(0, ms_since(started, entries[0][0]))
+    for i, (at, status) in enumerate(entries):
+        until = entries[i + 1][0] if i + 1 < len(entries) else ended
+        took = max(0, ms_since(at, until))
+        if status.startswith("Compiling"):
+            phases["compile_ms"] += took
+        elif status.startswith("Judging"):
+            phases["tests_ms"] += took
+            if "Test #" in status:
+                phases["tests"] += 1
+    return phases
+
+
+def read_judgement_phases(started, ended):
+    try:
+        with open(uoj_judger_path(STATUS_LOG), "r", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        lines = []
+    return judgement_phases(lines, started, ended)
+
+
 class UOJAuthError(Exception):
     pass
 
@@ -320,6 +410,12 @@ def read_judge_status():
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+def count_report(asked_at):
+    if task_timing is not None:
+        task_timing["reports"] += 1
+        task_timing["report_ms"] += ms_since(asked_at)
+
+
 def report_loop():
     last_report = time.time()
     while not task_finished:
@@ -334,11 +430,14 @@ def report_loop():
                     if "is_custom_test" in submission:
                         data["is_custom_test"] = True
                     data["status"] = status
+                    asked_at = time.time()
                     uoj_interact(data)
                     last_report = time.time()
+                    count_report(asked_at)
             if time.time() - last_report >= SIGN_OF_LIFE_INTERVAL:
                 last_report = time.time()
                 uoj_interact({"heartbeat": "1", "claim": claim_of_task()})
+                count_report(last_report)
         except Exception:
             pass
         time.sleep(0.2)
@@ -753,7 +852,8 @@ def evict_problem_data(keep):
 
 
 def update_problem_data(problem_id, version, sha256, steps):
-    """make data/<problem_id> the given version of the data of a problem, programs included"""
+    """make data/<problem_id> the given version of the data of a problem, programs included;
+    tells whether it had to be fetched"""
     wanted = {"version": version, "sha256": sha256}
     event = {
         "judger": jconf["judger_name"],
@@ -771,7 +871,7 @@ def update_problem_data(problem_id, version, sha256, steps):
         copy_name = os.path.join(data_root, str(problem_id))
         if os.path.isdir(copy_name) and cached_data_version(problem_id) == wanted:
             execute("touch -a %s" % pipes.quote(copy_name))
-            return
+            return False
 
         evict_problem_data(str(problem_id))
 
@@ -810,6 +910,7 @@ def update_problem_data(problem_id, version, sha256, steps):
         raise
     else:
         log_event("problem_data_sync", result="ok", **event)
+        return True
 
 
 # ---- the data of the problems, ahead of the submissions
@@ -940,6 +1041,7 @@ def sync_data_ahead():
 def prepare():
     """build a version of problem data that waits to be published, tell whether it can be used"""
     report = {"prepare_result": "1", "id": submission["prepare"]["id"], "claim": claim_of_task()}
+    started = time.time()
     try:
         update_problem_data(
             submission["problem_id"],
@@ -953,6 +1055,7 @@ def prepare():
         report.update({"ok": "0", "message": str(e)})
     else:
         report.update({"ok": "1", "message": ""})
+    note_timing(data_ms=ms_since(started))
     return report
 
 
@@ -961,13 +1064,16 @@ def judge():
 
     clean_up_folder(uoj_judger_path("/work"))
     clean_up_folder(uoj_judger_path("/result"))
-    update_problem_data(
+    started = time.time()
+    fetched = update_problem_data(
         submission["problem_id"],
         submission.get("problem_data_version"),
         submission.get("problem_data_sha256"),
         submission.get("problem_data_prepare"),
     )
+    note_timing(data_ms=ms_since(started), data_fetched=bool(fetched))
 
+    started = time.time()
     with open(uoj_judger_path("/work/submission.conf"), "w") as fconf:
         uoj_download(submission["content"]["file_name"], uoj_judger_path("/work/all.zip"))
         execute("cd %s && unzip -q all.zip && rm all.zip" % pipes.quote(uoj_judger_path("/work")))
@@ -992,12 +1098,16 @@ def judge():
             print("test_new_hack_only on", file=fconf)
         elif "is_custom_test" in submission:
             print("custom_test on", file=fconf)
+    note_timing(download_ms=ms_since(started))
 
     judging_started = True
+    started = time.time()
     try:
         outcome = run_main_judger()
     finally:
         judging_started = False
+        ended = time.time()
+        note_timing(judger_ms=ms_since(started, ended), **read_judgement_phases(started, ended))
     if outcome == "given up":
         # Another judger would wait as long for the same thing. The verdict is that of a
         # judgement that failed, and this judger goes on with the next one.
@@ -1183,6 +1293,7 @@ def send_and_fetch(result=None, fetch_new=True, report=None):
         result["status"] = "Judged"
         data["result"] = json.dumps(result, ensure_ascii=False)
 
+    asked_at = time.time()
     while True:
         try:
             ret = uoj_interact(data, files)
@@ -1197,6 +1308,17 @@ def send_and_fetch(result=None, fetch_new=True, report=None):
         else:
             break
         time.sleep(2)
+    answered_at = time.time()
+    request_ms = ms_since(asked_at, answered_at)
+
+    if result is not None or report is not None:
+        if result is not None:
+            outcome = "judged"
+        elif "requeue" in report:
+            outcome = "given back"
+        else:
+            outcome = "prepared"
+        log_task_timing(outcome, request_ms)
 
     try:
         submission = json.loads(ret)
@@ -1206,6 +1328,7 @@ def send_and_fetch(result=None, fetch_new=True, report=None):
             log("unexpected response from the web server: %r" % ret[:200])
         return False
     else:
+        start_task_timing(answered_at, request_ms)
         return True
 
 

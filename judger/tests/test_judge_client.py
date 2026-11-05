@@ -1145,5 +1145,94 @@ class GivenUpJudgementTest(JudgeClientTestCase):
             self.assertEqual(self.jc.max_judging_seconds(), limit, value)
 
 
+class TimingTest(JudgeClientTestCase):
+    """where the time of a task goes is logged once the task is over"""
+
+    def test_phases_are_told_from_the_times_of_the_statuses(self):
+        started = 1000.0
+        lines = ["1000100 Compiling\n", "1001600 Judging Test #1\n", "1001650 Judging Test #2\n", "garbage\n"]
+        phases = self.jc.judgement_phases(lines, started, 1001800 / 1000.0)
+        self.assertEqual(phases, {"startup_ms": 100, "compile_ms": 1500, "tests_ms": 200, "tests": 2})
+
+    def test_judgement_that_reported_nothing_was_all_startup(self):
+        self.assertEqual(
+            self.jc.judgement_phases([], 1000.0, 1000.25),
+            {"startup_ms": 250, "compile_ms": 0, "tests_ms": 0, "tests": 0},
+        )
+        # a compile error ends the judgement while it is compiling
+        self.assertEqual(
+            self.jc.judgement_phases(["1000010 Compiling"], 1000.0, 1000.5),
+            {"startup_ms": 10, "compile_ms": 490, "tests_ms": 0, "tests": 0},
+        )
+
+    def test_task_that_is_over_is_logged_with_its_times(self):
+        with mock.patch.object(self.jc, "uoj_interact", return_value='{"id": 5, "problem_id": 2, "claim": "%s"}' % ("a" * 32)):
+            self.assertTrue(self.jc.send_and_fetch())
+        fetched = self.jc.task_timing
+        self.assertAlmostEqual(fetched["fetched_at"], time.time(), delta=5)
+        self.assertGreaterEqual(fetched["fetch_ms"], 0)
+        self.jc.note_timing(data_ms=3, compile_ms=40)
+
+        with mock.patch.object(self.jc, "log_event") as log_event:
+            with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge"):
+                self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""})
+        log_event.assert_called_once()
+        event, fields = log_event.call_args[0][0], log_event.call_args[1]
+        self.assertEqual(event, "timing")
+        self.assertEqual((fields["kind"], fields["id"], fields["problem_id"]), ("submission", 5, 2))
+        self.assertEqual((fields["outcome"], fields["data_ms"], fields["compile_ms"]), ("judged", 3, 40))
+        for name in ("fetched_at", "fetch_ms", "upload_ms", "total_ms", "reports", "report_ms"):
+            self.assertIn(name, fields)
+        self.assertIsNone(self.jc.task_timing)
+
+    def test_task_that_is_given_back_is_logged_as_such(self):
+        self.jc.submission = {"id": 9, "is_hack": "", "hack": {"id": 4}, "problem_id": 2, "claim": "b" * 32}
+        self.jc.start_task_timing(time.time(), 1)
+        with mock.patch.object(self.jc, "log_event") as log_event:
+            with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge"):
+                self.jc.send_and_fetch(fetch_new=False, report=self.jc.give_back_report())
+        fields = log_event.call_args[1]
+        self.assertEqual((fields["kind"], fields["id"], fields["outcome"]), ("hack", 4, "given back"))
+
+    def test_reports_during_a_task_are_counted(self):
+        import threading
+
+        self.jc.submission = {"id": 5, "claim": "c" * 32}
+        self.jc.start_task_timing(time.time(), 1)
+        with open(os.path.join(self.root, "uoj_judger", "result", "cur_status.txt"), "w") as f:
+            f.write("Judging Test #1")
+        with mock.patch.object(self.jc, "uoj_interact", return_value="") as interact:
+
+            def task():
+                self.jc.judging_started = True
+                threading.Event().wait(0.5)
+
+            self.jc.run_task(task)
+        self.assertGreater(self.jc.task_timing["reports"], 0)
+        self.assertEqual(self.jc.task_timing["reports"], interact.call_count)
+
+    def test_judgement_notes_where_its_time_went(self):
+        self.jc.submission = {"id": 1, "problem_id": 1, "content": {"file_name": "/submission/1", "config": []}}
+        self.jc.start_task_timing(time.time(), 1)
+        result_dir = os.path.join(self.root, "uoj_judger", "result")
+
+        def main_judger():
+            now = int(time.time() * 1000)
+            with open(os.path.join(result_dir, "status_log.txt"), "w") as f:
+                f.write("%d Compiling\n%d Judging Test #1\n" % (now, now))
+            with open(os.path.join(result_dir, "result.txt"), "w") as f:
+                f.write("score 100\ntime 1\nmemory 1\ndetails\n<tests></tests>\n")
+            return "done"
+
+        with mock.patch.object(self.jc, "update_problem_data", return_value=False), mock.patch.object(self.jc, "uoj_download"):
+            with mock.patch.object(self.jc, "execute"), mock.patch.object(self.jc, "run_main_judger", side_effect=main_judger):
+                self.assertEqual(self.jc.judge()["score"], 100)
+        timing = self.jc.task_timing
+        self.assertEqual(timing["data_fetched"], False)
+        self.assertEqual(timing["tests"], 1)
+        for name in ("data_ms", "download_ms", "judger_ms", "startup_ms", "compile_ms", "tests_ms"):
+            self.assertGreaterEqual(timing[name], 0, name)
+
+
 if __name__ == "__main__":
     unittest.main()

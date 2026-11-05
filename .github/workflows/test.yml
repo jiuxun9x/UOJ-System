@@ -147,6 +147,82 @@ jobs:
           name: e2e-logs-${{ matrix.judgers }}
           path: e2e-logs
 
+  # How fast submissions are judged, on a site that nothing else uses: one at a time with one
+  # judger, then many at once with one and with four. It measures and reports (in the summary of
+  # the run and the artifact judging-speed); it does not judge the numbers.
+  speed:
+    name: Judging speed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      UOJ_E2E_JUDGERS: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build images
+        uses: docker/bake-action@v5
+        with:
+          source: .
+          files: docker-compose.yml
+          load: true
+          set: |
+            uoj-db.cache-from=type=gha,scope=uoj-db
+            uoj-web.cache-from=type=gha,scope=uoj-web
+            uoj-judger.cache-from=type=gha,scope=uoj-judger
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the dependencies of the tests
+        run: pip install requests
+
+      - name: Start UOJ with one judger
+        run: |
+          bash prepare.sh
+          python3 tests/e2e/configure.py
+          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d
+
+      - name: One submission at a time
+        run: python3 tests/e2e/judging_speed.py latency judging-speed/latency.json
+
+      - name: Many submissions at once, one judger
+        run: python3 tests/e2e/judging_speed.py burst judging-speed/burst-1.json
+
+      - name: Many submissions at once, four judgers
+        env:
+          UOJ_E2E_JUDGERS: 4
+        run: |
+          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml -f tests/e2e/docker-compose.judger-2.yml -f tests/e2e/docker-compose.judgers-3-4.yml up -d
+          python3 tests/e2e/judging_speed.py burst judging-speed/burst-4.json
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p judging-speed
+          for c in uoj-web uoj-judger uoj-judger-2 uoj-judger-3 uoj-judger-4; do
+            docker logs "$c" > "judging-speed/$c.log" 2>&1 || true
+          done
+          sudo cp uoj_data/judger/log/judge.log judging-speed/judge-1.log 2>/dev/null || true
+          for n in 2 3 4; do
+            sudo cp uoj_data/judger$n/log/judge.log judging-speed/judge-$n.log 2>/dev/null || true
+          done
+          sudo chmod -R a+r judging-speed
+
+      - name: Upload the measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: judging-speed
+          path: judging-speed
+
   # A site set up on MySQL 5.7 is upgraded to MySQL 8.4 with upgrade-mysql.sh, as its
   # administrators would do it, and keeps all it had.
   upgrade:

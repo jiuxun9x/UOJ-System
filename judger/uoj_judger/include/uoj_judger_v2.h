@@ -751,7 +751,21 @@ void add_subtask_info(const int &num, const int &scr, const string &info,
     exit(0);
 }
 
+// Every status is also written down with the time it was reported at, in milliseconds since the
+// epoch: judge_client tells from these how long a judgement took to compile and to run its tests.
+void log_judge_status_time(const char *status) {
+    FILE *f = fopen((result_path / "status_log.txt").c_str(), "a");
+    if (f == NULL) {
+        return;
+    }
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    fprintf(f, "%lld %s\n", (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000, status);
+    fclose(f);
+}
+
 void report_judge_status(const char *status) {
+    log_judge_status_time(status);
     FILE *f = fopen((result_path / "cur_status.txt").c_str(), "a");
     if (f == NULL) {
         return;
