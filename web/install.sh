@@ -41,8 +41,13 @@ UOJEOF
     #Create UOJ session save dir and make PHP extensions available
     mkdir --mode=733 /var/lib/php/uoj_sessions && chmod +t /var/lib/php/uoj_sessions
     # the php.ini of the web server, whichever version of PHP it is
-    php_ini="/etc/php/$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')/apache2/php.ini"
-    sed -i 's|;sys_temp_dir = "/tmp"|sys_temp_dir = "/tmp"|g' "$php_ini"
+    php_dir="/etc/php/$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
+    sed -i 's|;sys_temp_dir = "/tmp"|sys_temp_dir = "/tmp"|g' "$php_dir/apache2/php.ini"
+    # PHP knows the time zone from date.timezone only, not from TZ (the PHP 7.4 of the PPA took
+    # it from TZ): the pages and the command line, which publishes homeworks and starts the
+    # backups, keep the time of the container
+    printf 'date.timezone = %s\n' "${TZ:-Asia/Shanghai}" > "$php_dir/mods-available/uoj-timezone.ini"
+    phpenmod uoj-timezone
 }
 
 setWebConf(){
