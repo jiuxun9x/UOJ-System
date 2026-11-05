@@ -53,7 +53,8 @@ start_temp() {
 	docker logs --tail 40 "$temp" >&2 || true
 	die "$1 was not ready after ten minutes"
 }
-temp_sql() { docker exec -i "$temp" mysql -uroot -p"$root_password" -N -B "$@" 2> >(grep -v 'Using a password' >&2); }
+# (no -i: a command that read the standard input would eat the lines of the loop it is in)
+temp_sql() { docker exec "$temp" mysql -uroot -p"$root_password" -N -B "$@" < /dev/null 2> >(grep -v 'Using a password' >&2); }
 stop_temp() {
 	# the slow shutdown leaves nothing for the next version to recover
 	temp_sql -e "SET GLOBAL innodb_fast_shutdown = 0" > /dev/null
@@ -121,7 +122,9 @@ start_temp "$mysql80" --skip-log-bin
 temp_sql -e "select 1" > /dev/null || die "root can not log in with UOJ_DB_ROOT_PASSWORD; set it to the password of root"
 # Every account that logs in with mysql_native_password gets caching_sha2_password, with the
 # password it has: root and the account of the site, whose passwords are known.
-temp_sql -e "select user, host from mysql.user where plugin = 'mysql_native_password'" | while IFS=$'\t' read -r user host; do
+accounts=$(temp_sql -e "select user, host from mysql.user where plugin = 'mysql_native_password'")
+while IFS=$'\t' read -r user host; do
+	[ -n "$user" ] || continue
 	if [ "$user" = root ]; then
 		password=$root_password
 	elif [ "$user" = "$site_user" ]; then
@@ -134,9 +137,9 @@ temp_sql -e "select user, host from mysql.user where plugin = 'mysql_native_pass
 	quoted_password=${quoted_password//\'/\\\'}
 	temp_sql -e "ALTER USER '$user'@'$host' IDENTIFIED WITH caching_sha2_password BY '$quoted_password'"
 	echo "    $user@$host: caching_sha2_password"
-done
+done <<< "$accounts"
 if [ "$site_user" != root ]; then
-	docker exec -i "$temp" mysql -u"$site_user" -p"$site_password" -e "select 1" > /dev/null 2>&1 || die "the account of the site, $site_user, can not log in with the password of .config.local.php"
+	docker exec "$temp" mysql -u"$site_user" -p"$site_password" -e "select 1" > /dev/null 2>&1 || die "the account of the site, $site_user, can not log in with the password of .config.local.php"
 fi
 stop_temp
 
@@ -149,5 +152,5 @@ for _ in $(seq 1 300); do
 	fi
 	sleep 2
 done
-docker exec uoj-db mysql -uroot -p"$root_password" -N -B -e "select concat('    MySQL ', version())" 2> /dev/null || die "MySQL 8.4 did not start: docker compose logs uoj-db"
+docker exec uoj-db mysql -uroot -p"$root_password" -N -B -e "select concat('    MySQL ', version())" 2> /dev/null || die "root can not log in to MySQL 8.4: docker compose logs uoj-db"
 say "Done. The copy of the database of MySQL 5.7 is uoj_data/db/mysql.5.7: remove it once the site works."
