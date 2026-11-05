@@ -42,7 +42,10 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(db_value("select count(*) from information_schema.plugins where plugin_name = 'mysqlx' and plugin_status = 'ACTIVE'"), "0")
         # the accounts log in the way of 8.4, and the tables keep their collation
         self.assertEqual(db_value("select group_concat(distinct plugin) from mysql.user where user = 'root'"), "caching_sha2_password")
-        self.assertEqual(db_value("select count(*) from information_schema.tables where table_schema = 'app_uoj233' and table_collation not like 'utf8mb4%'"), "0")
+        # (but the list of the upgrades that were run, which upstream made utf8 and holds the
+        # names of folders only)
+        others = uoj.db("select table_name from information_schema.tables where table_schema = 'app_uoj233' and table_collation not like 'utf8mb4%'")
+        self.assertEqual(others, [["upgrades"]])
 
     def test_text_of_four_bytes_goes_in_and_comes_out(self):
         # the site says utf8mb4 when it connects, now that MySQL lets a client choose
