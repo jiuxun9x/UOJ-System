@@ -86,7 +86,8 @@ $handlers = [
 		$shown = contestsRevealDue() + homeworksRevealDue();
 		$backup = backupTick() ? ', started a backup' : '';
 		list($opened, $resolved) = monitorTick();
-		die("advanced $advanced homeworks, showed $shown problems, opened $opened alerts, resolved $resolved alerts$backup\n");
+		$forgot = authTick();
+		die("advanced $advanced homeworks, showed $shown problems, opened $opened alerts, resolved $resolved alerts, forgot $forgot old logins$backup\n");
 	},
 	// Makes a backup of the database, the data of the problems and the submissions now.
 	'backup:run' => function ($reason = 'manual') {

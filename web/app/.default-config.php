@@ -36,7 +36,10 @@ return [
 	],
 	'security' => [
 		'user' => [
-			'client_salt' => 'salt0'
+			'client_salt' => 'salt0',
+			// what a password costs to check, kept as Argon2id: memory in KiB, and passes
+			'password-memory-kib' => 19456,
+			'password-time' => 2
 		],
 		'cookie' => [
 			'checksum_salt' => ['salt1', 'salt2', 'salt3']

@@ -31,7 +31,7 @@ class Cookie {
 			return true;
 		}
 		unset($_COOKIE[$key]);
-		return setcookie($key, null, -1, $path, UOJContext::cookieDomain());
+		return setcookie($key, '', -1, (string)$path, UOJContext::cookieDomain());
 	}
 	public static function safeCheck($key, $path = null) {
 		if (!isset($_COOKIE[$key])) {

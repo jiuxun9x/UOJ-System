@@ -32,7 +32,7 @@
 			return "失败：无效电子邮箱。";
 		}
 		
-		$password = getPasswordToStore($password, $username);
+		$password = DB::escape(passwordHashToStore($password));
 		
 		$esc_email = DB::escape($email);
 		

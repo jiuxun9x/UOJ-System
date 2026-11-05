@@ -381,11 +381,10 @@ class IdentityTest(unittest.TestCase):
 
         self.assertEqual(user.update_profile(username="p3_after"), "ok")
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_after")
-        # nothing is left behind under the old name but the journal of the change, and the name
-        # the password was hashed with
-        self.assertEqual(
-            held("p3_before"), ["user_info.password_salt", "user_renames.old_username", "user_renames.renamed_by"]
-        )
+        # nothing is left behind under the old name but the journal of the change: the password
+        # is Argon2id, which has nothing to do with the name (a password of before Argon2id keeps
+        # the name it was hashed with, see test_phase13)
+        self.assertEqual(held("p3_before"), ["user_renames.old_username", "user_renames.renamed_by"])
         self.assertEqual(len(held("p3_after")), len(before) + 1)
         self.assertEqual(db_value("select submitter from submissions where id = %d" % submission_id), "p3_after")
 
@@ -426,9 +425,7 @@ class IdentityTest(unittest.TestCase):
             "",
         )
         self.assertEqual(db_value("select username from user_info where id = %s" % user_id), "p3_before")
-        self.assertEqual(
-            held("p3_after"), ["user_info.password_salt", "user_renames.new_username", "user_renames.old_username"]
-        )
+        self.assertEqual(held("p3_after"), ["user_renames.new_username", "user_renames.old_username"])
         # the log names who changed the name, by number as well
         renames = db(
             "select actor, actor_id, resource_id from audit_logs where action = 'user.rename'"
@@ -491,9 +488,8 @@ class SessionTest(unittest.TestCase):
         self.assertIsNone(who(client))
         # neither the id of the session nor the remembered login still work
         self.assertIsNone(who(self.session_with(cookies)))
-        self.assertEqual(
-            db_value("select concat('[', remember_token, ']') from user_info where username = 'p3_leaver'"), "[]"
-        )
+        # the token of this device is gone (only its hash was kept)
+        self.assertEqual(db_value("select count(*) from user_remember_tokens where username = 'p3_leaver'"), "0")
         # and no token at all is not a token that matches
         forged = dict(cookies, uoj_remember_token="")
         self.assertIsNone(who(self.session_with(forged)))

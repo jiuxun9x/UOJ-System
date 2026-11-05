@@ -62,6 +62,7 @@ function usernameColumns() {
 		'trainings' => array('created_by'),
 		'hacks' => array('hacker', 'owner'),
 		'pastes' => array('creator'),
+		'user_remember_tokens' => array('username'),
 		'approved_judger_fingerprints' => array('approved_by'),
 		'attachments' => array('uploaded_by'),
 		'problem_data_versions' => array('created_by'),
@@ -112,8 +113,9 @@ function usernameUnavailableReason($username, $user = null, $options = array()) 
 function applyUserRename($rename) {
 	$old = DB::escape($rename['old_username']);
 	$new = DB::escape($rename['new_username']);
-	// the password was hashed with the name the user had when they set it
-	if (!DB::update("update user_info set password_salt = ifnull(password_salt, '$old'), username = '$new', remember_token = '' where username = '$old'")) {
+	// A password of before Argon2id was hashed with the name the user had when they set it, and
+	// keeps that name; one of Argon2id has nothing to do with the name.
+	if (!DB::update("update user_info set password_salt = if(password like '$argon2id$%' and password_legacy = 0, null, ifnull(password_salt, '$old')), username = '$new' where username = '$old'")) {
 		return false;
 	}
 	foreach (usernameColumns() as $table => $columns) {
