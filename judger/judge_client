@@ -1139,9 +1139,18 @@ def uoj_check_response(r, uri):
 
 # The name of this worker. Several workers may work for one judging account; each is told apart
 # by this name, which it keeps in its log folder (a volume) so that it is the same worker after a
-# restart, and takes back at once what it had not finished.
+# restart, and takes back at once what it had not finished. A worker that is given a label
+# (worker_label in .conf.json, such as cpu3 for the judger of CPU 3) is named after it: the pages
+# of the site show the label.
 WORKER_ID_FILE = "log/worker_id"
 worker_id_cache = None
+
+
+def new_worker_id():
+    label = (globals().get("jconf") or {}).get("worker_label")
+    if isinstance(label, str) and re.fullmatch(r"[A-Za-z0-9_]{1,32}", label):
+        return label + "-" + uuid.uuid4().hex[:16]
+    return uuid.uuid4().hex
 
 
 def worker_id():
@@ -1153,7 +1162,7 @@ def worker_id():
         except OSError:
             kept = ""
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", kept):
-            kept = uuid.uuid4().hex
+            kept = new_worker_id()
             try:
                 os.makedirs(os.path.dirname(WORKER_ID_FILE), exist_ok=True)
                 with open(WORKER_ID_FILE, "w") as f:

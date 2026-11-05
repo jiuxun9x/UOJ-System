@@ -685,7 +685,7 @@ EOD;
 								<small><?= $account['version'] !== '' ? '版本 ' . HTML::escape($account['version']) : '<span class="text-danger">没有上报版本，需要升级</span>' ?></small>
 								<?php endif ?>
 								<?php if ($account['workers'] > 1): ?>
-								<small data-workers="<?= $account['workers'] ?>"><?= $account['workers'] ?> 个进程在用这个账户（最近 10 分钟），各评各的</small>
+								<small data-workers="<?= $account['workers'] ?>"><?= $account['workers'] ?> 个进程在用这个账户（最近 10 分钟），各评各的：<?= HTML::escape(join('、', $account['worker_labels'])) ?></small>
 								<?php endif ?>
 							</td>
 							<td data-have="<?= $account['data_have'] === null ? '' : (int)$account['data_have'] ?>" data-total="<?= $account['data_total'] === null ? '' : (int)$account['data_total'] ?>">

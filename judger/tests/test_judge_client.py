@@ -355,6 +355,15 @@ class ClaimTest(JudgeClientTestCase):
             again.uoj_interact({"heartbeat": "1"})
         self.assertEqual(sent[1]["worker"], name)
 
+    def test_worker_with_a_label_is_named_after_it(self):
+        self.jc.jconf["worker_label"] = "cpu3"
+        self.assertRegex(self.jc.worker_id(), r"^cpu3-[0-9a-f]{16}$")
+        # a label that could not be part of a name is not used
+        again = load_judge_client()
+        again.jconf = dict(self.jc.jconf, worker_label="cpu 3; drop")
+        again.WORKER_ID_FILE = os.path.join(self.root, "other_worker_id")
+        self.assertRegex(again.worker_id(), r"^[0-9a-f]{32}$")
+
     def test_asking_is_sent_again_as_it_was(self):
         responses = [Exception("no answer"), Exception("no answer"), '{"id": 7, "claim": "%s"}' % ("e" * 32)]
         with mock.patch.object(self.jc, "uoj_interact", side_effect=responses) as interact:

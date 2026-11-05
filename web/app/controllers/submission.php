@@ -163,7 +163,7 @@
 					<tr>
 						<td><?= $judgement['started_at'] ?></td>
 						<td><?= $judgement['finished_at'] ?></td>
-						<td><?= HTML::escape($judgement['judger_name']) ?></td>
+						<td><?= HTML::escape($judgement['judger_name']) ?><?php if ($judgement['worker'] !== null && $judgement['worker'] !== ''): ?> <small class="text-muted" title="<?= HTML::escape($judgement['worker']) ?>" data-worker="<?= HTML::escape($judgement['worker']) ?>"><?= HTML::escape(judgerWorkerLabel($judgement['worker'])) ?></small><?php endif ?></td>
 						<td><?= $judgement['problem_data_version'] ?></td>
 						<td><code><?= substr($judgement['problem_data_sha256'], 0, 16) ?></code></td>
 						<td><span title="<?= HTML::escape($judgement['toolchain']) ?>"><?= HTML::escape($judgement['judger_version']) ?></span></td>

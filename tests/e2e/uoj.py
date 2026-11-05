@@ -105,6 +105,9 @@ def data_syncs(judger, problem_id):
 
 
 def judger_log(judger):
+    if judger not in JUDGER_LOGS:
+        # a judger the tests started themselves
+        return run("docker", "exec", judger, "cat", "/opt/uoj_judger/log/judge.log", check=False).stdout.decode(errors="replace")
     p = run("sudo", "cat", JUDGER_LOGS[judger], check=False)
     return p.stdout.decode(errors="replace")
 

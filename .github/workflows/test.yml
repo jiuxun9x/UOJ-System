@@ -196,23 +196,29 @@ jobs:
       - name: Many submissions at once, one judger
         run: python3 tests/e2e/judging_speed.py burst judging-speed/burst-1.json
 
-      - name: Many submissions at once, four judgers
+      # as on a machine of their own: written by judger/workers.sh, one judger on each CPU, all with
+      # one judging account, reaching the site by its address
+      - name: Many submissions at once, four judgers on a CPU each with one account
         env:
-          UOJ_E2E_JUDGERS: 4
+          UOJ_SPEED_JUDGERS: speed-cpu0,speed-cpu1,speed-cpu2,speed-cpu3
         run: |
-          docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml -f tests/e2e/docker-compose.judger-2.yml -f tests/e2e/docker-compose.judgers-3-4.yml up -d
+          docker stop uoj-judger
+          bash judger/workers.sh --url http://host.docker.internal --name compose_judger_2 --password _judger_password_2_ \
+            --cpus 0-3 --image ghcr.io/universaloj/uoj-judger:latest --prefix speed \
+            --add-host host.docker.internal:host-gateway --output speed-workers.yml
+          docker compose -p speedworkers -f speed-workers.yml up -d
           python3 tests/e2e/judging_speed.py burst judging-speed/burst-4.json
 
       - name: Collect logs
         if: always()
         run: |
           mkdir -p judging-speed
-          for c in uoj-web uoj-judger uoj-judger-2 uoj-judger-3 uoj-judger-4; do
+          for c in uoj-web uoj-judger speed-cpu0 speed-cpu1 speed-cpu2 speed-cpu3; do
             docker logs "$c" > "judging-speed/$c.log" 2>&1 || true
           done
           sudo cp uoj_data/judger/log/judge.log judging-speed/judge-1.log 2>/dev/null || true
-          for n in 2 3 4; do
-            sudo cp uoj_data/judger$n/log/judge.log judging-speed/judge-$n.log 2>/dev/null || true
+          for n in 0 1 2 3; do
+            sudo cp judger-workers/cpu$n/judge.log judging-speed/judge-cpu$n.log 2>/dev/null || true
           done
           sudo chmod -R a+r judging-speed
 

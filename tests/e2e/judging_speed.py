@@ -48,6 +48,10 @@ SCENARIOS = [
 REPEATS = int(os.environ.get("UOJ_SPEED_REPEATS", "5"))
 BURST = int(os.environ.get("UOJ_SPEED_BURST", "24"))
 
+# the containers of the judgers that are measured, where they are not those of the tests
+if os.environ.get("UOJ_SPEED_JUDGERS"):
+    uoj.JUDGERS = os.environ["UOJ_SPEED_JUDGERS"].split(",")
+
 PHASES = ["fetch_ms", "data_ms", "download_ms", "startup_ms", "compile_ms", "tests_ms", "upload_ms"]
 
 

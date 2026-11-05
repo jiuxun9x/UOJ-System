@@ -37,6 +37,8 @@ initProgress(){
     # The socket is for commands given on the judger's own machine, and is nothing the site
     # connects to: when nothing is said about it, it gets a password nobody knows.
     SOCKET_PORT="${SOCKET_PORT:-2333}"
+    # what the pages of the site call this judger where several work for one account
+    WORKER_LABEL="$(printf '%s' "$WORKER_LABEL" | tr -cd 'A-Za-z0-9_' | cut -c1-32)"
     SOCKET_PASSWORD="${SOCKET_PASSWORD:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
     # Check envs
     if [ -z "$UOJ_PROTOCOL" -o -z "$UOJ_HOST" -o -z "$JUDGER_NAME" -o -z "$JUDGER_PASSWORD" ]; then
@@ -53,7 +55,8 @@ initProgress(){
     "socket_password": "$SOCKET_PASSWORD",
     "max_judging_seconds": ${MAX_JUDGING_SECONDS:-3600},
     "data_sync": ${DATA_SYNC:-true},
-    "data_cache_problems": ${DATA_CACHE_PROBLEMS:-300}
+    "data_cache_problems": ${DATA_CACHE_PROBLEMS:-300},
+    "worker_label": "$WORKER_LABEL"
 }
 UOJEOF
         chmod 600 .conf.json && chown judger:judger .conf.json

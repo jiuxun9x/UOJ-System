@@ -103,7 +103,7 @@
 	// ---- the record of who judged what, with which data and which tools
 	
 	function startJudgement($kind, $target_id, $problem_id, $claim) {
-		global $uojJudger;
+		global $uojJudger, $worker;
 		$version_row = dataCurrentVersion(array('id' => $problem_id));
 		$version = $version_row ? $version_row['version'] : 'null';
 		$sha256 = $version_row ? "'{$version_row['sha256']}'" : 'null';
@@ -112,7 +112,7 @@
 		$esc_toolchain = DB::escape($uojJudger['toolchain']);
 		// a judgement that was still open is over: the task was put back in the queue meanwhile
 		DB::update("update submission_judgements set finished_at = now(), outcome = 'superseded' where kind = '$kind' and target_id = $target_id and finished_at is null");
-		DB::insert("insert into submission_judgements (kind, target_id, problem_id, judger_name, problem_data_version, problem_data_sha256, judger_version, toolchain, started_at, claim) values ('$kind', $target_id, $problem_id, '$esc_judger', $version, $sha256, '$esc_version', '$esc_toolchain', now(), '$claim')");
+		DB::insert("insert into submission_judgements (kind, target_id, problem_id, judger_name, worker, problem_data_version, problem_data_sha256, judger_version, toolchain, started_at, claim) values ('$kind', $target_id, $problem_id, '$esc_judger', '$worker', $version, $sha256, '$esc_version', '$esc_toolchain', now(), '$claim')");
 		return $version_row;
 	}
 	function finishJudgement($kind, $target_id, $outcome, $claim, $score = null) {

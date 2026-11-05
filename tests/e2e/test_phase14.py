@@ -1,10 +1,16 @@
 """Phase 14: judging faster. A precompiled <bits/stdc++.h> for every standard of C++, which
-changes how long a program takes to compile and nothing else."""
+changes how long a program takes to compile and nothing else; several judgers on one machine,
+each on a CPU of its own, all with one judging account."""
 
+import os
+import re
+import subprocess
+import tempfile
 import unittest
 
 import uoj
-from fixtures import ab_problem_files
+from fixtures import AB_SLOW, ab_problem_files
+from uoj import db, db_value
 
 COMPILE = "/opt/uoj_judger/uoj_judger/run/compile"
 PCH_DIR = "/usr/local/lib/uoj-pch"
@@ -199,6 +205,85 @@ class PrecompiledHeaderVerdictTest(unittest.TestCase):
         with_pch = min(uoj.task_timing("submission", i)["compile_ms"] for i in fast)
         without = min(uoj.task_timing("submission", i)["compile_ms"] for i in slow)
         self.assertLess(with_pch, without * 0.7, (with_pch, without))
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+IMAGE = "ghcr.io/universaloj/uoj-judger:latest"
+
+
+class WorkersTest(unittest.TestCase):
+    """judger/workers.sh writes the judgers of a machine of their own: they reach the site by its
+    address, as from another machine, each on its CPU, and share one account without taking
+    anything from each other"""
+
+    ACCOUNT = "p14_workers"
+    PROJECT = "p14workers"
+
+    def setUp(self):
+        self.admin = uoj.admin()
+        db("delete from judger_info where judger_name = '%s'" % self.ACCOUNT)
+        r = self.admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": self.ACCOUNT, "judger_adder_note": "workers.sh"})
+        self.password = re.search(r'id="judger-password">([0-9a-zA-Z]{32})<', r.text).group(1)
+        self.addCleanup(db, "delete from judger_info where judger_name = '%s'" % self.ACCOUNT)
+        self.folder = tempfile.mkdtemp()
+        self.addCleanup(subprocess.call, ["sudo", "rm", "-rf", self.folder])
+
+    def start_workers(self, cpus):
+        compose = os.path.join(self.folder, "docker-compose.judgers.yml")
+        uoj.run(
+            "bash", os.path.join(REPO, "judger", "workers.sh"),
+            "--url", "http://host.docker.internal", "--name", self.ACCOUNT, "--password", self.password,
+            "--cpus", cpus, "--image", IMAGE, "--prefix", "p14-judger", "--memory", "3g",
+            "--add-host", "host.docker.internal:host-gateway", "--env", "DATA_SYNC=false",
+            "--output", compose,
+        )  # fmt: skip
+        uoj.run("docker", "compose", "-p", self.PROJECT, "-f", compose, "up", "-d")
+        self.addCleanup(uoj.run, "docker", "compose", "-p", self.PROJECT, "-f", compose, "down", "-t", "5", check=False)
+        return compose
+
+    def test_judgers_of_one_machine_share_an_account(self):
+        self.start_workers("0-1")
+        containers = ["p14-judger-cpu0", "p14-judger-cpu1"]
+        for container, cpu in zip(containers, "01"):
+            self.assertEqual(uoj.run("docker", "inspect", "-f", "{{.HostConfig.CpusetCpus}}", container).stdout.decode().strip(), cpu)
+            self.assertEqual(uoj.run("docker", "inspect", "-f", "{{.HostConfig.Memory}}", container).stdout.decode().strip(), str(3 << 30))
+
+        # both have asked for work, each as a worker of its own named after its CPU
+        def workers():
+            names = [row[0] for row in db("select worker from judger_workers where judger_name = '%s'" % self.ACCOUNT)]
+            return names if len(names) == 2 else None
+
+        names = uoj.wait_until("both judgers have asked for work", workers, timeout=180)
+        self.assertEqual(sorted(name.split("-")[0] for name in names), ["cpu0", "cpu1"])
+        for name in names:
+            self.assertRegex(name, r"^cpu[01]-[0-9a-f]{16}$")
+
+        problem_id = self.admin.create_problem(ab_problem_files())
+        # the other judgers have nothing to do meanwhile
+        uoj.wait_idle()
+        names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
+        self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
+
+        submissions = [self.admin.submit(problem_id, AB_SLOW) for _ in range(6)]
+        for submission_id in submissions:
+            j = uoj.wait_submission(submission_id, timeout=600)
+            self.assertEqual(j.score, 100, j)
+        rows = db(
+            "select judger_name, worker, outcome from submission_judgements where kind = 'submission' and target_id in (%s)"
+            % ", ".join(map(str, submissions))
+        )  # fmt: skip
+        self.assertEqual({(row[0], row[2]) for row in rows}, {(self.ACCOUNT, "judged")}, rows)
+        self.assertEqual(len(rows), len(submissions), rows)
+        # both worked, and nothing was taken from one for the other
+        self.assertEqual({row[1] for row in rows}, set(names), rows)
+
+        # the pages say which judger it was
+        page = self.admin.get("/submission/%d" % submissions[0]).text
+        worker = db_value("select worker from submission_judgements where kind = 'submission' and target_id = %d" % submissions[0])
+        self.assertIn('data-worker="%s">%s</small>' % (worker, worker.split("-")[0]), page)
+        page = self.admin.get("/super-manage/judger").text
+        self.assertIn("2 个进程在用这个账户（最近 10 分钟），各评各的：cpu0、cpu1", uoj.text_of(page))
+
 
 if __name__ == "__main__":
     unittest.main()

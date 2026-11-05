@@ -117,13 +117,28 @@
 		auditLog('judger.delete', 'judger', $name, null, null, $actor);
 		return '';
 	}
+	// What a worker of a judging account is called on the pages: the label it was started with
+	// (judger/workers.sh names each judger after its CPU, such as cpu3), or the start of its name.
+	function judgerWorkerLabel($worker) {
+		if (!is_string($worker) || $worker === '') {
+			return '';
+		}
+		if (preg_match('/^([A-Za-z0-9_]{1,32})-[0-9a-f]{16}$/D', $worker, $matches)) {
+			return $matches[1];
+		}
+		return substr($worker, 0, 8);
+	}
 	// The accounts with what is known of their judgers: whether they answer, what they are
 	// judging, and how much of the data of the problems they hold.
 	function judgerAccounts() {
 		$accounts = DB::selectAll("select id, judger_name, enabled, note, created_by, created_at, version, last_heartbeat_at, timestampdiff(second, last_heartbeat_at, now()) as silent_seconds, data_have, data_total, data_checked_at, timestampdiff(second, data_checked_at, now()) as data_checked_seconds from judger_info order by id", MYSQLI_ASSOC);
 		foreach ($accounts as &$account) {
 			// the workers that worked for the account lately (judge protocol 3)
-			$account['workers'] = (int)DB::selectCount("select count(*) from judger_workers where judger_name = '".DB::escape($account['judger_name'])."' and last_seen_at > now() - interval 10 minute");
+			$account['worker_labels'] = array();
+			foreach (DB::selectAll("select worker from judger_workers where judger_name = '".DB::escape($account['judger_name'])."' and last_seen_at > now() - interval 10 minute order by worker") as $row) {
+				$account['worker_labels'][] = judgerWorkerLabel($row['worker']);
+			}
+			$account['workers'] = count($account['worker_labels']);
 			$account['judging'] = array();
 			foreach (DB::selectAll("select kind, target_id from submission_judgements where judger_name = '".DB::escape($account['judger_name'])."' and finished_at is null and started_at > now() - interval 1 day order by id desc limit 3") as $judgement) {
 				$account['judging'][] = $judgement['kind'] . ' #' . $judgement['target_id'];
