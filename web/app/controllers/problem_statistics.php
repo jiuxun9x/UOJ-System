@@ -5,7 +5,7 @@
 		become404Page();
 	}
 	
-	$contest = validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
+	$contest = isset($_GET['contest_id']) && validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
 	if ($contest != null) {
 		genMoreContestInfo($contest);
 		if (!can($myUser, 'contest.view', $contest) || !canViewContestProblem($myUser, $problem, $contest)) {

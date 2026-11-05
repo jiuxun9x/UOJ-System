@@ -56,7 +56,7 @@
 
 	// ---- an archive of data is uploaded
 	$upload_message = null;
-	if ($_POST['problem_data_file_submit']=='submit') {
+	if (isset($_POST['problem_data_file_submit']) && $_POST['problem_data_file_submit'] == 'submit') {
 		crsf_defend();
 		list($uploaded, $message) = problemTakeUploadedData($problem, 'problem_data_file', $myUser);
 		if ($uploaded === 'refused') {
@@ -459,7 +459,7 @@ EOD
 
 			$data_disp = new DataDisplayer($problem_conf, array('problem.conf'));
 			$data_disp->addDisplayer('tests',
-				function($self) use ($problem_conf, $allow_files, $n_tests, $n_ex_tests) {
+				function($self) use ($problem_conf, $allow_files, $n_tests) {
 					for ($num = 1; $num <= $n_tests; $num++) {
 						$input_file_name = getUOJProblemInputFileName($problem_conf, $num);
 						$output_file_name = getUOJProblemOutputFileName($problem_conf, $num);

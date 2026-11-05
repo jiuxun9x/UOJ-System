@@ -725,9 +725,9 @@ EOD;
 	function newZipSubmissionForm($form_name, $requirement, $zip_file_name_gen, $handle) {
 		$form = new UOJForm($form_name);
 		$name = "zip_ans_{$form_name}";
-		$text = UOJLocale::get('problems::zip file upload introduction', join(array_map(function($req) {
+		$text = UOJLocale::get('problems::zip file upload introduction', join(', ', array_map(function($req) {
 			return $req['file_name'];
-		}, $requirement), ', '));
+		}, $requirement)));
 		$browse_text = UOJLocale::get('browse');
 		$html = <<<EOD
 <div id="div-{$name}">

@@ -117,7 +117,11 @@ class UOJContext {
 		} elseif (isset($_SERVER['HTTP_HOST'])) {
 			return $_SERVER['HTTP_HOST'];
 		} else {
-			return $_SERVER['SERVER_NAME'].($_SERVER['SERVER_PORT'] == '80' ? '' : ':'.$_SERVER['SERVER_PORT']);
+			// a command of the command line has no server: no host
+			if (!isset($_SERVER['SERVER_NAME'])) {
+				return '';
+			}
+			return $_SERVER['SERVER_NAME'].(!isset($_SERVER['SERVER_PORT']) || $_SERVER['SERVER_PORT'] == '80' ? '' : ':'.$_SERVER['SERVER_PORT']);
 		}
 	}
 	public static function cookieDomain() {

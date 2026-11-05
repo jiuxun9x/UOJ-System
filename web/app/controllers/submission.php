@@ -22,7 +22,7 @@
 	
 	$out_status = explode(', ', $submission['status'])[0];
 	
-	if ($_GET['get'] == 'status-details' && Auth::check() && $submission['submitter'] === Auth::id()) {
+	if (isset($_GET['get']) && $_GET['get'] == 'status-details' && Auth::check() && $submission['submitter'] === Auth::id()) {
 		echo json_encode(array(
 			'judged' => $out_status == 'Judged',
 			'html' => getSubmissionStatusDetails($submission)

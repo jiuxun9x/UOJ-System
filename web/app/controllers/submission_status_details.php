@@ -4,7 +4,7 @@ if (!Auth::check()) {
 	become403Page();
 }
 
-if (!is_array($_GET['get'])) {
+if (!isset($_GET['get']) || !is_array($_GET['get'])) {
 	become404Page();
 }
 

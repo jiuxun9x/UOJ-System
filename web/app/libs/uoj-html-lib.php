@@ -293,8 +293,8 @@ function echoLongTable($col_names, $table_name, $cond, $tail, $header_row, $prin
 	$div_classes = isset($config['div_classes']) ? $config['div_classes'] : array('table-responsive');
 	$table_classes = isset($config['table_classes']) ? $config['table_classes'] : array('table', 'table-bordered', 'table-hover', 'table-striped', 'table-text-center');
 		
-	echo '<div class="', join($div_classes, ' '), '">';
-	echo '<table class="', join($table_classes, ' '), '">';
+	echo '<div class="', join(' ', $div_classes), '">';
+	echo '<table class="', join(' ', $table_classes), '">';
 	echo '<thead>';
 	echo $header_row;
 	echo '</thead>';

@@ -7,7 +7,7 @@ class Auth {
 	}
 	public static function id() {
 		global $myUser;
-		return $myUser['username'];
+		return $myUser ? $myUser['username'] : null;
 	}
 	public static function user() {
 		global $myUser;

@@ -35,7 +35,7 @@
 	}
 	
 	if ($conds) {
-		$cond = join($conds, ' and ');
+		$cond = join(' and ', $conds);
 	} else {
 		$cond = '1';
 	}

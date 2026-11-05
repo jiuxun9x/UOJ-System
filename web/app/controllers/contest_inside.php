@@ -757,7 +757,7 @@ EOD;
 		<?php endif ?>
 		<?php endif ?>
 	
-		<?php if ($contest['extra_config']['links']) { ?>
+		<?php if (!empty($contest['extra_config']['links'])) { ?>
 			<?php if ($cur_tab == 'standings'): ?>
 	</div>
 	<div class="col-sm-3">

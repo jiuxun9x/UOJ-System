@@ -65,8 +65,8 @@
 	$problem_editor->blog_url = problemUrl($problem);
 	$problem_editor->cur_data = array(
 		'title' => $problem['title'],
-		'content_md' => $problem_content['statement_md'],
-		'content' => $problem_content['statement'],
+		'content_md' => $problem_content ? $problem_content['statement_md'] : '',
+		'content' => $problem_content ? $problem_content['statement'] : '',
 		'tags' => $problem_tags,
 		'is_hidden' => $problem['is_hidden']
 	);

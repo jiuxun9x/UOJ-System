@@ -34,7 +34,7 @@
 		redirectTo(problemUrl($problem));
 	}
 	
-	$contest = validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
+	$contest = isset($_GET['contest_id']) && validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
 	if ($contest != null) {
 		genMoreContestInfo($contest);
 		// a contest of a domain exists for the members of the domain
@@ -100,9 +100,9 @@
 
 	if ($custom_test_requirement && Auth::check()) {
 		$custom_test_submission = DB::selectFirst("select * from custom_test_submissions where submitter = '".Auth::id()."' and problem_id = {$problem['id']} order by id desc limit 1");
-		$custom_test_submission_result = json_decode($custom_test_submission['result'], true);
+		$custom_test_submission_result = $custom_test_submission ? json_decode($custom_test_submission['result'], true) : null;
 	}
-	if ($custom_test_requirement && $_GET['get'] == 'custom-test-status-details' && Auth::check()) {
+	if ($custom_test_requirement && isset($_GET['get']) && $_GET['get'] == 'custom-test-status-details' && Auth::check()) {
 		if ($custom_test_submission == null) {
 			echo json_encode(null);
 		} elseif ($custom_test_submission['status'] != 'Judged') {

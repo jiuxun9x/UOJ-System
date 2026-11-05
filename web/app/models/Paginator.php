@@ -22,7 +22,7 @@ class Paginator {
 			
 			$this->n_pages = max((int)ceil($this->n_rows / $this->page_len), 1);
 
-			$this->cur_page = validateUInt($_GET['page']) ? (int)$_GET['page'] : 1;
+			$this->cur_page = isset($_GET['page']) && validateUInt($_GET['page']) ? (int)$_GET['page'] : 1;
 			if ($this->cur_page < 1) {
 				$this->cur_page = 1;
 			} elseif ($this->cur_page > $this->n_pages) {
@@ -30,12 +30,12 @@ class Paginator {
 			}
 			$this->cur_start = ($this->cur_page - 1) * $this->page_len;
 	
-			$this->table = DB::selectAll("select ".join($config['col_names'], ',')." from {$config['table_name']} where {$config['cond']} {$config['tail']} limit {$this->cur_start}, {$this->page_len}");
+			$this->table = DB::selectAll("select ".join(',', $config['col_names'])." from {$config['table_name']} where {$config['cond']} {$config['tail']} limit {$this->cur_start}, {$this->page_len}");
 		} else {
 			$this->n_pages = 1;
 			$this->cur_page = 1;
 			$this->cur_start = ($this->cur_page - 1) * $this->page_len;
-			$this->table = DB::selectAll("select ".join($config['col_names'], ',')." from {$config['table_name']} where {$config['cond']} {$config['tail']}");
+			$this->table = DB::selectAll("select ".join(',', $config['col_names'])." from {$config['table_name']} where {$config['cond']} {$config['tail']}");
 		}
 		
 		$this->max_extend = isset($config['max_extend']) ? (int)$config['max_extend'] : 5;
