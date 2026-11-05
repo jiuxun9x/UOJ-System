@@ -209,6 +209,12 @@ jobs:
           docker compose -p speedworkers -f speed-workers.yml up -d
           python3 tests/e2e/judging_speed.py burst judging-speed/burst-4.json
 
+      # whether judgers that share a machine measure the times of programs as one alone does
+      - name: Times of programs judged alone and four at once
+        env:
+          UOJ_SPEED_JUDGERS: speed-cpu0,speed-cpu1,speed-cpu2,speed-cpu3
+        run: python3 tests/e2e/judging_speed.py timing judging-speed/timing-4.json
+
       - name: Collect logs
         if: always()
         run: |

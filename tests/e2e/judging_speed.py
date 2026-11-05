@@ -5,6 +5,7 @@ that nothing else uses (the "Judging speed" job of the Tests workflow):
 
     python3 tests/e2e/judging_speed.py latency judging-speed/latency.json
     python3 tests/e2e/judging_speed.py burst judging-speed/burst-1.json
+    python3 tests/e2e/judging_speed.py timing judging-speed/timing-4.json
     python3 tests/e2e/judging_speed.py report judging-speed
 
 latency: one submission at a time, each after the judgers have been idle for a few seconds,
@@ -12,6 +13,10 @@ so that what is measured is what a student waits for when nobody else submits. T
 judgement come from the line "timing {...}" judge_client logs for every task.
 
 burst: many submissions at once, as at the start of an exam: how long until all are judged.
+
+timing: how much the time a program is measured to take changes when the judgers of a machine
+judge at the same time: programs that only compute, and programs that wait for the memory, are
+judged one at a time and then as many at once as there are judgers.
 """
 
 import json
@@ -33,6 +38,33 @@ int main() {
     long long a, b;
     cin >> a >> b;
     cout << a + b << endl;
+}
+"""
+
+# a program that only computes, and one that waits for the memory most of the time; both take
+# about half a second, and answer A+B
+CPU_BOUND = r"""#include <cstdio>
+int main() {
+    long long a, b;
+    scanf("%lld%lld", &a, &b);
+    volatile unsigned long long x = 0;
+    for (long long i = 0; i < 150000000LL; i++) x = x + i;
+    printf("%lld\n", a + b);
+}
+"""
+
+MEMORY_BOUND = r"""#include <cstdio>
+#include <vector>
+int main() {
+    long long a, b;
+    scanf("%lld%lld", &a, &b);
+    const unsigned n = 1u << 25;  // 128 MB
+    std::vector<unsigned> next(n);
+    for (unsigned i = 0; i < n; i++) next[i] = (unsigned)(i * 2654435761u) & (n - 1);
+    unsigned p = 0;
+    for (int k = 0; k < 3000000; k++) p = next[p] ^ (k & 7);
+    if (p == 0xffffffffu) puts("never");
+    printf("%lld\n", a + b);
 }
 """
 
@@ -59,7 +91,7 @@ def ab_files(n_tests):
     settings = dict(
         use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=n_tests, n_ex_tests=0, n_sample_tests=0,
         input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
-        time_limit=1, memory_limit=256,
+        time_limit=1 if n_tests > 1 else 5, memory_limit=256 if n_tests > 1 else 512,
     )  # fmt: skip
     files = {"problem.conf": conf(**settings), "std.cpp": AB, "val.cpp": AB_VALIDATOR}
     rng = random.Random(n_tests)
@@ -70,7 +102,7 @@ def ab_files(n_tests):
     return files
 
 
-TITLES = {"ab": "judging speed: A+B", "many": "judging speed: A+B, 100 tests"}
+TITLES = {"ab": "judging speed: A+B", "many": "judging speed: A+B, 100 tests", "timing": "judging speed: one test"}
 
 
 def problems():
@@ -83,7 +115,7 @@ def problems():
         if found in (None, "NULL"):
             admin = uoj.admin()
             problem_id = admin.new_problem(title=title)
-            r = admin.upload_data(problem_id, ab_files(100 if key == "many" else 3))
+            r = admin.upload_data(problem_id, ab_files({"many": 100, "timing": 1}.get(key, 3)))
             if "上传成功" not in r.text:
                 raise Exception("failed to upload the data: " + uoj.text_of(r.text)[-800:])
             err = admin.sync(problem_id)
@@ -213,6 +245,36 @@ def burst(out_path):
     print_burst(results)
 
 
+def timing(out_path):
+    made = problems()
+    wait_data_everywhere(made.values())
+    client = uoj.admin()
+    uoj.wait_idle()
+    programs = {"computes": CPU_BOUND, "waits for the memory": MEMORY_BOUND}
+    together = len(uoj.JUDGERS)
+
+    def used_time(submission_id):
+        j = uoj.wait_submission(submission_id, timeout=900)
+        if j.score != 100:
+            raise Exception("submission #%d: %r" % (submission_id, j))
+        return j.used_time
+
+    results = {"environment": environment(), "together": together, "programs": {}}
+    for name, code in programs.items():
+        used_time(submit(client, made["timing"], code, "C++17")[0])  # warm
+        alone = []
+        for _ in range(2 * together):
+            alone.append(used_time(submit(client, made["timing"], code, "C++17")[0]))
+        at_once = []
+        for _ in range(3):
+            uoj.wait_idle()
+            ids = [submit(client, made["timing"], code, "C++17")[0] for _ in range(together)]
+            at_once += [used_time(i) for i in ids]
+        results["programs"][name] = {"alone": alone, "together": at_once}
+    write(out_path, results)
+    print_timing(results)
+
+
 def write(path, results):
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w") as f:
@@ -266,6 +328,22 @@ def print_burst(results):
     emit(text + "\n")
 
 
+def print_timing(results):
+    env = results["environment"]
+    text = "### The time a program is measured to take, judged alone and %d at once (%s, %d CPUs, commit %s)\n\n" % (
+        results["together"], env["cpu"], env["cpus"], env["commit"]
+    )
+    rows = [["program (ms)", "alone: median", "alone: min-max", "%d at once: median" % results["together"], "%d at once: min-max" % results["together"], "slower by"]]
+    for name, times in results["programs"].items():
+        alone, together = median(times["alone"]), median(times["together"])
+        rows.append([
+            name, alone, "%d-%d" % (min(times["alone"]), max(times["alone"])),
+            together, "%d-%d" % (min(times["together"]), max(times["together"])),
+            "%+.0f%%" % ((together - alone) * 100.0 / alone) if alone else "",
+        ])  # fmt: skip
+    emit(text + table(rows) + "\n")
+
+
 def emit(text):
     print(text)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -282,10 +360,12 @@ def report(folder):
             results = json.load(f)
         if "scenarios" in results:
             print_latency(results)
+        elif "programs" in results:
+            print_timing(results)
         else:
             print_burst(results)
 
 
 if __name__ == "__main__":
     command, target = sys.argv[1], sys.argv[2]
-    {"latency": latency, "burst": burst, "report": report}[command](target)
+    {"latency": latency, "burst": burst, "timing": timing, "report": report}[command](target)
