@@ -121,8 +121,9 @@ say "MySQL 8.0 upgrades the data folder (this takes a while for a large database
 start_temp "$mysql80" --skip-log-bin
 temp_sql -e "select 1" > /dev/null || die "root can not log in with UOJ_DB_ROOT_PASSWORD; set it to the password of root"
 # Every account that logs in with mysql_native_password gets caching_sha2_password, with the
-# password it has: root and the account of the site, whose passwords are known.
-accounts=$(temp_sql -e "select user, host from mysql.user where plugin = 'mysql_native_password'")
+# password it has: root and the account of the site, whose passwords are known. The locked
+# accounts of MySQL itself (mysql.sys, mysql.session) never log in.
+accounts=$(temp_sql -e "select user, host from mysql.user where plugin = 'mysql_native_password' and account_locked = 'N'")
 while IFS=$'\t' read -r user host; do
 	[ -n "$user" ] || continue
 	if [ "$user" = root ]; then
