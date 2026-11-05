@@ -337,12 +337,53 @@ class InteractTest(JudgeClientTestCase):
         self.sleep.assert_any_call(30)
 
 
+class LongPollTest(JudgeClientTestCase):
+    """a judger with nothing to do asks the web server to wait for a task"""
+
+    def test_idle_judger_asks_to_wait_and_waits_as_long_for_the_answer(self):
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch(wait=20)
+        self.assertEqual(interact.call_args[0][0]["wait"], "20")
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch()
+        self.assertNotIn("wait", interact.call_args[0][0])
+
+        sent = []
+        with mock.patch.object(self.jc.requests, "post", side_effect=lambda url, **kwargs: sent.append(kwargs) or FakeResponse(body=b"Nothing to judge")):
+            self.jc.uoj_interact({"fetch_id": "a" * 32, "wait": "20"})
+            self.jc.uoj_interact({"heartbeat": "1"})
+        self.assertEqual(sent[0]["timeout"], (self.jc.CONNECT_TIMEOUT, self.jc.READ_TIMEOUT + 20))
+        self.assertEqual(sent[1]["timeout"], (self.jc.CONNECT_TIMEOUT, self.jc.READ_TIMEOUT))
+
+    def test_work_that_comes_while_the_judger_waits_is_asked_for(self):
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Ask again"):
+            self.assertFalse(self.jc.send_and_fetch(wait=20))
+        self.assertTrue(self.jc.work_has_come)
+        self.assertIsNone(self.jc.submission)
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge"):
+            self.assertFalse(self.jc.send_and_fetch(wait=20))
+        self.assertFalse(self.jc.work_has_come)
+
+    def test_judger_does_not_wait_while_it_has_data_to_fetch(self):
+        self.assertEqual(self.jc.long_poll_seconds(), 20)
+        self.jc.data_sync_plan = [(1, 1, "a" * 64, None)]
+        self.assertEqual(self.jc.long_poll_seconds(), 0)
+        self.jc.data_sync_plan = []
+        self.jc.taskQ.put({"cmd": "stop"})
+        self.assertEqual(self.jc.long_poll_seconds(), 0)
+
+    def test_how_long_to_wait_is_a_setting(self):
+        for value, seconds in ((5, 5), (0, 0), (500, 50), (-1, 20), ("5", 20), (True, 20), (None, 20)):
+            self.jc.jconf["long_poll_seconds"] = value
+            self.assertEqual(self.jc.long_poll_seconds(), seconds, value)
+
+
 class ClaimTest(JudgeClientTestCase):
     """a worker says which it is, which asking for work it sends, and which claim it reports on"""
 
     def test_worker_keeps_its_name(self):
         sent = []
-        with mock.patch.object(self.jc.requests, "post", side_effect=lambda url, data, files: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
+        with mock.patch.object(self.jc.requests, "post", side_effect=lambda url, data, files, **kwargs: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
             self.jc.uoj_interact({"heartbeat": "1"})
         name = sent[0]["worker"]
         self.assertRegex(name, r"^[0-9a-f]{32}$")
@@ -351,7 +392,7 @@ class ClaimTest(JudgeClientTestCase):
         # a judge_client that starts again is the same worker
         again = load_judge_client()
         again.jconf = self.jc.jconf
-        with mock.patch.object(again.requests, "post", side_effect=lambda url, data, files: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
+        with mock.patch.object(again.requests, "post", side_effect=lambda url, data, files, **kwargs: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
             again.uoj_interact({"heartbeat": "1"})
         self.assertEqual(sent[1]["worker"], name)
 

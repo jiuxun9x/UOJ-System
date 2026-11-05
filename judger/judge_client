@@ -1178,10 +1178,17 @@ def claim_of_task():
     return submission.get("claim") if isinstance(submission, dict) else None
 
 
+# Seconds to wait for a connection to the web server, and for the next part of its answer. A
+# request that waits for work (wait=<seconds>) waits that much longer.
+CONNECT_TIMEOUT = 10
+READ_TIMEOUT = 300
+
+
 def uoj_interact(data, files={}):
     data = data.copy()
     data.update({"judger_name": jconf["judger_name"], "password": jconf["judger_password"], "worker": worker_id()})
-    r = requests.post(uoj_url("/judge/submit"), data=data, files=files)
+    wait = int(data.get("wait", 0))
+    r = requests.post(uoj_url("/judge/submit"), data=data, files=files, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT + wait))
     uoj_check_response(r, "/judge/submit")
     return r.text
 
@@ -1191,7 +1198,7 @@ def uoj_download(uri, filename):
     data = {"judger_name": jconf["judger_name"], "password": jconf["judger_password"]}
     size = 0
     sha256 = hashlib.sha256()
-    r = requests.post(uoj_url("/judge/download" + uri), data=data, stream=True)
+    r = requests.post(uoj_url("/judge/download" + uri), data=data, stream=True, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     try:
         uoj_check_response(r, "/judge/download" + uri)
         with open(filename, "wb") as f:
@@ -1254,10 +1261,33 @@ def give_back_report():
     return report
 
 
-def send_and_fetch(result=None, fetch_new=True, report=None):
-    global submission
+# Seconds a judger with nothing to do asks the web server to wait before it answers
+# (long_poll_seconds in .conf.json): the web server answers "Ask again" as soon as something
+# comes to be judged, and the judger asks for it at once. A web server that does not wait answers
+# at once, as before; then the judger asks again two seconds later.
+LONG_POLL_SECONDS = 20
 
-    """send judgement result, and fetch new submission to judge"""
+# whether the web server said that something came to be judged while the judger waited
+work_has_come = False
+
+
+def long_poll_seconds():
+    """how long to wait for a task in the next request, 0 for not at all"""
+    seconds = jconf.get("long_poll_seconds", LONG_POLL_SECONDS)
+    if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 0:
+        seconds = LONG_POLL_SECONDS
+    # the data of the problems is fetched between the requests: while there is some to fetch,
+    # the requests do not wait
+    if data_sync_plan or not taskQ.empty():
+        return 0
+    return min(seconds, 50)
+
+
+def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
+    global submission, work_has_come
+
+    """send judgement result, and fetch new submission to judge; wait: seconds the web server may
+    wait for a task to come when there is none"""
 
     data = {}
     files = {}
@@ -1270,6 +1300,8 @@ def send_and_fetch(result=None, fetch_new=True, report=None):
         data.update(describe_judger())
         # sent again as it is when no answer comes: the web server answers the same asking the same
         data["fetch_id"] = uuid.uuid4().hex
+        if wait > 0:
+            data["wait"] = str(wait)
 
     if report is not None:
         data.update(report)
@@ -1329,11 +1361,12 @@ def send_and_fetch(result=None, fetch_new=True, report=None):
             outcome = "prepared"
         log_task_timing(outcome, request_ms)
 
+    work_has_come = ret.strip() == "Ask again"
     try:
         submission = json.loads(ret)
     except Exception as e:
         submission = None
-        if ret.strip() != "Nothing to judge":
+        if ret.strip() not in ("Nothing to judge", "Ask again"):
             log("unexpected response from the web server: %r" % ret[:200])
         return False
     else:
@@ -1357,12 +1390,17 @@ def judger_loop():
                 if not socket_server_thread.is_alive():
                     raise Exception("socket server exited unexpectedly")
 
-                if send_and_fetch():
+                asked_at = time.time()
+                if send_and_fetch(wait=long_poll_seconds()):
                     break
+                if work_has_come:
+                    # something came while the judger waited: it asks for it now
+                    continue
 
                 print("[" + time.asctime() + "]", "Nothing to judge...")
                 # the time nothing is judged in is the time to fetch data ahead
-                if not sync_data_ahead():
+                if not sync_data_ahead() and time.time() - asked_at < 1:
+                    # the web server did not wait for a task: ask again in a while
                     time.sleep(2)
 
             ok = True

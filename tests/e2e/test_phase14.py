@@ -1,15 +1,20 @@
 """Phase 14: judging faster. A precompiled <bits/stdc++.h> for every standard of C++, which
 changes how long a program takes to compile and nothing else; several judgers on one machine,
-each on a CPU of its own, all with one judging account."""
+each on a CPU of its own, all with one judging account; judgers with nothing to do that wait for
+work instead of asking every two seconds."""
 
+import json
 import os
 import re
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
+import uuid
 
 import uoj
-from fixtures import AB_SLOW, ab_problem_files
+from fixtures import AB, AB_SLOW, ab_problem_files
 from uoj import db, db_value
 
 COMPILE = "/opt/uoj_judger/uoj_judger/run/compile"
@@ -283,6 +288,114 @@ class WorkersTest(unittest.TestCase):
         self.assertIn('data-worker="%s">%s</small>' % (worker, worker.split("-")[0]), page)
         page = self.admin.get("/super-manage/judger").text
         self.assertIn("2 个进程在用这个账户（最近 10 分钟），各评各的：cpu0、cpu1", uoj.text_of(page))
+
+
+class LongPollTest(unittest.TestCase):
+    """a judger with nothing to do may ask the site to wait: it is told as soon as there is work,
+    and the request that waits never gives anything out itself"""
+
+    WORKER = "e2e-long-poll-0001"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.problem_id = cls.admin.create_problem(ab_problem_files())
+
+    def setUp(self):
+        # only the fake judger is given work meanwhile
+        uoj.wait_idle()
+        names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
+        self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
+
+    def ask(self, wait=None, fetch_id=None, worker=None):
+        """ask for work as the fake judger, return the answer and the seconds it took"""
+        data = {"protocol": "3", "judger_version": "e2e-fake", "toolchain": "{}", "worker": worker or self.WORKER,
+                "fetch_id": fetch_id or uuid.uuid4().hex}  # fmt: skip
+        if wait is not None:
+            data["wait"] = str(wait)
+        started = time.time()
+        r = uoj.judge_api("/judge/submit", data)
+        self.assertEqual(r.status_code, 200, r.text[:300])
+        return r.text, time.time() - started
+
+    def ask_in_background(self, **fields):
+        answer = {}
+        thread = threading.Thread(target=lambda: answer.update(zip(("text", "seconds"), self.ask(**fields))))
+        thread.start()
+        return thread, answer
+
+    def finish(self, task):
+        """the fake judger reports the task done, so that nothing waits for it afterwards"""
+        r = uoj.judge_api("/judge/submit", {
+            "fetch_new": "0", "worker": self.WORKER, "submit": "1", "id": task["id"], "claim": task["claim"],
+            "result": json.dumps({"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}),
+        })  # fmt: skip
+        self.assertEqual(r.status_code, 200)
+
+    def test_judger_that_waits_is_told_as_soon_as_there_is_work(self):
+        asked_at = time.time()
+        thread, answer = self.ask_in_background(wait=20)
+        time.sleep(2)
+        submission_id = self.admin.submit(self.problem_id, AB)
+        submitted_at = time.time()
+        thread.join(30)
+        self.assertEqual(answer["text"], "Ask again")
+        # told within moments of the submission, not when the wait was over
+        self.assertLess(asked_at + answer["seconds"] - submitted_at, 3, answer)
+        # the waiting request gave nothing out: the judger asks for the work, and is given it
+        status, claim = db("select status, ifnull(judge_claim, 'NULL') from submissions where id = %d" % submission_id)[0]
+        self.assertEqual((status, claim), ("Waiting", "NULL"))
+        text, seconds = self.ask()
+        task = json.loads(text)
+        self.assertEqual(task["id"], submission_id)
+        self.assertLess(seconds, 2)
+        self.finish(task)
+
+    def test_judger_that_waits_for_nothing_is_answered_when_the_wait_is_over(self):
+        text, seconds = self.ask(wait=3)
+        self.assertEqual(text, "Nothing to judge")
+        self.assertGreaterEqual(seconds, 2.8)
+        self.assertLess(seconds, 8)
+        # a wait that is no number of seconds is no wait, and so is none at all
+        for wait in ("soon", "-5", None):
+            text, seconds = self.ask(wait=wait)
+            self.assertEqual(text, "Nothing to judge", wait)
+            self.assertLess(seconds, 2, wait)
+
+    def test_wait_ends_when_the_judger_asks_again(self):
+        # the answer of the wait was lost: the judger asked again meanwhile, and that wait is over
+        thread, answer = self.ask_in_background(wait=20)
+        time.sleep(1)
+        self.assertEqual(self.ask()[0], "Nothing to judge")
+        thread.join(30)
+        self.assertEqual(answer["text"], "Nothing to judge")
+        self.assertLess(answer["seconds"], 12)
+
+    def test_judger_that_is_switched_off_while_it_waits_is_given_nothing(self):
+        thread, answer = self.ask_in_background(wait=20)
+        time.sleep(1)
+        db("update judger_info set enabled = 0 where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
+        try:
+            thread.join(30)
+            self.assertEqual(answer["text"], "Nothing to judge")
+            self.assertLess(answer["seconds"], 12)
+        finally:
+            db("update judger_info set enabled = 1 where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
+
+    def test_judgers_that_wait_pick_up_work_at_once(self):
+        # the judgers of the tests wait for work too: a submission is picked up in well under the
+        # two seconds a judger that asks every two seconds takes on average
+        db("update judger_info set enabled = 1 where judger_name in (%s)" % ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES))
+        uoj.wait_idle()
+        pickups = []
+        for _ in range(4):
+            time.sleep(3)
+            submission_id = self.admin.submit(self.problem_id, AB)
+            submitted_at = time.time()
+            self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+            pickups.append(uoj.task_timing("submission", submission_id)["fetched_at"] - submitted_at)
+        self.assertLess(sorted(pickups)[1], 1.0, pickups)
 
 
 if __name__ == "__main__":

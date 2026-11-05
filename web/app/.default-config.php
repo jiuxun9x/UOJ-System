@@ -73,7 +73,11 @@ return [
 			'password' => '_judger_socket_password_'
 		],
 		// seconds without a sign of life after which the tasks of a judger are given to others
-		'task-timeout' => 300
+		'task-timeout' => 300,
+		// seconds an idle judger may wait for a task in one request, which is answered as soon as
+		// there is one; 0 to answer at once. Keep it below how long a proxy in front of the site
+		// waits for an answer (nginx: proxy_read_timeout, 60 seconds unless set).
+		'long-poll-seconds' => 20
 	],
 	'user' => [
 		// days a user has to wait before they change their username again, 0 for no limit

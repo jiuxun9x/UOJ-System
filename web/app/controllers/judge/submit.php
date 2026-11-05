@@ -488,6 +488,10 @@
 	}
 	function findSubmissionToJudge() {
 		global $submission, $hack, $kind;
+		// what an earlier look found and could not give out is nothing to give out now
+		$submission = null;
+		$hack = null;
+		$kind = null;
 		querySubmissionToJudge('Waiting', "judge_time = now(), status = 'Judging'");
 		if ($submission) {
 			return true;
@@ -581,7 +585,50 @@
 		));
 	}
 	
+	// ---- waiting for work
+	//
+	// A judger with nothing to do may ask to wait (wait=<seconds>): the request is answered with
+	// "Ask again" as soon as something comes to be judged, and the judger asks for it at once,
+	// instead of when it would have asked next. The request that waits gives nothing out itself,
+	// so a judger that went away while it waited is never given a task it will not do. The wait is
+	// as long as the judger asks and the site allows (judger.long-poll-seconds, 0 for not at all),
+	// and never longer than 25 seconds: a judger that waits is still seen as online, and a proxy in
+	// front of the site still waits for the answer.
+	function longPollSeconds() {
+		$limit = isset(UOJConfig::$data['judger']['long-poll-seconds']) ? (int)UOJConfig::$data['judger']['long-poll-seconds'] : 20;
+		$asked = isset($_POST['wait']) && is_string($_POST['wait']) && validateUInt($_POST['wait']) && strlen($_POST['wait']) <= 4 ? (int)$_POST['wait'] : 0;
+		return max(0, min($asked, $limit, 25));
+	}
+	// whether anything waits for a judger, in one look that costs little
+	function somethingToJudge() {
+		return DB::selectCount("select exists(select 1 from problem_data_versions where status = 'pending')
+			or exists(select 1 from submissions where status in ('Waiting', 'Waiting Rejudge', 'Judged, Waiting'))
+			or exists(select 1 from custom_test_submissions where judge_time is null)
+			or exists(select 1 from hacks where judge_time is null)") == 1;
+	}
+	// whether the worker that waits has not asked again meanwhile, and may still be given work
+	function stillWaiting() {
+		global $esc_worker_of, $fetch_id;
+		$asked = DB::selectFirst("select last_fetch_id from judger_workers where $esc_worker_of");
+		$enabled = DB::selectCount("select enabled from judger_info where judger_name = '".DB::escape(judgerName())."'");
+		return $asked && $asked['last_fetch_id'] === $fetch_id && $enabled == 1;
+	}
+	
 	if (!findSubmissionToJudge()) {
+		$deadline = microtime(true) + longPollSeconds();
+		$checked_at = microtime(true);
+		while (microtime(true) < $deadline) {
+			usleep(200000);
+			if (somethingToJudge()) {
+				die("Ask again");
+			}
+			if (microtime(true) - $checked_at >= 5) {
+				$checked_at = microtime(true);
+				if (!stillWaiting()) {
+					break;
+				}
+			}
+		}
 		die("Nothing to judge");
 	}
 	

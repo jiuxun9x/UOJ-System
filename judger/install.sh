@@ -56,6 +56,7 @@ initProgress(){
     "max_judging_seconds": ${MAX_JUDGING_SECONDS:-3600},
     "data_sync": ${DATA_SYNC:-true},
     "data_cache_problems": ${DATA_CACHE_PROBLEMS:-300},
+    "long_poll_seconds": ${LONG_POLL_SECONDS:-20},
     "worker_label": "$WORKER_LABEL"
 }
 UOJEOF
