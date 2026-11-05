@@ -239,7 +239,8 @@ class WorkersTest(unittest.TestCase):
         uoj.run(
             "bash", os.path.join(REPO, "judger", "workers.sh"),
             "--url", "http://host.docker.internal", "--name", self.ACCOUNT, "--password", self.password,
-            "--cpus", cpus, "--image", IMAGE, "--prefix", "p14-judger", "--memory", "3g",
+            # the CPUs of the runners of the tests are hyperthreads of two cores
+            "--cpus", cpus, "--allow-smt", "--image", IMAGE, "--prefix", "p14-judger", "--memory", "3g",
             "--add-host", "host.docker.internal:host-gateway", "--env", "DATA_SYNC=false",
             "--output", compose,
         )  # fmt: skip
@@ -265,6 +266,7 @@ class WorkersTest(unittest.TestCase):
             self.assertRegex(name, r"^cpu[01]-[0-9a-f]{16}$")
 
         problem_id = self.admin.create_problem(ab_problem_files())
+        big = self.admin.create_problem(ab_problem_files(memory_limit=2560))
         # the other judgers have nothing to do meanwhile
         uoj.wait_idle()
         names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
@@ -290,6 +292,16 @@ class WorkersTest(unittest.TestCase):
         self.assertIn('data-worker="%s">%s</small>' % (worker, worker.split("-")[0]), page)
         page = self.admin.get("/super-manage/judger").text
         self.assertIn("2 个进程在用这个账户（最近 10 分钟），各评各的：cpu0、cpu1", uoj.text_of(page))
+
+        # A problem whose programs may use more memory than a judger has (3 GB, 768 MB of them
+        # for the compiler, the checker and the judger) is given back, and not judged wrongly:
+        # with no judger that can take it, it fails.
+        submission_id = self.admin.submit(big, AB)
+        j = uoj.wait_submission(submission_id, timeout=600)
+        self.assertEqual(j.error, "Judgement Failed", j)
+        self.assertEqual([outcome for _, outcome in uoj.judgements("submission", submission_id)], ["reclaimed", "reclaimed", "failed"])
+        logs = "".join(uoj.judger_log(container) for container in containers)
+        self.assertIn("problem #%d allows 2560 MB, and this judger has 3072 MB" % big, logs)
 
 
 class LongPollTest(unittest.TestCase):

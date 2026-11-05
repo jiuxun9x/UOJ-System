@@ -1068,6 +1068,63 @@ def prepare():
     return report
 
 
+# ---- the memory of the judger
+#
+# A judger in a container with a memory limit (judger/workers.sh gives every judger one) judges
+# only what fits in it: a program that is killed because the container ran out of memory would
+# be judged wrongly, as a runtime error or worse. A problem whose programs may use more than the
+# judger has, with room left for the compiler, the checker and the judger itself, is given back
+# for a judger with more memory.
+MEMORY_MARGIN_MB = 768
+CGROUP_MEMORY_FILES = ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]
+
+
+def container_memory_mb():
+    """the memory this judger may use in MB, or None where it has no limit"""
+    for path in CGROUP_MEMORY_FILES:
+        try:
+            with open(path) as f:
+                value = f.read().strip()
+        except OSError:
+            continue
+        if not value.isdigit():
+            return None
+        limit = int(value) // (1024 * 1024)
+        # no limit, as cgroup v1 writes it
+        return None if limit >= 1 << 40 else limit
+    return None
+
+
+def problem_memory_mb(data_dir):
+    """the most memory a program of the problem may use in MB, as its problem.conf says, or
+    None where that can not be told"""
+    try:
+        with open(os.path.join(data_dir, "problem.conf"), errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    most = 256
+    for line in lines:
+        parts = line.split()
+        if len(parts) == 2 and re.fullmatch(r"memory_limit(_[0-9]+)?", parts[0]) and parts[1].isdigit():
+            most = max(most, int(parts[1]))
+    return most
+
+
+def check_memory_fits(problem_id):
+    """refuse to judge a problem whose programs may use more memory than this judger has"""
+    limit = container_memory_mb()
+    if limit is None:
+        return
+    needed = problem_memory_mb(os.path.join(uoj_judger_path("/data"), str(problem_id)))
+    if needed is not None and needed + MEMORY_MARGIN_MB > limit:
+        raise Exception(
+            "problem #%d allows %d MB, and this judger has %d MB, %d of them left to the compiler, "
+            "the checker and the judger: it is left to a judger with more memory"
+            % (problem_id, needed, limit, MEMORY_MARGIN_MB)
+        )
+
+
 def judge():
     global judging_started
 
@@ -1081,6 +1138,7 @@ def judge():
         submission.get("problem_data_prepare"),
     )
     note_timing(data_ms=ms_since(started), data_fetched=bool(fetched))
+    check_memory_fits(submission["problem_id"])
 
     started = time.time()
     with open(uoj_judger_path("/work/submission.conf"), "w") as fconf:

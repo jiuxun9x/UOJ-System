@@ -204,7 +204,7 @@ jobs:
         run: |
           docker stop uoj-judger
           bash judger/workers.sh --url http://host.docker.internal --name compose_judger_2 --password _judger_password_2_ \
-            --cpus 0-3 --image ghcr.io/universaloj/uoj-judger:latest --prefix speed \
+            --cpus 0-3 --allow-smt --image ghcr.io/universaloj/uoj-judger:latest --prefix speed \
             --add-host host.docker.internal:host-gateway --output speed-workers.yml
           docker compose -p speedworkers -f speed-workers.yml up -d
           python3 tests/e2e/judging_speed.py burst judging-speed/burst-4.json

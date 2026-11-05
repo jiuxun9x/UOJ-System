@@ -1228,6 +1228,50 @@ class GivenUpJudgementTest(JudgeClientTestCase):
             self.assertEqual(self.jc.max_judging_seconds(), limit, value)
 
 
+class MemoryTest(JudgeClientTestCase):
+    """a judger judges only what fits in its memory"""
+
+    def cgroup(self, value):
+        path = os.path.join(self.root, "memory.max")
+        with open(path, "w") as f:
+            f.write(value + "\n")
+        self.jc.CGROUP_MEMORY_FILES = [path]
+
+    def problem(self, conf):
+        os.makedirs(self.data_path("7"), exist_ok=True)
+        with open(self.data_path("7", "problem.conf"), "w") as f:
+            f.write(conf)
+
+    def test_memory_of_the_container_is_read(self):
+        self.cgroup(str(3 << 30))
+        self.assertEqual(self.jc.container_memory_mb(), 3072)
+        self.cgroup("max")
+        self.assertIsNone(self.jc.container_memory_mb())
+        # cgroup v1 without a limit
+        self.cgroup("9223372036854771712")
+        self.assertIsNone(self.jc.container_memory_mb())
+        self.jc.CGROUP_MEMORY_FILES = [os.path.join(self.root, "nothing")]
+        self.assertIsNone(self.jc.container_memory_mb())
+
+    def test_memory_of_a_problem_is_the_most_any_test_allows(self):
+        self.problem("n_tests 3\nmemory_limit 512\nmemory_limit_2 1024\ntime_limit 1\n")
+        self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 1024)
+        self.problem("n_tests 3\n")
+        self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 256)
+        self.assertIsNone(self.jc.problem_memory_mb(self.data_path("8")))
+
+    def test_problem_that_does_not_fit_is_given_back(self):
+        self.cgroup(str(3 << 30))
+        self.problem("memory_limit 2048\n")
+        self.jc.check_memory_fits(7)
+        self.problem("memory_limit 2560\n")
+        with self.assertRaisesRegex(Exception, "allows 2560 MB, and this judger has 3072 MB"):
+            self.jc.check_memory_fits(7)
+        # without a limit everything fits
+        self.cgroup("max")
+        self.jc.check_memory_fits(7)
+
+
 class TimingTest(JudgeClientTestCase):
     """where the time of a task goes is logged once the task is over"""
 
