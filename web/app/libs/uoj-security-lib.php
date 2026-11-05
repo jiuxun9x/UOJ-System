@@ -65,6 +65,16 @@ function hasUsablePassword($user) {
 function setUserPassword($username, $password) {
 	return storeUserPassword($username, $password);
 }
+// Ends every login of a user: the sessions, and the devices that remember a login. With
+// $keep_current, the user who asks stays logged in here, with a new session and a new token.
+function revokeUserLogins($username, $keep_current = false) {
+	$esc_username = DB::escape($username);
+	DB::update("update user_info set auth_version = auth_version + 1 where username = '$esc_username'");
+	DB::delete("delete from user_remember_tokens where username = '$esc_username'");
+	if ($keep_current && Auth::id() === $username) {
+		Auth::login($username);
+	}
+}
 // ---- the links that reset a password
 //
 // A link carries a random token, of which only the SHA-256 is kept. It works for half an hour
@@ -110,6 +120,8 @@ function passwordResetUse($reset, $password) {
 	}
 	setUserPassword($reset['username'], $password);
 	DB::update("update password_resets set used_at = now() where username = '".DB::escape($reset['username'])."' and used_at is null");
+	// whoever had the password or a login does not keep them
+	revokeUserLogins($reset['username']);
 	return true;
 }
 

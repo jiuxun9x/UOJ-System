@@ -19,6 +19,8 @@ class Auth {
 		}
 		Session::renew();
 		$_SESSION['username'] = $username;
+		// the login lasts as long as the user keeps this version (see revokeUserLogins())
+		$_SESSION['auth_version'] = (int)DB::selectCount("select auth_version from user_info where username = '$username'");
 		if ($remember) {
 			// a token for this device: the database keeps its hash only
 			$remember_token = uojRandString(60);
@@ -57,6 +59,14 @@ class Auth {
 				return;
 			}
 			$myUser = queryUser($_SESSION['username']);
+			// a login from before the password changed is over (a session of before the version
+			// was kept has none, which is the 0 everybody had then)
+			$version = isset($_SESSION['auth_version']) ? (int)$_SESSION['auth_version'] : 0;
+			if ($myUser && $version !== (int)$myUser['auth_version']) {
+				$myUser = null;
+				$_SESSION = array();
+				Session::renew();
+			}
 			return;
 		}
 

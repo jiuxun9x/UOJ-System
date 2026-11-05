@@ -37,6 +37,8 @@
 				return "失败：无效密码。";
 			}
 			setUserPassword($myUser['username'], $password);
+			// the other devices log in with the new password; this one stays logged in
+			revokeUserLogins($myUser['username'], true);
 		}
 		DB::update("update user_info set nickname = '".DB::escape($nickname)."' where username = '{$myUser['username']}'");
 

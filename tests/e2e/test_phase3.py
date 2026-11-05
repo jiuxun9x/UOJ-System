@@ -401,7 +401,10 @@ class IdentityTest(unittest.TestCase):
         new_hash = again.password_hash("p3-new-password")
         self.assertEqual(again.update_profile(ptag="1", password=new_hash), "ok")
         uoj.Client().login("p3_after", "p3-new-password")
-        user.password = "p3-new-password"
+        # the login of before the password changed is over (see test_phase13): a new one
+        self.assertEqual(user.get("/user/modify-profile").status_code, 302)
+        user = uoj.Client()
+        user.login("p3_after", "p3-new-password")
 
         # the name they gave up is kept for them
         with self.assertRaises(Exception):

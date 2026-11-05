@@ -171,13 +171,18 @@ class PasswordResetTest(unittest.TestCase):
         self.assertEqual(answer(again), answer(known))
 
     def test_link_works_once(self):
-        uoj.client(("p13_resetter", "p13-before-password"))
+        logged_in = uoj.Client()
+        logged_in.register("p13_resetter", "p13-before-password")
+        logged_in.login("p13_resetter", "p13-before-password")
         _, token = self.ask("p13_resetter")
         # only the hash of the token is kept
         self.assertEqual(db_value("select count(*) from password_resets where token_hash = '%s'" % hashlib.sha256(token.encode()).hexdigest()), "1")
         self.assertEqual(db_value("select count(*) from password_resets where token_hash = '%s'" % token), "0")
         self.assertNotIn(INVALID, uoj.Client().get("/reset-password?p=" + token).text)
         self.assertEqual(self.reset(token, "p13-after-password"), "ok")
+        # whoever was logged in with the password of before is not any more
+        self.assertIsNone(who(logged_in))
+        self.assertEqual(db_value("select count(*) from user_remember_tokens where username = 'p13_resetter'"), "0")
         uoj.Client().login("p13_resetter", "p13-after-password")
         with self.assertRaises(Exception):
             uoj.Client().login("p13_resetter", "p13-before-password")
@@ -211,3 +216,40 @@ class PasswordResetTest(unittest.TestCase):
         self.assertIn(INVALID, uoj.Client().get("/reset-password?p=" + old).text)
         self.assertIn("链接无效或已过期", self.reset(old, "p13-stolen-password"))
         uoj.Client().login("p13_oldlink", "p13-oldlink-password")
+
+
+# ---------------------------------------------------------------------- logins that end
+
+
+class LoginsEndTest(unittest.TestCase):
+    """a new password ends the logins of the old one, but the one that set it"""
+
+    def test_changing_the_password_ends_the_logins_of_the_other_devices(self):
+        here, there = uoj.Client(), uoj.Client()
+        here.register("p13_changer", "p13-changer-password")
+        here.login("p13_changer", "p13-changer-password")
+        there.login("p13_changer", "p13-changer-password")
+        remembered = {k: v for k, v in there.http.cookies.get_dict().items() if k != "UOJSESSID"}
+        self.assertEqual(who(browser_with(remembered)), "p13_changer")
+        version = int(db_value("select auth_version from user_info where username = 'p13_changer'"))
+        self.assertEqual(here.update_profile(ptag="1", password=here.password_hash("p13-changed-password")), "ok")
+        self.assertEqual(int(db_value("select auth_version from user_info where username = 'p13_changer'")), version + 1)
+        # here stays logged in, and remembers the login anew
+        self.assertEqual(who(here), "p13_changer")
+        self.assertEqual(db_value("select count(*) from user_remember_tokens where username = 'p13_changer'"), "1")
+        here_remembered = {k: v for k, v in here.http.cookies.get_dict().items() if k != "UOJSESSID"}
+        self.assertEqual(who(browser_with(here_remembered)), "p13_changer")
+        # there, and what there remembers, are logged out
+        self.assertIsNone(who(there))
+        self.assertIsNone(who(browser_with(remembered)))
+        uoj.Client().login("p13_changer", "p13-changed-password")
+
+    def test_a_banned_user_stays_logged_out_after_the_ban_is_lifted(self):
+        victim = uoj.Client()
+        victim.register("p13_banned", "p13-banned-password")
+        victim.login("p13_banned", "p13-banned-password")
+        admin = uoj.admin()
+        self.assertEqual(admin.change_user("p13_banned", "banneduser"), "")
+        self.assertEqual(admin.change_user("p13_banned", "normaluser"), "")
+        self.assertIsNone(who(victim))
+        uoj.Client().login("p13_banned", "p13-banned-password")

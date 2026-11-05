@@ -1082,7 +1082,7 @@ function changeUserStanding($actor, $target, $op) {
 		if ($op == 'banneduser') {
 			// a banned user keeps nothing that would work again by accident later
 			DB::delete("delete from user_roles where username = '$esc_username'");
-			DB::delete("delete from user_remember_tokens where username = '$esc_username'");
+			revokeUserLogins($target['username']);
 		}
 		auditLog('user.set_usergroup', 'user', $target['username'], $before, array('usergroup' => $usergroup), $actor);
 		return '';
