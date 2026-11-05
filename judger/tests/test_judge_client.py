@@ -265,9 +265,10 @@ class InteractTest(JudgeClientTestCase):
         with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
             self.jc.send_and_fetch()
         data = interact.call_args[0][0]
-        self.assertEqual(data["protocol"], 2)
+        self.assertEqual(data["protocol"], 3)
         self.assertEqual(data["judger_version"], "0123456789abcdef")
         self.assertEqual(data["toolchain"], "{}")
+        self.assertRegex(data["fetch_id"], r"^[0-9a-f]{32}$")
 
     def test_result_tells_which_data_was_used(self):
         self.jc.submission = {"id": 5, "problem_data_version": 3, "problem_data_sha256": "ab" * 32}
@@ -278,12 +279,13 @@ class InteractTest(JudgeClientTestCase):
         self.assertEqual(data["problem_data_sha256"], "ab" * 32)
 
     def test_task_that_could_not_be_done_is_given_back(self):
-        self.jc.submission = {"id": 5}
-        self.assertEqual(self.jc.give_back_report(), {"requeue": "1", "id": 5})
-        self.jc.submission = {"id": 5, "is_custom_test": ""}
-        self.assertEqual(self.jc.give_back_report(), {"requeue": "1", "id": 5, "is_custom_test": True})
-        self.jc.submission = {"id": 5, "is_hack": "", "hack": {"id": 9}}
-        self.assertEqual(self.jc.give_back_report(), {"requeue": "1", "id": 9, "is_hack": True})
+        claim = "c" * 32
+        self.jc.submission = {"id": 5, "claim": claim}
+        self.assertEqual(self.jc.give_back_report(), {"requeue": "1", "claim": claim, "id": 5})
+        self.jc.submission = {"id": 5, "is_custom_test": "", "claim": claim}
+        self.assertEqual(self.jc.give_back_report(), {"requeue": "1", "claim": claim, "id": 5, "is_custom_test": True})
+        self.jc.submission = {"id": 5, "is_hack": "", "hack": {"id": 9}, "claim": claim}
+        self.assertEqual(self.jc.give_back_report(), {"requeue": "1", "claim": claim, "id": 9, "is_hack": True})
 
         with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
             self.jc.send_and_fetch(fetch_new=False, report=self.jc.give_back_report())
@@ -295,14 +297,15 @@ class InteractTest(JudgeClientTestCase):
     def test_web_server_hears_from_the_judger_during_a_task(self):
         import threading
 
-        self.jc.submission = {"prepare": {"id": 1}}
+        self.jc.submission = {"prepare": {"id": 1}, "claim": "d" * 32}
         self.jc.SIGN_OF_LIFE_INTERVAL = 0.05
         with mock.patch.object(self.jc, "uoj_interact", return_value="") as interact:
             result = self.jc.run_task(lambda: threading.Event().wait(0.4) or "done")
             calls = interact.call_count
             self.assertEqual(result, "done")
             self.assertGreaterEqual(calls, 2)
-            self.assertEqual(interact.call_args[0][0], {"heartbeat": "1"})
+            # a sign of life says which claim it keeps alive
+            self.assertEqual(interact.call_args[0][0], {"heartbeat": "1", "claim": "d" * 32})
             # and not any more once the task is done
             threading.Event().wait(0.2)
             self.assertEqual(interact.call_count, calls)
@@ -332,6 +335,66 @@ class InteractTest(JudgeClientTestCase):
         for call in interact.call_args_list:
             self.assertEqual(json.loads(call[0][0]["result"])["score"], 100)
         self.sleep.assert_any_call(30)
+
+
+class ClaimTest(JudgeClientTestCase):
+    """a worker says which it is, which asking for work it sends, and which claim it reports on"""
+
+    def test_worker_keeps_its_name(self):
+        sent = []
+        with mock.patch.object(self.jc.requests, "post", side_effect=lambda url, data, files: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
+            self.jc.uoj_interact({"heartbeat": "1"})
+        name = sent[0]["worker"]
+        self.assertRegex(name, r"^[0-9a-f]{32}$")
+        with open(os.path.join(self.root, "log", "worker_id")) as f:
+            self.assertEqual(f.read().strip(), name)
+        # a judge_client that starts again is the same worker
+        again = load_judge_client()
+        again.jconf = self.jc.jconf
+        with mock.patch.object(again.requests, "post", side_effect=lambda url, data, files: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
+            again.uoj_interact({"heartbeat": "1"})
+        self.assertEqual(sent[1]["worker"], name)
+
+    def test_asking_is_sent_again_as_it_was(self):
+        responses = [Exception("no answer"), Exception("no answer"), '{"id": 7, "claim": "%s"}' % ("e" * 32)]
+        with mock.patch.object(self.jc, "uoj_interact", side_effect=responses) as interact:
+            self.assertTrue(self.jc.send_and_fetch())
+        asked = [call[0][0]["fetch_id"] for call in interact.call_args_list]
+        self.assertEqual(len(asked), 3)
+        self.assertEqual(len(set(asked)), 1)
+        self.assertEqual(self.jc.submission["claim"], "e" * 32)
+        # and the next asking is another one
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch()
+        self.assertNotEqual(interact.call_args[0][0]["fetch_id"], asked[0])
+
+    def test_reports_say_the_claim(self):
+        claim = "f" * 32
+        self.jc.submission = {"id": 5, "claim": claim}
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""})
+        self.assertEqual(interact.call_args[0][0]["claim"], claim)
+        self.jc.submission = {"prepare": {"id": 3}, "problem_id": 1, "claim": claim}
+        with mock.patch.object(self.jc, "update_problem_data"):
+            self.assertEqual(self.jc.prepare(), {"prepare_result": "1", "id": 3, "claim": claim, "ok": "1", "message": ""})
+
+    def test_progress_says_the_claim(self):
+        import threading
+
+        claim = "a" * 32
+        self.jc.submission = {"id": 5, "claim": claim}
+        with open(os.path.join(self.root, "uoj_judger", "result", "cur_status.txt"), "w") as f:
+            f.write("Judging Test #1")
+        with mock.patch.object(self.jc, "uoj_interact", return_value="") as interact:
+
+            def task():
+                self.jc.judging_started = True
+                threading.Event().wait(0.5)
+
+            self.jc.run_task(task)
+        reports = [call[0][0] for call in interact.call_args_list if "update-status" in call[0][0]]
+        self.assertGreater(len(reports), 0)
+        self.assertEqual({(r["id"], r["claim"], r["status"]) for r in reports}, {(5, claim, "Judging Test #1")})
 
 
 class ProblemDataTestCase(JudgeClientTestCase):
@@ -944,9 +1007,10 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
             "problem_data_version": 3,
             "problem_data_sha256": hashlib.sha256(archive).hexdigest(),
             "problem_data_prepare": self.STEPS,
+            "claim": "b" * 32,
         }
         with mock.patch.object(self.jc, "run_compiler"):
-            self.assertEqual(self.jc.prepare(), {"prepare_result": "1", "id": 7, "ok": "1", "message": ""})
+            self.assertEqual(self.jc.prepare(), {"prepare_result": "1", "id": 7, "claim": "b" * 32, "ok": "1", "message": ""})
 
         self.jc.submission["problem_data_version"] = 4
         error = self.jc.PrepareError("chk: compile error\nexpected ';'")

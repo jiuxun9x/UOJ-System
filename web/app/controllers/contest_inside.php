@@ -154,7 +154,7 @@
 							unset($content['first_test_config']);
 						}
 						$esc_content = DB::escape(json_encode($content));
-						DB::update("update submissions set judge_time = NULL, result = '', score = NULL, status = 'Waiting Rejudge', content = '$esc_content' where id = {$submission['id']}");
+						DB::update("update submissions set judge_time = NULL, result = '', score = NULL, status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null, content = '$esc_content' where id = {$submission['id']}");
 					}
 				}
 				DB::query("update contests set status = 'testing' where id = {$contest['id']}");

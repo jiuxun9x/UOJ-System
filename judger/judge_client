@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 import traceback
+import uuid
 import time
 from contextlib import closing
 
@@ -28,7 +29,7 @@ submission = None
 
 # The web server only gives work to judgers that know versions of problem data and build the
 # programs of a problem themselves.
-PROTOCOL = 2
+PROTOCOL = 3
 
 # path related function
 
@@ -329,6 +330,7 @@ def report_loop():
                     data = {}
                     data["update-status"] = True
                     data["id"] = submission["id"]
+                    data["claim"] = claim_of_task()
                     if "is_custom_test" in submission:
                         data["is_custom_test"] = True
                     data["status"] = status
@@ -336,7 +338,7 @@ def report_loop():
                     last_report = time.time()
             if time.time() - last_report >= SIGN_OF_LIFE_INTERVAL:
                 last_report = time.time()
-                uoj_interact({"heartbeat": "1"})
+                uoj_interact({"heartbeat": "1", "claim": claim_of_task()})
         except Exception:
             pass
         time.sleep(0.2)
@@ -937,7 +939,7 @@ def sync_data_ahead():
 
 def prepare():
     """build a version of problem data that waits to be published, tell whether it can be used"""
-    report = {"prepare_result": "1", "id": submission["prepare"]["id"]}
+    report = {"prepare_result": "1", "id": submission["prepare"]["id"], "claim": claim_of_task()}
     try:
         update_problem_data(
             submission["problem_id"],
@@ -1025,9 +1027,41 @@ def uoj_check_response(r, uri):
         raise Exception("HTTP %d from %s" % (r.status_code, uri))
 
 
+# The name of this worker. Several workers may work for one judging account; each is told apart
+# by this name, which it keeps in its log folder (a volume) so that it is the same worker after a
+# restart, and takes back at once what it had not finished.
+WORKER_ID_FILE = "log/worker_id"
+worker_id_cache = None
+
+
+def worker_id():
+    global worker_id_cache
+    if worker_id_cache is None:
+        try:
+            with open(WORKER_ID_FILE) as f:
+                kept = f.read().strip()
+        except OSError:
+            kept = ""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", kept):
+            kept = uuid.uuid4().hex
+            try:
+                os.makedirs(os.path.dirname(WORKER_ID_FILE), exist_ok=True)
+                with open(WORKER_ID_FILE, "w") as f:
+                    f.write(kept + "\n")
+            except OSError:
+                pass
+        worker_id_cache = kept
+    return worker_id_cache
+
+
+def claim_of_task():
+    """the claim the web server gave the task under, which every report on it says"""
+    return submission.get("claim") if isinstance(submission, dict) else None
+
+
 def uoj_interact(data, files={}):
     data = data.copy()
-    data.update({"judger_name": jconf["judger_name"], "password": jconf["judger_password"]})
+    data.update({"judger_name": jconf["judger_name"], "password": jconf["judger_password"], "worker": worker_id()})
     r = requests.post(uoj_url("/judge/submit"), data=data, files=files)
     uoj_check_response(r, "/judge/submit")
     return r.text
@@ -1090,7 +1124,7 @@ def read_hack_files():
 
 def give_back_report():
     """what tells the web server that this judger could not do the task it was given"""
-    report = {"requeue": "1"}
+    report = {"requeue": "1", "claim": claim_of_task()}
     if "is_hack" in submission:
         report["is_hack"] = True
         report["id"] = submission["hack"]["id"]
@@ -1115,12 +1149,15 @@ def send_and_fetch(result=None, fetch_new=True, report=None):
     else:
         data["protocol"] = PROTOCOL
         data.update(describe_judger())
+        # sent again as it is when no answer comes: the web server answers the same asking the same
+        data["fetch_id"] = uuid.uuid4().hex
 
     if report is not None:
         data.update(report)
 
     if result is not None:
         data["submit"] = True
+        data["claim"] = claim_of_task()
         # the data the judgement was made with
         data["problem_data_version"] = submission.get("problem_data_version")
         data["problem_data_sha256"] = submission.get("problem_data_sha256")

@@ -11,9 +11,43 @@
 		global $uojJudger;
 		return $uojJudger['judger_name'];
 	}
-	// a result is only taken from the judger that was given the task
-	function isTaskOfThisJudger($row) {
-		return $row['judger_name'] === null || $row['judger_name'] === judgerName();
+	// The worker of the judging account that asks (judge protocol 3): several may work for one
+	// account, each under a name of its own that it keeps. null when it says none.
+	function judgeWorker() {
+		return isset($_POST['worker']) && is_string($_POST['worker']) && preg_match('/^[A-Za-z0-9_-]{8,64}$/D', $_POST['worker']) ? $_POST['worker'] : null;
+	}
+	// the claim on a task that the request reports on, or null
+	function postedClaim() {
+		return isset($_POST['claim']) && is_string($_POST['claim']) && preg_match('/^[0-9a-f]{32}$/D', $_POST['claim']) ? $_POST['claim'] : null;
+	}
+	// how a row is told to have a claim: one that has none is one of before the claims
+	function claimIs($claim) {
+		return $claim === null ? 'judge_claim is null' : "judge_claim = '$claim'";
+	}
+	// A claim lasts as long as its lease, which the worker renews whenever it reports, at least
+	// every few seconds; a worker not heard of for judger.task-timeout seconds has lost it.
+	function leaseUntil() {
+		$timeout = isset(UOJConfig::$data['judger']['task-timeout']) ? (int)UOJConfig::$data['judger']['task-timeout'] : 300;
+		return "now() + interval $timeout second";
+	}
+	// what a task that is no longer given out keeps of its claim: nothing
+	define('CLAIM_DROPPED', 'judge_claim = null, judge_worker = null, judge_lease_until = null');
+	// the tables of what is given out, under the kinds the judgers name them by
+	function claimTables() {
+		return array('submission' => 'submissions', 'custom_test' => 'custom_test_submissions', 'hack' => 'hacks', 'prepare' => 'problem_data_versions');
+	}
+	function renewLease($claim) {
+		foreach (claimTables() as $table) {
+			DB::update("update $table set judge_lease_until = ".leaseUntil()." where judge_claim = '$claim'");
+		}
+	}
+	function claimIsHeld($claim) {
+		foreach (claimTables() as $table) {
+			if (DB::selectFirst("select 1 from $table where judge_claim = '$claim'") != null) {
+				return true;
+			}
+		}
+		return false;
 	}
 	
 	// The result is sent by a judger, which runs the code of problem setters, so every field is
@@ -38,10 +72,12 @@
 	// of the result. When the database refuses the update, which happens when the result is
 	// larger than max_allowed_packet, the details are dropped and the update is run again, so
 	// that the submission does not stay in the "Judging" state forever.
+	// Returns whether the result was stored this time: the query stores it only while the task
+	// has the claim it was judged under.
 	function storeJudgementResult($result, $make_query) {
 		$esc_result = DB::escape(json_encode($result, JSON_UNESCAPED_UNICODE));
 		if (DB::update($make_query($esc_result))) {
-			return true;
+			return DB::affected_rows() > 0;
 		}
 		error_log("judge/submit: failed to store a result of " . strlen($esc_result) . " bytes: " . DB::error());
 		
@@ -53,7 +89,7 @@
 		}
 		$result['details'] = $msg;
 		$esc_result = DB::escape(json_encode($result, JSON_UNESCAPED_UNICODE));
-		return DB::update($make_query($esc_result));
+		return DB::update($make_query($esc_result)) && DB::affected_rows() > 0;
 	}
 	
 	// the result of a task that no judger managed to judge
@@ -66,7 +102,7 @@
 	
 	// ---- the record of who judged what, with which data and which tools
 	
-	function startJudgement($kind, $target_id, $problem_id) {
+	function startJudgement($kind, $target_id, $problem_id, $claim) {
 		global $uojJudger;
 		$version_row = dataCurrentVersion(array('id' => $problem_id));
 		$version = $version_row ? $version_row['version'] : 'null';
@@ -76,10 +112,10 @@
 		$esc_toolchain = DB::escape($uojJudger['toolchain']);
 		// a judgement that was still open is over: the task was put back in the queue meanwhile
 		DB::update("update submission_judgements set finished_at = now(), outcome = 'superseded' where kind = '$kind' and target_id = $target_id and finished_at is null");
-		DB::insert("insert into submission_judgements (kind, target_id, problem_id, judger_name, problem_data_version, problem_data_sha256, judger_version, toolchain, started_at) values ('$kind', $target_id, $problem_id, '$esc_judger', $version, $sha256, '$esc_version', '$esc_toolchain', now())");
+		DB::insert("insert into submission_judgements (kind, target_id, problem_id, judger_name, problem_data_version, problem_data_sha256, judger_version, toolchain, started_at, claim) values ('$kind', $target_id, $problem_id, '$esc_judger', $version, $sha256, '$esc_version', '$esc_toolchain', now(), '$claim')");
 		return $version_row;
 	}
-	function finishJudgement($kind, $target_id, $outcome, $score = null) {
+	function finishJudgement($kind, $target_id, $outcome, $claim, $score = null) {
 		$set = "finished_at = now(), outcome = '$outcome'";
 		if ($score !== null) {
 			$set .= ", score = " . (int)round($score);
@@ -89,13 +125,15 @@
 				&& isset($_POST['problem_data_sha256']) && preg_match('/^[0-9a-f]{64}$/', $_POST['problem_data_sha256'])) {
 			$set .= ", problem_data_version = {$_POST['problem_data_version']}, problem_data_sha256 = '{$_POST['problem_data_sha256']}'";
 		}
-		DB::update("update submission_judgements set $set where kind = '$kind' and target_id = $target_id and finished_at is null");
+		DB::update("update submission_judgements set $set where kind = '$kind' and target_id = $target_id and finished_at is null and claim <=> ".($claim === null ? 'null' : "'$claim'"));
 	}
 	
 	// ---- results
 	
-	// stores the result of a submission, whichever of its two tests in a contest it comes from
+	// Stores the result of a submission, whichever of its two tests in a contest it comes from,
+	// while it has the claim it was judged under. Returns whether it was stored.
 	function storeSubmissionResult($id, $submission, $result) {
+		$held = "id = $id and ".claimIs($submission['judge_claim']);
 		$content = json_decode($submission['content'], true);
 		
 		if (isset($content['first_test_config'])) {
@@ -108,19 +146,23 @@
 			unset($content['first_test_config']);
 			$esc_content = DB::escape(json_encode($content));
 			
-			storeJudgementResult($result, function($esc_result) use ($esc_content, $id) {
-				return "update submissions set status = 'Judged', judge_attempts = 0, result = '$esc_result', content = '$esc_content' where id = $id";
-			});
+			if (!storeJudgementResult($result, function($esc_result) use ($esc_content, $held) {
+				return "update submissions set status = 'Judged', judge_attempts = 0, result = '$esc_result', content = '$esc_content', ".CLAIM_DROPPED." where $held";
+			})) {
+				return false;
+			}
 		} else {
-			storeJudgementResult($result, function($esc_result) use ($result, $id) {
+			if (!storeJudgementResult($result, function($esc_result) use ($result, $held) {
 				if (isset($result["error"])) {
 					$esc_error = DB::escape($result['error']);
-					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = '$esc_error', result = '$esc_result', score = null, used_time = null, used_memory = null where id = $id";
+					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = '$esc_error', result = '$esc_result', score = null, used_time = null, used_memory = null, ".CLAIM_DROPPED." where $held";
 				} else {
 					$score = sprintf('%F', $result['score']);
-					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = null, result = '$esc_result', score = $score, used_time = {$result['time']}, used_memory = {$result['memory']} where id = $id";
+					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = null, result = '$esc_result', score = $score, used_time = {$result['time']}, used_memory = {$result['memory']}, ".CLAIM_DROPPED." where $held";
 				}
-			});
+			})) {
+				return false;
+			}
 			
 			if (isset($content['final_test_config'])) {
 				$content['first_test_config'] = $content['config'];
@@ -133,75 +175,77 @@
 		}
 		DB::update("update submissions set status_details = '' where id = $id");
 		updateBestACSubmissions($submission['submitter'], $submission['problem_id']);
+		return true;
 	}
-	function storeCustomTestResult($id, $result) {
-		storeJudgementResult($result, function($esc_result) use ($id) {
-			return "update custom_test_submissions set status = 'Judged', judge_attempts = 0, result = '$esc_result' where id = $id";
-		});
+	function storeCustomTestResult($id, $submission, $result) {
+		$held = "id = $id and ".claimIs($submission['judge_claim']);
+		if (!storeJudgementResult($result, function($esc_result) use ($held) {
+			return "update custom_test_submissions set status = 'Judged', judge_attempts = 0, result = '$esc_result', ".CLAIM_DROPPED." where $held";
+		})) {
+			return false;
+		}
 		DB::update("update custom_test_submissions set status_details = '' where id = $id");
+		return true;
 	}
 	// returns whether this call is the one that set the result of the hack
-	function storeHackResult($id, $result) {
+	function storeHackResult($id, $hack, $result) {
+		$held = "id = $id and success is null and ".claimIs($hack['judge_claim']);
 		$success = $result['score'] ? 1 : 0;
 		$esc_details = DB::escape($result['details']);
-		$ok = DB::update("update hacks set success = $success, judge_attempts = 0, details = '$esc_details' where id = $id and success is null");
+		$ok = DB::update("update hacks set success = $success, judge_attempts = 0, details = '$esc_details', ".CLAIM_DROPPED." where $held");
 		if (!$ok) {
 			error_log("judge/submit: failed to store hack details of " . strlen($esc_details) . " bytes: " . DB::error());
 			DB::init();
 			$esc_details = DB::escape("<error>The details of this judgement are too large to be stored.</error>");
-			$ok = DB::update("update hacks set success = $success, judge_attempts = 0, details = '$esc_details' where id = $id and success is null");
+			$ok = DB::update("update hacks set success = $success, judge_attempts = 0, details = '$esc_details', ".CLAIM_DROPPED." where $held");
 		}
 		// a judger sends a result again when it gets no answer: it only counts once
 		return $ok && DB::affected_rows() == 1;
 	}
 	
-	function querySubmissionBeingJudged($id) {
-		$submission = DB::selectFirst("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts from submissions where id = $id");
-		if ($submission == null || ($submission['status'] != 'Judging' && $submission['status'] != 'Judged, Judging')) {
-			return null;
-		}
-		return isTaskOfThisJudger($submission) ? $submission : null;
+	// What is being judged under a claim: what a judger says of a task counts while the task has
+	// the claim the judger was given it under, and not after it was taken back or given out anew.
+	function querySubmissionBeingJudged($id, $claim) {
+		return DB::selectFirst("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts, judge_claim from submissions where id = $id and judge_claim = '$claim' and status in ('Judging', 'Judged, Judging')");
 	}
-	function queryCustomTestBeingJudged($id) {
-		$submission = DB::selectFirst("select id, status, judger_name, judge_attempts from custom_test_submissions where id = $id");
-		if ($submission == null || $submission['status'] != 'Judging') {
-			return null;
-		}
-		return isTaskOfThisJudger($submission) ? $submission : null;
+	function queryCustomTestBeingJudged($id, $claim) {
+		return DB::selectFirst("select id, status, judger_name, judge_attempts, judge_claim from custom_test_submissions where id = $id and judge_claim = '$claim' and status = 'Judging'");
 	}
-	function queryHackBeingJudged($id) {
-		$hack = DB::selectFirst("select id, problem_id, input, judger_name, judge_attempts from hacks where id = $id and success is null and judge_time is not null");
-		return $hack != null && isTaskOfThisJudger($hack) ? $hack : null;
+	function queryHackBeingJudged($id, $claim) {
+		return DB::selectFirst("select id, problem_id, input, judger_name, judge_attempts, judge_claim from hacks where id = $id and judge_claim = '$claim' and success is null and judge_time is not null");
 	}
 	
-	function submissionJudged($id) {
-		$submission = querySubmissionBeingJudged($id);
+	function submissionJudged($id, $claim) {
+		$submission = querySubmissionBeingJudged($id, $claim);
 		if ($submission == null) {
 			return;
 		}
 		$result = getPostedJudgementResult();
-		storeSubmissionResult($id, $submission, $result);
-		finishJudgement('submission', $id, 'judged', isset($result['error']) ? null : $result['score']);
+		if (storeSubmissionResult($id, $submission, $result)) {
+			finishJudgement('submission', $id, 'judged', $claim, isset($result['error']) ? null : $result['score']);
+		}
 	}
 
-	function customTestSubmissionJudged($id) {
-		if (queryCustomTestBeingJudged($id) == null) {
+	function customTestSubmissionJudged($id, $claim) {
+		$submission = queryCustomTestBeingJudged($id, $claim);
+		if ($submission == null) {
 			return;
 		}
-		storeCustomTestResult($id, getPostedJudgementResult());
-		finishJudgement('custom_test', $id, 'judged');
+		if (storeCustomTestResult($id, $submission, getPostedJudgementResult())) {
+			finishJudgement('custom_test', $id, 'judged', $claim);
+		}
 	}
 	
-	function hackJudged($id) {
-		$hack = queryHackBeingJudged($id);
+	function hackJudged($id, $claim) {
+		$hack = queryHackBeingJudged($id, $claim);
 		if ($hack == null) {
 			return;
 		}
 		$result = getPostedJudgementResult();
-		if (!storeHackResult($id, $result)) {
+		if (!storeHackResult($id, $hack, $result)) {
 			return;
 		}
-		finishJudgement('hack', $id, 'judged', $result['score'] ? 1 : 0);
+		finishJudgement('hack', $id, 'judged', $claim, $result['score'] ? 1 : 0);
 		unlink(UOJContext::storagePath().$hack['input']);
 
 		if ($result['score']) {
@@ -223,58 +267,60 @@
 	// Such a task goes back to the queue. When several judgers in a row lost it, the task itself
 	// is the likely reason, and it is failed instead of taking down one judger after another.
 	
+	// Each takes a task back under the claim it has, and only while it has it.
 	function releaseSubmission($submission) {
 		$id = $submission['id'];
+		$claim = $submission['judge_claim'];
 		if ($submission['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			storeSubmissionResult($id, $submission, lostTaskResult());
-			finishJudgement('submission', $id, 'failed');
-		} else {
-			DB::update("update submissions set judge_time = if(status = 'Judging', null, judge_time), status = if(status = 'Judging', 'Waiting', 'Judged, Waiting'), status_details = '', judger_name = null, judge_attempts = judge_attempts + 1 where id = $id and status in ('Judging', 'Judged, Judging')");
-			finishJudgement('submission', $id, 'reclaimed');
+			if (storeSubmissionResult($id, $submission, lostTaskResult())) {
+				finishJudgement('submission', $id, 'failed', $claim);
+			}
+		} elseif (DB::update("update submissions set judge_time = if(status = 'Judging', null, judge_time), status = if(status = 'Judging', 'Waiting', 'Judged, Waiting'), status_details = '', judger_name = null, judge_attempts = judge_attempts + 1, ".CLAIM_DROPPED." where id = $id and ".claimIs($claim)." and status in ('Judging', 'Judged, Judging')") && DB::affected_rows() == 1) {
+			finishJudgement('submission', $id, 'reclaimed', $claim);
 		}
 	}
 	function releaseCustomTest($submission) {
 		$id = $submission['id'];
+		$claim = $submission['judge_claim'];
 		if ($submission['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			storeCustomTestResult($id, lostTaskResult());
-			finishJudgement('custom_test', $id, 'failed');
-		} else {
-			DB::update("update custom_test_submissions set judge_time = null, status = 'Waiting', status_details = '', judger_name = null, judge_attempts = judge_attempts + 1 where id = $id and status = 'Judging'");
-			finishJudgement('custom_test', $id, 'reclaimed');
+			if (storeCustomTestResult($id, $submission, lostTaskResult())) {
+				finishJudgement('custom_test', $id, 'failed', $claim);
+			}
+		} elseif (DB::update("update custom_test_submissions set judge_time = null, status = 'Waiting', status_details = '', judger_name = null, judge_attempts = judge_attempts + 1, ".CLAIM_DROPPED." where id = $id and ".claimIs($claim)." and status = 'Judging'") && DB::affected_rows() == 1) {
+			finishJudgement('custom_test', $id, 'reclaimed', $claim);
 		}
 	}
 	function releaseHack($hack) {
 		$id = $hack['id'];
+		$claim = $hack['judge_claim'];
 		if ($hack['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			storeHackResult($id, lostTaskResult());
-			finishJudgement('hack', $id, 'failed');
-		} else {
-			DB::update("update hacks set judge_time = null, judger_name = null, judge_attempts = judge_attempts + 1 where id = $id and success is null");
-			finishJudgement('hack', $id, 'reclaimed');
+			if (storeHackResult($id, $hack, lostTaskResult())) {
+				finishJudgement('hack', $id, 'failed', $claim);
+			}
+		} elseif (DB::update("update hacks set judge_time = null, judger_name = null, judge_attempts = judge_attempts + 1, ".CLAIM_DROPPED." where id = $id and ".claimIs($claim)." and success is null") && DB::affected_rows() == 1) {
+			finishJudgement('hack', $id, 'reclaimed', $claim);
 		}
 	}
 	function releaseVersion($version_row) {
 		if ($version_row['attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
 			dataFailVersion($version_row, 'the judgers stopped responding while building the programs of the problem');
 		} else {
-			DB::update("update problem_data_versions set status = 'pending', judger_name = null, attempts = attempts + 1 where id = {$version_row['id']} and status = 'preparing'");
+			DB::update("update problem_data_versions set status = 'pending', judger_name = null, attempts = attempts + 1, ".CLAIM_DROPPED." where id = {$version_row['id']} and ".claimIs($version_row['judge_claim'])." and status = 'preparing'");
 		}
 	}
 	
-	function reclaimLostTasks() {
-		$timeout = isset(UOJConfig::$data['judger']['task-timeout']) ? (int)UOJConfig::$data['judger']['task-timeout'] : 300;
-		$esc_judger = DB::escape(judgerName());
-		// A judger that asks for work is not judging what it was given before, and a judger that
-		// has not been heard of for a while is not judging at all.
-		$lost = "(judger_name = '$esc_judger' or judger_name not in (select judger_name from judger_info where last_heartbeat_at >= now() - interval $timeout second))";
-		
-		foreach (DB::selectAll("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts from submissions where status in ('Judging', 'Judged, Judging') and judger_name is not null and $lost") as $submission) {
+	// Takes back what is not being worked on: a task whose lease ran out (one given out before
+	// the claims has none), and what this worker had, which asks for another task. What the
+	// other workers of the same account have is theirs.
+	function reclaimLostTasks($worker) {
+		$lost = "(judge_lease_until is null or judge_lease_until < now() or judger_name = '".DB::escape(judgerName())."' and judge_worker = '".DB::escape($worker)."')";
+		foreach (DB::selectAll("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts, judge_claim from submissions where status in ('Judging', 'Judged, Judging') and $lost") as $submission) {
 			releaseSubmission($submission);
 		}
-		foreach (DB::selectAll("select id, judge_attempts from custom_test_submissions where status = 'Judging' and judger_name is not null and $lost") as $submission) {
+		foreach (DB::selectAll("select id, judge_attempts, judge_claim from custom_test_submissions where status = 'Judging' and $lost") as $submission) {
 			releaseCustomTest($submission);
 		}
-		foreach (DB::selectAll("select id, judge_attempts from hacks where success is null and judge_time is not null and judger_name is not null and $lost") as $hack) {
+		foreach (DB::selectAll("select id, judge_attempts, judge_claim from hacks where success is null and judge_time is not null and $lost") as $hack) {
 			releaseHack($hack);
 		}
 		foreach (DB::selectAll("select * from problem_data_versions where status = 'preparing' and $lost") as $version_row) {
@@ -284,7 +330,15 @@
 	
 	// ---- what a judger reports
 	
-	if (isset($_POST['submit']) || isset($_POST['requeue'])) {
+	// A worker says which it is, and every report says which claim it is about: one that says
+	// neither is of a judger of before protocol 3, and is not listened to.
+	$worker = judgeWorker();
+	if ($worker !== null) {
+		DB::insert("insert into judger_workers (judger_name, worker, first_seen_at, last_seen_at) values ('".DB::escape(judgerName())."', '$worker', now(), now()) on duplicate key update last_seen_at = if(last_seen_at < now() - interval 3 second, now(), last_seen_at)");
+	}
+	$claim = postedClaim();
+
+	if ((isset($_POST['submit']) || isset($_POST['requeue'])) && $claim !== null) {
 		if (!validateUInt($_POST['id'])) {
 			die("Wow! hacker! T_T....");
 		}
@@ -292,35 +346,35 @@
 		if (isset($_POST['requeue'])) {
 			// the judger could not judge the task, for example because it was overloaded
 			if (isset($_POST['is_hack'])) {
-				$hack = queryHackBeingJudged($id);
+				$hack = queryHackBeingJudged($id, $claim);
 				if ($hack != null) {
 					releaseHack($hack);
 				}
 			} elseif (isset($_POST['is_custom_test'])) {
-				$submission = queryCustomTestBeingJudged($id);
+				$submission = queryCustomTestBeingJudged($id, $claim);
 				if ($submission != null) {
 					releaseCustomTest($submission);
 				}
 			} else {
-				$submission = querySubmissionBeingJudged($id);
+				$submission = querySubmissionBeingJudged($id, $claim);
 				if ($submission != null) {
 					releaseSubmission($submission);
 				}
 			}
 		} elseif (isset($_POST['is_hack'])) {
-			hackJudged($id);
+			hackJudged($id, $claim);
 		} elseif (isset($_POST['is_custom_test'])) {
-			customTestSubmissionJudged($id);
+			customTestSubmissionJudged($id, $claim);
 		} else {
-			submissionJudged($id);
+			submissionJudged($id, $claim);
 		}
 	}
-	if (isset($_POST['prepare_result'])) {
+	if (isset($_POST['prepare_result']) && $claim !== null) {
 		if (!validateUInt($_POST['id'])) {
 			die("Wow! hacker! T_T....");
 		}
 		$version_row = queryProblemDataVersionById($_POST['id']);
-		if ($version_row != null && $version_row['status'] == 'preparing' && $version_row['judger_name'] === judgerName()) {
+		if ($version_row != null && $version_row['status'] == 'preparing' && $version_row['judge_claim'] === $claim) {
 			if (isset($_POST['ok']) && $_POST['ok'] === '1') {
 				dataPublishVersion($version_row);
 			} else {
@@ -329,20 +383,21 @@
 			}
 		}
 	}
+	// The progress of a task is shown only while the task has the claim it is reported under,
+	// and renews its lease, as a sign of life with the claim does.
 	if (isset($_POST['update-status'])) {
-		if (!validateUInt($_POST['id'])) {
-			die("Wow! hacker! T_T....");
-		}
-		$esc_status_details = DB::escape($_POST['status']);
-		if (isset($_POST['is_custom_test'])) {
-			DB::update("update custom_test_submissions set status_details = '$esc_status_details' where id = {$_POST['id']}");
-		} else {
-			DB::update("update submissions set status_details = '$esc_status_details' where id = {$_POST['id']}");
+		if ($claim !== null && isset($_POST['status']) && is_string($_POST['status'])) {
+			$esc_status_details = DB::escape(mb_strcut($_POST['status'], 0, 100, 'UTF-8'));
+			$table = isset($_POST['is_custom_test']) ? 'custom_test_submissions' : 'submissions';
+			DB::update("update $table set status_details = '$esc_status_details', judge_lease_until = ".leaseUntil()." where judge_claim = '$claim' and status in ('Judging', 'Judged, Judging')");
 		}
 		die();
 	}
 	if (isset($_POST['heartbeat'])) {
-		// the authentication has already noted that the judger is alive
+		// the authentication has already noted that the account is alive
+		if ($claim !== null) {
+			renewLease($claim);
+		}
 		die();
 	}
 	// A judger that has nothing to judge asks which data the problems have, to fetch what it
@@ -377,12 +432,18 @@
 	$submission = null;
 	$hack = null;
 	$kind = null;
+	// the claim that is given out with a task, if one is
+	$new_claim = bin2hex(random_bytes(16));
+	// what a task that is given out is set to: its judger, its claim, its worker, its lease
+	function claimedBy() {
+		global $new_claim, $worker;
+		return "judger_name = '".DB::escape(judgerName())."', judge_claim = '$new_claim', judge_worker = '$worker', judge_lease_until = ".leaseUntil();
+	}
 	function querySubmissionToJudge($status, $set_q) {
 		global $submission, $kind;
-		$esc_judger = DB::escape(judgerName());
 		$submission = DB::selectFirst("select id, problem_id, content from submissions where status = '$status' order by id limit 1");
 		if ($submission) {
-			DB::update("update submissions set $set_q, judger_name = '$esc_judger' where id = {$submission['id']} and status = '$status'");
+			DB::update("update submissions set $set_q, ".claimedBy()." where id = {$submission['id']} and status = '$status'");
 			if (DB::affected_rows() != 1) {
 				$submission = null;
 			}
@@ -393,10 +454,9 @@
 	}
 	function queryCustomTestSubmissionToJudge() {
 		global $submission, $kind;
-		$esc_judger = DB::escape(judgerName());
 		$submission = DB::selectFirst("select id, problem_id, content from custom_test_submissions where judge_time is null order by id limit 1");
 		if ($submission) {
-			DB::update("update custom_test_submissions set judge_time = now(), status = 'Judging', judger_name = '$esc_judger' where id = {$submission['id']} and judge_time is null");
+			DB::update("update custom_test_submissions set judge_time = now(), status = 'Judging', ".claimedBy()." where id = {$submission['id']} and judge_time is null");
 			if (DB::affected_rows() != 1) {
 				$submission = null;
 			}
@@ -408,20 +468,18 @@
 	}
 	function queryHackToJudge() {
 		global $hack;
-		$esc_judger = DB::escape(judgerName());
 		$hack = DB::selectFirst("select id, submission_id, input, input_type from hacks where judge_time is null order by id limit 1");
 		if ($hack) {
-			DB::update("update hacks set judge_time = now(), judger_name = '$esc_judger' where id = {$hack['id']} and judge_time is null");
+			DB::update("update hacks set judge_time = now(), ".claimedBy()." where id = {$hack['id']} and judge_time is null");
 			if (DB::affected_rows() != 1) {
 				$hack = null;
 			}
 		}
 	}
 	function findVersionToPrepare() {
-		$esc_judger = DB::escape(judgerName());
 		$version_row = DB::selectFirst("select * from problem_data_versions where status = 'pending' order by id limit 1");
 		if ($version_row) {
-			DB::update("update problem_data_versions set status = 'preparing', judger_name = '$esc_judger', claimed_at = now() where id = {$version_row['id']} and status = 'pending'");
+			DB::update("update problem_data_versions set status = 'preparing', claimed_at = now(), ".claimedBy()." where id = {$version_row['id']} and status = 'pending'");
 			if (DB::affected_rows() != 1) {
 				$version_row = null;
 			}
@@ -456,7 +514,7 @@
 			if (!$submission) {
 				$details = "<error>the score gained by the hacked submission is not 100.\n</error>";
 				$esc_details = DB::escape(uojTextEncode($details));
-				DB::update("update hacks set success = 0, details = '$esc_details' where id = {$hack['id']}");
+				DB::update("update hacks set success = 0, details = '$esc_details', ".CLAIM_DROPPED." where id = {$hack['id']}");
 				return false;
 			}
 			$kind = 'hack';
@@ -469,8 +527,14 @@
 	if (isset($_POST['fetch_new']) && in_array(strtolower($_POST['fetch_new']), array('', '0', 'false'), true)) {
 		die("Nothing to judge");
 	}
-	// A judger has to know versions of problem data and build the programs of a problem itself.
-	if (!isset($_POST['protocol']) || !validateUInt($_POST['protocol']) || $_POST['protocol'] < 2) {
+	// A judger has to know versions of problem data and build the programs of a problem itself
+	// (protocol 2), and work under claims (protocol 3): it says which worker it is, and which
+	// asking for work this is.
+	if (!isset($_POST['protocol']) || !validateUInt($_POST['protocol']) || $_POST['protocol'] < 3) {
+		die("Nothing to judge");
+	}
+	$fetch_id = isset($_POST['fetch_id']) && is_string($_POST['fetch_id']) && preg_match('/^[0-9a-f]{32}$/D', $_POST['fetch_id']) ? $_POST['fetch_id'] : null;
+	if ($worker === null || $fetch_id === null) {
 		die("Nothing to judge");
 	}
 	if (isset($_POST['judger_version']) && is_string($_POST['judger_version']) && isset($_POST['toolchain']) && is_string($_POST['toolchain'])) {
@@ -479,7 +543,28 @@
 		DB::update("update judger_info set version = '" . DB::escape($uojJudger['version']) . "', toolchain = '" . DB::escape($uojJudger['toolchain']) . "' where judger_name = '" . DB::escape(judgerName()) . "'");
 	}
 	
-	reclaimLostTasks();
+	// The same asking again: its answer was lost on the way. It is given again, under the same
+	// claim while that is held, and nothing is taken back from the worker for it.
+	$esc_worker_of = "judger_name = '".DB::escape(judgerName())."' and worker = '$worker'";
+	$asked = DB::selectFirst("select last_fetch_id, last_claim, last_answer from judger_workers where $esc_worker_of");
+	if ($asked && $asked['last_fetch_id'] === $fetch_id) {
+		if ($asked['last_claim'] !== null && $asked['last_answer'] !== null && claimIsHeld($asked['last_claim'])) {
+			renewLease($asked['last_claim']);
+			die($asked['last_answer']);
+		}
+		die("Nothing to judge");
+	}
+	DB::update("update judger_workers set last_fetch_id = '$fetch_id', last_claim = null, last_answer = null where $esc_worker_of");
+	// what is answered with a task is kept, for the same asking again
+	function answerWith($answer) {
+		global $new_claim, $esc_worker_of;
+		$answer['claim'] = $new_claim;
+		$json = json_encode($answer);
+		DB::update("update judger_workers set last_claim = '$new_claim', last_answer = '".DB::escape($json)."' where $esc_worker_of");
+		die($json);
+	}
+	
+	reclaimLostTasks($worker);
 	
 	if (!$uojJudger['enabled']) {
 		die("Nothing to judge");
@@ -487,13 +572,13 @@
 	
 	$version_row = findVersionToPrepare();
 	if ($version_row) {
-		die(json_encode(array(
+		answerWith(array(
 			'prepare' => array('id' => (int)$version_row['id']),
 			'problem_id' => (int)$version_row['problem_id'],
 			'problem_data_version' => (int)$version_row['version'],
 			'problem_data_sha256' => $version_row['sha256'],
 			'problem_data_prepare' => json_decode($version_row['prepare'], true)
-		)));
+		));
 	}
 	
 	if (!findSubmissionToJudge()) {
@@ -505,7 +590,7 @@
 	$submission['problem_mtime'] = queryProblemDataMTime($submission['problem_id']);
 	$submission['content'] = json_decode($submission['content']);
 	
-	$version_row = startJudgement($kind, $kind == 'hack' ? $hack['id'] : $submission['id'], $submission['problem_id']);
+	$version_row = startJudgement($kind, $kind == 'hack' ? $hack['id'] : $submission['id'], $submission['problem_id'], $new_claim);
 	if ($version_row) {
 		$submission['problem_data_version'] = (int)$version_row['version'];
 		$submission['problem_data_sha256'] = $version_row['sha256'];
@@ -519,5 +604,5 @@
 		$submission['hack']['input_type'] = $hack['input_type'];
 	}
 	
-	echo json_encode($submission);
+	answerWith($submission);
 ?>

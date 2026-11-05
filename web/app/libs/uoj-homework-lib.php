@@ -809,7 +809,7 @@ function homeworkAdvanceSettlement($homework) {
 // nothing else that was ever submitted to the problem.
 function homeworkRejudgeSubmissions($homework, $problem_id = null) {
 	$cond = "homework_id = {$homework['id']}".($problem_id === null ? '' : ' and problem_id = '.(int)$problem_id);
-	DB::update("update submissions set judge_time = NULL, result = '', score = NULL, status = 'Waiting Rejudge' where $cond");
+	DB::update("update submissions set judge_time = NULL, result = '', score = NULL, status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where $cond");
 	return DB::affected_rows();
 }
 

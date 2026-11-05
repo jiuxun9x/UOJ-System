@@ -4,6 +4,7 @@ judgers that say which claim on a task they report about."""
 
 import base64
 import hashlib
+import json
 import re
 import unittest
 
@@ -11,6 +12,7 @@ import requests
 
 import mock_smtp
 import uoj
+from fixtures import AB, ab_problem_files
 from uoj import db, db_value, docker_exec
 
 
@@ -312,3 +314,142 @@ class GuessingTest(unittest.TestCase):
         again.login("p13_contest_guesser", "p13-guesser-password")
         self.assertIn("尝试次数过多", again.submit_form(register, "register", {"join_password": "open sesame"}))
         self.assertEqual(db_value("select count(*) from contests_registrants where contest_id = %d" % contest_id), "0")
+
+
+# ---------------------------------------------------------------------- the claims of the judgers
+
+
+FAKE = uoj.FAKE_JUDGER["judger_name"]
+ONE, TWO = "e2e-worker-one-0001", "e2e-worker-two-0002"
+JUDGED = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+
+
+def row_of(submission_id):
+    """status, judger, attempts, claim and worker of a submission"""
+    return tuple(db(
+        "select status, ifnull(judger_name, 'NULL'), judge_attempts, ifnull(judge_claim, 'NULL'), ifnull(judge_worker, 'NULL')"
+        " from submissions where id = %d" % submission_id
+    )[0])  # fmt: skip
+
+
+def report(task, worker, claim=None, **fields):
+    """what a worker says of a task, under the claim of the task unless another is said"""
+    data = {"fetch_new": "0", "id": task["id"], "worker": worker}
+    if claim is not False:
+        data["claim"] = task["claim"] if claim is None else claim
+    data.update(fields)
+    return uoj.judge_api("/judge/submit", data).text
+
+
+def result_of(task, worker, claim=None):
+    return report(task, worker, claim, submit="1", result=json.dumps(JUDGED))
+
+
+class ClaimTest(unittest.TestCase):
+    """what a worker says of a task counts while the task has the claim the worker was given"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.problem_id = uoj.admin().create_problem(ab_problem_files())
+
+    def submit(self):
+        submission_id = uoj.admin().submit(self.problem_id, AB)
+        self.assertEqual(row_of(submission_id)[0], "Waiting")
+        return submission_id
+
+    def test_two_workers_of_one_account_keep_what_each_was_given(self):
+        with uoj.judgers_paused():
+            first, second = self.submit(), self.submit()
+            one = uoj.fake_fetch(worker=ONE)
+            two = uoj.fake_fetch(worker=TWO)
+            self.assertEqual((one["id"], two["id"]), (first, second))
+            self.assertNotEqual(one["claim"], two["claim"])
+            # the second asking took nothing from the first worker of the same account
+            self.assertEqual(row_of(first), ("Judging", FAKE, "0", one["claim"], ONE))
+            self.assertEqual(row_of(second), ("Judging", FAKE, "0", two["claim"], TWO))
+            self.assertEqual(result_of(one, ONE), "Nothing to judge")
+            self.assertEqual(result_of(two, TWO), "Nothing to judge")
+            for submission_id in (first, second):
+                self.assertEqual(uoj.get_submission(submission_id).score, 100)
+                self.assertEqual(row_of(submission_id)[3:], ("NULL", "NULL"))
+                self.assertEqual(uoj.judgements("submission", submission_id), [(FAKE, "judged")])
+        # the page of the judgers says that two workers work for the account
+        page = uoj.admin().get("/super-manage/judger").text
+        row = re.search(r'<tr data-judger="%s".*?</tr>' % FAKE, page, re.S).group(0)
+        self.assertRegex(row, r'data-workers="[2-9]"')
+
+    def test_progress_and_result_count_under_the_claim_only(self):
+        with uoj.judgers_paused():
+            submission_id = self.submit()
+            task = uoj.fake_fetch(worker=ONE)
+            for claim in (False, "0" * 32):
+                report(task, ONE, claim, **{"update-status": "1", "status": "forged progress"})
+                self.assertEqual(db_value("select concat('[', status_details, ']') from submissions where id = %d" % submission_id), "[]")
+                result_of(task, ONE, claim)
+                self.assertEqual(row_of(submission_id)[0], "Judging")
+            report(task, ONE, **{"update-status": "1", "status": "Judging Test #2"})
+            self.assertEqual(db_value("select status_details from submissions where id = %d" % submission_id), "Judging Test #2")
+            # the result, and the same result once more: it counts once
+            self.assertEqual(result_of(task, ONE), "Nothing to judge")
+            self.assertEqual(result_of(task, ONE), "Nothing to judge")
+            self.assertEqual(uoj.get_submission(submission_id).score, 100)
+            self.assertEqual(uoj.judgements("submission", submission_id), [(FAKE, "judged")])
+            # nor is the progress of a task that is over shown
+            report(task, ONE, **{"update-status": "1", "status": "Judging Test #3"})
+            self.assertEqual(db_value("select concat('[', status_details, ']') from submissions where id = %d" % submission_id), "[]")
+
+    def test_late_result_of_a_claim_that_was_taken_back_is_dropped(self):
+        with uoj.judgers_paused():
+            submission_id = self.submit()
+            lost = uoj.fake_fetch(worker=ONE)
+            # the first worker is not heard of: its lease runs out, and the second worker gets the task
+            uoj.expire_lease("submissions", submission_id)
+            again = uoj.fake_fetch(worker=TWO)
+            self.assertEqual(again["id"], submission_id)
+            self.assertNotEqual(again["claim"], lost["claim"])
+            self.assertEqual(row_of(submission_id), ("Judging", FAKE, "1", again["claim"], TWO))
+            # what the first worker says now is of a claim that is gone
+            report(lost, ONE, **{"update-status": "1", "status": "late progress"})
+            self.assertEqual(result_of(lost, ONE), "Nothing to judge")
+            self.assertEqual(row_of(submission_id)[0], "Judging")
+            self.assertEqual(result_of(again, TWO), "Nothing to judge")
+            self.assertEqual(uoj.get_submission(submission_id).score, 100)
+            self.assertEqual(uoj.judgements("submission", submission_id), [(FAKE, "reclaimed"), (FAKE, "judged")])
+
+    def test_same_asking_again_is_given_the_same_task(self):
+        with uoj.judgers_paused():
+            submission_id = self.submit()
+            fetch_id = "ab" * 16
+            task = uoj.fake_fetch(worker=ONE, fetch_id=fetch_id)
+            # the answer was lost on the way, and the same asking comes again
+            self.assertEqual(uoj.fake_fetch(worker=ONE, fetch_id=fetch_id), task)
+            self.assertEqual(row_of(submission_id), ("Judging", FAKE, "0", task["claim"], ONE))
+            self.assertEqual(len(uoj.judgements("submission", submission_id)), 1)
+            # another asking of the same worker means it does not judge the task any more
+            again = uoj.fake_fetch(worker=ONE)
+            self.assertEqual(again["id"], submission_id)
+            self.assertNotEqual(again["claim"], task["claim"])
+            self.assertEqual(row_of(submission_id)[2], "1")
+            self.assertEqual(result_of(again, ONE), "Nothing to judge")
+            self.assertEqual(uoj.get_submission(submission_id).score, 100)
+
+    def test_sign_of_life_renews_the_lease(self):
+        with uoj.judgers_paused():
+            submission_id = self.submit()
+            task = uoj.fake_fetch(worker=ONE)
+            db("update submissions set judge_lease_until = now() + interval 3 second where id = %d" % submission_id)
+            self.assertEqual(report(task, ONE, heartbeat="1"), "")
+            self.assertEqual(db_value("select judge_lease_until > now() + interval 200 second from submissions where id = %d" % submission_id), "1")
+            # another worker that asks takes nothing that is alive
+            self.assertIsNone(uoj.fake_fetch(worker=TWO))
+            self.assertEqual(row_of(submission_id), ("Judging", FAKE, "0", task["claim"], ONE))
+            self.assertEqual(result_of(task, ONE), "Nothing to judge")
+
+    def test_judger_of_before_protocol_3_is_given_nothing(self):
+        with uoj.judgers_paused():
+            submission_id = self.submit()
+            self.assertIsNone(uoj.fake_fetch(protocol="2"))
+            self.assertIsNone(uoj.fake_fetch(worker="no"))
+            self.assertIsNone(uoj.fake_fetch(fetch_id="not an asking"))
+            self.assertEqual(row_of(submission_id)[0:2], ("Waiting", "NULL"))
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)

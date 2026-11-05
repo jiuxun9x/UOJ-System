@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import time
+import uuid
 import zipfile
 
 import requests
@@ -28,6 +29,8 @@ JUDGER_LOGS = {
     "uoj-judger-4": "uoj_data/judger4/log/judge.log",
 }
 FAKE_JUDGER = {"judger_name": "e2e_fake_judger", "password": "_fake_judger_password_"}
+# the worker the fake judger is unless a test says otherwise (judge protocol 3)
+FAKE_WORKER = "e2efakeworker0001"
 
 ADMIN = ("e2e_admin", "admin-password")
 MANAGER = ("e2e_manager", "manager-password")
@@ -145,13 +148,19 @@ def judge_api(path, data=None, files=None, auth=FAKE_JUDGER):
 
 
 def fake_fetch(**fields):
-    """ask for work the way a judger does, return the task or None"""
-    data = {"protocol": "2", "judger_version": "e2e-fake", "toolchain": "{}"}
+    """ask for work the way a judger does, return the task or None: as the worker FAKE_WORKER,
+    and a new asking each time unless fetch_id says which"""
+    data = {"protocol": "3", "judger_version": "e2e-fake", "toolchain": "{}", "worker": FAKE_WORKER, "fetch_id": uuid.uuid4().hex}
     data.update(fields)
     r = judge_api("/judge/submit", data)
     if r.status_code != 200:
         raise Exception("HTTP %d: %s" % (r.status_code, r.text[:300]))
     return None if r.text == "Nothing to judge" else r.json()
+
+
+def expire_lease(table, row_id):
+    """the worker that has a task is not heard of for long enough: its lease runs out"""
+    db("update %s set judge_lease_until = now() - interval 1 second where id = %d" % (table, row_id))
 
 
 def wait_idle(timeout=600):

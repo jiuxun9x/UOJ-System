@@ -26,8 +26,8 @@ def submission_row(submission_id):
     return status, judger, int(attempts)
 
 
-def give_back(submission_id):
-    r = judge_api("/judge/submit", {"requeue": "1", "id": submission_id, "fetch_new": "0"})
+def give_back(task):
+    r = judge_api("/judge/submit", {"requeue": "1", "id": task["id"], "claim": task["claim"], "fetch_new": "0"})
     assert r.text == "Nothing to judge", r.text
 
 
@@ -87,7 +87,7 @@ class JudgerProtocolTest(unittest.TestCase):
             self.assertEqual(submission_row(submission_id), ("Judging", FAKE, 0))
 
             # the judger can not judge it and gives it back
-            give_back(submission_id)
+            give_back(task)
             self.assertEqual(submission_row(submission_id), ("Waiting", "NULL", 1))
 
         j = uoj.wait_submission(submission_id)
@@ -119,11 +119,8 @@ class JudgerProtocolTest(unittest.TestCase):
         with judgers_paused():
             submission_id = self.submit_while_paused()
             self.assertEqual(fake_fetch()["id"], submission_id)
-            # the judger is not heard of for ten minutes
-            db(
-                "update judger_info set last_heartbeat_at = now() - interval 10 minute"
-                " where judger_name = '%s'" % FAKE
-            )
+            # the judger is not heard of for long enough: the lease of its claim runs out
+            uoj.expire_lease("submissions", submission_id)
             self.assertEqual(submission_row(submission_id), ("Judging", FAKE, 0))
 
         j = uoj.wait_submission(submission_id)
@@ -162,10 +159,7 @@ class JudgerProtocolTest(unittest.TestCase):
             # asking again gives the custom test back and hands out the same test again,
             # which is ahead of hacks in the queue
             self.assertEqual(fake_fetch()["id"], custom_test_id)
-            db(
-                "update judger_info set last_heartbeat_at = now() - interval 10 minute"
-                " where judger_name = '%s'" % FAKE
-            )
+            uoj.expire_lease("custom_test_submissions", custom_test_id)
 
         j = uoj.wait_custom_test(custom_test_id)
         self.assertEqual(j.infos, ["Success"], j)
@@ -412,10 +406,7 @@ class ProblemProgramsTest(unittest.TestCase):
 
             # a judger that asks again has given up, the version waits for another one
             self.assertEqual(fake_fetch()["prepare"]["id"], task["prepare"]["id"])
-            db(
-                "update judger_info set last_heartbeat_at = now() - interval 10 minute"
-                " where judger_name = '%s'" % FAKE
-            )
+            uoj.expire_lease("problem_data_versions", task["prepare"]["id"])
 
         self.assertEqual(uoj.wait_data_version(problem_id), "")
         self.assertEqual(db_value("select data_version from problems where id = %d" % problem_id), "2")

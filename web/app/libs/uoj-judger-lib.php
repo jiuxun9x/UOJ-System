@@ -122,6 +122,8 @@
 	function judgerAccounts() {
 		$accounts = DB::selectAll("select id, judger_name, enabled, note, created_by, created_at, version, last_heartbeat_at, timestampdiff(second, last_heartbeat_at, now()) as silent_seconds, data_have, data_total, data_checked_at, timestampdiff(second, data_checked_at, now()) as data_checked_seconds from judger_info order by id", MYSQLI_ASSOC);
 		foreach ($accounts as &$account) {
+			// the workers that worked for the account lately (judge protocol 3)
+			$account['workers'] = (int)DB::selectCount("select count(*) from judger_workers where judger_name = '".DB::escape($account['judger_name'])."' and last_seen_at > now() - interval 10 minute");
 			$account['judging'] = array();
 			foreach (DB::selectAll("select kind, target_id from submission_judgements where judger_name = '".DB::escape($account['judger_name'])."' and finished_at is null and started_at > now() - interval 1 day order by id desc limit 3") as $judgement) {
 				$account['judging'][] = $judgement['kind'] . ' #' . $judgement['target_id'];
@@ -287,16 +289,16 @@
 	}
 	
 	function rejudgeProblem($problem) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge' where problem_id = {$problem['id']}");
+		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where problem_id = {$problem['id']}");
 	}
 	function rejudgeProblemAC($problem) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge' where problem_id = {$problem['id']} and score = 100");
+		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where problem_id = {$problem['id']} and score = 100");
 	}
 	function rejudgeProblemGe97($problem) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge' where problem_id = {$problem['id']} and score >= 97");
+		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where problem_id = {$problem['id']} and score >= 97");
 	}
 	function rejudgeSubmission($submission) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge' where id = {$submission['id']}");
+		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$submission['id']}");
 	}
 	function updateBestACSubmissions($username, $problem_id) {
 		$best = DB::selectFirst("select id, used_time, used_memory, tot_size from submissions where submitter = '$username' and problem_id = $problem_id and score = 100 order by used_time, used_memory, tot_size asc limit 1");

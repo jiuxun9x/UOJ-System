@@ -239,19 +239,21 @@ class LargeResultTest(unittest.TestCase):
     N_TESTS = 800
 
     def give_to_the_fake_judger(self, submission_id):
-        # a result is only taken from the judger that the submission was given to, and only
-        # while that judger is known to be alive
-        judge_api("/judge/submit", {"heartbeat": "1"})
+        """a result is only taken under the claim the submission was given out under: the claim
+        given to the fake judger"""
+        claim = "%032x" % submission_id
         db(
-            "update submissions set status = 'Judging', judger_name = '%s' where id = %d"
-            % (uoj.FAKE_JUDGER["judger_name"], submission_id)
-        )
+            "update submissions set status = 'Judging', judger_name = '%s', judge_claim = '%s', judge_worker = '%s',"
+            " judge_lease_until = now() + interval 5 minute where id = %d"
+            % (uoj.FAKE_JUDGER["judger_name"], claim, uoj.FAKE_WORKER, submission_id)
+        )  # fmt: skip
+        return claim
 
     def post_result(self, submission_id, details):
-        self.give_to_the_fake_judger(submission_id)
+        claim = self.give_to_the_fake_judger(submission_id)
         result = {"score": 100, "time": 1, "memory": 1, "details": details, "status": "Judged"}
         r = judge_api("/judge/submit", {
-            "submit": "1", "fetch_new": "", "id": submission_id, "result": json.dumps(result),
+            "submit": "1", "fetch_new": "", "id": submission_id, "claim": claim, "result": json.dumps(result),
         })  # fmt: skip
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.text, "Nothing to judge")
@@ -304,8 +306,8 @@ class LargeResultTest(unittest.TestCase):
         submission_id = uoj.admin().submit(problem_id, AB)
         uoj.wait_submission(submission_id)
 
-        self.give_to_the_fake_judger(submission_id)
-        r = judge_api("/judge/submit", {"submit": "1", "fetch_new": "", "id": submission_id, "result": "'; --"})
+        claim = self.give_to_the_fake_judger(submission_id)
+        r = judge_api("/judge/submit", {"submit": "1", "fetch_new": "", "id": submission_id, "claim": claim, "result": "'; --"})
         self.assertEqual(r.status_code, 200)
         j = uoj.get_submission(submission_id)
         self.assertEqual(j.error, "Judgement Failed")
