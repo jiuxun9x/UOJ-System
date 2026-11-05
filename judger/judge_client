@@ -8,7 +8,7 @@ import os
 import pipes
 import re
 import socket
-from threading import Event, Lock, Thread, Timer
+from threading import Event, Lock, Thread, Timer, local
 import fcntl
 import hashlib
 import shutil
@@ -1192,12 +1192,26 @@ def claim_of_task():
 CONNECT_TIMEOUT = 10
 READ_TIMEOUT = 300
 
+# Every thread keeps its connection to the web server open from one request to the next, which
+# saves connecting each time, and over HTTPS the handshake as well. The web server sets no cookie
+# for the judgers: there is nothing a judger keeps between requests but the connection.
+http_sessions = local()
+
+
+def http():
+    """the connection of this thread to the web server"""
+    session = getattr(http_sessions, "session", None)
+    if session is None:
+        session = requests.Session()
+        http_sessions.session = session
+    return session
+
 
 def uoj_interact(data, files={}):
     data = data.copy()
     data.update({"judger_name": jconf["judger_name"], "password": jconf["judger_password"], "worker": worker_id()})
     wait = int(data.get("wait", 0))
-    r = requests.post(uoj_url("/judge/submit"), data=data, files=files, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT + wait))
+    r = http().post(uoj_url("/judge/submit"), data=data, files=files, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT + wait))
     uoj_check_response(r, "/judge/submit")
     return r.text
 
@@ -1207,7 +1221,7 @@ def uoj_download(uri, filename):
     data = {"judger_name": jconf["judger_name"], "password": jconf["judger_password"]}
     size = 0
     sha256 = hashlib.sha256()
-    r = requests.post(uoj_url("/judge/download" + uri), data=data, stream=True, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+    r = http().post(uoj_url("/judge/download" + uri), data=data, stream=True, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     try:
         uoj_check_response(r, "/judge/download" + uri)
         with open(filename, "wb") as f:
@@ -1236,7 +1250,7 @@ def uoj_download(uri, filename):
 
 def uoj_sync_judge_client():
     data = {"judger_name": jconf["judger_name"], "password": jconf["judger_password"]}
-    ret = requests.post(uoj_url("/judge/sync-judge-client"), data=data).text
+    ret = http().post(uoj_url("/judge/sync-judge-client"), data=data, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT)).text
     if ret != "ok":
         raise Exception("failed to sync judge clients: %s" % ret)
 

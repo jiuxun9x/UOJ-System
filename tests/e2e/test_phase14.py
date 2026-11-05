@@ -1,7 +1,7 @@
 """Phase 14: judging faster. A precompiled <bits/stdc++.h> for every standard of C++, which
 changes how long a program takes to compile and nothing else; several judgers on one machine,
 each on a CPU of its own, all with one judging account; judgers with nothing to do that wait for
-work instead of asking every two seconds."""
+work instead of asking every two seconds; requests of the judgers answered without a session."""
 
 import json
 import os
@@ -12,6 +12,8 @@ import threading
 import time
 import unittest
 import uuid
+
+import requests
 
 import uoj
 from fixtures import AB, AB_SLOW, ab_problem_files
@@ -396,6 +398,24 @@ class LongPollTest(unittest.TestCase):
             self.assertEqual(uoj.wait_submission(submission_id).score, 100)
             pickups.append(uoj.task_timing("submission", submission_id)["fetched_at"] - submitted_at)
         self.assertLess(sorted(pickups)[1], 1.0, pickups)
+
+
+class JudgeRequestTest(unittest.TestCase):
+    """a judger says which account it is with every request: it gets no session"""
+
+    def test_requests_of_the_judgers_open_no_session(self):
+        uoj.admin()
+        r = uoj.judge_api("/judge/submit", {"heartbeat": "1", "worker": "e2e-no-session-0001"})
+        self.assertEqual(r.status_code, 200, r.text[:300])
+        self.assertNotIn("Set-Cookie", r.headers)
+        r = uoj.judge_api("/judge/submit", {"fetch_new": "0"})
+        self.assertEqual((r.status_code, r.text), (200, "Nothing to judge"))
+        self.assertNotIn("Set-Cookie", r.headers)
+        # a judger that is refused is still told so
+        r = uoj.judge_api("/judge/submit", {"heartbeat": "1"}, auth={"judger_name": uoj.FAKE_JUDGER["judger_name"], "password": "wrong"})
+        self.assertEqual(r.status_code, 403)
+        # the pages keep their sessions
+        self.assertIn("UOJSESSID=", requests.get(uoj.BASE_URL + "/login").headers.get("Set-Cookie", ""))
 
 
 if __name__ == "__main__":

@@ -191,7 +191,7 @@ class JudgerResultTest(JudgeClientTestCase):
 class DownloadTest(JudgeClientTestCase):
     def download(self, response):
         target = os.path.join(self.root, "download.bin")
-        with mock.patch.object(self.jc.requests, "post", return_value=response) as post:
+        with mock.patch.object(self.jc.requests.Session, "post", return_value=response) as post:
             result = self.jc.uoj_download("/problem/1", target)
         self.assertEqual(post.call_args[0][0], "http://uoj-web/judge/download/problem/1")
         self.assertEqual(
@@ -236,13 +236,13 @@ class DownloadTest(JudgeClientTestCase):
 class InteractTest(JudgeClientTestCase):
     def test_interact_reports_a_rejected_judger(self):
         response = FakeResponse(status_code=403, body=b"judger authentication failed")
-        with mock.patch.object(self.jc.requests, "post", return_value=response):
+        with mock.patch.object(self.jc.requests.Session, "post", return_value=response):
             with self.assertRaises(self.jc.UOJAuthError):
                 self.jc.uoj_interact({})
 
     def test_interact_rejects_an_error_page(self):
         response = FakeResponse(status_code=500, body=b"<html>oops</html>")
-        with mock.patch.object(self.jc.requests, "post", return_value=response):
+        with mock.patch.object(self.jc.requests.Session, "post", return_value=response):
             with self.assertRaisesRegex(Exception, "HTTP 500"):
                 self.jc.uoj_interact({})
 
@@ -355,6 +355,21 @@ class InteractTest(JudgeClientTestCase):
         self.sleep.assert_any_call(30)
 
 
+class ConnectionTest(JudgeClientTestCase):
+    """the connection to the web server is kept from one request to the next"""
+
+    def test_requests_of_a_thread_share_one_connection(self):
+        import threading
+
+        self.assertIs(self.jc.http(), self.jc.http())
+        others = []
+        thread = threading.Thread(target=lambda: others.append(self.jc.http()))
+        thread.start()
+        thread.join()
+        # the thread that reports the progress has a connection of its own
+        self.assertIsNot(others[0], self.jc.http())
+
+
 class LongPollTest(JudgeClientTestCase):
     """a judger with nothing to do asks the web server to wait for a task"""
 
@@ -367,7 +382,7 @@ class LongPollTest(JudgeClientTestCase):
         self.assertNotIn("wait", interact.call_args[0][0])
 
         sent = []
-        with mock.patch.object(self.jc.requests, "post", side_effect=lambda url, **kwargs: sent.append(kwargs) or FakeResponse(body=b"Nothing to judge")):
+        with mock.patch.object(self.jc.requests.Session, "post", side_effect=lambda url, **kwargs: sent.append(kwargs) or FakeResponse(body=b"Nothing to judge")):
             self.jc.uoj_interact({"fetch_id": "a" * 32, "wait": "20"})
             self.jc.uoj_interact({"heartbeat": "1"})
         self.assertEqual(sent[0]["timeout"], (self.jc.CONNECT_TIMEOUT, self.jc.READ_TIMEOUT + 20))
@@ -401,7 +416,7 @@ class ClaimTest(JudgeClientTestCase):
 
     def test_worker_keeps_its_name(self):
         sent = []
-        with mock.patch.object(self.jc.requests, "post", side_effect=lambda url, data, files, **kwargs: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
+        with mock.patch.object(self.jc.requests.Session, "post", side_effect=lambda url, data, files, **kwargs: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
             self.jc.uoj_interact({"heartbeat": "1"})
         name = sent[0]["worker"]
         self.assertRegex(name, r"^[0-9a-f]{32}$")
@@ -410,7 +425,7 @@ class ClaimTest(JudgeClientTestCase):
         # a judge_client that starts again is the same worker
         again = load_judge_client()
         again.jconf = self.jc.jconf
-        with mock.patch.object(again.requests, "post", side_effect=lambda url, data, files, **kwargs: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
+        with mock.patch.object(again.requests.Session, "post", side_effect=lambda url, data, files, **kwargs: sent.append(data) or FakeResponse(body=b"Nothing to judge")):
             again.uoj_interact({"heartbeat": "1"})
         self.assertEqual(sent[1]["worker"], name)
 

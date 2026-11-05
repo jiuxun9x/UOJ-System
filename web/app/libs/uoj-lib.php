@@ -35,10 +35,21 @@
 	requirePHPLib('notice');
 	requirePHPLib('html');
 	
-	Session::init();
+	// A judger says which judging account it is with every request it makes (/judge/...): it has
+	// no session and is no user, and is answered without either. So no session is opened and
+	// dropped again for each of its requests, and nothing looks for a login.
+	$uojIsJudgeRequest = isset($_SERVER['REQUEST_URI']) && strncmp($_SERVER['REQUEST_URI'], '/judge/', 7) === 0;
+	
+	if (!$uojIsJudgeRequest) {
+		Session::init();
+	}
 	UOJTime::init();
 	DB::init();
-	Auth::init();
+	if (!$uojIsJudgeRequest) {
+		Auth::init();
+	} else {
+		$myUser = null;
+	}
 	
 	if (isset($_GET['locale'])) {
 		UOJLocale::setLocale($_GET['locale']);
