@@ -109,6 +109,29 @@ def judger_log(judger):
     return p.stdout.decode(errors="replace")
 
 
+def task_timings():
+    """the times of every task the judgers logged ("timing {...}"), by (kind, id), each with the
+    judger that logged it"""
+    found = {}
+    for judger in JUDGERS:
+        for line in judger_log(judger).splitlines():
+            if "] timing {" in line:
+                event = json.loads(line[line.index("{") :])
+                event["judger"] = judger
+                found[(event.get("kind"), event.get("id"))] = event
+    return found
+
+
+def task_timing(kind, task_id, timeout=120):
+    """the times of a task, once it is logged"""
+    return wait_until(
+        "the times of %s #%d are logged" % (kind, task_id),
+        lambda: task_timings().get((kind, task_id)),
+        timeout,
+        interval=0.5,
+    )
+
+
 def wait_until(what, condition, timeout=300, interval=1):
     deadline = time.time() + timeout
     while True:

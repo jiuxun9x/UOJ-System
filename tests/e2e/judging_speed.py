@@ -53,7 +53,7 @@ PHASES = ["fetch_ms", "data_ms", "download_ms", "startup_ms", "compile_ms", "tes
 
 def ab_files(n_tests):
     settings = dict(
-        use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=n_tests, n_ex_tests=0, n_sample_tests=1,
+        use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=n_tests, n_ex_tests=0, n_sample_tests=0,
         input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
         time_limit=1, memory_limit=256,
     )  # fmt: skip
@@ -87,27 +87,6 @@ def problems():
             found = problem_id
         made[key] = int(found)
     return made
-
-
-def timings():
-    """every task that a judger logged the times of, by (kind, id)"""
-    found = {}
-    for judger in uoj.JUDGERS:
-        for line in uoj.judger_log(judger).splitlines():
-            if "] timing {" in line:
-                event = json.loads(line[line.index("{") :])
-                event["judger"] = judger
-                found[(event.get("kind"), event.get("id"))] = event
-    return found
-
-
-def wait_timing(submission_id, timeout=120):
-    return uoj.wait_until(
-        "the timing of submission #%d is logged" % submission_id,
-        lambda: timings().get(("submission", submission_id)),
-        timeout,
-        interval=0.5,
-    )
 
 
 def submit(client, problem_id, code, language):
@@ -158,13 +137,15 @@ def environment():
         "machine": platform.machine(),
         "commit": os.environ.get("GITHUB_SHA", out("git", "rev-parse", "HEAD"))[:12],
         "judger_image": out("docker", "image", "ls", "--format", "{{.Size}}", "ghcr.io/universaloj/uoj-judger:latest"),
+        # the precompiled headers in the image, MB by standard of C++
+        "pch_mb": out("docker", "exec", uoj.JUDGERS[0], "sh", "-c", "cd /usr/local/lib/uoj-pch 2>/dev/null && du -sm * | tr '\\t\\n' ': '"),
     }
 
 
 def measure_one(client, problem_id, code, language):
     submission_id, submitted_at = submit(client, problem_id, code, language)
     judgement = uoj.wait_submission(submission_id)
-    event = wait_timing(submission_id)
+    event = uoj.task_timing("submission", submission_id)
     row = {name: event.get(name) for name in PHASES + ["judger_ms", "total_ms", "tests", "reports", "report_ms", "data_fetched"]}
     row["id"] = submission_id
     row["pickup_ms"] = int(round((event["fetched_at"] - submitted_at) * 1000))
@@ -209,7 +190,7 @@ def burst(out_path):
         ids.append(submission_id)
     for submission_id in ids:
         uoj.wait_submission(submission_id, timeout=900)
-    found = timings()
+    found = uoj.task_timings()
     events = [found[("submission", i)] for i in ids if ("submission", i) in found]
     last = max(e["fetched_at"] + e["total_ms"] / 1000.0 for e in events)
     results = {
@@ -260,6 +241,8 @@ def print_latency(results):
     text = "### One submission at a time (%d judger(s), %s, %d CPUs, commit %s, judger image %s)\n\n%s\n" % (
         env["judgers"], env["cpu"], env["cpus"], env["commit"], env["judger_image"], table(rows)
     )
+    if env.get("pch_mb"):
+        text += "\nprecompiled headers (MB): %s\n" % env["pch_mb"]
     text += "\npickup: from the answer of the submit page to the moment a judger had the task; judger: from then until the result was stored; turnaround: both.\n"
     emit(text)
 
