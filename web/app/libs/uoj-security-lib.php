@@ -65,11 +65,61 @@ function hasUsablePassword($user) {
 function setUserPassword($username, $password) {
 	return storeUserPassword($username, $password);
 }
-// What site:tick does for the logins: forgets the tokens of devices not seen for half a year.
-// Returns how many things it forgot.
+// ---- the links that reset a password
+//
+// A link carries a random token, of which only the SHA-256 is kept. It works for half an hour
+// (security.user.password-reset-minutes), once, and only while it is the newest one of the user.
+// A user asks for one a minute and five a day at most, and an address for twenty an hour: more
+// asking sends no more mails, and is told the same as any asking is.
+
+function passwordResetMinutes() {
+	$conf = class_exists('UOJConfig') && isset(UOJConfig::$data['security']['user']) ? UOJConfig::$data['security']['user'] : array();
+	return isset($conf['password-reset-minutes']) ? max(1, (int)$conf['password-reset-minutes']) : 30;
+}
+// whether one more link is too many: the seconds since the last link of the user (null for
+// none), the links of the user in a day, the links asked for from the address in an hour
+function passwordResetTooMany($since_last, $user_day, $ip_hour) {
+	return ($since_last !== null && $since_last < 60) || $user_day >= 5 || $ip_hour >= 20;
+}
+// A link for a user, or null when there have been too many. The links before it stop working.
+function passwordResetCreate($user, $ip) {
+	$esc_username = DB::escape($user['username']);
+	$esc_ip = DB::escape($ip);
+	$last = DB::selectFirst("select timestampdiff(second, max(created_at), now()) as since_last, count(*) as n from password_resets where username = '$esc_username' and created_at > now() - interval 1 day");
+	$ip_hour = DB::selectCount("select count(*) from password_resets where ip = '$esc_ip' and created_at > now() - interval 1 hour");
+	if (passwordResetTooMany($last && $last['since_last'] !== null ? (int)$last['since_last'] : null, $last ? (int)$last['n'] : 0, (int)$ip_hour)) {
+		return null;
+	}
+	$token = base64url_encode(random_bytes(32));
+	DB::update("update password_resets set used_at = now() where username = '$esc_username' and used_at is null");
+	DB::insert("insert into password_resets (username, token_hash, created_at, expires_at, ip) values ('$esc_username', '".hash('sha256', $token)."', now(), now() + interval ".passwordResetMinutes()." minute, '$esc_ip')");
+	return $token;
+}
+// the link of a token while it works, or null
+function passwordResetFind($token) {
+	if (!is_string($token) || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) {
+		return null;
+	}
+	return DB::selectFirst("select * from password_resets where token_hash = '".hash('sha256', $token)."' and used_at is null and expires_at > now()");
+}
+// Sets the password the link is for, once: returns whether this was the time it was used.
+function passwordResetUse($reset, $password) {
+	DB::update("update password_resets set used_at = now() where id = ".(int)$reset['id']." and used_at is null");
+	if (DB::affected_rows() != 1) {
+		return false;
+	}
+	setUserPassword($reset['username'], $password);
+	DB::update("update password_resets set used_at = now() where username = '".DB::escape($reset['username'])."' and used_at is null");
+	return true;
+}
+
+// What site:tick does for the logins: forgets the tokens of devices not seen for half a year,
+// and the links to reset a password of more than a week ago. Returns how many it forgot.
 function authTick() {
 	DB::delete("delete from user_remember_tokens where last_used_at < now() - interval 180 day");
-	return DB::affected_rows();
+	$forgot = DB::affected_rows();
+	DB::delete("delete from password_resets where created_at < now() - interval 7 day");
+	return $forgot + DB::affected_rows();
 }
 function getPasswordClientSalt() {
 	return UOJConfig::$data['security']['user']['client_salt'];

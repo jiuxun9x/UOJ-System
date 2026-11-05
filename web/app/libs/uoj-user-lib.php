@@ -62,6 +62,7 @@ function usernameColumns() {
 		'trainings' => array('created_by'),
 		'hacks' => array('hacker', 'owner'),
 		'pastes' => array('creator'),
+		'password_resets' => array('username'),
 		'user_remember_tokens' => array('username'),
 		'approved_judger_fingerprints' => array('approved_by'),
 		'attachments' => array('uploaded_by'),

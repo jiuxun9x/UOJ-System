@@ -36,3 +36,12 @@ $sso = array('username' => 'dan', 'password_salt' => null, 'password_legacy' => 
 check_same(false, hasUsablePassword($sso), 'a user of the single sign-on has no usable password');
 check_same(array(false, false), passwordMatches($sso, substr($sso['password'], 1)), 'nothing matches the password of a user of the single sign-on');
 check_same(array(false, false), passwordMatches(array('password' => '') + $sso, ''), 'nothing matches an empty password');
+
+// ---- links to reset a password: one a minute and five a day for a user, twenty an hour for an
+// address
+check_same(false, passwordResetTooMany(null, 0, 0), 'the first link');
+check_same(true, passwordResetTooMany(59, 1, 1), 'a link within a minute of the last');
+check_same(false, passwordResetTooMany(60, 1, 1), 'a link a minute after the last');
+check_same(true, passwordResetTooMany(3600, 5, 5), 'the sixth link of a day');
+check_same(false, passwordResetTooMany(3600, 4, 19), 'the fifth link of a day');
+check_same(true, passwordResetTooMany(null, 0, 20), 'the twenty-first link from an address in an hour');

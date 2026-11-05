@@ -39,7 +39,9 @@ return [
 			'client_salt' => 'salt0',
 			// what a password costs to check, kept as Argon2id: memory in KiB, and passes
 			'password-memory-kib' => 19456,
-			'password-time' => 2
+			'password-time' => 2,
+			// how long a link to reset a password works
+			'password-reset-minutes' => 30
 		],
 		'cookie' => [
 			'checksum_salt' => ['salt1', 'salt2', 'salt3']

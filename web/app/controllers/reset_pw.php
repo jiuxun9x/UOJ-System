@@ -2,31 +2,34 @@
 	if (!isset($_GET['p'])) {
 		become404Page();
 	}
+	// the link while it works: one of the old kind, a used one, one asked for again since or one
+	// older than half an hour does not
+	$reset = passwordResetFind($_GET['p']);
 	function resetPassword() {
-		list($username, $check_code) = explode('.', base64url_decode($_GET['p']));
+		global $reset;
+		if (!crsf_check()) {
+			return '页面已过期，请刷新后重试';
+		}
+		if ($reset == null) {
+			return '链接无效或已过期，请重新申请找回密码';
+		}
 		if (!isset($_POST['newPW']) || !validatePassword($_POST['newPW'])) {
 			return '操作失败，无效密码';
 		}
-		if (!isset($username) || !validateUsername($username)) {
-			return '不明错误';
+		$user = queryUser($reset['username']);
+		if ($user == null || !passwordResetUse($reset, $_POST['newPW'])) {
+			return '链接无效或已过期，请重新申请找回密码';
 		}
-		if (!isset($check_code)) {
-			return '不明错误';
-		}
-		
-		$newPW = $_POST['newPW'];
-		$user = queryUser($username);
-		if ($user == null) {
-			return '不明错误';
-		}
-		if ($check_code !== md5($user['username'] . '+' . $user['password'])) {
-			return '不明错误';
-		}
-		setUserPassword($user['username'], $newPW);
+		auditLog('user.password_reset', 'user', $user['username'], null, null, $user);
 		return 'ok';
 	}
 	if (isset($_POST['reset'])) {
 		die(resetPassword());
+	}
+	if ($reset == null) {
+		becomeMsgPage('<div class="text-center" id="reset-link-invalid"><h2>这个链接无效或已过期</h2>'
+			. '<p>重设密码的链接 ' . passwordResetMinutes() . ' 分钟内有效，只能用一次；再申请一次，之前的链接也就作废了。'
+			. '<a href="/forgot-password">重新申请</a></p></div>');
 	}
 ?>
 <?php
@@ -64,6 +67,7 @@ $(document).ready(function() {
 		}
 		$.post(<?= json_encode($_SERVER['REQUEST_URI']) ?>, {
 			reset : '',
+			_token : "<?= crsf_token() ?>",
 			newPW : md5($('#input-password').val(), "<?= getPasswordClientSalt() ?>")
 		}, function(res) {
 			if (res == 'ok') {
