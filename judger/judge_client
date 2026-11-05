@@ -8,7 +8,7 @@ import os
 import pipes
 import re
 import socket
-from threading import Lock, Thread, Timer
+from threading import Event, Lock, Thread, Timer
 import fcntl
 import hashlib
 import shutil
@@ -416,9 +416,14 @@ def count_report(asked_at):
         task_timing["report_ms"] += ms_since(asked_at)
 
 
-def report_loop():
+# seconds between two looks at the progress of a judgement
+REPORT_INTERVAL = 0.2
+
+
+def report_loop(over):
+    """report the progress of the task until it is over"""
     last_report = time.time()
-    while not task_finished:
+    while not task_finished and not over.is_set():
         try:
             if judging_started and "is_hack" not in submission:
                 status = read_judge_status()
@@ -440,7 +445,7 @@ def report_loop():
                 count_report(last_report)
         except Exception:
             pass
-        time.sleep(0.2)
+        over.wait(REPORT_INTERVAL)
 
 
 def run_task(task):
@@ -450,13 +455,17 @@ def run_task(task):
 
     task_finished = False
     judging_started = False
-    report_thread = Thread(target=report_loop)
+    over = Event()
+    report_thread = Thread(target=report_loop, args=(over,))
     report_thread.daemon = True
     report_thread.start()
     try:
         return task()
     finally:
         task_finished = True
+        # the reports end now, not when the thread that sends them would look next: the result
+        # of the task waits for them
+        over.set()
         report_thread.join()
 
 

@@ -22,6 +22,9 @@ sys.dont_write_bytecode = True
 
 JUDGE_CLIENT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "judge_client")
 
+# time.sleep as it is, before the tests make it return at once
+REAL_SLEEP = time.sleep
+
 # bytes that a text mode reader would reject or rewrite
 BINARY_DATA = b"\x00\xff\xfe\x80line1\r\nline2\rline3\n\xc3\x28 trailing  \r\n\x00"
 
@@ -299,6 +302,7 @@ class InteractTest(JudgeClientTestCase):
 
         self.jc.submission = {"prepare": {"id": 1}, "claim": "d" * 32}
         self.jc.SIGN_OF_LIFE_INTERVAL = 0.05
+        self.jc.REPORT_INTERVAL = 0.01
         with mock.patch.object(self.jc, "uoj_interact", return_value="") as interact:
             result = self.jc.run_task(lambda: threading.Event().wait(0.4) or "done")
             calls = interact.call_count
@@ -309,6 +313,20 @@ class InteractTest(JudgeClientTestCase):
             # and not any more once the task is done
             threading.Event().wait(0.2)
             self.assertEqual(interact.call_count, calls)
+
+    def test_result_does_not_wait_for_the_reports_to_look_again(self):
+        self.jc.submission = {"id": 5, "claim": "c" * 32}
+        ended = {}
+
+        def task():
+            # ends while the reports wait to look at the progress again
+            REAL_SLEEP(0.25)
+            ended["at"] = time.time()
+
+        with mock.patch.object(self.jc.time, "sleep", REAL_SLEEP), mock.patch.object(self.jc, "uoj_interact", return_value=""):
+            self.jc.run_task(task)
+        self.assertLess(time.time() - ended["at"], 0.08)
+        self.assertTrue(self.jc.task_finished)
 
     def test_task_that_fails_stops_reporting(self):
         self.jc.submission = {"id": 5}
