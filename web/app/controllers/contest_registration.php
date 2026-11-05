@@ -26,12 +26,14 @@
 		// Whoever knows the password may take part. Guessing is slow, and stops after a while.
 		$register_form->addInput('join_password', 'password', '参赛密码', '',
 			function($password) use ($contest) {
-				$key = "contest_password_failures_{$contest['id']}";
-				if (isset($_SESSION[$key]) && $_SESSION[$key] >= 20) {
-					return '尝试次数过多，请重新登录后再试';
+				global $myUser;
+				// counted for the user, not for the session, which a new login would start afresh
+				$scopes = authContestScopes($myUser['username'], $contest['id']);
+				if (($wait = authThrottled($scopes)) > 0) {
+					return authWaitMessage($wait);
 				}
 				if (!is_string($password) || !password_verify($password, $contest['join_password'])) {
-					$_SESSION[$key] = (isset($_SESSION[$key]) ? $_SESSION[$key] : 0) + 1;
+					authFailed($scopes);
 					return '参赛密码不正确';
 				}
 				return '';

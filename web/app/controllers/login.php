@@ -23,10 +23,18 @@
 			return "failed";
 		}
 		
+		// past so many wrong passwords, none is looked at for a while
+		$scopes = authLoginScopes($username, UOJContext::remoteAddr());
+		if (($wait = authThrottled($scopes)) > 0) {
+			return 'throttled ' . (int)ceil($wait / 60);
+		}
 		$user = queryUser($username);
 		if (!$user || !checkPassword($user, $password)) {
+			authFailed($scopes);
 			return "failed";
 		}
+		// the name from this address starts afresh; the name and the address count on
+		authSucceeded(array_slice($scopes, 0, 1, true));
 		
 		if ($user['usergroup'] == 'B') {
 			return "banned";
@@ -107,6 +115,9 @@ function submitLoginPost() {
 		} else if (msg == 'expired') {
 			$('#div-username').addClass('has-error');
 			$('#help-username').html('页面会话已过期。');
+		} else if (/^throttled \d+$/.test(msg)) {
+			$('#div-password').addClass('has-error');
+			$('#help-password').html('尝试次数过多，请 ' + msg.split(' ')[1] + ' 分钟后再试。<a href="/forgot-password">忘记密码？</a>');
 		} else {
 			$('#div-username').addClass('has-error');
 			$('#help-username').html('用户名或密码错误。');

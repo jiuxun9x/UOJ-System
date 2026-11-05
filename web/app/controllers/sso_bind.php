@@ -24,9 +24,15 @@
 			return 'too many';
 		}
 		$user = queryUser($username);
+		$scopes = authLoginScopes($username, UOJContext::remoteAddr());
+		if (($wait = authThrottled($scopes)) > 0) {
+			return 'throttled ' . (int)ceil($wait / 60);
+		}
 		if (!$user || !isset($_POST['password']) || !validatePassword($_POST['password']) || !checkPassword($user, $_POST['password'])) {
+			authFailed($scopes);
 			return 'failed';
 		}
+		authSucceeded(array_slice($scopes, 0, 1, true));
 		if ($user['usergroup'] == 'B') {
 			return 'banned';
 		}
@@ -89,6 +95,9 @@ $(document).ready(function() {
 			} else if (msg == 'bound') {
 				$('#div-password').addClass('has-error');
 				$('#help-password').html('该用户或该统一身份认证账号已被绑定，请联系管理员。');
+			} else if (/^throttled \d+$/.test(msg)) {
+				$('#div-password').addClass('has-error');
+				$('#help-password').html('尝试次数过多，请 ' + msg.split(' ')[1] + ' 分钟后再试。');
 			} else {
 				window.location.href = '/login';
 			}

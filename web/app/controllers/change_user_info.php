@@ -13,7 +13,12 @@
 				return '无效表单';
 			}
 			$old_password = $_POST['old_password'];
+			$scopes = authLoginScopes($myUser['username'], UOJContext::remoteAddr());
+			if (($wait = authThrottled($scopes)) > 0) {
+				return "失败：" . authWaitMessage($wait) . "。";
+			}
 			if (!validatePassword($old_password) || !checkPassword($myUser, $old_password)) {
+				authFailed($scopes);
 				return "失败：密码错误。";
 			}
 		}

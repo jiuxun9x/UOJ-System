@@ -45,3 +45,16 @@ check_same(false, passwordResetTooMany(60, 1, 1), 'a link a minute after the las
 check_same(true, passwordResetTooMany(3600, 5, 5), 'the sixth link of a day');
 check_same(false, passwordResetTooMany(3600, 4, 19), 'the fifth link of a day');
 check_same(true, passwordResetTooMany(null, 0, 20), 'the twenty-first link from an address in an hour');
+
+// ---- passwords that are guessed: past the failures a scope allows in its window, one waits for
+// the rest of the window
+check_same(0, authWaitSeconds(0, null, 5, 900), 'no failure, no wait');
+check_same(0, authWaitSeconds(4, 10, 5, 900), 'fewer failures than allowed');
+check_same(890, authWaitSeconds(5, 10, 5, 900), 'as many failures as allowed: the rest of the window');
+check_same(1, authWaitSeconds(50, 899, 5, 900), 'the last second of the window');
+check_same(0, authWaitSeconds(50, 900, 5, 900), 'the window is over');
+check_same('尝试次数过多，请 15 分钟后再试', authWaitMessage(890), 'the wait is said in minutes, rounded up');
+check_same('尝试次数过多，请 1 分钟后再试', authWaitMessage(1), 'a last second is a minute');
+$scopes = authLoginScopes('ann', '10.0.0.7');
+check_same(array('login:pair:ann|10.0.0.7' => 5, 'login:user:ann' => 20, 'login:ip:10.0.0.7' => 100), $scopes, 'the scopes of a login');
+check_same(array('contest:12:ann' => 20), authContestScopes('ann', '12'), 'the scope of the password of a contest');

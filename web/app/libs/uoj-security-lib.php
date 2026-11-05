@@ -125,12 +125,83 @@ function passwordResetUse($reset, $password) {
 	return true;
 }
 
+// ---- passwords that are guessed
+//
+// Each failure counts for a scope: the name from the address, the name, the address. Past the
+// number of failures a scope allows in a quarter of an hour (security.login-limits), no password
+// of that scope is looked at until the quarter is over. Nobody is locked out for good, so that
+// nobody can lock out somebody else for long; a school is often one address, which allows the
+// most.
+
+function authLimits() {
+	$conf = class_exists('UOJConfig') && isset(UOJConfig::$data['security']['login-limits']) ? UOJConfig::$data['security']['login-limits'] : array();
+	return array(
+		'pair' => isset($conf['name-and-address']) ? (int)$conf['name-and-address'] : 5,
+		'user' => isset($conf['name']) ? (int)$conf['name'] : 20,
+		'ip' => isset($conf['address']) ? (int)$conf['address'] : 100,
+		'contest' => isset($conf['contest-password']) ? (int)$conf['contest-password'] : 20,
+		'seconds' => 60 * (isset($conf['minutes']) ? max(1, (int)$conf['minutes']) : 15)
+	);
+}
+// the scopes of logging in as a user from an address: scope => how many failures it allows
+function authLoginScopes($username, $ip) {
+	$limits = authLimits();
+	return array(
+		"login:pair:$username|$ip" => $limits['pair'],
+		"login:user:$username" => $limits['user'],
+		"login:ip:$ip" => $limits['ip']
+	);
+}
+function authContestScopes($username, $contest_id) {
+	$limits = authLimits();
+	return array("contest:" . (int)$contest_id . ":$username" => $limits['contest']);
+}
+// How many seconds one has to wait: so many failures since the start of a window that began so
+// many seconds ago (null for no failure).
+function authWaitSeconds($failures, $since_start, $limit, $window) {
+	if ($since_start === null || $since_start >= $window || $failures < $limit) {
+		return 0;
+	}
+	return $window - $since_start;
+}
+// how many seconds whoever tries these scopes has to wait, 0 for none
+function authThrottled($scopes) {
+	$limits = authLimits();
+	$esc = array_map(function($scope) {
+		return "'" . DB::escape($scope) . "'";
+	}, array_keys($scopes));
+	$wait = 0;
+	foreach (DB::selectAll("select scope, failures, timestampdiff(second, window_start, now()) as since_start from auth_failures where scope in (".join(',', $esc).")") as $row) {
+		$wait = max($wait, authWaitSeconds((int)$row['failures'], (int)$row['since_start'], $scopes[$row['scope']], $limits['seconds']));
+	}
+	return $wait;
+}
+function authFailed($scopes) {
+	$seconds = authLimits()['seconds'];
+	foreach (array_keys($scopes) as $scope) {
+		$expired = "window_start < now() - interval $seconds second";
+		DB::insert("insert into auth_failures (scope, failures, window_start) values ('".DB::escape($scope)."', 1, now()) on duplicate key update failures = if($expired, 1, failures + 1), window_start = if($expired, now(), window_start)");
+	}
+}
+function authSucceeded($scopes) {
+	foreach (array_keys($scopes) as $scope) {
+		DB::delete("delete from auth_failures where scope = '".DB::escape($scope)."'");
+	}
+}
+// what whoever has to wait is told
+function authWaitMessage($seconds) {
+	return '尝试次数过多，请 ' . max(1, (int)ceil($seconds / 60)) . ' 分钟后再试';
+}
+
 // What site:tick does for the logins: forgets the tokens of devices not seen for half a year,
-// and the links to reset a password of more than a week ago. Returns how many it forgot.
+// the links to reset a password of more than a week ago, and the failures of more than a day
+// ago. Returns how many it forgot.
 function authTick() {
 	DB::delete("delete from user_remember_tokens where last_used_at < now() - interval 180 day");
 	$forgot = DB::affected_rows();
 	DB::delete("delete from password_resets where created_at < now() - interval 7 day");
+	$forgot += DB::affected_rows();
+	DB::delete("delete from auth_failures where window_start < now() - interval 1 day");
 	return $forgot + DB::affected_rows();
 }
 function getPasswordClientSalt() {

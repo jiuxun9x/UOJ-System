@@ -253,3 +253,62 @@ class LoginsEndTest(unittest.TestCase):
         self.assertEqual(admin.change_user("p13_banned", "normaluser"), "")
         self.assertIsNone(who(victim))
         uoj.Client().login("p13_banned", "p13-banned-password")
+
+
+# ---------------------------------------------------------------------- passwords that are guessed
+
+
+def try_login(username, password):
+    """what the site answers a login with this password"""
+    client = uoj.Client()
+    r = client.http.post(uoj.BASE_URL + "/login", data={
+        "_token": client.token, "login": "", "username": username, "password": client.password_hash(password),
+    })  # fmt: skip
+    return r.text
+
+
+class GuessingTest(unittest.TestCase):
+    """past so many wrong passwords in a quarter of an hour, no password is looked at for the rest of it"""
+
+    def test_login_waits_after_five_wrong_passwords_of_a_name_from_an_address(self):
+        uoj.Client().register("p13_guessed", "p13-guessed-password")
+        # a right password in between starts the count of this name from this address afresh
+        for _ in range(3):
+            self.assertEqual(try_login("p13_guessed", "wrong"), "failed")
+        self.assertEqual(try_login("p13_guessed", "p13-guessed-password"), "ok")
+        for _ in range(5):
+            self.assertEqual(try_login("p13_guessed", "wrong"), "failed")
+        # the sixth is not even looked at, right or wrong
+        self.assertRegex(try_login("p13_guessed", "p13-guessed-password"), r"^throttled 1[45]$")
+        self.assertRegex(try_login("p13_guessed", "wrong"), r"^throttled \d+$")
+        # another name from the same address is not held up
+        uoj.Client().register("p13_bystander", "p13-bystander-password")
+        self.assertEqual(try_login("p13_bystander", "p13-bystander-password"), "ok")
+        # the quarter of an hour passes
+        db("update auth_failures set window_start = window_start - interval 16 minute where scope like 'login:%%p13_guessed%%'")
+        self.assertEqual(try_login("p13_guessed", "p13-guessed-password"), "ok")
+
+    def test_old_password_on_the_profile_counts_as_well(self):
+        client = uoj.client(("p13_profile", "p13-profile-password"))
+        for _ in range(5):
+            self.assertIn("密码错误", client.update_profile(old_password=client.password_hash("wrong")))
+        self.assertIn("尝试次数过多", client.update_profile())
+        self.assertRegex(try_login("p13_profile", "p13-profile-password"), r"^throttled \d+$")
+        db("delete from auth_failures where scope like 'login:%%p13_profile%%'")
+        self.assertEqual(client.update_profile(), "ok")
+
+    def test_password_of_a_contest_is_guessed_twenty_times_whatever_the_session(self):
+        admin = uoj.admin()
+        contest_id = admin.new_contest("p13 猜密码")
+        self.assertEqual(admin.contest_settings(contest_id, join_mode="password", join_password="open sesame"), "")
+        register = "/contest/%d/register" % contest_id
+        guesser = uoj.Client()
+        guesser.register("p13_contest_guesser", "p13-guesser-password")
+        guesser.login("p13_contest_guesser", "p13-guesser-password")
+        for n in range(20):
+            self.assertIn("参赛密码不正确", guesser.submit_form(register, "register", {"join_password": "guess %d" % n}))
+        # a new login is a new session, and does not start the count afresh
+        again = uoj.Client()
+        again.login("p13_contest_guesser", "p13-guesser-password")
+        self.assertIn("尝试次数过多", again.submit_form(register, "register", {"join_password": "open sesame"}))
+        self.assertEqual(db_value("select count(*) from contests_registrants where contest_id = %d" % contest_id), "0")

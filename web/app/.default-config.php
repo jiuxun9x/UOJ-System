@@ -46,6 +46,16 @@ return [
 		'cookie' => [
 			'checksum_salt' => ['salt1', 'salt2', 'salt3']
 		],
+		// How many wrong passwords in so many minutes, past which no password is looked at until
+		// they are over: of a name from one address, of a name, of an address (a school is often
+		// one), and of a user at the password of a contest.
+		'login-limits' => [
+			'name-and-address' => 5,
+			'name' => 20,
+			'address' => 100,
+			'contest-password' => 20,
+			'minutes' => 15
+		],
 	],
 	'mail' => [
 		'noreply' => [
