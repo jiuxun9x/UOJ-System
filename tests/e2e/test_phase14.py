@@ -32,13 +32,14 @@ int main() {
 }
 """
 
-# what can come before the #include, and changes what the header means
-AB_BITS_DEFINE_FIRST = r"""#define int long long
+# what can come before the #include, and changes what the header means (no assert() checks)
+AB_BITS_DEFINE_FIRST = r"""#define NDEBUG
 #include <bits/stdc++.h>
 using namespace std;
-signed main() {
-    int a, b;
+int main() {
+    long long a, b;
     cin >> a >> b;
+    assert(a < 0);
     cout << a + b << endl;
 }
 """
