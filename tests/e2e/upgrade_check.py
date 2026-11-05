@@ -27,6 +27,9 @@ def counts():
 
 
 def seed():
+    # the site answers once it has run its upgrades on the database: the database is up, and
+    # not between the server that sets it up the first time and the one that serves it
+    uoj.wait_for_web()
     assert uoj.db_value("select version()").startswith("5.7"), uoj.db_value("select version()")
     admin = uoj.admin()
     problem_id = admin.create_problem(ab_problem_files())
