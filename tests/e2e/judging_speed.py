@@ -71,6 +71,8 @@ TITLES = {"ab": "judging speed: A+B", "many": "judging speed: A+B, 100 tests"}
 
 def problems():
     """the problems that are measured on, made the first time"""
+    # the site is up, and the first user is its administrator
+    uoj.admin()
     made = {}
     for key, title in TITLES.items():
         found = uoj.db_value("select max(id) from problems where title = '%s'" % title)
