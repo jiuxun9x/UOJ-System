@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import re
+import time
 import unittest
 import zipfile
 from datetime import datetime, timedelta
@@ -120,8 +121,13 @@ class BackupTest(unittest.TestCase):
             self.assertIn("没有这个备份", cli("backup:restore uoj-20200101-000000 --yes", check=False))
             self.assertEqual(db_value("select title from problems where id = %d" % problem_id), "p5 ruined")
 
+            # A judger that waits for work keeps asking the database whether some came, also
+            # while it is paused, until it is switched off: the restore drops the tables.
+            db("update judger_info set enabled = 0")
+            time.sleep(7)
             self.assertIn("is restored", cli("backup:restore %s --yes" % name))
             cli("upgrade:latest")
+            db("update judger_info set enabled = 1 where judger_name in (%s)" % ", ".join("'%s'" % judger for judger in uoj.JUDGER_NAMES + [uoj.FAKE_JUDGER["judger_name"]]))
         # what was there when the backup was made is back, and what came later is gone
         self.assertNotEqual(db_value("select title from problems where id = %d" % problem_id), "p5 ruined")
         self.assertEqual(db_value("select count(*) from submissions where id = %d" % kept), "1")

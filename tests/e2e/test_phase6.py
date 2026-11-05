@@ -527,10 +527,12 @@ class ContestFeedbackTest(unittest.TestCase):
         for contest_id in (oi, ioi):
             pupil.register_for_contest(contest_id)
             uoj.move_contest(contest_id, -60, 600)
-        in_oi = pupil.submit_in_contest(oi, self.problem_id, AB)
-        in_ioi = pupil.submit_in_contest(ioi, self.problem_id, AB)
-        self.assertIn("final_test_config", db_value("select content from submissions where id = %d" % in_oi))
-        self.assertNotIn("final_test_config", db_value("select content from submissions where id = %d" % in_ioi))
+        # (before a judger takes them: the judgers take a submission within moments)
+        with uoj.judgers_paused():
+            in_oi = pupil.submit_in_contest(oi, self.problem_id, AB)
+            in_ioi = pupil.submit_in_contest(ioi, self.problem_id, AB)
+            self.assertIn("final_test_config", db_value("select content from submissions where id = %d" % in_oi))
+            self.assertNotIn("final_test_config", db_value("select content from submissions where id = %d" % in_ioi))
         uoj.wait_idle()
         self.assertEqual(len(uoj.get_submission(in_ioi).infos), 4)
         for contest_id in (oi, ioi):

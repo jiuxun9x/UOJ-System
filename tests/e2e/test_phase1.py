@@ -513,10 +513,18 @@ class SeveralJudgersTest(unittest.TestCase):
     """2.7: every judger works, and all of them judge with the data of the web server"""
 
     def judge_on_every_judger(self, admin, problem_id):
-        submissions = [admin.submit(problem_id, AB_SLOW) for _ in range(4 * len(uoj.JUDGERS) + 2)]
-        for submission_id in submissions:
-            j = uoj.wait_submission(submission_id)
-            self.assertEqual(j.score, 100, j)
+        """submit until every judger has judged one: a judger may be busy for a while with the
+        data of another problem, and the others judge fast"""
+        submissions = []
+        for _ in range(6):
+            batch = [admin.submit(problem_id, AB_SLOW) for _ in range(4 * len(uoj.JUDGERS) + 2)]
+            for submission_id in batch:
+                j = uoj.wait_submission(submission_id)
+                self.assertEqual(j.score, 100, j)
+            submissions += batch
+            judged_by = db("select distinct judger_name from submissions where id in (%s)" % ", ".join(map(str, submissions)))
+            if len(judged_by) == len(uoj.JUDGERS):
+                break
         return submissions
 
     def test_all_judgers_judge_with_the_same_data(self):
