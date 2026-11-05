@@ -26,8 +26,8 @@
 
 | 容器 | 作用 | 里面跑什么 |
 |---|---|---|
-| `uoj-db` | 数据库 | MySQL 5.7，库名 `app_uoj233` |
-| `uoj-web` | 网站 | Apache + PHP 7.4。处理所有页面请求，保存题目数据和提交的代码，给评测机派任务 |
+| `uoj-db` | 数据库 | MySQL 8.4 LTS，库名 `app_uoj233` |
+| `uoj-web` | 网站 | Apache + PHP 8.3（Ubuntu 24.04 自带的，由 Ubuntu 出安全更新）。处理所有页面请求，保存题目数据和提交的代码，给评测机派任务 |
 | `uoj-judger` | 评测机 | Python 写的 `judge_client` 和 C++ 写的评测程序。编译并运行选手的代码；可以有多台 |
 
 它们之间怎么通信：
@@ -249,7 +249,7 @@ docker compose exec uoj-web php -l /opt/uoj/web/app/.config.php
 | `port` | `3306` | 端口 | — |
 | `socket` | 空 | 填 Unix socket 路径则走 socket，忽略 host 和 port | — |
 
-使用外部 MySQL 时要求 5.7，并保证 `max_allowed_packet` 不小于 64M、字符集 utf8mb4、时区与网站一致。
+使用外部 MySQL 时要求 8.4（网站在 5.7 上也能运行，但 5.7 早已停止支持），并保证 `max_allowed_packet` 不小于 64M、字符集 utf8mb4、库的排序规则 `utf8mb4_unicode_ci`、时区与网站一致。网站连接时自己设定字符集和排序规则，不依赖服务器的默认值。
 
 ### 4.3 `web`：站点地址
 
@@ -695,6 +695,41 @@ docker compose up -d
 - 提交很多时，改动 `submissions` 表的迁移会比较慢，请安排在没有比赛和作业截止的时段。
 - `.config.local.php` 不需要改：新增的设置自动取默认值。
 
+### 9.1 从 MySQL 5.7 升级到 8.4
+
+较早部署的站点用的是 MySQL 5.7（2023 年 10 月起不再有任何更新）。现在的数据库镜像是 MySQL 8.4 LTS，
+**不能直接拿 8.4 打开 5.7 的数据**：MySQL 只能一个长期版本一个长期版本地升，数据要先经过 8.0。
+仓库根目录的 `upgrade-mysql.sh` 一次做完，**用它代替上面的 `docker compose build` 和 `up`**：
+
+```bash
+git pull
+bash upgrade-mysql.sh
+```
+
+它依次做这些事：
+
+1. 让网站自己做一次备份（`backup:run`，和每天的自动备份一样）；
+2. 停下整个站点，让 MySQL 5.7 用最慢、最干净的方式关闭，把数据目录原样复制一份到 `uoj_data/db/mysql.5.7`；
+3. 用 MySQL 8.0 打开数据目录完成第一次升级，并把 root 和网站所用账户的登录方式换成 8.4 认的
+   `caching_sha2_password`（8.4 默认不再加载旧的 `mysql_native_password`），密码不变；
+4. 构建新镜像、启动整个站点，MySQL 8.4 完成第二次升级。
+
+注意：
+
+- 需要知道两个密码：网站账户的密码从 `.config.local.php` 读取；root 的密码默认是 `root`，
+  按 [12.1](#121-怎么改数据库密码) 改过的话，运行前设置 `UOJ_DB_ROOT_PASSWORD=新密码`。
+  密码不对时脚本在改动任何东西之前就停下。
+- 除了 root 和网站账户以外，自己另建的、用旧登录方式的数据库账户，脚本会列出来：在 8.4 上要重新设一次密码才能登录。
+- 磁盘上要有数据目录两倍多的空间（复制一份，加上备份）。数据库越大越慢，请安排在没有比赛和作业截止的时段。
+- 中途失败可以再运行一次：已经到了 8.0 的数据目录会从 8.0 接着升。
+- 确认网站一切正常后，删掉 `uoj_data/db/mysql.5.7`。
+- **退回 5.7**：`docker compose down`，用 `uoj_data/db/mysql.5.7` 换回 `uoj_data/db/mysql`，再启动旧版本的镜像。
+  升级之后写进去的数据会丢失（可以先用 8.4 上的备份导出需要的部分）。
+- 用外部 MySQL 的站点不适用这个脚本：按 MySQL 官方文档先升到 8.0，再升到 8.4。
+
+CI 每次都完整地做一遍：在 MySQL 5.7 上建题、注册、评测，运行 `upgrade-mysql.sh`，再在 8.4 上检查每一行数据、
+旧密码登录、带四字节字符（emoji）的内容都还在，并继续同步数据、评测。
+
 ---
 
 ## 10. 日常运维
@@ -750,6 +785,30 @@ docker compose exec uoj-web tail -f /var/log/apache2/uoj_error.log
 否则它会一直被报告为离线。
 
 告警邮件里带不带网站链接取决于 `web.main.host`：写成了固定域名才带（定时任务里没有请求可以取地址）。
+
+### 安全更新
+
+- **网站镜像里的 PHP** 是 Ubuntu 24.04 自带的 PHP 8.3，Ubuntu 的安全团队维护到 2029 年。Ubuntu 修漏洞时版本号不变
+  （一直是 8.3.6），只有软件包的修订号变，所以要看软件包的版本，而不是 `php -v`：
+
+  ```bash
+  docker compose exec uoj-web dpkg-query -W php8.3-common libapache2-mod-php8.3
+  ```
+
+  构建镜像时如果拿到的 PHP 比修复了 CVE-2026-109618 / 109619 的版本（`8.3.6-0ubuntu0.24.04.13`）还旧，构建直接失败，
+  不会做出有漏洞的镜像（国内镜像源同步滞后时会遇到，换源或稍后再试）。
+- **数据库镜像**是 MySQL 8.4 LTS，官方支持到 2032 年。
+- 镜像不会自己更新。定期（以及听说 PHP、MySQL、Ubuntu 有重要漏洞时）不用缓存重新构建并启动：
+
+  ```bash
+  docker compose build --pull --no-cache
+  docker compose up -d
+  ```
+
+- **宿主机的内核**不在镜像里，要用宿主机的系统更新来升级。评测机运行的是选手提交的代码，所以评测机所在的机器
+  尤其要及时装内核补丁（例如容器逃逸漏洞 CVE-2026-80521）。评测沙箱只放行白名单里的系统调用：选手程序不能创建
+  socket，所有沙箱里的程序都不能用 `sendmsg` 传递文件描述符，这能挡住这类漏洞的常见利用方式，但不能代替补丁。
+  条件允许时把评测机放在单独的机器上（见 6.4）。
 
 ### 时间
 
