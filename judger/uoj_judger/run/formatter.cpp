@@ -13,27 +13,27 @@
  */
 
 static int format_all() {
-    int c = '?', last;
+    // the last character written: the file ends with a line break, and is given one only where
+    // what it ends with is not one (blanks after the last line break are dropped, as at the end
+    // of any line)
+    int written = '?';
     std::string buf;
-    while (true) {
-        last = c;
-        c = getchar();
-        if (c == EOF) {
-            if (last != '\n') {
-                putchar('\n');
-            }
-            break;
-        } else if (c == ' ' || c == '\r') {
+    for (int c = getchar(); c != EOF; c = getchar()) {
+        if (c == ' ' || c == '\r') {
             buf.push_back((char)c);
-        } else {
-            if (!buf.empty()) {
-                if (c != '\n') {
-                    printf("%s", buf.c_str());
-                }
-                buf.clear();
-            }
-            putchar(c);
+            continue;
         }
+        if (!buf.empty()) {
+            if (c != '\n') {
+                fputs(buf.c_str(), stdout);
+            }
+            buf.clear();
+        }
+        putchar(c);
+        written = c;
+    }
+    if (written != '\n') {
+        putchar('\n');
     }
     return 0;
 }

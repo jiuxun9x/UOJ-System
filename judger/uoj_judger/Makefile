@@ -30,7 +30,7 @@ EXE = main_judger \
 	builtin/judger/judger \
 	$(EXE_CHECKER)
 
-TESTS = tests/test_conf_run_limit_v1 tests/test_conf_run_limit_v2 tests/test_status_log_v1 tests/test_status_log_v2 tests/test_compile_pch tests/test_checker_result_v1 tests/test_checker_result_v2
+TESTS = tests/test_conf_run_limit_v1 tests/test_conf_run_limit_v2 tests/test_status_log_v1 tests/test_status_log_v2 tests/test_compile_pch tests/test_checker_result_v1 tests/test_checker_result_v2 tests/test_formatter
 
 all: $(EXE)
 
@@ -66,6 +66,9 @@ tests/test_checker_result_v1: tests/test_checker_result.cpp include/*.h
 
 tests/test_checker_result_v2: tests/test_checker_result.cpp include/*.h
 	$(CXX) $(CXXFLAGS) -DUOJ_TEST_JUDGER_V2 $< -o $@
+
+tests/test_formatter: tests/test_formatter.cpp run/formatter.cpp
+	$(CXX) $(CXXFLAGS) $< -o $@
 
 tests/test_compile_pch: tests/test_compile_pch.cpp run/compile.cpp include/uoj_run.h
 	$(CXX) $(CXXFLAGS) $< -o $@
