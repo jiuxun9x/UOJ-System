@@ -116,7 +116,8 @@ function applyUserRename($rename) {
 	$new = DB::escape($rename['new_username']);
 	// A password of before Argon2id was hashed with the name the user had when they set it, and
 	// keeps that name; one of Argon2id has nothing to do with the name.
-	if (!DB::update("update user_info set password_salt = if(password like '$argon2id$%' and password_legacy = 0, null, ifnull(password_salt, '$old')), username = '$new' where username = '$old'")) {
+	// (the pattern is no PHP variable: it is written out of the string that holds them)
+	if (!DB::update("update user_info set password_salt = if(password like '" . '$argon2id$%' . "' and password_legacy = 0, null, ifnull(password_salt, '$old')), username = '$new' where username = '$old'")) {
 		return false;
 	}
 	foreach (usernameColumns() as $table => $columns) {
