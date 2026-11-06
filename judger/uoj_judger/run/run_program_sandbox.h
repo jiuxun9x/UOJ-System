@@ -386,6 +386,9 @@ std::map<std::string, std::vector<std::string>> soft_ban_file_name_list = {
     {"compiler",
      {
          "/proc/",
+         // and what it looks for in /etc and may not read: a JVM that fails (javac) looks for the
+         // release files of the system, for its report, and is to show that report
+         "/etc/",
      }}};
 
 std::map<std::string, std::vector<std::string>> statable_file_name_list = {

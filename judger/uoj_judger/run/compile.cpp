@@ -558,7 +558,12 @@ int compile_java(const compile_config &conf, const std::string &version) {
         fs::remove_all(conf.name);
         fs::create_directory(conf.name);
         fs::copy_file(conf.src, fs::path(conf.name) / (main_class + ".java"));
-        int ret = execute("cd", conf.name, "&&", UOJ_JDK "/bin/javac", "--release", version,
+        // javac is a JVM, which takes a heap of a quarter of the memory of the machine and
+        // reserves it at once: more than the address space a compiler may have, and javac failed
+        // for want of memory every time. A program is compiled in far less than this (and with
+        // one processor the JVM makes no threads, nor their memory, for many).
+        int ret = execute("cd", conf.name, "&&", UOJ_JDK "/bin/javac", "-J-Xmx1024m",
+                          "-J-XX:ActiveProcessorCount=1", "--release", version,
                           main_class + ".java");
         fs::remove(fs::path(conf.name) / (main_class + ".java"));
         put_class_name_to_file(fs::path(conf.name) / ".main_class_name", main_class);
