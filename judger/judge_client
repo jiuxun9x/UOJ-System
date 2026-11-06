@@ -439,6 +439,12 @@ def report_loop(over):
                     uoj_interact(data)
                     last_report = time.time()
                     count_report(asked_at)
+        except Exception:
+            # No progress to tell (a judger of a problem's own that writes no status, or a step
+            # before the first status) keeps nothing else from being sent: the signs of life
+            # below keep the task, which would be taken back without them.
+            pass
+        try:
             if time.time() - last_report >= SIGN_OF_LIFE_INTERVAL:
                 last_report = time.time()
                 uoj_interact({"heartbeat": "1", "claim": claim_of_task()})

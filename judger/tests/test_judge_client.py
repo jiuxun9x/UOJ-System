@@ -314,6 +314,25 @@ class InteractTest(JudgeClientTestCase):
             threading.Event().wait(0.2)
             self.assertEqual(interact.call_count, calls)
 
+    def test_signs_of_life_go_on_when_there_is_no_progress_to_tell(self):
+        # a judger of the problem's own that writes no status: reading it fails every time
+        import threading
+
+        self.jc.submission = {"id": 5, "claim": "e" * 32}
+        self.jc.SIGN_OF_LIFE_INTERVAL = 0.05
+        self.jc.REPORT_INTERVAL = 0.01
+
+        def task():
+            self.jc.judging_started = True
+            threading.Event().wait(0.4)
+
+        with mock.patch.object(self.jc, "read_judge_status", side_effect=FileNotFoundError("cur_status.txt")), \
+                mock.patch.object(self.jc, "uoj_interact", return_value="") as interact:
+            self.jc.run_task(task)
+        heartbeats = [c for c in interact.call_args_list if c[0][0].get("heartbeat") == "1"]
+        self.assertGreaterEqual(len(heartbeats), 2)
+        self.assertEqual(heartbeats[0][0][0], {"heartbeat": "1", "claim": "e" * 32})
+
     def test_result_does_not_wait_for_the_reports_to_look_again(self):
         self.jc.submission = {"id": 5, "claim": "c" * 32}
         ended = {}
