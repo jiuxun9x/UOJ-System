@@ -849,6 +849,13 @@ function can($user, $ability, $resource = null) {
 			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
+			// A contest that is over and whose results are not published yet still decides them:
+			// an OI contest has its final test to do, and what scored 100 there scored it on the
+			// samples. A hack would change the data that decides them.
+			$contest = $facts->contest($resource['contest_id']);
+			if ($contest != null && $contest['cur_progress'] < CONTEST_FINISHED) {
+				return false;
+			}
 			return !permissionIsClosed($resource, $user) && can($user, 'submission.view_source', $resource);
 
 		// ---- hacks, the resource is the hack with the submission it hacks in 'submission'

@@ -275,6 +275,10 @@ foreach (array('submission.view', 'submission.view_source', 'submission.view_det
 	check_ability($ability, fake_submission('alice', 1, 15), array('nobody' => true, 'bob' => true, 'alice' => true), 'a frozen contest whose results are published');
 	check_ability($ability, fake_submission('alice', 1, 16), array('nobody' => true, 'bob' => true, 'alice' => true), 'only the ICPC rule freezes a board');
 }
+// what was submitted to a contest that is over is not hacked until its results are published:
+// an OI contest still has its final test to do
+check_ability('submission.hack', fake_submission('alice', 1, 16), array('nobody' => false, 'bob' => false, 'setter' => true, 'root' => true), 'an OI contest before its final test');
+check_ability('submission.hack', fake_submission('alice', 1, 15), array('bob' => true), 'a contest whose results are published');
 check_same(array(true, false, false, true), array(contestKeepsResults($facts->contests[14]), contestKeepsResults($facts->contests[15]), contestKeepsResults($facts->contests[16]), contestKeepsResults($facts->contests[10])), 'which contests keep their results');
 
 // ---- the rules of a contest
