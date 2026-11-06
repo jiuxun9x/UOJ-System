@@ -8,7 +8,7 @@
 	
 	$display_blogs_cond = $blogs_cond;
 	
-	if (isset($_GET['tag'])) {
+	if (isset($_GET['tag']) && is_string($_GET['tag'])) {
 		$blog_tag_required = $_GET['tag'];
 		$display_blogs_cond .= " and '".DB::escape($blog_tag_required)."' in (select tag from blogs_tags where blogs_tags.blog_id = blogs.id)";
 	} else {

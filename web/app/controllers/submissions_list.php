@@ -6,7 +6,7 @@
 	$q_submitter = isset($_GET['submitter']) && validateUsername($_GET['submitter']) ? $_GET['submitter'] : null;
 	$q_min_score = isset($_GET['min_score']) && validateUInt($_GET['min_score']) ? $_GET['min_score'] : null;
 	$q_max_score = isset($_GET['max_score']) && validateUInt($_GET['max_score']) ? $_GET['max_score'] : null;
-	$q_language = isset($_GET['language']) ? $_GET['language'] : null;
+	$q_language = isset($_GET['language']) && is_string($_GET['language']) ? $_GET['language'] : null;
 	// what was submitted to a homework: who may see which of it is decided as everywhere
 	$q_homework = isset($_GET['homework_id']) && validateUInt($_GET['homework_id']) ? queryHomework($_GET['homework_id']) : null;
 	$q_homework_domain = $q_homework ? queryDomain($q_homework['domain_id']) : null;
@@ -41,8 +41,6 @@
 	if ($q_language != null) {
 		$conds[] = sprintf("language = '%s'", DB::escape($q_language));
 	}
-	
-	$html_esc_q_language = htmlspecialchars($q_language);
 	
 	if ($conds) {
 		$cond = join(' and ', $conds);

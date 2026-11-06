@@ -51,7 +51,8 @@ EOD;
 	if ($cur_tab == 'template') {
 		$search_tag = "模板题";
 	}
-	if (isset($_GET['tag'])) {
+	// (what is no text, such as tag[]=..., is no tag: the page is not to fail on it)
+	if (isset($_GET['tag']) && is_string($_GET['tag'])) {
 		$search_tag = $_GET['tag'];
 	}
 	if ($search_tag) {

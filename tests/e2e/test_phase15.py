@@ -686,5 +686,21 @@ class ProfileFormTest(unittest.TestCase):
         self.assertNotIn('onfocus="alert(1)', page)
         self.assertIn('value="a&quot;autofocus onfocus=&quot;alert(1)@b"', page)
 
+
+class ArrayParameterTest(unittest.TestCase):
+    """A parameter given as a list (?tag[]=x) reached functions that take text: PHP 8 throws a
+    TypeError there, which nothing caught, and the page was an error of the server."""
+
+    def test_a_list_where_text_is_asked_for_is_no_error(self):
+        visitor = uoj.Client()
+        for path in ("/problems?tag[]=x", "/submissions?language[]=x", "/problems?tag[]=x&search=a"):
+            self.assertEqual(visitor.get(path).status_code, 200, path)
+        admin = uoj.admin()
+        contest_id = admin.new_contest("p15 数组参数", problems=str(admin.create_problem(ab_problem_files())))
+        uoj.move_contest(contest_id, -60, 600)
+        r = admin.post("/contest/%d" % contest_id, {"check_notice": "", "last_time[]": "x"})
+        self.assertEqual(r.status_code, 200, r.text[:300])
+        self.assertIn("time", r.json())
+
 if __name__ == "__main__":
     unittest.main()

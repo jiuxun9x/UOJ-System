@@ -101,6 +101,8 @@
 	}
 	
 	if (isset($_POST['check_notice'])) {
+		// since when the page asks: a time, or nothing for now (what is no text is no time)
+		$_POST['last_time'] = isset($_POST['last_time']) && is_string($_POST['last_time']) ? $_POST['last_time'] : '';
 		$result = DB::query("select * from contests_notice where contest_id = '{$contest['id']}' order by time desc limit 10");
 		$ch = array();
 		$flag = false;
