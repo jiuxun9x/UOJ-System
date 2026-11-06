@@ -53,6 +53,24 @@
 		DB::update("update judger_info set last_heartbeat_at = now() where judger_name = '$esc_judger_name' and (last_heartbeat_at is null or last_heartbeat_at < now() - interval 3 second)");
 	}
 	
+	// The passwords that came with the site, which everybody can read in its repository, and that
+	// are still in use: one message for each. A site on the network is not to run on them.
+	function securityDefaultsInUse() {
+		$said = array();
+		if (isset(UOJConfig::$data['database']['password']) && UOJConfig::$data['database']['password'] === 'root') {
+			$said[] = '数据库的密码还是默认的 root（改法见部署文档 12.1）';
+		}
+		if (isset(UOJConfig::$data['judger']['socket']['password']) && UOJConfig::$data['judger']['socket']['password'] === '_judger_socket_password_') {
+			$said[] = '评测机的 socket 密码还是默认的 _judger_socket_password_';
+		}
+		foreach (DB::selectAll("select judger_name, password from judger_info") as $row) {
+			if (judgerPasswordMatches($row['password'], '_judger_password_')) {
+				$said[] = '评测账户 ' . $row['judger_name'] . ' 的密码还是默认的 _judger_password_（改法见部署文档 6.2）';
+			}
+		}
+		return $said;
+	}
+
 	// ---- the accounts judgers work with
 	//
 	// A judger asks the site for work; the site never has to reach a judger. So a judger can

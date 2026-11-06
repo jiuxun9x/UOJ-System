@@ -165,6 +165,14 @@ $handlers = [
 		}
 		die("backup $name is restored; now run upgrade:latest" . ($keep_closed === '--keep-closed' ? ", then maintenance:off" : '') . "\n");
 	},
+	// Tells which of the passwords that came with the site are still in use (the image of the
+	// site says so when it starts).
+	'security:defaults' => function () {
+		requirePHPLib('judger');
+		foreach (securityDefaultsInUse() as $said) {
+			echo "!! $said\n";
+		}
+	},
 	// Closes the site (its pages say it is being looked after, site:tick does nothing), or opens it.
 	'maintenance:on' => function () {
 		if (!siteSetMaintenance(true)) {

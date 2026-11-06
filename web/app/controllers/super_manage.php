@@ -512,6 +512,13 @@ EOD;
 	</div>
 	
 	<div class="col-sm-9">
+		<?php $defaults_in_use = securityDefaultsInUse() ?>
+		<?php if ($defaults_in_use): ?>
+		<div class="alert alert-danger" id="security-defaults">
+			<strong>还在用默认密码：</strong>这些密码写在公开的代码里，谁都知道。网站对外开放之前请改掉。
+			<ul class="mb-0"><?php foreach ($defaults_in_use as $said): ?><li><?= HTML::escape($said) ?></li><?php endforeach ?></ul>
+		</div>
+		<?php endif ?>
 		<?php if ($cur_tab === 'users'): ?>
 			<?php $user_form->printHTML(); ?>
 			<?php if (isset($rename_form)): ?>

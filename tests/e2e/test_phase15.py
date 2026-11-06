@@ -774,5 +774,20 @@ class BackupTmpTest(unittest.TestCase):
             self.assertEqual(there.strip(), "there")
         uoj.wait_custom_test(custom_test_id)
 
+
+class DefaultPasswordsTest(unittest.TestCase):
+    """The passwords that come with the site (root for the database, _judger_password_ for the
+    judging account of docker-compose.yml) are in its public repository, and nothing said they
+    were still in use."""
+
+    def test_the_passwords_that_came_with_the_site_are_told(self):
+        # the site of the tests runs on them, as one that was just set up does
+        page = uoj.admin().get("/super-manage").text
+        self.assertIn('id="security-defaults"', page)
+        self.assertIn("评测账户 compose_judger 的密码还是默认的 _judger_password_", page)
+        self.assertIn("compose_judger", cli("security:defaults"))
+        # and only to the administrators
+        self.assertNotIn('id="security-defaults"', uoj.client(("p15_defaults", "p15-password")).get("/super-manage").text)
+
 if __name__ == "__main__":
     unittest.main()
