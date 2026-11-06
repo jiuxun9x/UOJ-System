@@ -534,49 +534,40 @@ function echoSubmissionsListOnlyOne($submission, $config, $user) {
 
 function echoSubmissionsList($cond, $tail, $config, $user) {
 	$header_row = '<tr>';
+	// What a row reads, whether its column is shown or not: who submitted it (the details of its
+	// status are for them), to what (whose rules say what is shown), its numbers and its times.
 	$col_names = array();
-	$col_names[] = 'submissions.status_details';
-	$col_names[] = 'submissions.status';
-	$col_names[] = 'submissions.result_error';
-	$col_names[] = 'submissions.score';
+	foreach (array('status_details', 'status', 'result_error', 'score', 'id', 'submitter', 'problem_id', 'contest_id', 'homework_id',
+			'used_time', 'used_memory', 'language', 'tot_size', 'submit_time', 'judge_time') as $column) {
+		$col_names[] = "submissions.$column";
+	}
 	
 	if (!isset($config['id_hidden'])) {
 		$header_row .= '<th>ID</th>';
-		$col_names[] = 'submissions.id';
 	}
 	if (!isset($config['problem_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::problem').'</th>';
-		$col_names[] = 'submissions.problem_id';
-		$col_names[] = 'submissions.contest_id';
-		$col_names[] = 'submissions.homework_id';
 	}
 	if (!isset($config['submitter_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::submitter').'</th>';
-		$col_names[] = 'submissions.submitter';
 	}
 	if (!isset($config['result_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::result').'</th>';
 	}
 	if (!isset($config['used_time_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::used time').'</th>';
-		$col_names[] = 'submissions.used_time';
 	}
 	if (!isset($config['used_memory_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::used memory').'</th>';
-		$col_names[] = 'submissions.used_memory';
 	}
 	$header_row .= '<th>'.UOJLocale::get('problems::language').'</th>';
-	$col_names[] = 'submissions.language';
 	$header_row .= '<th>'.UOJLocale::get('problems::file size').'</th>';
-	$col_names[] = 'submissions.tot_size';
 
 	if (!isset($config['submit_time_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::submit time').'</th>';
-		$col_names[] = 'submissions.submit_time';
 	}
 	if (!isset($config['judge_time_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::judge time').'</th>';
-		$col_names[] = 'submissions.judge_time';
 	}
 	$header_row .= '</tr>';
 	

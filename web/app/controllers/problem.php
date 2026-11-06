@@ -8,7 +8,11 @@
 		become404Page();
 	}
 	
+	// a problem that was never given a statement has none to show, which is no error
 	$problem_content = queryProblemContent($problem['id']);
+	if (!$problem_content) {
+		$problem_content = array('statement' => '', 'statement_md' => '');
+	}
 	
 	// A problem of a domain is shown inside its domain, to the people of the domain.
 	$domain = null;
@@ -307,9 +311,10 @@ EOD
 <?php endif ?>
 <?php endif ?>
 <?php
+	// (a problem whose data is not there yet has no limits to tell: getUOJConf() says why not)
 	$limit = getUOJConf("/var/uoj_data/{$problem['id']}/problem.conf");
-	$time_limit = $limit['time_limit'];
-	$memory_limit = $limit['memory_limit'];
+	$time_limit = is_array($limit) && isset($limit['time_limit']) ? $limit['time_limit'] : null;
+	$memory_limit = is_array($limit) && isset($limit['memory_limit']) ? $limit['memory_limit'] : null;
 ?>
 <div class="row d-flex justify-content-center">
 	<span class="badge badge-secondary mr-1">时间限制:<?=$time_limit!=null?"$time_limit s":"N/A"?></span>

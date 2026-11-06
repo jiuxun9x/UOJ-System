@@ -203,7 +203,7 @@
 			<h4 class="card-title"><?= UOJLocale::get('details') ?></h4>
 		</div>
 		<div class="card-body">
-			<?php echoJudgementDetails($submission_result['details'], $styler, 'details') ?>
+			<?php echoJudgementDetails(isset($submission_result['details']) ? $submission_result['details'] : '', $styler, 'details') ?>
 			<?php if ($should_show_details_to_me): ?>
 				<?php if (isset($submission_result['final_result'])): ?>
 					<hr />
@@ -211,7 +211,7 @@
 				<?php endif ?>
 				<?php if ($styler->fade_all_details): ?>
 					<hr />
-					<?php echoSubmissionDetails($submission_result['details'], 'final_details') ?>
+					<?php echoSubmissionDetails(isset($submission_result['details']) ? $submission_result['details'] : '', 'final_details') ?>
 				<?php endif ?>
 			<?php endif ?>
 		</div>
@@ -224,7 +224,7 @@
 			<h4 class="card-title"><?= UOJLocale::get('details') ?></h4>
 		</div>
 		<div class="card-body">
-			<?php echoJudgementDetails($submission_result['details'], new SubmissionDetailsStyler(), 'details') ?>
+			<?php echoJudgementDetails(isset($submission_result['details']) ? $submission_result['details'] : '', new SubmissionDetailsStyler(), 'details') ?>
 		</div>
 	</div>
 <?php elseif ($details_wait_for_the_contest): ?>

@@ -1,6 +1,9 @@
 """What the web server said while the tests ran. A PHP error that stops a page, or a query of
 the site that failed, fails the run: on PHP 8 such a thing is a page that breaks, and on MySQL
-8.4 a query that no longer means what it did. The warnings are listed to be looked at.
+8.4 a query that no longer means what it did. So does a warning (or a notice, or a deprecation)
+of the code of the site: it is a mistake of today and the error of the next version of PHP, and
+nothing else finds it (the ones that were there are mended, phase 15). What the libraries of
+others say is listed, and is theirs to keep up with.
 
     python3 tests/e2e/check_php_log.py
 """
@@ -10,7 +13,10 @@ import re
 import subprocess
 import sys
 
-FAILS = re.compile(r"PHP (Fatal error|Parse error|Recoverable fatal error)|UOJ: (a query failed|rows asked of a query that failed)")
+FAILS = re.compile(
+    r"PHP (Fatal error|Parse error|Recoverable fatal error)|UOJ: (a query failed|rows asked of a query that failed)"
+    r"|PHP (Warning|Notice|Deprecated): .* in /opt/uoj/web/(?!app/vendor/)"
+)
 SAID = re.compile(r"PHP (Warning|Deprecated|Notice|Fatal error|Parse error|Recoverable fatal error)|UOJ: ")
 
 
@@ -41,11 +47,11 @@ def main():
     for line, count in counts.most_common():
         print("%6d  %s" % (count, line))
     if failing:
-        print("\nthe web server stopped a page or failed a query %d way(s):" % len(failing), file=sys.stderr)
+        print("\nthe web server stopped a page, failed a query or warned of the code of the site %d way(s):" % len(failing), file=sys.stderr)
         for line in failing:
             print("  " + line, file=sys.stderr)
         sys.exit(1)
-    print("\nno PHP error and no failed query in %d line(s) of the logs" % len(lines))
+    print("\nno PHP error, no warning of the site and no failed query in %d line(s) of the logs" % len(lines))
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@
 	
 	$problem_editor->save = function($data) {
 		global $problem, $problem_tags, $problem_content, $myUser;
-		$before = array('title' => $problem['title'], 'is_hidden' => (int)$problem['is_hidden'], 'tags' => $problem_tags, 'statement_sha256' => hash('sha256', (string)$problem_content['statement_md']));
+		$before = array('title' => $problem['title'], 'is_hidden' => (int)$problem['is_hidden'], 'tags' => $problem_tags, 'statement_sha256' => hash('sha256', $problem_content !== null ? (string)$problem_content['statement_md'] : ''));
 		$after = array('title' => $data['title'], 'is_hidden' => (int)$data['is_hidden'], 'tags' => $data['tags'], 'statement_sha256' => hash('sha256', $data['content_md']));
 		if ($problem_content !== null && $before === $after) {
 			// nothing to write, and nothing to write down

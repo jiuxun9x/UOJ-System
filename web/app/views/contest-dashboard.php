@@ -49,7 +49,7 @@
 </div>
 
 
-<?php if ($post_notice): ?>
+<?php if (!empty($post_notice)): ?>
 	<div class="text-center">
 		<button id="button-display-post-notice" type="button" class="btn btn-danger btn-xs">发布比赛公告</button>
 	</div>

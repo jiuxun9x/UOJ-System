@@ -198,7 +198,7 @@ class ContestNoticeTest(unittest.TestCase):
         pupil.register_for_contest(contest_id)
         uoj.move_contest(contest_id, -60, 600)
         content = 'A 题改了样例。\n<a href="https://example.com/faq">说明</a><script>alert(1)</script><img src="x" onerror="alert(2)">'
-        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "post_notice", {"title": "改样例", "content": content}), "")
+        self.assertEqual(admin.submit_form("/contest/%d/backstage" % contest_id, "post_notice", {"title": "改样例", "content": content}), "")
         page = pupil.get("/contest/%d" % contest_id).text
         self.assertIn("A 题改了样例。\n", page)
         self.assertIn('<a href="https://example.com/faq">说明</a>', page)

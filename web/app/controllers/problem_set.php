@@ -43,6 +43,9 @@ EOD;
 		}
 	}
 	
+	// what the viewer solved, which a guest has nothing of
+	$esc_me = $myUser != null ? DB::escape($myUser['username']) : '';
+	
 	$cond = array();
 	
 	$search_tag = null;
@@ -98,7 +101,7 @@ EOD;
 	/*
 	<?php
 	echoLongTable(array('*'),
-		"problems left join best_ac_submissions on best_ac_submissions.submitter = '{$myUser['username']}' and problems.id = best_ac_submissions.problem_id", $cond, 'order by id asc',
+		"problems left join best_ac_submissions on best_ac_submissions.submitter = '$esc_me' and problems.id = best_ac_submissions.problem_id", $cond, 'order by id asc',
 		$header,
 		'echoProblem',
 		array('page_len' => 3,
@@ -110,7 +113,7 @@ EOD;
 
 	$pag_config = array('page_len' => 100);
 	$pag_config['col_names'] = array('*');
-	$pag_config['table_name'] = "problems left join best_ac_submissions on best_ac_submissions.submitter = '{$myUser['username']}' and problems.id = best_ac_submissions.problem_id";
+	$pag_config['table_name'] = "problems left join best_ac_submissions on best_ac_submissions.submitter = '$esc_me' and problems.id = best_ac_submissions.problem_id";
 	$pag_config['cond'] = $cond;
 	$pag_config['tail'] = "order by id asc";
 	$pag = new Paginator($pag_config);
