@@ -1207,6 +1207,8 @@ function echoHacksList($cond, $tail, $config, $user) {
 	if (!isset($config['problem_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::problem').'</th>';
 		$col_names[] = 'problem_id';
+		// the problem of a contest is linked as the contest shows it
+		$col_names[] = 'contest_id';
 	}
 	if (!isset($config['hacker_hidden'])) {
 		$header_row .= '<th>'.UOJLocale::get('problems::hacker').'</th>';

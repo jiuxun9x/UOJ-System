@@ -76,8 +76,8 @@
 <h2 class="text-center"><?= UOJLocale::get('problems::accepted submissions') ?></h2>
 <div class="text-right bot-buffer-sm">
 	<div class="btn-group btn-group-sm">
-		<a href="<?=$SERVER['REQUEST_URI']?>" class="<?=$submissions_sort_by_choice == 'time' ? 'btn btn-info btn-xs active' : 'btn btn-info btn-xs'?>" id="submissions-sort-by-run-time"><?= UOJLocale::get('problems::fastest') ?></a>
-		<a href="<?=$SERVER['REQUEST_URI']?>" class="<?=$submissions_sort_by_choice == 'tot_size' ? 'btn btn-info btn-xs active' : 'btn btn-info btn-xs'?>" id="submissions-sort-by-code-length"><?= UOJLocale::get('problems::shortest') ?></a>
+		<a href="<?= HTML::escape($_SERVER['REQUEST_URI']) ?>" class="<?=$submissions_sort_by_choice == 'time' ? 'btn btn-info btn-xs active' : 'btn btn-info btn-xs'?>" id="submissions-sort-by-run-time"><?= UOJLocale::get('problems::fastest') ?></a>
+		<a href="<?= HTML::escape($_SERVER['REQUEST_URI']) ?>" class="<?=$submissions_sort_by_choice == 'tot_size' ? 'btn btn-info btn-xs active' : 'btn btn-info btn-xs'?>" id="submissions-sort-by-code-length"><?= UOJLocale::get('problems::shortest') ?></a>
 	</div>
 </div>
 
