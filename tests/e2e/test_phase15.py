@@ -141,5 +141,46 @@ class JavaRunsTest(unittest.TestCase):
             self.assertIn(info, ("Memory Limit Exceeded", "Runtime Error"), judgement)
 
 
+
+# passes the sample (5 7) and nothing else
+AB_SAMPLE_ONLY = AB.replace("a + b", "a == 5 ? a + b : a + b + 1")
+
+
+class OiFinalTestTest(unittest.TestCase):
+    """An OI contest judges with the samples while it runs, and with all the data after it, the
+    final test. A submission whose test with all the data had not been done when the final test
+    started (the judgers do it when they have nothing else to do) was left out of the final test,
+    and the score of its samples was published."""
+
+    def test_what_still_waits_for_its_test_with_all_the_data_is_in_the_final_test(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 终测", rule="OI", problems=str(problem_id))
+        pupil = uoj.client(("p15_final", "p15-password"))
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        with uoj.judgers_paused():
+            submission_id = pupil.submit_in_contest(contest_id, problem_id, AB_SAMPLE_ONLY)
+            # a judger tests it with the sample, the way judge_client does: it passes, and waits
+            # for its test with all the data
+            task = uoj.fake_fetch()
+            self.assertEqual(task["id"], submission_id)
+            sample = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+            data = {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(sample)}
+            uoj.judge_api("/judge/submit", data)
+            self.assertEqual(db_value("select status from submissions where id = %d" % submission_id), "Judged, Waiting")
+            self.assertIn("first_test_config", db_value("select content from submissions where id = %d" % submission_id))
+            # the contest ends before a judger does that test, and the final test starts
+            uoj.move_contest(contest_id, -7200, 60)
+            self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "start_test"), "")
+            row = db("select status, ifnull(judge_claim, 'NULL'), content from submissions where id = %d" % submission_id)[0]
+            self.assertEqual(row[:2], ["Waiting Rejudge", "NULL"])
+            self.assertNotIn("first_test_config", row[2])
+            self.assertNotIn("test_sample_only", row[2])
+        uoj.wait_idle()
+        self.assertEqual(uoj.get_submission(submission_id).score, 0)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        self.assertEqual(db("select score from contests_submissions where contest_id = %d" % contest_id), [["0"]])
+
 if __name__ == "__main__":
     unittest.main()

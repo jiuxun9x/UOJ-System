@@ -135,7 +135,7 @@
 		// such submissions from when it was one. A contest that judged with everything has
 		// nothing left to judge: its results are published as they are.
 		$needs_final_test = $contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST && (contestRule($contest) === 'OI'
-			|| DB::selectFirst("select 1 from submissions where contest_id = {$contest['id']} and content like '%\"final\\_test\\_config\"%' limit 1") != null);
+			|| DB::selectFirst("select 1 from submissions where contest_id = {$contest['id']} and (content like '%\"final\\_test\\_config\"%' or content like '%\"first\\_test\\_config\"%') limit 1") != null);
 		if ($needs_final_test || $contest['cur_progress'] == CONTEST_TESTING) {
 			$start_test_form = new UOJForm('start_test');
 			$start_test_form->handle = function() {
@@ -145,7 +145,14 @@
 				$result = DB::query("select id, problem_id, content from submissions where contest_id = {$contest['id']}");
 				while ($submission = DB::fetch($result, MYSQLI_ASSOC)) {
 					$content = json_decode($submission['content'], true);
-					if (isset($content['final_test_config']) || ($again && !isset($contest['extra_config']["problem_{$submission['problem_id']}"]))) {
+					// A submission that was judged with the samples is judged with all the data:
+					// one whose test with all the data was done while the contest ran keeps it in
+					// final_test_config, and one whose test was not done yet, or is being done now,
+					// has it as its config already (and the samples in first_test_config). That
+					// test would keep the score of the samples: it is done again, and what the
+					// judger doing it says now is not taken (its claim is dropped).
+					$waits_for_it = isset($content['first_test_config']);
+					if (isset($content['final_test_config']) || $waits_for_it || ($again && !isset($contest['extra_config']["problem_{$submission['problem_id']}"]))) {
 						if (isset($content['final_test_config'])) {
 							$content['config'] = $content['final_test_config'];
 							unset($content['final_test_config']);
