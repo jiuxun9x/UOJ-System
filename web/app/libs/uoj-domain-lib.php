@@ -193,6 +193,13 @@ function domainSetArchived($domain, $archived, $actor) {
 	return '';
 }
 
+// Whoever is no longer in a domain manages none of its problems: the problems they were given
+// to manage are taken back.
+function domainDropProblemManagers($domain, $username) {
+	DB::delete("delete problems_permissions from problems_permissions join problems on problems.id = problems_permissions.problem_id"
+		." where problems_permissions.username = '".DB::escape($username)."' and problems.owner_domain_id = {$domain['id']}");
+}
+
 // Adds a user to a domain or changes their role; $new_role null removes them.
 function domainSetMember($domain, $target, $new_role, $actor) {
 	$target_role = domainRoleOf($target['username'], $domain);
@@ -206,6 +213,7 @@ function domainSetMember($domain, $target, $new_role, $actor) {
 	$esc_target = DB::escape($target['username']);
 	if ($new_role === null) {
 		DB::delete("delete from domain_members where domain_id = {$domain['id']} and username = '$esc_target'");
+		domainDropProblemManagers($domain, $target['username']);
 		auditLog('domain.remove_member', 'domain', $domain['id'], array('username' => $target['username'], 'role' => $target_role), null, $actor);
 	} else {
 		if ($target['usergroup'] == 'B') {

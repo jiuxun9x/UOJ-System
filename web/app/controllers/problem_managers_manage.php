@@ -10,10 +10,17 @@
 		become403Page();
 	}
 	
+	// a problem of a domain is managed by members of the domain (and by nobody once they leave it)
+	$problem_domain = !empty($problem['owner_domain_id']) ? queryDomain($problem['owner_domain_id']) : null;
+	
 	$managers_form = newAddDelCmdForm('managers',
-		function($username) {
-			if (!validateUsername($username) || !queryUser($username)) {
+		function($username, $type) {
+			global $problem_domain;
+			if (!validateUsername($username) || !($user = queryUser($username))) {
 				return "不存在名为{$username}的用户";
+			}
+			if ($type == '+' && $problem_domain && domainRoleOf($user['username'], $problem_domain) === null) {
+				return "{$user['username']} 不是这个域的成员，不能管理域里的题目";
 			}
 			return '';
 		},

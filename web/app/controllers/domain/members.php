@@ -112,6 +112,7 @@
 				return '不能退出这个域，请联系管理者';
 			}
 			DB::delete("delete from domain_members where domain_id = {$domain['id']} and username = '".DB::escape($myUser['username'])."'");
+			domainDropProblemManagers($domain, $myUser['username']);
 			auditLog('domain.leave', 'domain', $domain['id'], array('username' => $myUser['username']), null);
 			redirectTo('/domains');
 		}

@@ -632,7 +632,8 @@ EOD;
 					}
 					$obj = trim(substr($line, 1));
 					
-					if ($err = $validate($obj)) {
+					// (what is checked may depend on whether it is added or removed)
+					if ($err = $validate($obj, $line[0])) {
 						return '第' . ($line_id + 1) . '行：' . $err;
 					}
 					$cmds[] = array('type' => $line[0], 'obj' => $obj);

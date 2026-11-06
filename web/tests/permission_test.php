@@ -511,6 +511,20 @@ check_ability('problem.manage', $facts->problems[22], array('lead' => false, 'le
 // in an archived domain the problems can be read, and no longer changed
 check_ability('problem.view', $facts->problems[23], array('lecturer' => true, 'pupil' => true, 'alice' => false), 'a problem of an archived domain');
 check_ability('problem.manage', $facts->problems[23], array('lead' => false, 'lecturer' => false, 'root' => true), 'a problem of an archived domain');
+// A problem of a domain given to somebody to manage is theirs to manage while they are in the
+// domain: whoever left it, or was taken out of it, neither manages it nor sees it hidden.
+$facts->problem_managers[] = array('pupil', 21);
+$facts->problem_managers[] = array('alice', 21);
+check_ability('problem.manage', $facts->problems[21], array('pupil' => true, 'alice' => false, 'tutor' => false), 'a hidden problem of a domain given to a member and to somebody who left');
+check_ability('problem.view', $facts->problems[21], array('pupil' => true, 'alice' => false), 'a hidden problem of a domain given to a member and to somebody who left');
+check_ability('submission.view_final_details', array('domain_id' => 1) + fake_submission('lecturer', 21), array('pupil' => true, 'alice' => false), 'a submission to a problem of a domain given to a member and to somebody who left');
+check_ability('hack.view', array('is_hidden' => 1, 'problem_id' => 21), array('pupil' => true, 'alice' => false), 'a hack of a problem of a domain given to a member and to somebody who left');
+// in an archived domain they read it, and change it no more than its teachers
+$facts->problems[25] = array('id' => 25, 'is_hidden' => 1, 'extra_config' => '{}', 'owner_domain_id' => 4);
+$facts->problem_managers[] = array('pupil', 25);
+check_ability('problem.view', $facts->problems[25], array('lead' => true, 'lecturer' => true, 'pupil' => true, 'alice' => false), 'a hidden problem of an archived domain');
+check_ability('problem.manage', $facts->problems[25], array('lead' => false, 'lecturer' => false, 'pupil' => false), 'a hidden problem of an archived domain');
+$facts->problem_managers = array_slice($facts->problem_managers, 0, -3);
 
 // a copy is taken of a problem of the site one can see, or of a problem one teaches
 check_ability('problem.copy', $facts->problems[1], array('nobody' => false, 'alice' => true, 'lecturer' => true), 'a public problem');

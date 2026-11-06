@@ -617,20 +617,15 @@ function can($user, $ability, $resource = null) {
 
 		// ---- problems
 		// A problem that belongs to a domain is managed by the people who teach there, and seen
-		// by nobody outside of the domain.
+		// by nobody outside of the domain. In an archived domain the people of the domain do
+		// not change it: the domain is read only until its owner brings it back.
 		case 'problem.manage':
 			if ($is_admin) {
 				return true;
 			}
-			if ($name === null) {
-				return false;
-			}
-			if (!empty($resource['owner_domain_id']) && can($user, 'domain.teach', $facts->domain($resource['owner_domain_id']))) {
-				return true;
-			}
-			return $facts->managesProblem($name, $resource['id']);
+			return !permissionProblemIsArchived($resource) && permissionLooksAfterProblem($user, $resource);
 		case 'problem.view':
-			if (can($user, 'problem.manage', $resource)) {
+			if (permissionLooksAfterProblem($user, $resource)) {
 				return true;
 			}
 			if (!empty($resource['owner_domain_id']) && !can($user, 'domain.view', $facts->domain($resource['owner_domain_id']))) {
@@ -862,7 +857,7 @@ function can($user, $ability, $resource = null) {
 		// ---- hacks, the resource is the hack with the submission it hacks in 'submission'
 		case 'hack.view':
 			$problem = $facts->problem($resource['problem_id']);
-			if ($is_admin || can($user, 'problem.manage', $problem)) {
+			if (permissionLooksAfterProblem($user, $problem)) {
 				return true;
 			}
 			if (!empty($problem['owner_domain_id']) && !can($user, 'domain.view', $facts->domain($problem['owner_domain_id']))) {
@@ -911,14 +906,46 @@ function permissionViewTypeAllows($setting, $user, $submission) {
 	return false;
 }
 
-// The people who are responsible for a submission: the administrators, whoever manages its
+// Whoever looks after a problem, whether or not they may change it now: the administrators of
+// the site, the people who teach in its domain, and the people it was given to manage. In a
+// domain these are only the members of the domain: whoever leaves it, or is taken out of it,
+// stops managing its problems.
+function permissionLooksAfterProblem($user, $problem) {
+	if ($user == null || $problem == null) {
+		return false;
+	}
+	if (isSiteAdmin($user)) {
+		return true;
+	}
+	$facts = permissionFacts();
+	if (!empty($problem['owner_domain_id'])) {
+		$domain = $facts->domain($problem['owner_domain_id']);
+		if (permissionDomainRoleAtLeast($user, $domain, 'teacher')) {
+			return true;
+		}
+		if (permissionDomainRole($user, $domain) === null) {
+			return false;
+		}
+	}
+	return $facts->managesProblem($user['username'], $problem['id']);
+}
+// whether a problem belongs to a domain that is archived, where nothing is changed
+function permissionProblemIsArchived($problem) {
+	if ($problem == null || empty($problem['owner_domain_id'])) {
+		return false;
+	}
+	$domain = permissionFacts()->domain($problem['owner_domain_id']);
+	return $domain != null && $domain['archived_at'] !== null;
+}
+
+// The people who are responsible for a submission: the administrators, whoever looks after its
 // problem, and the staff of the contest it was made in. They see all of it, always.
 function permissionIsStaffOf($user, $submission) {
 	if ($user == null) {
 		return false;
 	}
 	$facts = permissionFacts();
-	if (isSiteAdmin($user) || can($user, 'problem.manage', $facts->problem($submission['problem_id']))) {
+	if (permissionLooksAfterProblem($user, $facts->problem($submission['problem_id']))) {
 		return true;
 	}
 	// the people who assist in the domain a submission was made in
@@ -1011,7 +1038,7 @@ function visibleSubmissionsCond($user) {
 		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or not $in_running_contest)";
 	}
 	$esc_username = DB::escape($user['username']);
-	$manages_problem = "submissions.problem_id in (select problem_id from problems_permissions where username = '$esc_username')";
+	$manages_problem = "submissions.problem_id in (".managedProblemIdsSql($esc_username).")";
 	$assists_contest = "submissions.contest_id in (select contest_id from contests_permissions where username = '$esc_username')";
 	// the domains of the user, and the ones where they see everything
 	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";
@@ -1047,7 +1074,14 @@ function visibleHacksCond($user) {
 	$esc_username = DB::escape($user['username']);
 	$of_my_domain = "problem_id in (select id from problems where owner_domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
 	$i_teach = "problem_id in (select id from problems where owner_domain_id in (".domainIdsOfUserSql($esc_username, 'teacher')."))";
-	return "$i_teach or problem_id in (select problem_id from problems_permissions where username = '$esc_username') or (is_hidden = false and ($of_the_site or $of_my_domain))";
+	return "$i_teach or problem_id in (".managedProblemIdsSql($esc_username).") or (is_hidden = false and ($of_the_site or $of_my_domain))";
+}
+// The problems a user was given to manage, as a query of their ids: the ones of a domain while
+// the user is in the domain (as permissionLooksAfterProblem() has it).
+function managedProblemIdsSql($esc_username) {
+	return "select problems_permissions.problem_id from problems_permissions join problems on problems.id = problems_permissions.problem_id"
+		." where problems_permissions.username = '$esc_username'"
+		." and (problems.owner_domain_id is null or problems.owner_domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
 }
 
 // A problem of a contest is shown to the people who registered once the contest has started,
