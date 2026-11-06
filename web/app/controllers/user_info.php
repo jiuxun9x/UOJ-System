@@ -97,8 +97,15 @@
 				</div>
 				<div class="list-group-item">
 					<?php
-						// what somebody solved inside a domain is for the people of that domain
-						$ac_problems = DB::selectAll("select best_ac_submissions.problem_id from best_ac_submissions, problems where problems.id = best_ac_submissions.problem_id and problems.owner_domain_id is null and best_ac_submissions.submitter = '{$user['username']}' order by best_ac_submissions.problem_id");
+						// What somebody solved inside a domain is for the people of that domain. What
+						// they solved of a hidden problem, or in a contest that runs or whose board is
+						// frozen, is nobody else's business: it would tell the problems of a contest,
+						// and who solved them, before the contest does.
+						$not_told = '';
+						if (!(Auth::check() && (Auth::id() === $user['username'] || can($myUser, 'submission.view_all')))) {
+							$not_told = " and problems.is_hidden = 0 and best_ac_submissions.submission_id not in (select submissions.id from submissions, contests where contests.id = submissions.contest_id and submissions.submitter = '{$user['username']}' and (".keepingContestsCond()."))";
+						}
+						$ac_problems = DB::selectAll("select best_ac_submissions.problem_id from best_ac_submissions, problems where problems.id = best_ac_submissions.problem_id and problems.owner_domain_id is null and best_ac_submissions.submitter = '{$user['username']}'$not_told order by best_ac_submissions.problem_id");
 					?>
 					<h4 class="list-group-item-heading"><?= UOJLocale::get('accepted problems').'：'.UOJLocale::get('n problems in total', count($ac_problems))?> </h4>
 					<p class="list-group-item-text">

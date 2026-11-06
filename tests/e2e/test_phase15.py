@@ -434,5 +434,39 @@ class VirtualHiddenProblemTest(unittest.TestCase):
         self.assertEqual(other.get("/submission/%d" % own).status_code, 403)
         self.assertNotIn('href="/submission/%d"' % own, other.get("/submissions", params={"submitter": sitter.username}).text)
 
+
+def solved_on_profile(viewer, username, problem_id):
+    return ('<a href="/problem/%d" style="display:inline-block; width:4em;">' % problem_id) in viewer.get("/user/profile/" + username).text
+
+
+class ProfileSolvedTest(unittest.TestCase):
+    """The problems somebody solved were listed on their profile whatever they were: problems that
+    are hidden, and what they solved in a contest that runs, which told the problems of the
+    contest and who solved them before the board did."""
+
+    def test_the_profile_tells_only_what_everybody_may_know(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 主页", rule="ICPC", problems=str(problem_id))
+        pupil, other = uoj.client(("p15_profile", "p15-password")), uoj.client(("p15_looker", "p15-password"))
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        uoj.wait_submission(pupil.submit_in_contest(contest_id, problem_id, AB))
+        # while the contest runs: to the pupil and the staff, not to the others
+        self.assertTrue(solved_on_profile(pupil, pupil.username, problem_id))
+        self.assertTrue(solved_on_profile(admin, pupil.username, problem_id))
+        self.assertFalse(solved_on_profile(other, pupil.username, problem_id))
+        self.assertFalse(solved_on_profile(uoj.Client(), pupil.username, problem_id))
+        # once it is over, to everybody
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertTrue(solved_on_profile(other, pupil.username, problem_id))
+        # a problem that is hidden is not told of
+        db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        try:
+            self.assertFalse(solved_on_profile(other, pupil.username, problem_id))
+            self.assertTrue(solved_on_profile(pupil, pupil.username, problem_id))
+        finally:
+            db("update problems set is_hidden = 0 where id = %d" % problem_id)
+
 if __name__ == "__main__":
     unittest.main()
