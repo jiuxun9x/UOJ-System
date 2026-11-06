@@ -657,5 +657,25 @@ class JudgeDownloadTest(unittest.TestCase):
         finally:
             db("update judger_info set enabled = 1 where %s" % where)
 
+
+class ProfileFormTest(unittest.TestCase):
+    """The form of the profile changed the password, and logged the other devices out, before it
+    looked at the email: a form that said it failed had changed the password. And the email was
+    written into the page as it was."""
+
+    def test_a_form_that_fails_changes_nothing(self):
+        account = ("p15_profile_form", "p15-password")
+        user = uoj.client(account)
+        elsewhere = uoj.Client()
+        elsewhere.login(*account)
+        stored = lambda: db_value("select password from user_info where username = '%s'" % account[0])
+        before = stored()
+        said = user.update_profile(ptag="1", password=user.password_hash("p15-new-password"), email="not an email")
+        self.assertEqual(said, "失败：无效电子邮箱。")
+        self.assertEqual(stored(), before)
+        # the other device is still logged in, and the password is the one of before
+        self.assertIn("logout?_token=", elsewhere.get("/").text)
+        uoj.Client().login(*account)
+
 if __name__ == "__main__":
     unittest.main()

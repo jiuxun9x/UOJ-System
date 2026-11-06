@@ -36,29 +36,37 @@
 				return "失败：{$err}。";
 			}
 		}
-		if ($_POST['ptag']) {
+		// Everything is checked before anything is changed: a form that fails changes nothing (a
+		// new password with a wrong email had changed the password, and logged the other devices
+		// out, of a form that said it failed).
+		$password = null;
+		if (isset($_POST['ptag']) && $_POST['ptag']) {
 			$password = $_POST['password'];
 			if (!validatePassword($password)) {
 				return "失败：无效密码。";
 			}
+		}
+		$email = isset($_POST['email']) ? $_POST['email'] : '';
+		if (!validateEmail($email)) {
+			return "失败：无效电子邮箱。";
+		}
+		$qq = null;
+		if (isset($_POST['Qtag']) && $_POST['Qtag']) {
+			$qq = $_POST['qq'];
+			if (!validateQQ($qq)) {
+				return "失败：无效QQ。";
+			}
+		}
+
+		if ($password !== null) {
 			setUserPassword($myUser['username'], $password);
 			// the other devices log in with the new password; this one stays logged in
 			revokeUserLogins($myUser['username'], true);
 		}
 		DB::update("update user_info set nickname = '".DB::escape($nickname)."' where username = '{$myUser['username']}'");
-
-		$email = $_POST['email'];
-		if (!validateEmail($email)) {
-			return "失败：无效电子邮箱。";
-		}
 		$esc_email = DB::escape($email);
 		DB::update("update user_info set email = '$esc_email' where username = '{$myUser['username']}'");
-
-		if ($_POST['Qtag']) {
-			$qq = $_POST['qq'];
-			if (!validateQQ($qq)) {
-				return "失败：无效QQ。";
-			}
+		if ($qq !== null) {
 			$esc_qq = DB::escape($qq);
 			DB::update("update user_info set qq = '$esc_qq' where username = '{$myUser['username']}'");
 		} else {
