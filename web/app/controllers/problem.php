@@ -274,8 +274,9 @@ EOD
 			return '';
 		};
 		$custom_test_form->ctrl_enter_submit = true;
+		$here_js = json_encode($_SERVER['REQUEST_URI'] . '?get=custom-test-status-details', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES);
 		$custom_test_form->setAjaxSubmit(<<<EOD
-function(response_text) {custom_test_onsubmit(response_text, $('#div-custom_test_result')[0], '{$_SERVER['REQUEST_URI']}?get=custom-test-status-details')}
+function(response_text) {custom_test_onsubmit(response_text, $('#div-custom_test_result')[0], {$here_js})}
 EOD
 		);
 		$custom_test_form->submit_button_config['text'] = UOJLocale::get('problems::run');

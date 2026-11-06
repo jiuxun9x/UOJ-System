@@ -392,7 +392,8 @@ EOD
 		
 		public function printHTML() {
 			$form_entype_str = $this->is_big ? ' enctype="multipart/form-data"' : '';
-			echo '<form action="', $_SERVER['REQUEST_URI'], '" method="post" class="form-horizontal" id="form-', $this->form_name, '"', $form_entype_str, '>';
+			// the address of the page is what the browser asked for, which may hold anything
+			echo '<form action="', HTML::escape($_SERVER['REQUEST_URI']), '" method="post" class="form-horizontal" id="form-', $this->form_name, '"', $form_entype_str, '>';
 			echo HTML::hiddenToken();
 			echo $this->main_html;
 			
@@ -463,6 +464,8 @@ EOD;
 			}
 			
 			if ($need_ajax) {
+				// the address of the page, as a string of the script that nothing in it can end
+				$here_js = json_encode($_SERVER['REQUEST_URI'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES);
 				echo <<<EOD
 		var post_data = {};
 
@@ -480,7 +483,7 @@ EOD;
 		if (post_data != {}) {
 			post_data['check-{$this->form_name}'] = "";
 			$.ajax({
-				url : '{$_SERVER['REQUEST_URI']}',
+				url : {$here_js},
 				type : 'POST',
 				dataType : 'json',
 				async : false,

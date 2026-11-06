@@ -610,5 +610,18 @@ class ForgedRequestTest(unittest.TestCase):
         self.assertIn("failed", voter.post("/click-zan", {"id": str(hidden), "delta": "1", "type": "P"}).text)
         self.assertEqual(zan(hidden), hidden_before)
 
+
+class RequestAddressTest(unittest.TestCase):
+    """The forms of the site wrote the address the browser asked for into the page as it was: into
+    their action, and into a string of their script, which a quote in the address ended."""
+
+    def test_the_address_is_escaped_where_it_is_written(self):
+        problem_id = uoj.admin().create_problem(ab_problem_files())
+        student = uoj.client(("p15_address", "p15-password"))
+        # (a quote is sent as it is; the browsers that encode it are many, not all)
+        page = student.get("/problem/%d?x=';alert(1);//" % problem_id).text
+        self.assertIn('id="form-custom_test"', page)
+        self.assertNotIn("x=';alert(1)", page)
+
 if __name__ == "__main__":
     unittest.main()
