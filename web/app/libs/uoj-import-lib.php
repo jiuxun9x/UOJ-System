@@ -501,12 +501,13 @@ function importFrontMatter($text) {
 }
 
 // "1s", "1500ms", "2.5": the seconds a program may run, the way the settings keep them; null
-// for what is no time
-function importSeconds($value) {
+// for what is no time. A number without a unit is in $bare_unit: seconds, or milliseconds, as
+// Hydro writes them (its config.yaml says "time: 1000" for a second).
+function importSeconds($value, $bare_unit = 's') {
 	if (!is_scalar($value) || !preg_match('/^\s*([0-9]+(?:\.[0-9]+)?)\s*(ms|s|秒|毫秒)?\s*$/iu', (string)$value, $matches)) {
 		return null;
 	}
-	$unit = isset($matches[2]) ? strtolower($matches[2]) : 's';
+	$unit = isset($matches[2]) && $matches[2] !== '' ? strtolower($matches[2]) : $bare_unit;
 	$seconds = (float)$matches[1] / ($unit === 'ms' || $unit === '毫秒' ? 1000 : 1);
 	if ($seconds <= 0 || $seconds > 600) {
 		return null;
@@ -630,7 +631,7 @@ function importHydroConfig($config, $names) {
 		$notes[] = "Hydro 的题目类型“{$type}”这里没有对应的，按传统题导入了，请在评测设置里检查";
 	}
 	if (isset($config['time'])) {
-		$seconds = importSeconds($config['time']);
+		$seconds = importSeconds($config['time'], 'ms');
 		if ($seconds !== null) {
 			$settings['time_limit'] = $seconds;
 		} else {

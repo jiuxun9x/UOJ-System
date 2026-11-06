@@ -34,6 +34,8 @@ check_same(array('我的文件名', 1), array($read['title'], count($read['notes
 
 // ---- limits
 check_same(array('1', '1.5', '0.5', '2', '10', null, null, null, null), array(importSeconds('1s'), importSeconds('1500ms'), importSeconds('500 ms'), importSeconds(2), importSeconds('10秒'), importSeconds('fast'), importSeconds('0'), importSeconds('601'), importSeconds(array(1))), 'times');
+// Hydro writes a time without a unit in milliseconds (time: 1000 is a second)
+check_same(array('1', '0.5', '2', '1', '1.5', null), array(importSeconds(1000, 'ms'), importSeconds('500', 'ms'), importSeconds('2s', 'ms'), importSeconds('1000ms', 'ms'), importSeconds(' 1500 ', 'ms'), importSeconds(700000, 'ms')), 'times of Hydro');
 check_same(array(256, 256, 1024, 64, 512, 1, null, null), array(importMegabytes('256m'), importMegabytes('256MB'), importMegabytes('1g'), importMegabytes('65536k'), importMegabytes(512), importMegabytes('100k'), importMegabytes('lots'), importMegabytes('64g')), 'amounts of memory');
 check_same(array('a', 'b'), importTags(' a ,, b，a '), 'tags, each once');
 
@@ -46,6 +48,9 @@ $said = importHydroConfig(array('type' => 'default', 'time' => '2s', 'memory' =>
 	)), $names);
 check_same(array('time_limit' => '2', 'memory_limit' => 128, 'checker' => 'custom', 'checker_file' => 'chk.cc', 'scoring' => 'subtasks', 'subtasks' => array(array(2, 40), array(3, 60))), $said['settings'], 'Hydro: limits, a checker written with testlib, subtasks');
 check_same(array(array(array('a1.in', 'a1.out'), array('a2.in', 'a2.out'), array('b1.in', 'b1.ans')), array()), array($said['cases'], $said['notes']), 'and its tests in their order');
+// a time without a unit, as Hydro writes it, is in milliseconds; memory without one in MB
+$said = importHydroConfig(array('type' => 'default', 'time' => 1500, 'memory' => 512), $names);
+check_same(array('1.5', 512), array($said['settings']['time_limit'], $said['settings']['memory_limit']), 'Hydro: a time of 1500 is a second and a half');
 // what this site has no word for is said, and the rest is kept
 $said = importHydroConfig(array('type' => 'communication', 'time' => '1000ms', 'checker_type' => 'syzoj', 'checker' => 'chk.cc', 'filename' => 'sum',
 	'subtasks' => array(
