@@ -314,6 +314,28 @@ class InteractTest(JudgeClientTestCase):
             threading.Event().wait(0.2)
             self.assertEqual(interact.call_count, calls)
 
+    def test_a_result_the_web_server_keeps_refusing_is_given_up_on(self):
+        self.jc.submission = {"id": 5, "claim": "f" * 32}
+        refused = self.jc.UOJHTTPError(413, "/judge/submit")
+        with mock.patch.object(self.jc, "uoj_interact", side_effect=refused) as interact:
+            self.assertFalse(self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""}))
+        self.assertEqual(interact.call_count, 5)
+        self.assertIsNone(self.jc.submission)
+
+    def test_an_error_of_the_web_server_is_tried_longer(self):
+        self.jc.submission = {"id": 5, "claim": "f" * 32}
+        with mock.patch.object(self.jc, "uoj_interact", side_effect=self.jc.UOJHTTPError(500, "/judge/submit")) as interact:
+            self.assertFalse(self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""}))
+        self.assertEqual(interact.call_count, 30)
+
+    def test_a_web_server_out_of_reach_is_asked_again(self):
+        self.jc.submission = {"id": 5, "claim": "f" * 32}
+        answers = [self.jc.requests.ConnectionError("refused")] * 40 + ['{"id": 6, "problem_id": 1}']
+        with mock.patch.object(self.jc, "uoj_interact", side_effect=answers) as interact:
+            self.assertTrue(self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""}))
+        self.assertEqual(interact.call_count, 41)
+        self.assertEqual(self.jc.submission, {"id": 6, "problem_id": 1})
+
     def test_signs_of_life_go_on_when_there_is_no_progress_to_tell(self):
         # a judger of the problem's own that writes no status: reading it fails every time
         import threading

@@ -1251,6 +1251,14 @@ def judge():
 
 
 # interact with uoj web server
+class UOJHTTPError(Exception):
+    """the web server answered, and not with what was asked for"""
+
+    def __init__(self, status, uri):
+        super().__init__("HTTP %d from %s" % (status, uri))
+        self.status = status
+
+
 def uoj_check_response(r, uri):
     if r.status_code == 403:
         raise UOJAuthError(
@@ -1258,7 +1266,7 @@ def uoj_check_response(r, uri):
             "please check judger_name and judger_password" % uri
         )
     if r.status_code != 200:
-        raise Exception("HTTP %d from %s" % (r.status_code, uri))
+        raise UOJHTTPError(r.status_code, uri)
 
 
 # The name of this worker. Several workers may work for one judging account; each is told apart
@@ -1421,6 +1429,14 @@ def long_poll_seconds():
     return min(seconds, 50)
 
 
+# How many times a request that the web server answers with an error is sent before the judger
+# gives up on it: an error of the request (4xx, such as a result too large to be taken) comes
+# back the same however often it is sent, an error of the server (5xx) may pass. A task whose
+# result is given up on is taken back by the site once its lease runs out, and given to another
+# judger. (A web server that can not be reached is asked again, however long it takes.)
+GIVE_UP_AFTER = {4: 5, 5: 30}
+
+
 def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
     global submission, work_has_come
 
@@ -1476,6 +1492,7 @@ def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
         data["result"] = json.dumps(result, ensure_ascii=False)
 
     asked_at = time.time()
+    refused = 0
     while True:
         try:
             ret = uoj_interact(data, files)
@@ -1484,6 +1501,17 @@ def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
             log(e)
             time.sleep(30)
             continue
+        except UOJHTTPError as e:
+            print_judge_client_status()
+            traceback.print_exc()
+            refused += 1
+            if refused >= GIVE_UP_AFTER.get(e.status // 100, float("inf")):
+                log("the web server answered %d times with an error (%s): this is given up on" % (refused, e))
+                if result is not None or report is not None:
+                    log_task_timing("given up", ms_since(asked_at))
+                submission = None
+                work_has_come = False
+                return False
         except Exception:
             print_judge_client_status()
             traceback.print_exc()
