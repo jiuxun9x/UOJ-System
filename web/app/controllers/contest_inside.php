@@ -196,14 +196,7 @@
 				if ($unjudged > 0) {
 					becomeMsgPage("<p>还有 $unjudged 个提交没有评测完，请等评测结束后再更新榜单。</p><p><a href=\"/contest/{$contest['id']}\">返回</a></p>");
 				}
-				// what the submissions say now, as before the results were published
-				$contest_data = queryContestData(array('cur_progress' => CONTEST_TESTING) + $contest);
-				DB::delete("delete from contests_submissions where contest_id = {$contest['id']}");
-				calcStandings($contest, $contest_data, $score, $standings, true);
-				foreach ($standings as $row) {
-					DB::update("update contests_registrants set `rank` = {$row[3]} where contest_id = {$contest['id']} and username = '".DB::escape($row[2][0])."'");
-				}
-				auditLog('contest.update_standings', 'contest', $contest['id'], null, array('participants' => count($standings)));
+				auditLog('contest.update_standings', 'contest', $contest['id'], null, array('participants' => contestUpdateStandings($contest)));
 			};
 			$update_standings_form->submit_button_config['class_str'] = 'btn btn-warning btn-block';
 			$update_standings_form->submit_button_config['smart_confirm'] = '';

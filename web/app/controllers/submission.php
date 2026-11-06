@@ -84,12 +84,18 @@
 	if (can($myUser, 'submission.delete', $submission)) {
 		$delete_form = new UOJForm('delete');
 		$delete_form->handle = function() {
-			global $submission;
+			global $submission, $contest;
 			$content = json_decode($submission['content'], true);
 			unlink(UOJContext::storagePath().$content['file_name']);
 			DB::delete("delete from submissions where id = {$submission['id']}");
 			updateBestACSubmissions($submission['submitter'], $submission['problem_id']);
 			auditLog('submission.delete', 'submission', $submission['id'], array('submitter' => $submission['submitter'], 'problem_id' => (int)$submission['problem_id'], 'contest_id' => $submission['contest_id'], 'score' => $submission['score'], 'submit_time' => $submission['submit_time']), null);
+			// The board of a contest whose results are published was made of its submissions: it
+			// is made again of the ones that are left, as "更新榜单" makes it, and links to none
+			// that is gone.
+			if ($contest != null && $contest['cur_progress'] >= CONTEST_FINISHED) {
+				auditLog('contest.update_standings', 'contest', $contest['id'], null, array('participants' => contestUpdateStandings($contest), 'deleted_submission' => (int)$submission['id']));
+			}
 		};
 		$delete_form->submit_button_config['class_str'] = 'btn btn-danger';
 		$delete_form->submit_button_config['text'] = '删除此提交记录';

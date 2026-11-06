@@ -1,6 +1,8 @@
 """Phase 16: what a review of the site found, mended. Each class is one of the defects, told by
 what it did wrong and kept from coming back."""
 
+import json
+import re
 import unittest
 
 import uoj
@@ -201,6 +203,45 @@ class UploadLimitTest(unittest.TestCase):
         self.assertIn('id="upload-refused"', page)
         self.assertIn("个文件，超过了上限 5000 个", page)
         self.assertEqual(docker_exec(uoj.WEB, "test -e %s/p16_last.txt && echo there || echo missing" % folder).strip(), "missing")
+
+
+def board_submissions(client, contest_id):
+    """the submissions the cells of the board of a contest (not under the ICPC rule) link to: user => ids"""
+    page = client.get("/contest/%d/standings" % contest_id).text
+    score = json.loads(re.search(r"(?m)^score=(.*);$", page).group(1))
+    cells = lambda row: row.values() if isinstance(row, dict) else row
+    return {name: sorted(cell[2] for cell in cells(row)) for name, row in (score.items() if score else [])}
+
+
+class DeletedSubmissionBoardTest(unittest.TestCase):
+    """The board of a contest whose results are published is made of its submissions. When one of
+    them was deleted, the board went on linking to it, a page that was not there any more, and
+    counting it, until somebody updated the board by hand."""
+
+    def test_the_board_is_made_again_of_what_is_left(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        cheat, honest = account("p16_del_cheat"), account("p16_del_honest")
+        contest_id = admin.new_contest("p16 删除提交", rule="IOI", problems=str(problem_id))
+        for pupil in (cheat, honest):
+            pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        copied = cheat.submit_in_contest(contest_id, problem_id, AB)
+        own = honest.submit_in_contest(contest_id, problem_id, AB)
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        ranks = lambda: db("select username, `rank` from contests_registrants where contest_id = %d order by username" % contest_id)
+        self.assertEqual(ranks(), [["p16_del_cheat", "1"], ["p16_del_honest", "1"]])
+        self.assertEqual(board_submissions(admin, contest_id), {"p16_del_cheat": [copied], "p16_del_honest": [own]})
+
+        # the copied program is deleted: the board is made again of what is left
+        self.assertEqual(admin.submit_form("/submission/%d" % copied, "delete"), "")
+        self.assertEqual(db_value("select count(*) from submissions where id = %d" % copied), "0")
+        self.assertEqual(db_value("select count(*) from contests_submissions where submission_id = %d" % copied), "0")
+        self.assertEqual(board_submissions(admin, contest_id).get("p16_del_cheat", []), [])
+        self.assertEqual(board_submissions(admin, contest_id)["p16_del_honest"], [own])
+        self.assertEqual(ranks(), [["p16_del_cheat", "2"], ["p16_del_honest", "1"]])
 
 
 if __name__ == "__main__":

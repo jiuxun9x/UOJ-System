@@ -967,6 +967,20 @@ function queryContestData($contest, $config = array()) {
 	return ['problems' => $problems, 'data' => $data, 'people' => $people, 'final' => !$config['pre_final'] && $contest['cur_progress'] >= CONTEST_FINISHED];
 }
 
+// Puts on the board of a contest whose results are published, and into its ranks, what its
+// submissions say now: after a rejudge, a corrected test, a submission deleted. The ratings stay
+// as the publishing made them, and nobody is sent a message. Returns how many took part.
+function contestUpdateStandings($contest) {
+	// what the submissions say now, as before the results were published
+	$contest_data = queryContestData(array('cur_progress' => CONTEST_TESTING) + $contest);
+	DB::delete("delete from contests_submissions where contest_id = {$contest['id']}");
+	calcStandings($contest, $contest_data, $score, $standings, true);
+	foreach ($standings as $row) {
+		DB::update("update contests_registrants set `rank` = {$row[3]} where contest_id = {$contest['id']} and username = '".DB::escape($row[2][0])."'");
+	}
+	return count($standings);
+}
+
 // ---- who solved first
 //
 // Who solved a problem first, and who solved anything first, is who passed first: by the second
