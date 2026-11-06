@@ -227,12 +227,13 @@ class DeletedSubmissionBoardTest(unittest.TestCase):
             pupil.register_for_contest(contest_id)
         uoj.move_contest(contest_id, -60, 600)
         copied = cheat.submit_in_contest(contest_id, problem_id, AB)
-        own = honest.submit_in_contest(contest_id, problem_id, AB)
+        # (two of the three tests: fewer points, and no tie whose order the seconds decide)
+        own = honest.submit_in_contest(contest_id, problem_id, AB.replace("a + b", "a < 1000000 ? a + b : 0"))
         uoj.wait_idle()
         uoj.move_contest(contest_id, -7200, 60)
         self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
         ranks = lambda: db("select username, `rank` from contests_registrants where contest_id = %d order by username" % contest_id)
-        self.assertEqual(ranks(), [["p16_del_cheat", "1"], ["p16_del_honest", "1"]])
+        self.assertEqual(ranks(), [["p16_del_cheat", "1"], ["p16_del_honest", "2"]])
         self.assertEqual(board_submissions(admin, contest_id), {"p16_del_cheat": [copied], "p16_del_honest": [own]})
 
         # the copied program is deleted: the board is made again of what is left
