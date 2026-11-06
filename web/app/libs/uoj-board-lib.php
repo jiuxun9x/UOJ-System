@@ -119,6 +119,17 @@ function boardLastTries($contest, $until = null) {
 	}
 	return $tries;
 }
+// Up to when the last tries of a board are told, in seconds into the contest: a frozen board
+// tells nothing that was submitted since it froze, and so no time of it either (a submission that
+// did not compile is no attempt on the board, but was a last try). null: to $until, the moment
+// the board is of (null for the end).
+function boardLastTriesUntil($contest, $frozen, $until) {
+	if (!$frozen) {
+		return $until;
+	}
+	$before_freeze = contestFreezeOffset($contest) - 1;
+	return $until === null ? $before_freeze : min($until, $before_freeze);
+}
 // What the outer board is made of, as a word that changes when it does: the board is asked
 // for every few seconds by everybody who watches, and is put together anew only when
 // something happened. (Every half minute it is, whatever happened: a name may have changed.)
@@ -173,7 +184,7 @@ function boardTableNow($contest) {
 	// frozen for whoever looks: this is the board of the room
 	$frozen = contestBoardIsFrozen($contest);
 	calcStandings($contest, queryContestData($contest), $score, $standings, false, $frozen ? contestFreezeOffset($contest) : null);
-	$table = boardTable($contest, $standings, $score, boardLastTries($contest));
+	$table = boardTable($contest, $standings, $score, boardLastTries($contest, boardLastTriesUntil($contest, $frozen, null)));
 	$draft = $file . '.' . uojRandString(8);
 	if (@file_put_contents($draft, json_encode(array('version' => $version, 'table' => $table))) !== false) {
 		@rename($draft, $file);
@@ -207,7 +218,7 @@ function boardState($contest, $viewer) {
 		$state['elapsed'] = virtualElapsed($virtual, $now);
 		$state['ticking'] = true;
 		list($standings, $score, $contest_data, $state['frozen']) = virtualBoard($contest, $state['elapsed'], false);
-		$state = boardTable($contest, $standings, $score, boardLastTries($contest, $state['elapsed'])) + $state;
+		$state = boardTable($contest, $standings, $score, boardLastTries($contest, boardLastTriesUntil($contest, $state['frozen'], $state['elapsed']))) + $state;
 	} else {
 		$state['phase'] = $contest['cur_progress'] <= CONTEST_IN_PROGRESS ? 'running' : ($contest['cur_progress'] < CONTEST_FINISHED ? 'waiting' : 'final');
 		$state['elapsed'] = max(0, min($duration, $now - $start));

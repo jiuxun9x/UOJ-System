@@ -8,7 +8,7 @@ import re
 import unittest
 
 import uoj
-from fixtures import AB, AB_WRONG, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
+from fixtures import AB, AB_COMPILE_ERROR, AB_WRONG, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
 from uoj import db, db_value, docker_exec
 
 # A+B in the languages of the site but C++ (which every other test submits in)
@@ -517,6 +517,30 @@ class ExportRanksTest(unittest.TestCase):
         rows = list(csv.reader(io.StringIO(admin.get("/contest/%d/export_standings" % contest_id).text)))
         ranks = {row[1]: row[0] for row in rows if len(row) > 1 and row[1].startswith("p15_export_")}
         self.assertEqual(ranks, {"p15_export_a": "1", "p15_export_b": "2", "p15_export_c": "2"})
+
+
+class FrozenBoardLastTryTest(unittest.TestCase):
+    """The outer board tells, under a problem that was tried in vain, when it was tried last. A
+    submission that did not compile is no attempt on the board, but was taken for the last try,
+    and told on the frozen board when it was made after the board froze."""
+
+    def test_a_frozen_board_tells_no_time_of_after_the_freeze(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 封榜时间", rule="ICPC", problems=str(problem_id), freeze_minutes="30")
+        pupil, other = uoj.client(("p15_frozen", "p15-password")), uoj.client(("p15_frozen_look", "p15-password"))
+        pupil.register_for_contest(contest_id)
+        # forty minutes into the contest, frozen since thirty
+        uoj.move_contest(contest_id, -40 * 60, 60)
+        made = [(10, pupil.submit_in_contest(contest_id, problem_id, AB_WRONG)), (35, pupil.submit_in_contest(contest_id, problem_id, AB_COMPILE_ERROR))]
+        uoj.wait_idle()
+        for minutes, submission_id in made:
+            db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d" % (contest_id, minutes, submission_id))
+        told = other.get("/contest/%d/board?json=1" % contest_id).json()
+        self.assertTrue(told["frozen"])
+        row = next(row for row in told["rows"] if row["username"] == pupil.username)
+        self.assertEqual(row["cells"][0][0], "failed", row)
+        self.assertEqual(row["cells"][0][2], "0:10", row)
 
 if __name__ == "__main__":
     unittest.main()
