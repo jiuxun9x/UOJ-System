@@ -6,7 +6,7 @@ import unittest
 import uoj
 from fixtures import AB, ab_problem_files
 from test_phase3 import account
-from uoj import db, db_value
+from uoj import db, db_value, docker_exec
 
 
 def members(client, slug, form, **fields):
@@ -178,6 +178,29 @@ class DecimalScoreTest(unittest.TestCase):
         # all of it is 100, and a pass
         self.assertEqual(uoj.wait_submission(pupil.submit(problem_id, AB)).score, 100)
         self.assertEqual(solved(), "1")
+
+
+class UploadLimitTest(unittest.TestCase):
+    """The data of a problem is held to 5000 files and 1024 MB, and an archive was checked against
+    them by itself: archives one after the other held as many files as they liked, and the files
+    an archive wrote over were counted twice (the unit tests of uploadEntriesError have the bytes)."""
+
+    def test_an_archive_counts_with_the_files_there_are(self):
+        admin = uoj.admin()
+        problem_id = admin.new_problem()
+        folder = "/var/uoj_data/upload/%d" % problem_id
+        there = lambda: int(docker_exec(uoj.WEB, "find %s -type f | wc -l" % folder).strip())
+        files = lambda names: {name: "1\n" for name in names}
+        first = ["p16_%04d.txt" % i for i in range(2600)]
+        self.assertIn("上传成功", admin.upload_data(problem_id, files(first)).text)
+        # the first again, with as many new files as there is room for: the first are written over
+        more = ["p16_more_%04d.txt" % i for i in range(5000 - there())]
+        self.assertIn("上传成功", admin.upload_data(problem_id, files(first + more)).text)
+        # and one more is one too many
+        page = admin.upload_data(problem_id, files(["p16_last.txt"])).text
+        self.assertIn('id="upload-refused"', page)
+        self.assertIn("个文件，超过了上限 5000 个", page)
+        self.assertEqual(docker_exec(uoj.WEB, "test -e %s/p16_last.txt && echo there || echo missing" % folder).strip(), "missing")
 
 
 if __name__ == "__main__":

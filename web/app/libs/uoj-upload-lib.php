@@ -90,8 +90,11 @@ function uploadTargets($names) {
 }
 
 // Returns '' when an archive may be unpacked, or why not. $entries are rows of name, size,
-// compressed and is_link; $existing_bytes is what the directory of the problem holds already.
-function uploadEntriesError($entries, $limits, $existing_bytes = 0) {
+// compressed and is_link; $existing_count and $existing_bytes are what the directory of the
+// problem holds already, and $existing_sizes the sizes of its files the archive would replace
+// (path in the directory => bytes): what is replaced is not counted twice, and what is added
+// counts with what is there.
+function uploadEntriesError($entries, $limits, $existing_bytes = 0, $existing_count = 0, $existing_sizes = array()) {
 	$names = array();
 	$sizes = array();
 	$compressed = 0;
@@ -121,14 +124,24 @@ function uploadEntriesError($entries, $limits, $existing_bytes = 0) {
 		return '压缩包里有解压后会互相覆盖的文件（名字只差大小写，或者重复）';
 	}
 	$total = 0;
+	$replaced = 0;
+	$added = 0;
 	foreach ($targets as $name => $target) {
 		if ($sizes[$name] > $limits['file_bytes']) {
 			return "压缩包里的 $name 解压后有 " . uploadMegabytes($sizes[$name]) . " MB，超过了单个文件的上限 " . uploadMegabytes($limits['file_bytes']) . " MB";
 		}
 		$total += $sizes[$name];
+		if (isset($existing_sizes[$target])) {
+			$replaced += $existing_sizes[$target];
+		} else {
+			$added++;
+		}
 	}
-	if ($existing_bytes + $total > $limits['bytes']) {
-		return "解压后这道题的数据共 " . uploadMegabytes($existing_bytes + $total) . " MB，超过了上限 " . uploadMegabytes($limits['bytes']) . " MB";
+	if ($existing_count + $added > $limits['files']) {
+		return "解压后这道题的数据共 " . ($existing_count + $added) . " 个文件，超过了上限 {$limits['files']} 个";
+	}
+	if ($existing_bytes - $replaced + $total > $limits['bytes']) {
+		return "解压后这道题的数据共 " . uploadMegabytes($existing_bytes - $replaced + $total) . " MB，超过了上限 " . uploadMegabytes($limits['bytes']) . " MB";
 	}
 	if ($limits['ratio'] > 0 && $compressed > 0 && $total / $compressed > $limits['ratio']) {
 		return "压缩包解压后是原来的 " . round($total / $compressed) . " 倍，超过了上限 {$limits['ratio']} 倍";
@@ -163,18 +176,25 @@ function uploadUnpack($zip_path, $dir, $limits) {
 		return array(0, '解压失败：这不是一个完好的 zip 文件');
 	}
 	$entries = uploadZipEntries($zip);
-	list($existing_count, $existing_bytes) = backupTreeSize($dir);
-	$err = uploadEntriesError($entries, $limits, $existing_bytes);
-	if ($err !== '') {
-		$zip->close();
-		return array(0, $err);
-	}
 	$names = array();
 	foreach ($entries as $entry) {
 		$names[] = $entry['name'];
 	}
+	list($existing_count, $existing_bytes) = backupTreeSize($dir);
+	// the files of the problem the archive would write over
+	$existing_sizes = array();
+	foreach (uploadTargets($names) as $target) {
+		if (uploadNameError($target) === '' && is_file("$dir/$target") && !is_link("$dir/$target")) {
+			$existing_sizes[$target] = filesize("$dir/$target");
+		}
+	}
+	$err = uploadEntriesError($entries, $limits, $existing_bytes, $existing_count, $existing_sizes);
+	if ($err !== '') {
+		$zip->close();
+		return array(0, $err);
+	}
 	$written = 0;
-	$budget = $limits['bytes'] - $existing_bytes;
+	$budget = $limits['bytes'] - ($existing_bytes - array_sum($existing_sizes));
 	foreach (uploadTargets($names) as $name => $target) {
 		$path = "$dir/$target";
 		if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0755, true)) {

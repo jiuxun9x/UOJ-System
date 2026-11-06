@@ -348,6 +348,14 @@ foreach ($refused as $what => $entries) {
 }
 check_same(true, uploadEntriesError(array($entry('a', 500)), $limits, 600) !== '', 'refused: too much with what the problem holds already');
 check_same('', uploadEntriesError(array($entry('a', 500)), $limits, 500), 'just enough room');
+// What an archive writes over is not counted twice: the problem holds 600 bytes, 500 of them in a,
+// and a new a of 500 bytes leaves it at 600. (It was counted as 1100, and refused.)
+check_same('', uploadEntriesError(array($entry('a', 500)), $limits, 600, 2, array('a' => 500)), 'a file that replaces one of the same name');
+check_same(true, uploadEntriesError(array($entry('a', 500), $entry('b', 450)), $limits, 600, 2, array('a' => 500)) !== '', 'refused: what replaces one file and adds too much');
+// and what it adds counts with the files there are: three are allowed, two are there
+check_same(true, uploadEntriesError(array($entry('c'), $entry('d')), $limits, 20, 2) !== '', 'refused: archives that add up to too many files, one after the other');
+check_same('', uploadEntriesError(array($entry('c')), $limits, 20, 2), 'the last file there is room for');
+check_same('', uploadEntriesError(array($entry('a'), $entry('b'), $entry('c')), $limits, 30, 3, array('a' => 10, 'b' => 10, 'c' => 10)), 'files that all replace files of the same names');
 check_same('', uploadEntriesError(array($entry('a', 500, 1)), $limits), 'how well an archive packs is not looked at unless asked');
 check_same(true, uploadEntriesError(array($entry('a', 500, 1)), array('ratio' => 100) + $limits) !== '', 'refused: an archive that packs better than allowed');
 
