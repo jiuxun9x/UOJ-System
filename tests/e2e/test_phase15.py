@@ -786,7 +786,10 @@ class DefaultPasswordsTest(unittest.TestCase):
         # the site of the tests runs on them, as one that was just set up does
         page = uoj.admin().get("/super-manage").text
         self.assertIn('id="security-defaults"', page)
-        self.assertIn("评测账户 compose_judger 的密码还是默认的 _judger_password_", page)
+        self.assertIn("评测账户 compose_judger 的密码还是默认的", page)
+        # which of them, not what they are
+        self.assertNotIn("_judger_password_", page)
+        self.assertNotIn("_judger_socket_password_", page)
         self.assertIn("compose_judger", cli("security:defaults"))
         # and only to the administrators
         self.assertNotIn('id="security-defaults"', uoj.client(("p15_defaults", "p15-password")).get("/super-manage").text)
