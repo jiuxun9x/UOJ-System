@@ -549,9 +549,16 @@ function can($user, $ability, $resource = null) {
 		case 'contest.rate':
 			return $is_admin && !(is_array($resource) && !empty($resource['domain_id']));
 		case 'submission.view_all':
+			return $is_admin;
+		// (nothing is changed in an archived domain, nor is anything taken out of it; without a
+		// resource: whether one deletes such things at all)
 		case 'submission.delete':
 		case 'hack.delete':
-			return $is_admin;
+			if (!$is_admin || !is_array($resource)) {
+				return $is_admin;
+			}
+			return !permissionProblemIsArchived($facts->problem($resource['problem_id']))
+				&& !(!empty($resource['domain_id']) && permissionDomainIsArchived($facts->domain($resource['domain_id'])));
 		case 'problem.create':
 		case 'contest.create':
 			return $is_admin || userHasRole($user, UOJ_ROLE_TEACHER);
@@ -617,12 +624,9 @@ function can($user, $ability, $resource = null) {
 
 		// ---- problems
 		// A problem that belongs to a domain is managed by the people who teach there, and seen
-		// by nobody outside of the domain. In an archived domain the people of the domain do
-		// not change it: the domain is read only until its owner brings it back.
+		// by nobody outside of the domain. In an archived domain nobody changes it, the
+		// administrators of the site neither: the domain is read only until it is brought back.
 		case 'problem.manage':
-			if ($is_admin) {
-				return true;
-			}
 			return !permissionProblemIsArchived($resource) && permissionLooksAfterProblem($user, $resource);
 		case 'problem.view':
 			if (permissionLooksAfterProblem($user, $resource)) {
@@ -748,11 +752,23 @@ function can($user, $ability, $resource = null) {
 				return $name !== null && $facts->hasRegistered($name, $resource['id']);
 			}
 			return true;
+		// A contest of an archived domain is changed by nobody: not by its owners, nor by the
+		// administrators of the site, until the domain is brought back.
 		case 'contest.manage':
+			if (!empty($resource['domain_id']) && permissionDomainIsArchived($facts->domain($resource['domain_id']))) {
+				return false;
+			}
 			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) === 'owner')) {
 				return true;
 			}
 			return !empty($resource['domain_id']) && can($user, 'domain.teach', $facts->domain($resource['domain_id']));
+		// what the people behind the scenes do: answering questions, handing out balloons. Not in
+		// an archived domain, where they still see everything.
+		case 'contest.respond':
+			if (!empty($resource['domain_id']) && permissionDomainIsArchived($facts->domain($resource['domain_id']))) {
+				return false;
+			}
+			return can($user, 'contest.assist', $resource);
 		// the people behind the scenes of a contest: they see everything and answer questions
 		case 'contest.assist':
 			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) !== null)) {
@@ -844,7 +860,7 @@ function can($user, $ability, $resource = null) {
 		// Hacking needs the source, and a successful hack changes the data of the problem and
 		// judges everything again: not while a contest with the problem runs.
 		case 'submission.hack':
-			if ($name === null) {
+			if ($name === null || permissionProblemIsArchived($facts->problem($resource['problem_id']))) {
 				return false;
 			}
 			if (permissionIsStaffOf($user, $resource)) {
@@ -934,13 +950,16 @@ function permissionLooksAfterProblem($user, $problem) {
 	}
 	return $facts->managesProblem($user['username'], $problem['id']);
 }
-// whether a problem belongs to a domain that is archived, where nothing is changed
+// whether a domain is archived: read only, for everybody, until it is brought back
+function permissionDomainIsArchived($domain) {
+	return $domain != null && $domain['archived_at'] !== null;
+}
+// whether a problem belongs to a domain that is archived
 function permissionProblemIsArchived($problem) {
 	if ($problem == null || empty($problem['owner_domain_id'])) {
 		return false;
 	}
-	$domain = permissionFacts()->domain($problem['owner_domain_id']);
-	return $domain != null && $domain['archived_at'] !== null;
+	return permissionDomainIsArchived(permissionFacts()->domain($problem['owner_domain_id']));
 }
 
 // The people who are responsible for a submission: the administrators, whoever looks after its

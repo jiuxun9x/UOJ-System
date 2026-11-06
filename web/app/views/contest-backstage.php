@@ -11,7 +11,7 @@
 <div class="tab-content">
 	<div class="tab-pane active" id="tab-question">
 		<h3>提问</h3>
-		<?php uojIncludeView('contest-question-table', ['pag' => $questions_pag, 'can_reply' => true, 'reply_question' => $reply_question]) ?>
+		<?php uojIncludeView('contest-question-table', ['pag' => $questions_pag, 'can_reply' => $reply_question != null, 'reply_question' => $reply_question]) ?>
 	</div>
 	<?php if ($post_notice): ?>
 		<div class="tab-pane" id="tab-notice">

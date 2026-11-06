@@ -18,6 +18,8 @@
 		become403Page();
 	}
 	$may_manage = can($myUser, 'contest.manage', $contest);
+	// (in an archived domain the list is read, and nothing on it changed)
+	$may_respond = can($myUser, 'contest.respond', $contest);
 	$rule = contestRule($contest);
 
 	// what the list was asked to show stays with it through every form
@@ -85,12 +87,18 @@
 			}
 			return $err;
 		}),
-		'done' => function() use ($contest, $posted) {
+		'done' => function() use ($contest, $posted, $may_respond) {
 			global $myUser;
+			if (!$may_respond) {
+				become403Page();
+			}
 			return balloonSetDone($contest, $posted('username'), validateUInt($posted('problem_id')) ? (int)$posted('problem_id') : 0, true, $myUser);
 		},
-		'undo' => function() use ($contest, $posted) {
+		'undo' => function() use ($contest, $posted, $may_respond) {
 			global $myUser;
+			if (!$may_respond) {
+				become403Page();
+			}
 			return balloonSetDone($contest, $posted('username'), validateUInt($posted('problem_id')) ? (int)$posted('problem_id') : 0, false, $myUser);
 		}
 	), $here);
@@ -323,8 +331,10 @@
 							<input type="hidden" name="problem_id" value="<?= $balloon['problem_id'] ?>" />
 							<?php if ($is_done): ?>
 							<span class="text-success mr-1" title="<?= HTML::escape($balloon['done_by']) ?> 在 <?= $balloon['done_at'] ?> 记下的">已送<?= passedMark('') ?> <small class="text-muted"><?= HTML::escape($balloon['done_by']) ?> <?= substr($balloon['done_at'], 11, 5) ?></small></span>
+							<?php if ($may_respond): ?>
 							<button type="submit" class="btn btn-link btn-sm p-0" title="其实还没送到">撤销</button>
-							<?php else: ?>
+							<?php endif ?>
+							<?php elseif ($may_respond): ?>
 							<button type="submit" class="btn btn-primary btn-sm">送到了</button>
 							<?php endif ?>
 						</form>

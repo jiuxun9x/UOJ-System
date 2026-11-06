@@ -101,5 +101,39 @@ class RestrictedContestSubmissionTest(unittest.TestCase):
             self.assertIn("p16-outside", client.get("/submission/%d" % outside).text)
 
 
+class ArchivedDomainTest(unittest.TestCase):
+    """An archived domain is read only until it is brought back. The teacher who made a contest
+    there still changed it, as the owner of the contest, and the administrators of the site
+    changed its problems and its contests."""
+
+    def test_nothing_in_an_archived_domain_is_changed(self):
+        admin = uoj.admin()
+        teacher = account("p16_arch_teacher")
+        self.assertEqual(admin.change_user("p16_arch_teacher", "grant:teacher"), "")
+        teacher.new_domain("p16-archived")
+        problem_id = teacher.new_problem("p16-archived")
+        contest_id = teacher.new_contest("p16 archived contest", domain="p16-archived")
+        contest_name = lambda: db_value("select name from contests where id = %d" % contest_id)
+        statement = {"problem_title": "p16 renamed", "problem_tags": "", "problem_content_md": "x", "save-problem": ""}
+        before = title_of(problem_id)
+        self.assertEqual(teacher.form("/d/p16-archived/settings", "archive"), "")
+
+        for client in (teacher, admin):
+            self.assertNotEqual(client.contest_settings(contest_id, name="p16 renamed"), "")
+            self.assertEqual(contest_name(), "p16 archived contest")
+            self.assertIn(client.get("/contest/%d/manage" % contest_id).status_code, (403, 404))
+            client.post("/problem/%d/manage/statement" % problem_id, statement)
+            self.assertEqual(title_of(problem_id), before)
+        # it is read as before
+        for client in (teacher, admin):
+            self.assertEqual(client.get("/d/p16-archived/problem/%d" % uoj.pid(problem_id)).status_code, 200)
+            self.assertIn("p16 archived contest", client.get("/d/p16-archived/contests").text)
+
+        # brought back, it is changed again
+        self.assertEqual(teacher.form("/d/p16-archived/settings", "archive"), "")
+        self.assertEqual(teacher.contest_settings(contest_id, name="p16 renamed"), "")
+        self.assertEqual(contest_name(), "p16 renamed")
+
+
 if __name__ == "__main__":
     unittest.main()

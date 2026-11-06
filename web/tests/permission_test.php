@@ -510,7 +510,7 @@ check_ability('problem.view', $facts->problems[22], array('lead' => false, 'lect
 check_ability('problem.manage', $facts->problems[22], array('lead' => false, 'lecturer' => false, 'setter' => true), 'a problem of another domain');
 // in an archived domain the problems can be read, and no longer changed
 check_ability('problem.view', $facts->problems[23], array('lecturer' => true, 'pupil' => true, 'alice' => false), 'a problem of an archived domain');
-check_ability('problem.manage', $facts->problems[23], array('lead' => false, 'lecturer' => false, 'root' => true), 'a problem of an archived domain');
+check_ability('problem.manage', $facts->problems[23], array('lead' => false, 'lecturer' => false, 'root' => false, 'ojadmin' => false), 'a problem of an archived domain, which the administrators of the site do not change either');
 // A problem of a domain given to somebody to manage is theirs to manage while they are in the
 // domain: whoever left it, or was taken out of it, neither manages it nor sees it hidden.
 $facts->problem_managers[] = array('pupil', 21);
@@ -554,6 +554,28 @@ check_ability('contest.view', $facts->contests[10], array('nobody' => true, 'ali
 check_ability('contest.manage', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'owner' => false), 'a contest of a domain');
 check_ability('contest.assist', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a contest of a domain');
 check_ability('contest.rate', $domain_contest, array('lead' => false, 'lecturer' => false, 'root' => false, 'owner' => false), 'a contest of a domain counts for no rating');
+// The contest of an archived domain is read, and changed by nobody: not by the teacher who made
+// it and owns it, not by the administrators of the site. Its staff see everything, and answer
+// no questions any more.
+$archived_contest = array('domain_id' => 4) + fake_contest(36, CONTEST_FINISHED);
+$facts->contests[36] = $archived_contest;
+$facts->contest_staff['lecturer/36'] = 'owner';
+$facts->contest_staff['helper/36'] = 'assistant';
+check_ability('contest.manage', $archived_contest, array('lecturer' => false, 'lead' => false, 'root' => false, 'ojadmin' => false), 'a contest of an archived domain');
+check_ability('contest.assist', $archived_contest, array('lecturer' => true, 'helper' => true, 'root' => true, 'pupil' => false), 'a contest of an archived domain');
+check_ability('contest.respond', $archived_contest, array('lecturer' => false, 'helper' => false, 'root' => false), 'a contest of an archived domain');
+check_ability('contest.respond', $domain_contest, array('lecturer' => true, 'tutor' => true, 'root' => true, 'pupil' => false), 'a contest of a domain');
+check_ability('contest.view', $archived_contest, array('pupil' => true, 'alice' => false), 'a contest of an archived domain');
+// nor is what was submitted there judged again, hacked or deleted
+$archived_submission = array('domain_id' => 4, 'id' => 501) + fake_submission('pupil', 23, 36);
+foreach (array('submission.rejudge', 'submission.hack', 'submission.delete') as $ability) {
+	check_ability($ability, $archived_submission, array('root' => false, 'ojadmin' => false, 'lecturer' => false), 'a submission in an archived domain');
+}
+check_ability('submission.view_source', $archived_submission, array('root' => true, 'lecturer' => true, 'pupil' => true, 'alice' => false), 'a submission in an archived domain');
+check_ability('hack.delete', array('problem_id' => 23, 'is_hidden' => 0), array('root' => false), 'a hack in an archived domain');
+check_ability('submission.delete', array('domain_id' => 1) + fake_submission('pupil', 20), array('root' => true, 'ojadmin' => true, 'lead' => false), 'a submission in a domain');
+check_ability('hack.delete', array('problem_id' => 20, 'is_hidden' => 0), array('root' => true, 'lead' => false), 'a hack in a domain');
+unset($facts->contests[36], $facts->contest_staff['lecturer/36'], $facts->contest_staff['helper/36']);
 check_ability('contest.rate', $facts->contests[10], array('root' => true, 'owner' => false, 'lecturer' => false), 'a contest of the site');
 check_ability('contest.rate', null, array('root' => true, 'lecturer' => false), 'contests in general');
 

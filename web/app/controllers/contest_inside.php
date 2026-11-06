@@ -344,7 +344,7 @@ EOD;
 			$post_notice = null;
 		}
 		
-		if (can($myUser, 'contest.assist', $contest)) {
+		if (can($myUser, 'contest.respond', $contest)) {
 			$reply_question = new UOJForm('reply_question');
 			$reply_question->addHidden('rid', '0',
 				function($id) {
