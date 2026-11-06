@@ -83,6 +83,8 @@ class BackupTest(unittest.TestCase):
         kept = user.submit(problem_id, AB + "// p5-backup-kept\n")
         self.assertEqual(uoj.wait_submission(kept).score, 100)
         uoj.wait_idle()
+        # a temporary file nothing refers to
+        web_sh("printf x > /opt/uoj/web/app/storage/tmp/p5tmpnotreferenced01")
 
         name = new_backup()
         root = "%s/%s" % (BACKUPS, name)
@@ -95,7 +97,8 @@ class BackupTest(unittest.TestCase):
         self.assertGreater(manifest["sources"]["data"]["files"], 0)
         self.assertGreater(manifest["sources"]["storage"]["files"], 0)
         self.assertEqual(web_sh("test -d %s/data/%d && echo there" % (root, problem_id)), "there")
-        self.assertEqual(web_sh("test -e %s/storage/tmp && echo there || echo left out" % root), "left out")
+        # (the temporary files are left out, but for the ones the database refers to: phase 15)
+        self.assertEqual(web_sh("test -e %s/storage/tmp/p5tmpnotreferenced01 && echo there || echo left out" % root), "left out")
         self.assertEqual(web_sh("gunzip -c %s/db.sql.gz | grep -c 'p5_backup_user'" % root) != "0", True)
         self.assertEqual(db("select status, reason, files_count from backup_runs where name = '%s'" % name),
                          [["ok", "manual", str(manifest["files_count"])]])  # fmt: skip

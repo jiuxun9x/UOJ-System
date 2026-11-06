@@ -23,6 +23,46 @@ function backupSources() {
 		'storage' => array(UOJContext::storagePath(), array('/tmp/'))
 	);
 }
+// The temporary files of the storage are left out of a backup, but for the ones the database
+// still needs: the inputs of hacks, and the files of custom tests that wait to be judged. Without
+// them what waits for a judger after a restore can not be downloaded, and fails. Returns their
+// names in storage/tmp.
+function backupKeptTmpFiles() {
+	$names = array();
+	$name_of = function($path) {
+		return is_string($path) && preg_match('#^/tmp/([A-Za-z0-9]{1,64})$#D', $path, $matches) ? $matches[1] : null;
+	};
+	foreach (DB::selectAll("select input from hacks where input like '/tmp/%'", MYSQLI_NUM) as $row) {
+		if (($name = $name_of($row[0])) !== null) {
+			$names[$name] = true;
+		}
+	}
+	foreach (DB::selectAll("select content from custom_test_submissions where judge_time is null", MYSQLI_NUM) as $row) {
+		$content = json_decode($row[0], true);
+		if (is_array($content) && isset($content['file_name']) && ($name = $name_of($content['file_name'])) !== null) {
+			$names[$name] = true;
+		}
+	}
+	return array_keys($names);
+}
+// copies those files from storage/tmp to the same place under $into; '' or why not
+function backupCopyKeptTmpFiles($storage, $into) {
+	$names = array_values(array_filter(backupKeptTmpFiles(), function($name) use ($storage) {
+		return is_file("$storage/tmp/$name");
+	}));
+	if (!$names) {
+		return '';
+	}
+	if (!is_dir("$into/tmp") && !mkdir("$into/tmp", 0755, true)) {
+		return "无法创建 $into/tmp";
+	}
+	$list = tempnam(sys_get_temp_dir(), 'uoj-backup-tmp');
+	file_put_contents($list, implode("\n", $names) . "\n");
+	list($code, $output) = backupExec("rsync -a --files-from=" . escapeshellarg($list) . " " . escapeshellarg("$storage/tmp/") . " " . escapeshellarg("$into/tmp/"));
+	unlink($list);
+	// 24: files vanished while they were copied (a custom test judged meanwhile)
+	return $code == 0 || $code == 24 ? '' : "复制 $storage/tmp 里的文件失败：$output";
+}
 function validateBackupName($name) {
 	return is_string($name) && preg_match('/^uoj-[0-9]{8}-[0-9]{6}$/D', $name);
 }
@@ -233,6 +273,9 @@ function backupMake($name) {
 		if ($code != 0 && $code != 24) {
 			return array(null, "复制 $path 失败：$output");
 		}
+		if ($key === 'storage' && ($err = backupCopyKeptTmpFiles($path, "$dir/$key")) !== '') {
+			return array(null, $err);
+		}
 		list($count, $bytes) = backupTreeSize("$dir/$key");
 		$sources[$key] = array('files' => $count, 'bytes' => $bytes);
 		$files_count += $count;
@@ -386,6 +429,13 @@ function backupRestoreClosed($name, $manifest) {
 		list($code, $output) = backupExec("rsync $options " . escapeshellarg("$dir/$key/") . " " . escapeshellarg("$path/"));
 		if ($code != 0) {
 			return "恢复 $path 失败：$output";
+		}
+		// the temporary files the database needs come back with it, and the others stay as they are
+		if ($key === 'storage' && is_dir("$dir/$key/tmp")) {
+			list($code, $output) = backupExec("rsync -a " . escapeshellarg("$dir/$key/tmp/") . " " . escapeshellarg("$path/tmp/"));
+			if ($code != 0) {
+				return "恢复 $path/tmp 失败：$output";
+			}
 		}
 	}
 	// The backup was being made when the database was dumped, and that is what the database

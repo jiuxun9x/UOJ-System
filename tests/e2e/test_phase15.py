@@ -755,5 +755,24 @@ class MaintenanceTest(unittest.TestCase):
             self.assertEqual(cli("maintenance:off").strip(), "the site is open")
         self.assertEqual(visitor.get("/problems").status_code, 200)
 
+
+class BackupTmpTest(unittest.TestCase):
+    """A backup left out the temporary files of the storage, where the inputs of hacks and the
+    files of custom tests are kept: after a restore, what waited for a judger could not be
+    downloaded, and failed."""
+
+    def test_what_waits_for_a_judger_is_in_the_backup(self):
+        problem_id = uoj.admin().create_problem(ab_problem_files())
+        student = uoj.client(("p15_backup_tmp", "p15-password"))
+        with uoj.judgers_paused():
+            custom_test_id = student.custom_test(problem_id, AB, "1 2\n")
+            file_name = json.loads(db_value("select content from custom_test_submissions where id = %d" % custom_test_id))["file_name"]
+            self.assertRegex(file_name, r"^/tmp/[A-Za-z0-9]+$")
+            made = re.search(r"backup (uoj-\d{8}-\d{6}) is complete", cli("backup:run"))
+            self.assertTrue(made, "no backup was made")
+            there = docker_exec(uoj.WEB, "test -f /var/uoj_backup/%s/storage%s && echo there || echo missing" % (made.group(1), file_name))
+            self.assertEqual(there.strip(), "there")
+        uoj.wait_custom_test(custom_test_id)
+
 if __name__ == "__main__":
     unittest.main()
