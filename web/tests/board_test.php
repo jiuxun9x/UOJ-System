@@ -69,12 +69,27 @@ check_same('ann:solved bob:solved cat:solved dan:first', $kinds(contestOuterBoar
 
 // contestFirstSolves(): by the second and then the number, sure once nothing before it waits
 $firsts = contestFirstSolves(array(array(9, 300, 'bob', 1), array(7, 100, 'ann', 0), array(8, 100, 'cat', 1)), array(array(6, 200, 'dan', 1)));
-check_same(array('key' => 'ann', 'submission' => 7, 'offset' => 100, 'sure' => true), $firsts['contest'], 'the first of all, sure');
-check_same(array('key' => 'cat', 'submission' => 8, 'offset' => 100, 'sure' => true), $firsts['problems'][1], 'the first of a problem, sure, though something after it waits');
+check_same(array('key' => 'ann', 'submission' => 7, 'offset' => 100, 'pos' => 0, 'sure' => true), $firsts['contest'], 'the first of all, sure');
+check_same(array('key' => 'cat', 'submission' => 8, 'offset' => 100, 'pos' => 1, 'sure' => true), $firsts['problems'][1], 'the first of a problem, sure, though something after it waits');
 $firsts = contestFirstSolves(array(array(9, 300, 'bob', 1)), array(array(6, 200, 'dan', 0)));
 check_same(false, $firsts['contest']['sure'], 'the first of all is not sure while anything submitted before waits');
 check_same(true, $firsts['problems'][1]['sure'], 'the first of a problem is, where it waits for another problem');
 check_same(array('problems' => array(), 'contest' => null), contestFirstSolves(array(), array(array(1, 1, 'ann', 0))), 'nobody solved anything');
+// What the first submitted before to the same problem leaves the first theirs: A submitted at
+// 5 seconds, that waits, and passed at 10. Before, to another problem, it still may not be the
+// first of all; what somebody else submitted before still keeps it from being sure.
+$firsts = contestFirstSolves(array(array(11, 10, 'A', 0), array(12, 20, 'B', 0)), array(array(10, 5, 'A', 0)));
+check_same(array('A', true, 'A', true), array($firsts['problems'][0]['key'], $firsts['problems'][0]['sure'], $firsts['contest']['key'], $firsts['contest']['sure']),
+	'the same contestant, the same problem: sure');
+$firsts = contestFirstSolves(array(array(11, 10, 'A', 0), array(12, 20, 'B', 0)), array(array(10, 5, 'A', 1)));
+check_same(array('A', true, 'A', false), array($firsts['problems'][0]['key'], $firsts['problems'][0]['sure'], $firsts['contest']['key'], $firsts['contest']['sure']),
+	'the same contestant, another problem: the first of the problem is sure, the first of all is not');
+$firsts = contestFirstSolves(array(array(11, 10, 'A', 0), array(12, 20, 'B', 0)), array(array(10, 5, 'C', 0)));
+check_same(array('A', false, 'A', false), array($firsts['problems'][0]['key'], $firsts['problems'][0]['sure'], $firsts['contest']['key'], $firsts['contest']['sure']),
+	'somebody else before: not sure');
+// numbers that are usernames stay who they are
+$firsts = contestFirstSolves(array(array(11, 10, '2026001', 0)), array(array(10, 5, '2026001', 0)));
+check_same(true, $firsts['problems'][0]['sure'], 'a username that is a number is the same contestant');
 check_same(array(array(11, 3000, 'ann', 0), array(13, 1800, 'ann', 2), array(41, 600, 'dan', 0)),
 	array_values(array_filter(contestPassedOfScore('ICPC', $score), function($row) {
 		return $row[2] === 'ann' && $row[3] != 1 || $row[2] === 'dan';

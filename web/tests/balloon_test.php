@@ -139,6 +139,14 @@ check_same(array(array('900 bob A first? first-of-problem? #1 has A by 20', '100
 	$lines($passed, null, array(array(18, 900, 'ann', 0))), 'a submission of the same second with a smaller number waits');
 check_same(array(array('900 bob A first first-of-problem #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
 	$lines($passed, null, array(array(25, 900, 'ann', 0))), 'one of the same second with a larger number does not');
+// what the first submitted before to the same problem waits: it is their balloon either way
+check_same(array(array('900 bob A first first-of-problem #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines($passed, null, array(array(17, 600, 'bob', 0))), 'the same contestant, the same problem: sure');
+check_same(array(array('900 bob A first-of-problem first? #1 has A by 20', '1000 cat B first-of-problem? #1 has B by 21'), 0),
+	$lines($passed, null, array(array(17, 600, 'bob', 1))),
+	'the same contestant, another problem: the first of all is not sure (and B is not, which it may pass first)');
+check_same(array(array('900 bob A first? first-of-problem? #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
+	$lines($passed, null, array(array(17, 600, 'dan', 0))), 'somebody else, the same problem: not sure');
 // once it is judged and passed, it is the first
 check_same(array(array('600 ann A first first-of-problem #1 has A by 19', '900 bob A #1 has A by 20', '1000 cat B first-of-problem #1 has B by 21'), 0),
 	$lines(array_merge($passed, array(array(19, 600, 'ann', 0)))), 'and the earlier one that passed is the first');

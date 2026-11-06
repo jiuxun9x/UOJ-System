@@ -968,20 +968,23 @@ function queryContestData($contest, $config = array()) {
 // submission. That is known only once nothing that was submitted before it waits to be judged
 // any more: a submission that several judgers, a rejudge or the final tests judge later than the
 // ones after it may still pass, and be first. Until then a first is not sure, and the boards and
-// the balloons do not call it first, as DOMjudge does with its first to solve.
+// the balloons do not call it first, as DOMjudge does with its first to solve. What the same
+// contestant submitted before to the same problem changes nothing: whether it passes or not, the
+// first is theirs, with the same balloon (an earlier submission of theirs to another problem
+// may still make another balloon the first of all).
 //   $passed   what passed: rows of submission id, seconds into the contest, who, position of
 //             the problem; in any order
 //   $waiting  what is not judged yet: rows of the same
 // Returns array('problems' => position => array('key' => who, 'submission' => id, 'offset' =>
-// seconds, 'sure' => whether it is known to be first), 'contest' => the same of the first to
-// solve anything, or null).
+// seconds, 'pos' => position, 'sure' => whether it is known to be first), 'contest' => the same
+// of the first to solve anything, or null).
 function contestFirstSolves($passed, $waiting = array()) {
 	usort($passed, function($lhs, $rhs) {
 		return $lhs[1] != $rhs[1] ? $lhs[1] - $rhs[1] : $lhs[0] - $rhs[0];
 	});
 	$firsts = array('problems' => array(), 'contest' => null);
 	foreach ($passed as $row) {
-		$first = array('key' => (string)$row[2], 'submission' => (int)$row[0], 'offset' => (int)$row[1], 'sure' => true);
+		$first = array('key' => (string)$row[2], 'submission' => (int)$row[0], 'offset' => (int)$row[1], 'pos' => (int)$row[3], 'sure' => true);
 		if (!isset($firsts['problems'][(int)$row[3]])) {
 			$firsts['problems'][(int)$row[3]] = $first;
 		}
@@ -991,7 +994,10 @@ function contestFirstSolves($passed, $waiting = array()) {
 	}
 	foreach ($waiting as $row) {
 		$before = function($first) use ($row) {
-			return $first !== null && ((int)$row[1] < $first['offset'] || ((int)$row[1] == $first['offset'] && (int)$row[0] < $first['submission']));
+			if ($first === null || ((string)$row[2] === $first['key'] && (int)$row[3] === $first['pos'])) {
+				return false;
+			}
+			return (int)$row[1] < $first['offset'] || ((int)$row[1] == $first['offset'] && (int)$row[0] < $first['submission']);
 		};
 		if (isset($firsts['problems'][(int)$row[3]]) && $before($firsts['problems'][(int)$row[3]])) {
 			$firsts['problems'][(int)$row[3]]['sure'] = false;

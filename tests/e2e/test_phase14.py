@@ -516,5 +516,34 @@ class FirstSolveTest(unittest.TestCase):
         self.assertEqual(outer, {("p14_fs_ann", "A"), ("p14_fs_bob", "B")})
 
 
+    def test_own_earlier_submission_leaves_the_first_sure(self):
+        # cat submits, and then again; the second is judged first while the first still waits:
+        # whether the first passes or not, the first to solve A is cat, with the same balloon
+        admin = uoj.admin()
+        problem = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p14 自己的一血", minutes=300, rule="ICPC", problems="%d" % problem)
+        cat = p3.account("p14_fs_cat")
+        self.assertEqual(admin.form("/contest/%d/manage" % contest_id, "add_contestants", tab="contestants", names="p14_fs_cat C-1"), "")
+        self.assertEqual(admin.form("/contest/%d/balloons" % contest_id, "settings", balloons="on"), "")
+        uoj.move_contest(contest_id, -100 * 60, 300)
+        uoj.wait_idle()
+        names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
+        self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
+
+        earlier = cat.submit_in_contest(contest_id, problem, AB)
+        later = cat.submit_in_contest(contest_id, problem, AB)
+        task_earlier = uoj.fake_fetch(worker="e2e-first-solve-one")
+        task_later = uoj.fake_fetch(worker="e2e-first-solve-two")
+        self.assertEqual((task_earlier["id"], task_later["id"]), (earlier, later))
+        self.judge(task_later, "e2e-first-solve-two")
+        balloons_of, on_board, outer = self.everywhere(admin, contest_id)
+        self.assertEqual(balloons_of, {("p14_fs_cat", "A"): ("contest", "problem")})
+        self.assertEqual((on_board, outer), ({("p14_fs_cat", "A")}, {("p14_fs_cat", "A")}))
+        page = uoj.text_of(admin.get("/contest/%d/balloons" % contest_id).text)
+        self.assertIn("★ A 题一血", page)
+        self.assertNotIn("待定", page)
+        self.judge(task_earlier, "e2e-first-solve-one")
+
 if __name__ == "__main__":
     unittest.main()
