@@ -766,7 +766,9 @@ class BackupTmpTest(unittest.TestCase):
         student = uoj.client(("p15_backup_tmp", "p15-password"))
         with uoj.judgers_paused():
             custom_test_id = student.custom_test(problem_id, AB, "1 2\n")
-            file_name = json.loads(db_value("select content from custom_test_submissions where id = %d" % custom_test_id))["file_name"]
+            # (the client of the database writes a backslash as two: the name is taken out of the
+            # JSON by the database itself)
+            file_name = db_value("select json_unquote(json_extract(content, '$.file_name')) from custom_test_submissions where id = %d" % custom_test_id)
             self.assertRegex(file_name, r"^/tmp/[A-Za-z0-9]+$")
             made = re.search(r"backup (uoj-\d{8}-\d{6}) is complete", cli("backup:run"))
             self.assertTrue(made, "no backup was made")
