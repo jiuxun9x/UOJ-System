@@ -53,9 +53,10 @@ const std::vector<std::pair<const char *, const char *>> suffix_search_list = {
     {".c", "C17"},
     // Java
     {"8.java", "Java8"},
-    {"14.java", "Java14"},
+    {"11.java", "Java11"},
     {"17.java", "Java17"},
     {"21.java", "Java21"},
+    {".java", "Java17"},
     // Others
     {".pas", "Pascal"},
     {"2.py", "Python2"},
