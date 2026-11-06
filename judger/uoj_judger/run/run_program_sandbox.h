@@ -378,6 +378,14 @@ std::map<std::string, std::vector<std::string>> soft_ban_file_name_list = {
          // for java and javac...
          "/etc/nsswitch.conf",
          "/etc/passwd",
+     }},
+
+    // What a compiler finds in /proc of other processes, such as the environment of the judger
+    // that runs it, is not for it to read: it is told it may not, and goes on. (A program that
+    // is compiled can #include any file it names, and the compiler shows what it read.)
+    {"compiler",
+     {
+         "/proc/",
      }}};
 
 std::map<std::string, std::vector<std::string>> statable_file_name_list = {
@@ -469,7 +477,8 @@ std::map<std::string, std::vector<std::string>> readable_file_name_list = {
          "/bin/",
          "/sbin/",
          "/sys/fs/cgroup/",
-         "/proc/",
+         // of /proc, what every program reads (its own entry and the files of the system, see
+         // "default"): nothing of the other processes
          "/etc/timezone",
          "/etc/alternatives/",
          "/sys/kernel/mm/hugepages/",             // java

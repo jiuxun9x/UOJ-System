@@ -64,7 +64,9 @@ UOJEOF
         chown -R judger:judger ./log
         #Start services
         service ntpd restart
-        su judger -c '/opt/uoj_judger/judge_client start'
+        # The passwords are in .conf.json, which only judger reads: they are not left in the
+        # environment of judge_client, which every process it starts could read in /proc.
+        env -u JUDGER_PASSWORD -u SOCKET_PASSWORD su judger -c '/opt/uoj_judger/judge_client start'
         echo "this judger works for $UOJ_PROTOCOL://$UOJ_HOST as the judging account $JUDGER_NAME;"
         echo "the account is made on the site: system management, judgers."
         printf "\n\n***Installation complete. Enjoy!***\n"
@@ -81,7 +83,7 @@ if [ ! -f \"/opt/uoj_judger/.conf.json\" ]; then
   cd /opt/uoj_judger && sh install.sh -i
 else
   service ntpd start
-  su judger -c \"/opt/uoj_judger/judge_client start\"
+  env -u JUDGER_PASSWORD -u SOCKET_PASSWORD su judger -c \"/opt/uoj_judger/judge_client start\"
 fi
 exec bash" >/opt/up
     chmod +x /opt/up
