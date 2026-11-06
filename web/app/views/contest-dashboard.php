@@ -34,10 +34,13 @@
 		<tbody>
 			<?php if (empty($contest_notice)): ?>
 				<tr><td colspan="233"><?= UOJLocale::get('none') ?></td></tr>
-			<?php else: foreach ($contest_notice as $notice): ?>
+			<?php else:
+				// what the staff of the contest wrote, with its links and none of its scripts
+				$purifier = HTML::pruifier();
+				foreach ($contest_notice as $notice): ?>
 				<tr>
 					<td><?= HTML::escape($notice['title']) ?></td>
-					<td style="white-space:pre-wrap; text-align: left"><?= $notice['content'] ?></td>
+					<td style="white-space:pre-wrap; text-align: left"><?= $purifier->purify($notice['content']) ?></td>
 					<td><?= $notice['time'] ?></td>
 				</tr>
 			<?php endforeach; endif ?>

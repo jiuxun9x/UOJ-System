@@ -182,5 +182,25 @@ class OiFinalTestTest(unittest.TestCase):
         self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
         self.assertEqual(db("select score from contests_submissions where contest_id = %d" % contest_id), [["0"]])
 
+
+class ContestNoticeTest(unittest.TestCase):
+    """What the staff of a contest wrote in a notice was printed as HTML on the dashboard of every
+    contestant, scripts and all."""
+
+    def test_a_notice_keeps_its_links_and_runs_no_script(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 公告", problems=str(problem_id))
+        pupil = uoj.client(("p15_notice", "p15-password"))
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        content = 'A 题改了样例。\n<a href="https://example.com/faq">说明</a><script>alert(1)</script><img src="x" onerror="alert(2)">'
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "post_notice", {"title": "改样例", "content": content}), "")
+        page = pupil.get("/contest/%d" % contest_id).text
+        self.assertIn("A 题改了样例。\n", page)
+        self.assertIn('<a href="https://example.com/faq">说明</a>', page)
+        self.assertNotIn("<script>alert(1)", page)
+        self.assertNotIn("onerror", page)
+
 if __name__ == "__main__":
     unittest.main()
