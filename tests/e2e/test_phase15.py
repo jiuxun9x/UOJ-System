@@ -623,5 +623,27 @@ class RequestAddressTest(unittest.TestCase):
         self.assertIn('id="form-custom_test"', page)
         self.assertNotIn("x=';alert(1)", page)
 
+
+class JudgeDownloadTest(unittest.TestCase):
+    """The query of a request changed what its route said: /judge/download/tmp/<name>?type=... was
+    any download, and ?type=submission&id=... made a path out of whatever id said."""
+
+    NAME = "p15tmpfile0000000001"
+
+    def setUp(self):
+        docker_exec(uoj.WEB, "printf 'the input of a hack' > /opt/uoj/web/app/storage/tmp/%s" % self.NAME)
+
+    def tearDown(self):
+        docker_exec(uoj.WEB, "rm -f /opt/uoj/web/app/storage/tmp/%s" % self.NAME)
+
+    def test_the_route_says_what_is_downloaded(self):
+        expected = uoj.sha256(b"the input of a hack")
+        r = uoj.judge_api("/judge/download/tmp/%s" % self.NAME)
+        self.assertEqual((r.status_code, r.headers.get("X-UOJ-SHA256")), (200, expected))
+        r = uoj.judge_api("/judge/download/tmp/%s?type=judger" % self.NAME)
+        self.assertEqual((r.status_code, r.headers.get("X-UOJ-SHA256")), (200, expected))
+        r = uoj.judge_api("/judge/download/tmp/%s?type=submission&id=../.." % self.NAME)
+        self.assertEqual((r.status_code, r.headers.get("X-UOJ-SHA256")), (200, expected))
+
 if __name__ == "__main__":
     unittest.main()

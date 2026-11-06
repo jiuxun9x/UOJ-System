@@ -4,12 +4,23 @@
 	
 	requireJudgerAuthentication();
 	
+	// the names that make the paths of the files are what they can be, and nothing that leaves
+	// the folders of the files
+	if (isset($_GET['rand_str_id']) && !(is_string($_GET['rand_str_id']) && preg_match('/^[A-Za-z0-9]{1,64}$/D', $_GET['rand_str_id']))) {
+		become404Page();
+	}
 	switch ($_GET['type']) {
-		case 'submission':		
+		case 'submission':
+			if (!validateUInt($_GET['id']) || !isset($_GET['rand_str_id'])) {
+				become404Page();
+			}
 			$file_name = UOJContext::storagePath()."/submission/{$_GET['id']}/{$_GET['rand_str_id']}";
 			$download_name = "submission.zip";
 			break;
 		case 'tmp':
+			if (!isset($_GET['rand_str_id'])) {
+				become404Page();
+			}
 			$file_name = UOJContext::storagePath()."/tmp/{$_GET['rand_str_id']}";
 			$download_name = "tmp";
 			break;
