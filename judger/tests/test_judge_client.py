@@ -336,6 +336,18 @@ class InteractTest(JudgeClientTestCase):
         self.assertEqual(interact.call_count, 41)
         self.assertEqual(self.jc.submission, {"id": 6, "problem_id": 1})
 
+    def test_an_update_goes_on_when_another_judger_can_not_be_told(self):
+        self.jc.jconf["judger_name"] = "main_judger"
+        self.jc.taskQ.put({"cmd": "update"})
+        lost = Exception("failed to sync judge clients: judge client 10.0.0.9 lost.")
+        with mock.patch.object(self.jc, "uoj_download"), mock.patch.object(self.jc, "execute"), \
+                mock.patch.object(self.jc, "uoj_sync_judge_client", side_effect=lost) as sync, \
+                mock.patch.object(self.jc.os, "execl") as restart:
+            self.jc.handle_task()
+        sync.assert_called_once_with()
+        # it restarts as an update has it do, with the judge client it was given
+        restart.assert_called_once_with("./judge_client", "./judge_client")
+
     def test_signs_of_life_go_on_when_there_is_no_progress_to_tell(self):
         # a judger of the problem's own that writes no status: reading it fails every time
         import threading

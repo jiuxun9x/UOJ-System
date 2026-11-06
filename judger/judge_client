@@ -492,7 +492,12 @@ def handle_task():
                 except:
                     print("error when update", file=sys.stderr)
                 if jconf["judger_name"] == "main_judger":
-                    uoj_sync_judge_client()
+                    # the other judgers are told to update as well; one that can not be reached
+                    # is no reason for this one to stop
+                    try:
+                        uoj_sync_judge_client()
+                    except Exception as e:
+                        log("the other judgers were not all told to update: %s" % e)
                 need_restart = True
             elif task["cmd"] == "stop":
                 taskQ.task_done()
