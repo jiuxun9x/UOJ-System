@@ -410,7 +410,8 @@ class MemoryGiveBackTest(unittest.TestCase):
         self.assertEqual(task["id"], third)
         self.give_back(task, self.SMALL, 2000)
         j = uoj.wait_submission(third)
-        self.assertEqual((j.score, j.error), (0, "Judgement Failed"), j)
+        # (a judgement that failed has no score, as one that failed for any other reason)
+        self.assertEqual((j.score, j.error), (None, "Judgement Failed"), j)
         self.assertIn("没有内存足够的评测机：这道题允许 2000 MB，在线的评测机最多能评 1000 MB 的题", j.details)
         self.assertEqual(uoj.judgements("submission", third), [(uoj.FAKE_JUDGER["judger_name"], "failed")])
 
