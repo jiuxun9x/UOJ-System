@@ -5,7 +5,7 @@ import json
 import unittest
 
 import uoj
-from fixtures import AB, ab_problem_files
+from fixtures import AB, AB_WRONG, ab_problem_files
 from uoj import db, db_value, docker_exec
 
 # A+B in the languages of the site but C++ (which every other test submits in)
@@ -201,6 +201,80 @@ class ContestNoticeTest(unittest.TestCase):
         self.assertIn('<a href="https://example.com/faq">说明</a>', page)
         self.assertNotIn("<script>alert(1)", page)
         self.assertNotIn("onerror", page)
+
+
+def rating_of(username):
+    return int(db_value("select rating from user_info where username = '%s'" % username))
+
+
+def rating_messages(username):
+    return int(db_value("select count(*) from user_system_msg where receiver = '%s' and title like 'Rating%%'" % username))
+
+
+class PublishingTest(unittest.TestCase):
+    """Publishing the results of a contest changes the ratings of its contestants, once, from the
+    ratings they have then. It could be done again after the results were published: the ratings
+    were made anew from what each had when they registered, every message was sent again, and the
+    board stayed as it was. And a contest published after another one took no notice of what the
+    other had changed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.problem_id = cls.admin.create_problem(ab_problem_files())
+
+    def held(self, name, pupils, codes):
+        """a rated contest under the IOI rule that the pupils sat, with these programs, and is over"""
+        contest_id = self.admin.new_contest(name, rule="IOI", problems=str(self.problem_id))
+        for pupil in pupils:
+            pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        ids = [pupil.submit_in_contest(contest_id, self.problem_id, code) for pupil, code in zip(pupils, codes)]
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -7200, 60)
+        return contest_id, ids
+
+    def ranks(self, contest_id):
+        return db("select username, `rank` from contests_registrants where contest_id = %d order by username" % contest_id)
+
+    def test_after_publishing_the_board_is_updated_and_the_ratings_stay(self):
+        pupils = [uoj.client(("p15_pub_a", "p15-password")), uoj.client(("p15_pub_b", "p15-password"))]
+        contest_id, (right, wrong) = self.held("p15 更新榜单", pupils, [AB, AB_WRONG])
+        self.assertEqual(self.admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        self.assertEqual(self.ranks(contest_id), [["p15_pub_a", "1"], ["p15_pub_b", "2"]])
+        ratings = [rating_of(p.username) for p in pupils]
+        messages = [rating_messages(p.username) for p in pupils]
+        self.assertGreater(ratings[0], ratings[1])
+        # the results are published: the button that publishes them is gone, and the board is
+        # updated after a rejudge that turned the outcomes round
+        page = self.admin.get("/contest/%d" % contest_id).text
+        self.assertNotIn('id="form-publish_result"', page)
+        self.assertIn('id="form-update_standings"', page)
+        db("update submissions set score = 0 where id = %d" % right)
+        db("update submissions set score = 100 where id = %d" % wrong)
+        self.assertEqual(self.admin.submit_form("/contest/%d" % contest_id, "update_standings"), "")
+        self.assertEqual(self.ranks(contest_id), [["p15_pub_a", "2"], ["p15_pub_b", "1"]])
+        scores = db("select submitter, score from contests_submissions where contest_id = %d order by submitter" % contest_id)
+        self.assertEqual(scores, [["p15_pub_a", "0"], ["p15_pub_b", "100"]])
+        self.assertEqual([rating_of(p.username) for p in pupils], ratings)
+        self.assertEqual([rating_messages(p.username) for p in pupils], messages)
+        self.assertEqual(db_value("select count(*) from audit_logs where action = 'contest.update_standings' and resource_id = '%d'" % contest_id), "1")
+        # nobody else may
+        self.assertNotEqual(pupils[0].submit_form("/contest/%d" % contest_id, "update_standings"), "")
+
+    def test_a_contest_published_later_counts_from_the_ratings_of_then(self):
+        winner, loser = uoj.client(("p15_rate_w", "p15-password")), uoj.client(("p15_rate_l", "p15-password"))
+        # both contests were sat, and registered for, before either was published
+        first, _ = self.held("p15 先公布", [winner, loser], [AB, AB_WRONG])
+        second, _ = self.held("p15 后公布", [winner, loser], [AB, AB_WRONG])
+        self.assertEqual(self.admin.submit_form("/contest/%d" % first, "publish_result"), "")
+        after_first = rating_of(winner.username)
+        self.assertGreater(after_first, 1500)
+        self.assertEqual(self.admin.submit_form("/contest/%d" % second, "publish_result"), "")
+        # the second contest counted from what the first had made of the ratings, and its
+        # history says so
+        self.assertGreater(rating_of(winner.username), after_first)
+        self.assertEqual(db_value("select user_rating from contests_registrants where contest_id = %d and username = '%s'" % (second, winner.username)), str(after_first))
 
 if __name__ == "__main__":
     unittest.main()

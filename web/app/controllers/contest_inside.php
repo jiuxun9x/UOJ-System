@@ -177,7 +177,33 @@
 
 			$start_test_form->runAtServer();
 		}
-		if ($contest['cur_progress'] >= CONTEST_TESTING || ($contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST && !$needs_final_test)) {
+		if ($contest['cur_progress'] >= CONTEST_FINISHED) {
+			// The results are published: what is judged again since (a rejudge, a corrected
+			// test) is put on the board and in the ranks, and nothing else changes. The ratings
+			// stay as the publishing made them, and nobody is sent a message again.
+			$update_standings_form = new UOJForm('update_standings');
+			$update_standings_form->handle = function() {
+				global $contest;
+				set_time_limit(0);
+				ignore_user_abort(true);
+				$unjudged = DB::selectCount("select count(*) from submissions where contest_id = {$contest['id']} and status != 'Judged'");
+				if ($unjudged > 0) {
+					becomeMsgPage("<p>还有 $unjudged 个提交没有评测完，请等评测结束后再更新榜单。</p><p><a href=\"/contest/{$contest['id']}\">返回</a></p>");
+				}
+				// what the submissions say now, as before the results were published
+				$contest_data = queryContestData(array('cur_progress' => CONTEST_TESTING) + $contest);
+				DB::delete("delete from contests_submissions where contest_id = {$contest['id']}");
+				calcStandings($contest, $contest_data, $score, $standings, true);
+				foreach ($standings as $row) {
+					DB::update("update contests_registrants set `rank` = {$row[3]} where contest_id = {$contest['id']} and username = '".DB::escape($row[2][0])."'");
+				}
+				auditLog('contest.update_standings', 'contest', $contest['id'], null, array('participants' => count($standings)));
+			};
+			$update_standings_form->submit_button_config['class_str'] = 'btn btn-warning btn-block';
+			$update_standings_form->submit_button_config['smart_confirm'] = '';
+			$update_standings_form->submit_button_config['text'] = '更新榜单';
+			$update_standings_form->runAtServer();
+		} elseif ($contest['cur_progress'] >= CONTEST_TESTING || ($contest['cur_progress'] == CONTEST_PENDING_FINAL_TEST && !$needs_final_test)) {
 			$publish_result_form = new UOJForm('publish_result');
 			$publish_result_form->handle = function() {
 				// time config
@@ -190,6 +216,10 @@
 				if ($unjudged > 0) {
 					becomeMsgPage("<p>还有 $unjudged 个提交没有评测完，现在公布的话它们不会计入成绩。请等评测结束后再公布。</p><p><a href=\"/contest/{$contest['id']}\">返回</a></p>");
 				}
+				// The ratings change from what they are now, not from what they were when each
+				// registered: a contest published in between changed them. (What a contestant
+				// had before this contest is what their history of ratings shows for it.)
+				DB::update("update contests_registrants join user_info on user_info.username = contests_registrants.username set contests_registrants.user_rating = user_info.rating where contests_registrants.contest_id = {$contest['id']}");
 				$contest_data = queryContestData($contest);
 				calcStandings($contest, $contest_data, $score, $standings, true);
 				$rated = contestIsRated($contest);
@@ -761,6 +791,11 @@ EOD;
 		<?php if (isset($publish_result_form)): ?>
 		<div class="top-buffer-sm">
 			<?php $publish_result_form->printHTML(); ?>
+		</div>
+		<?php endif ?>
+		<?php if (isset($update_standings_form)): ?>
+		<div class="top-buffer-sm">
+			<?php $update_standings_form->printHTML(); ?>
 		</div>
 		<?php endif ?>
 		<?php endif ?>
