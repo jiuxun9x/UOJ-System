@@ -1,6 +1,8 @@
 """Phase 15: what a check of the whole system found, mended. Each class is one of the defects,
 told by what it does wrong and kept from coming back."""
 
+import csv
+import io
 import json
 import re
 import unittest
@@ -493,6 +495,28 @@ class StatisticsInContestTest(unittest.TestCase):
         self.assertEqual(full_scores_in_statistics(admin, problem_id), 1)
         uoj.move_contest(contest_id, -7200, 60)
         self.assertEqual(full_scores_in_statistics(other, problem_id), 1)
+
+
+class ExportRanksTest(unittest.TestCase):
+    """The ranks of the export of a board were the places in it: who was level with somebody was a
+    place after them in the file and their equal on the board."""
+
+    def test_the_export_has_the_ranks_of_the_board(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 导出排名", rule="IOI", problems=str(problem_id))
+        pupils = [uoj.client(("p15_export_%s" % n, "p15-password")) for n in ("a", "b", "c")]
+        for pupil in pupils:
+            pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        for pupil, code in zip(pupils, (AB, AB_WRONG, AB_WRONG)):
+            pupil.submit_in_contest(contest_id, problem_id, code)
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        rows = list(csv.reader(io.StringIO(admin.get("/contest/%d/export_standings" % contest_id).text)))
+        ranks = {row[1]: row[0] for row in rows if len(row) > 1 and row[1].startswith("p15_export_")}
+        self.assertEqual(ranks, {"p15_export_a": "1", "p15_export_b": "2", "p15_export_c": "2"})
 
 if __name__ == "__main__":
     unittest.main()

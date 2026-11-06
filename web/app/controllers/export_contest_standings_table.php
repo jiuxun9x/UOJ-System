@@ -62,9 +62,10 @@ for ($i = 0; $i < $n_problems; $i++) {
 $export_data[] = $csv_header;
 
 // Convert data in $standings and $score to $export_data
-foreach ($standings as $rank => $row) {
-	// $row: rank, username, score, penalty
-	$res = [$rank + 1, $row[2][0], $row[2][2], $row[0], $row[1]];
+foreach ($standings as $row) {
+	// $row: score, penalty, [username, rating, nickname], rank (the rank of the board: who is level
+	// with somebody has their rank, and is not one place after them)
+	$res = [$row[3], $row[2][0], $row[2][2], $row[0], $row[1]];
 	if ($with_identity) {
 		$identities = UOJSSO::identitiesOf($row[2][0]);
 		array_splice($res, 3, 0, $identities ? [$identities[0]['student_id'], $identities[0]['real_name']] : ['', '']);
