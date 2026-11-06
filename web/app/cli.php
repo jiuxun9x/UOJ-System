@@ -84,6 +84,10 @@ $handlers = [
 	// before it, and a step that fails is told (on the standard error, which the loop of the
 	// image keeps in /var/log/uoj-site-tick.log) and is an alert on the page of the monitor.
 	'site:tick' => function () {
+		// a backup is being put back: nothing is done until the site is open again
+		if (siteInMaintenance()) {
+			die(date('Y-m-d H:i:s') . " the site is closed (maintenance:off opens it): nothing done\n");
+		}
 		$said = array();
 		$steps = array(
 			'homeworks' => function () use (&$said) {
@@ -148,17 +152,33 @@ $handlers = [
 	// Puts a backup back. Everything that happened since it was made is lost, which is why it
 	// wants to be told --yes. restore.sh in the root of the repository stops the judgers,
 	// calls this and brings the database up to date.
-	'backup:restore' => function ($name = '', $confirmation = '') {
+	'backup:restore' => function ($name = '', $confirmation = '', $keep_closed = '') {
 		if ($confirmation !== '--yes') {
 			fwrite(STDERR, "this replaces the database and the files of the site with the backup; run it again with --yes after the name of the backup\n");
 			exit(1);
 		}
-		$err = backupRestore($name);
+		// the site is closed while the backup is put back; --keep-closed leaves it closed
+		$err = backupRestore($name, $keep_closed === '--keep-closed');
 		if ($err !== '') {
 			fwrite(STDERR, "restore failed: $err\n");
 			exit(1);
 		}
-		die("backup $name is restored; now run upgrade:latest\n");
+		die("backup $name is restored; now run upgrade:latest" . ($keep_closed === '--keep-closed' ? ", then maintenance:off" : '') . "\n");
+	},
+	// Closes the site (its pages say it is being looked after, site:tick does nothing), or opens it.
+	'maintenance:on' => function () {
+		if (!siteSetMaintenance(true)) {
+			fwrite(STDERR, "the site could not be closed: " . siteMaintenanceFile() . " can not be written\n");
+			exit(1);
+		}
+		die("the site is closed\n");
+	},
+	'maintenance:off' => function () {
+		if (!siteSetMaintenance(false)) {
+			fwrite(STDERR, "the site could not be opened: " . siteMaintenanceFile() . " can not be removed\n");
+			exit(1);
+		}
+		die("the site is open\n");
 	},
 	'help' => 'showHelp'
 ];

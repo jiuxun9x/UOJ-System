@@ -733,5 +733,27 @@ class ContestAddressesTest(unittest.TestCase):
         came.get("/contest/%d" % contest_id)
         self.assertEqual(kept(), [["p15_ip_came", "2000-01-01 00:00:00"]])
 
+
+def cli(command):
+    return docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php %s" % command)
+
+
+class MaintenanceTest(unittest.TestCase):
+    """A backup was put back while the web server and site:tick went on: what they did meanwhile
+    was written into tables that were being replaced. The site is closed while it is done now."""
+
+    def test_a_closed_site_answers_nothing_but_that_it_is_closed(self):
+        visitor = uoj.Client()
+        self.assertEqual(cli("maintenance:on").strip(), "the site is closed")
+        try:
+            r = visitor.get("/problems")
+            self.assertEqual(r.status_code, 503)
+            self.assertIn("网站维护中", r.text)
+            self.assertEqual(uoj.judge_api("/judge/submit", {"fetch_new": "0"}).status_code, 503)
+            self.assertIn("the site is closed", cli("site:tick"))
+        finally:
+            self.assertEqual(cli("maintenance:off").strip(), "the site is open")
+        self.assertEqual(visitor.get("/problems").status_code, 200)
+
 if __name__ == "__main__":
     unittest.main()

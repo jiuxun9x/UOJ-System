@@ -27,11 +27,18 @@ fi
 judgers=$(docker compose ps --services | grep judger || true)
 echo "==> Stopping the judgers"
 [ -n "$judgers" ] && docker compose stop $judgers
+# The site is closed until the database is up to date: its pages say it is being looked after,
+# and what it does by itself every minute waits. If something below fails, it stays closed:
+# put it right, then open it with
+#   docker compose exec uoj-web php /opt/uoj/web/app/cli.php maintenance:off
+echo "==> Closing the site"
+$cli maintenance:on
 echo "==> Restoring $1"
-$cli backup:restore "$1" --yes
+$cli backup:restore "$1" --yes --keep-closed
 echo "==> Bringing the database up to date"
 $cli upgrade:latest
-echo "==> Restarting the web server and the judgers"
+echo "==> Opening the site, restarting the web server and the judgers"
+$cli maintenance:off
 docker compose restart uoj-web
 [ -n "$judgers" ] && docker compose start $judgers
 echo "==> Done."

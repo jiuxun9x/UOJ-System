@@ -328,11 +328,41 @@ function backupVerify($name) {
 // Everything that happened since is lost. Returns '' or why it could not be done. The site
 // should not be in use meanwhile, and its database is brought up to date afterwards with
 // cli.php upgrade:latest.
-function backupRestore($name) {
+// The site is closed while a backup is put back: the pages answer that it is being looked
+// after (web/index.php), and site:tick does nothing. The file that says so is not among what a
+// backup puts back.
+function siteMaintenanceFile() {
+	return sys_get_temp_dir() . '/uoj-maintenance';
+}
+function siteInMaintenance() {
+	return is_file(siteMaintenanceFile());
+}
+function siteSetMaintenance($on) {
+	if ($on) {
+		return @touch(siteMaintenanceFile());
+	}
+	return !is_file(siteMaintenanceFile()) || @unlink(siteMaintenanceFile());
+}
+
+// Puts a backup back, with the site closed. $keep_closed: the site stays closed afterwards (for
+// restore.sh, which brings the database up to date first); otherwise it is open again, whatever
+// came of it.
+function backupRestore($name, $keep_closed = false) {
 	$manifest = backupManifest($name);
 	if ($manifest === null || !is_file(backupRoot() . "/$name/.complete")) {
 		return '没有这个备份，或者它不完整';
 	}
+	$was_closed = siteInMaintenance();
+	siteSetMaintenance(true);
+	try {
+		return backupRestoreClosed($name, $manifest);
+	} finally {
+		if (!$keep_closed && !$was_closed) {
+			siteSetMaintenance(false);
+		}
+	}
+}
+function backupRestoreClosed($name, $manifest) {
 	$dir = backupRoot() . "/$name";
 	$database = UOJConfig::$data['database']['database'];
 	// The tables that were made after the backup are not in it. They go too: the upgrades
