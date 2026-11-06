@@ -152,10 +152,17 @@ function getColOfScore(score) {
 
 // a nickname never stands alone, it is followed by the username
 function getUserText(username, alias) {
+	username = htmlspecialchars(String(username));
 	if (alias && username.charAt(0) != '@') {
 		return htmlspecialchars(String(alias)) + '（' + username + '）';
 	}
 	return username;
+}
+// What can be a username, as the site allows them (validateUsername()), maybe after an @ or the
+// * of somebody who sat a contest virtually: what is not is never made into a link, since the
+// text it is taken from may be anything somebody wrote.
+function isUsernameText(text) {
+	return /^[@*]?[A-Za-z0-9_]{1,20}$/.test(text);
 }
 
 function getUserLink(username, rating, addSymbol, alias) {
@@ -178,7 +185,7 @@ function getUserLink(username, rating, addSymbol, alias) {
 			text += "</sup>";
 		}
 	}
-	return '<a class="uoj-username" href="' + uojHome + '/user/profile/' + username + '" style="color:' + getColOfRating(rating) + '">' + text + '</a>';
+	return '<a class="uoj-username" href="' + uojHome + '/user/profile/' + encodeURIComponent(username) + '" style="color:' + getColOfRating(rating) + '">' + text + '</a>';
 }
 function getUserSpan(username, rating, addSymbol, alias) {
 	if (!username) {
@@ -206,7 +213,7 @@ function getUserSpan(username, rating, addSymbol, alias) {
 function replaceWithHighlightUsername() {
 	var username = $(this).text();
 	var rating = $(this).data("rating");
-	if (isNaN(rating)) {
+	if (isNaN(rating) || !isUsernameText(username)) {
 		return;
 	}
 	// attr() and not data(), which would turn a nickname like "007" into a number
@@ -220,7 +227,8 @@ function replaceWithHighlightUsername() {
 
 $.fn.uoj_honor = function() {
 	return this.each(function() {
-		var honor = $(this).text();
+		// the text is put back as it was, as text, with the marks of the rating after it
+		var honor = htmlspecialchars($(this).text());
 		var rating = $(this).data("rating");
 		if (isNaN(rating)) {
 			return;

@@ -32,6 +32,9 @@ jobs:
       - name: judge_client unit tests
         run: python3 -m unittest discover -s judger/tests -v
 
+      - name: Page script unit tests
+        run: node web/tests/js/username_test.js
+
   e2e:
     name: End-to-end tests (${{ matrix.judgers }} judgers)
     runs-on: ubuntu-24.04
