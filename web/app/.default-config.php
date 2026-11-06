@@ -77,7 +77,11 @@ return [
 		// seconds an idle judger may wait for a task in one request, which is answered as soon as
 		// there is one; 0 to answer at once. Keep it below how long a proxy in front of the site
 		// waits for an answer (nginx: proxy_read_timeout, 60 seconds unless set).
-		'long-poll-seconds' => 20
+		'long-poll-seconds' => 20,
+		// how many judgers may wait so at the same time: each holds a process of the web server
+		// (Apache: MaxRequestWorkers, 150) and a connection to the database (MySQL:
+		// max_connections, 151). More are answered at once, and ask again two seconds later.
+		'long-poll-max-waiting' => 30
 	],
 	'user' => [
 		// days a user has to wait before they change their username again, 0 for no limit

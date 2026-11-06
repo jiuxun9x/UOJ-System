@@ -528,6 +528,36 @@ class LongPollTest(unittest.TestCase):
         finally:
             db("update judger_info set enabled = 1 where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
 
+    def test_no_more_judgers_wait_at_once_than_the_site_allows(self):
+        # thirty workers wait already, as many as judger.long-poll-max-waiting allows by default
+        fake = uoj.FAKE_JUDGER["judger_name"]
+        rows = ", ".join("('%s', 'e2e-waiting-%04d', now(), now(), now() + interval 60 second)" % (fake, n) for n in range(30))
+        db("insert into judger_workers (judger_name, worker, first_seen_at, last_seen_at, waiting_until) values %s" % rows)
+        self.addCleanup(db, "delete from judger_workers where worker like 'e2e-waiting-%'")
+        text, seconds = self.ask(wait=10)
+        self.assertEqual(text, "Nothing to judge")
+        self.assertLess(seconds, 2)
+        self.assertEqual(db_value("select ifnull(waiting_until, 'NULL') from judger_workers where worker = '%s'" % self.WORKER), "NULL")
+        # with room, it waits, and says so while it does, and not afterwards
+        db("delete from judger_workers where worker like 'e2e-waiting-%'")
+        thread, answer = self.ask_in_background(wait=3)
+        time.sleep(1)
+        self.assertEqual(db_value("select waiting_until > now() from judger_workers where worker = '%s'" % self.WORKER), "1")
+        thread.join(30)
+        self.assertEqual(answer["text"], "Nothing to judge")
+        self.assertGreaterEqual(answer["seconds"], 2.8)
+        self.assertEqual(db_value("select ifnull(waiting_until, 'NULL') from judger_workers where worker = '%s'" % self.WORKER), "NULL")
+
+    def test_web_server_and_database_have_room_for_the_judgers_that_wait(self):
+        # what the images really allow, against the thirty that may wait (docs/deployment.md)
+        mpm = uoj.docker_exec(uoj.WEB, "apache2ctl -M 2>/dev/null | grep -o 'mpm_[a-z]*'").strip()
+        workers = uoj.docker_exec(uoj.WEB, "grep -h '^[[:space:]]*MaxRequestWorkers' /etc/apache2/mods-enabled/%s.conf" % mpm).split()[1]
+        connections = db_value("select @@max_connections")
+        print("\nweb server: %s, MaxRequestWorkers %s; database: max_connections %s" % (mpm, workers, connections))
+        self.assertEqual(mpm, "mpm_prefork")
+        self.assertGreaterEqual(int(workers), 4 * 30)
+        self.assertGreaterEqual(int(connections), 4 * 30)
+
     def test_judgers_that_wait_pick_up_work_at_once(self):
         # the judgers of the tests wait for work too: a submission is picked up in well under the
         # two seconds a judger that asks every two seconds takes on average

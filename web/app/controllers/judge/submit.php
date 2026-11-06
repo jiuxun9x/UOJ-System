@@ -707,6 +707,12 @@
 			or exists(select 1 from custom_test_submissions where judge_time is null$skip_problems)
 			or exists(select 1 from hacks where judge_time is null$skip_problems)") == 1;
 	}
+	// How many requests may wait at the same time (judger.long-poll-max-waiting): each holds a
+	// process of the web server and a connection to the database while it waits. Beyond that a
+	// judger is answered at once, and asks again two seconds later, as without waiting.
+	function longPollMaxWaiting() {
+		return isset(UOJConfig::$data['judger']['long-poll-max-waiting']) ? max(0, (int)UOJConfig::$data['judger']['long-poll-max-waiting']) : 30;
+	}
 	// whether the worker that waits has not asked again meanwhile, and may still be given work
 	function stillWaiting() {
 		global $esc_worker_of, $fetch_id;
@@ -716,7 +722,17 @@
 	}
 	
 	if (!findSubmissionToJudge()) {
-		$deadline = microtime(true) + longPollSeconds();
+		$wait = longPollSeconds();
+		if ($wait > 0 && DB::selectCount("select count(*) from judger_workers where waiting_until > now()") >= longPollMaxWaiting()) {
+			$wait = 0;
+		}
+		if ($wait > 0) {
+			DB::update("update judger_workers set waiting_until = now() + interval $wait second where $esc_worker_of");
+			register_shutdown_function(function() use ($esc_worker_of) {
+				DB::update("update judger_workers set waiting_until = null where $esc_worker_of");
+			});
+		}
+		$deadline = microtime(true) + $wait;
 		$checked_at = microtime(true);
 		while (microtime(true) < $deadline) {
 			usleep(200000);
