@@ -92,6 +92,19 @@ class UOJPermissionFacts {
 	}
 	private $homeworks = array();
 
+	// The contest a submission was made in by somebody who sat it virtually (it is not of the
+	// contest itself: see virtualSubmissionsCond()), or null.
+	public function virtualContestOf($submission) {
+		if (!empty($submission['contest_id']) || !isset($submission['submit_time'], $submission['submitter'], $submission['problem_id'])) {
+			return null;
+		}
+		$time = DB::escape($submission['submit_time']);
+		$row = DB::selectFirst("select contest_virtuals.contest_id from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
+			." where contest_virtuals.username = '".DB::escape($submission['submitter'])."' and contests_problems.problem_id = ".(int)$submission['problem_id']
+			." and contest_virtuals.start_time <= '$time' and '$time' < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute) limit 1");
+		return $row ? (int)$row['contest_id'] : null;
+	}
+
 	// the moment the rules about contests and homework are applied to: the clock of the web server
 	public function now() {
 		return UOJTime::$time_now->getTimestamp();
@@ -761,7 +774,9 @@ function can($user, $ability, $resource = null) {
 				return true;
 			}
 			if ($resource['is_hidden']) {
-				return false;
+				// What somebody submitted while they sat a contest virtually, to a problem of it
+				// that is still hidden, is theirs to see, as the contest shows them its problems.
+				return $name !== null && $resource['submitter'] === $name && $facts->virtualContestOf($resource) !== null;
 			}
 			// what is submitted in a domain stays in the domain
 			if (!empty($resource['domain_id']) && !can($user, 'domain.view', $facts->domain($resource['domain_id']))) {
@@ -996,7 +1011,11 @@ function visibleSubmissionsCond($user) {
 	// a homework keeps what is submitted to it to itself until it is over
 	$maintains_homework = "submissions.homework_id in (select homework_id from homework_maintainers where username = '$esc_username')";
 	$in_open_homework = "submissions.homework_id in (select id from homeworks where end_at > '".UOJTime::$time_now_str."')";
-	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or (submissions.is_hidden = false and (submissions.domain_id is null or $in_my_domain) and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username') and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
+	// what the user submitted while they sat a contest virtually, to a problem of it that is hidden
+	$my_virtual = "(submissions.submitter = '$esc_username' and submissions.contest_id is null and exists (select 1 from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
+		." where contest_virtuals.username = submissions.submitter and contests_problems.problem_id = submissions.problem_id"
+		." and submissions.submit_time >= contest_virtuals.start_time and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)))";
+	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or ((submissions.is_hidden = false or $my_virtual) and (submissions.domain_id is null or $in_my_domain) and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username') and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
 }
 // a query for the ids of the domains in which a user has at least a role
 function domainIdsOfUserSql($esc_username, $role) {

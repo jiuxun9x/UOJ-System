@@ -407,5 +407,32 @@ class KernelTimeTest(unittest.TestCase):
         self.assertEqual(set(judgement.infos), {"Time Limit Exceeded"}, judgement)
         self.assertEqual(uoj.wait_submission(uoj.admin().submit(problem_id, AB)).score, 100)
 
+
+class VirtualHiddenProblemTest(unittest.TestCase):
+    """Somebody who sat a contest virtually, whose problems are still hidden, could not see what
+    they submitted in it: it was kept as a submission to a hidden problem, for nobody but the
+    staff."""
+
+    def test_what_is_submitted_virtually_to_a_hidden_problem_is_its_submitters_to_see(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        contest_id = admin.new_contest("p15 虚拟参赛隐藏题", rule="IOI", problems=str(problem_id))
+        here = "/contest/%d" % contest_id
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(admin.submit_form(here, "publish_result"), "")
+        sitter, other = uoj.client(("p15_sitter", "p15-password")), uoj.client(("p15_other", "p15-password"))
+        r = sitter.post(here + "/virtual", {"form": "start"})
+        self.assertEqual((r.status_code, r.headers["Location"]), (302, here))
+        own = sitter.submit(problem_id, AB, path=here + "/problem/A")
+        uoj.wait_submission(own)
+        self.assertEqual(db_value("select is_hidden from submissions where id = %d" % own), "1")
+        self.assertIn('href="/submission/%d"' % own, sitter.get(here + "/submissions").text)
+        self.assertIn('href="/submission/%d"' % own, sitter.get("/submissions", params={"submitter": sitter.username}).text)
+        self.assertEqual(sitter.get("/submission/%d" % own).status_code, 200)
+        # and nobody else's, as any submission to a hidden problem
+        self.assertEqual(other.get("/submission/%d" % own).status_code, 403)
+        self.assertNotIn('href="/submission/%d"' % own, other.get("/submissions", params={"submitter": sitter.username}).text)
+
 if __name__ == "__main__":
     unittest.main()

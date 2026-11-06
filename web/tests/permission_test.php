@@ -35,6 +35,11 @@ class FakePermissionFacts {
 	public function now() {
 		return $this->now;
 	}
+	// ids of the submissions that were made in virtual participations => the contest
+	public $virtual_submissions = array();
+	public function virtualContestOf($submission) {
+		return isset($submission['id'], $this->virtual_submissions[$submission['id']]) ? $this->virtual_submissions[$submission['id']] : null;
+	}
 	public function homework($homework_id) {
 		return $homework_id ? $this->homeworks[$homework_id] : null;
 	}
@@ -198,6 +203,11 @@ check_ability('submission.hack', $open, array('nobody' => false, 'root' => true,
 $hidden = fake_submission('alice', 2, null, 1);
 check_ability('submission.view', $hidden, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'setter' => true, 'alice' => false, 'bob' => false), 'a submission to a hidden problem');
 check_ability('submission.view_source', $hidden, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => false, 'bob' => false), 'a submission to a hidden problem');
+// made while its submitter sat a contest of the problem virtually: theirs to see, and nobody else's
+$virtual = array('id' => 77) + fake_submission('alice', 2, null, 1);
+$facts->virtual_submissions[77] = 9;
+check_ability('submission.view', $virtual, array('nobody' => false, 'root' => true, 'setter' => true, 'alice' => true, 'bob' => false), 'a submission to a hidden problem in a virtual participation');
+$facts->virtual_submissions = array();
 
 // the problem decides who reads what: the source after solving it, the details only the owner
 $restricted = fake_submission('alice', 3);
