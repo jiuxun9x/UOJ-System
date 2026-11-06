@@ -94,5 +94,52 @@ class CompilerReadsNoOtherProcessTest(unittest.TestCase):
         self.assertEqual(uoj.wait_submission(self.student.submit(self.problem_id, AB)).score, 100)
 
 
+JAVA_AB = """import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner in = new Scanner(System.in);
+        long a = in.nextLong(), b = in.nextLong();
+        %s
+        System.out.println(a + b);
+    }
+}
+"""
+
+
+class JavaRunsTest(unittest.TestCase):
+    """A Java program ran with an address space of twice its memory limit, and the JVM asked for
+    a heap of 2 GB: every Java program was a runtime error. It runs as the others do now, held to
+    its memory limit by what it uses."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.problem_id = uoj.admin().create_problem(ab_problem_files())
+        cls.student = uoj.client(("p15_java", "p15-password"))
+
+    def judge(self, code, language="Java17"):
+        return uoj.wait_submission(self.student.submit(self.problem_id, code, language=language))
+
+    def test_a_plus_b_passes_in_every_java(self):
+        for language in ("Java8", "Java11", "Java17", "Java21"):
+            judgement = self.judge(JAVA_AB % "", language)
+            self.assertEqual(judgement.score, 100, (language, judgement))
+
+    def test_a_program_may_use_much_of_its_memory(self):
+        # 96 MB of a limit of 256 MB, with what the JVM needs besides
+        code = JAVA_AB % "long[] kept = new long[12000000]; for (int i = 0; i < kept.length; i += 512) kept[i] = i; if (kept[512] != 512) return;"
+        judgement = self.judge(code)
+        self.assertEqual(judgement.score, 100, judgement)
+        self.assertGreater(judgement.used_memory, 96 * 1024, judgement)
+
+    def test_more_than_its_memory_is_not_passed(self):
+        # 480 MB of a limit of 256 MB: the heap is no larger than the limit
+        code = JAVA_AB % "long[] kept = new long[60000000]; for (int i = 0; i < kept.length; i += 512) kept[i] = i; if (kept[512] != 512) return;"
+        judgement = self.judge(code)
+        self.assertEqual(judgement.score, 0, judgement)
+        for info in judgement.infos:
+            self.assertIn(info, ("Memory Limit Exceeded", "Runtime Error"), judgement)
+
+
 if __name__ == "__main__":
     unittest.main()

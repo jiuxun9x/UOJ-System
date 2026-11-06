@@ -385,10 +385,15 @@ struct config {
         if (type == "java") {
             full_args[0] = get_class_name_from_file(fs::path(full_args[0]) / ".main_class_name");
 
+            // the heap may be as large as the memory limit, and the stack of the threads as the
+            // stack limit (run_program has made it no larger than the memory limit)
+            int stack = this->limits.stack > 0 ? this->limits.stack : this->limits.memory;
             full_args.insert(
                 full_args.begin(),
-                {fs::canonical(fs::path(UOJ_JDK) / "bin" / "java"), "-Xmx2048m", "-Xss1024m",
-                 "-XX:ActiveProcessorCount=1", "-classpath", program_name});
+                {fs::canonical(fs::path(UOJ_JDK) / "bin" / "java"),
+                 "-Xmx" + std::to_string(this->limits.memory) + "m",
+                 "-Xss" + std::to_string(stack) + "m", "-XX:ActiveProcessorCount=1", "-classpath",
+                 program_name});
         } else if (type == "python2") {
             full_args.insert(full_args.begin(), {UOJ_PYTHON2, "-E", "-s", "-B"});
         } else if (type == "python3") {

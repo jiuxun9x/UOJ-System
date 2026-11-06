@@ -228,7 +228,12 @@ void setup_watching_timer() {
 
     set_limit(RLIMIT_FSIZE, run_program_config.limits.output << 20ll);
     set_limit(RLIMIT_STACK, run_program_config.limits.stack << 20ll);
-    set_limit(RLIMIT_AS, (run_program_config.limits.memory * 2ll + 64ll) << 20ll);
+    // The JVM reserves the address space of its heap, its classes and its code at once, far
+    // more than it uses: a Java program has no limit of its address space, and is held to its
+    // memory limit by what it really uses (max RSS) as every program is, and by -Xmx.
+    if (run_program_config.type != "java") {
+        set_limit(RLIMIT_AS, (run_program_config.limits.memory * 2ll + 64ll) << 20ll);
+    }
 
     if (run_program_config.input_file_name != "stdin") {
         if (freopen(run_program_config.input_file_name.c_str(), "r", stdin) == NULL) {
