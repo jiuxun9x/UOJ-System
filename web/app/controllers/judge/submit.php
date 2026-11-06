@@ -209,7 +209,7 @@
 		return DB::selectFirst("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts, judge_claim from submissions where id = $id and judge_claim = '$claim' and status in ('Judging', 'Judged, Judging')");
 	}
 	function queryCustomTestBeingJudged($id, $claim) {
-		return DB::selectFirst("select id, status, judger_name, judge_attempts, judge_claim from custom_test_submissions where id = $id and judge_claim = '$claim' and status = 'Judging'");
+		return DB::selectFirst("select id, problem_id, status, judger_name, judge_attempts, judge_claim from custom_test_submissions where id = $id and judge_claim = '$claim' and status = 'Judging'");
 	}
 	function queryHackBeingJudged($id, $claim) {
 		return DB::selectFirst("select id, problem_id, input, judger_name, judge_attempts, judge_claim from hacks where id = $id and judge_claim = '$claim' and success is null and judge_time is not null");
@@ -267,38 +267,130 @@
 	// Such a task goes back to the queue. When several judgers in a row lost it, the task itself
 	// is the likely reason, and it is failed instead of taking down one judger after another.
 	
-	// Each takes a task back under the claim it has, and only while it has it.
-	function releaseSubmission($submission) {
+	// ---- the memory of the judgers
+	//
+	// A judger that has a memory limit says with every asking for work how much memory the
+	// programs of a problem may need for it to judge them, and gives back a problem it can not
+	// judge, saying how much that one needs (reason=memory): see judge_client. The problem keeps
+	// that for the version of its data; while a judger that can judge it was heard of lately, it
+	// is not given to judgers with less, and giving it back is no failed attempt. With none around
+	// it is failed at once, saying why, rather than waiting for a judger nobody has.
+
+	// What the judgers heard of in the last two minutes can judge, of the accounts that are on:
+	// array('unlimited' => whether one has no limit or does not say, 'most' => the largest limit
+	// one says, or null). (The workers and the accounts are read apart: their names are kept in
+	// different collations.)
+	function judgingMemoryAround() {
+		$enabled = array();
+		foreach (DB::selectAll("select judger_name from judger_info where enabled = 1") as $row) {
+			$enabled[(string)$row['judger_name']] = true;
+		}
+		$around = array('unlimited' => false, 'most' => null);
+		foreach (DB::selectAll("select judger_name, memory_mb from judger_workers where last_seen_at > now() - interval 120 second") as $row) {
+			if (!isset($enabled[(string)$row['judger_name']])) {
+				continue;
+			}
+			if ($row['memory_mb'] === null) {
+				$around['unlimited'] = true;
+			} else {
+				$around['most'] = max((int)$around['most'], (int)$row['memory_mb']);
+			}
+		}
+		return $around;
+	}
+	function judgerAroundFor($needed, $around) {
+		return $around['unlimited'] || ($around['most'] !== null && $around['most'] >= $needed);
+	}
+	// what a task was given back for want of memory says: array('needed', 'version'), or null
+	function givenBackForMemory() {
+		if (!isset($_POST['reason']) || $_POST['reason'] !== 'memory') {
+			return null;
+		}
+		foreach (array('needed_mb', 'problem_data_version') as $field) {
+			if (!isset($_POST[$field]) || !is_string($_POST[$field]) || !validateUInt($_POST[$field]) || strlen($_POST[$field]) > 9) {
+				return null;
+			}
+		}
+		return array('needed' => (int)$_POST['needed_mb'], 'version' => (int)$_POST['problem_data_version']);
+	}
+	// The problem of a task given back for want of memory keeps what it needs. Returns null where
+	// a judger that can judge it is around, or else the result the task fails with.
+	function memoryShortage($problem_id, $memory) {
+		DB::update("update problems set judge_memory_mb = {$memory['needed']}, judge_memory_version = {$memory['version']} where id = " . (int)$problem_id);
+		$around = judgingMemoryAround();
+		if (judgerAroundFor($memory['needed'], $around)) {
+			return null;
+		}
+		return array(
+			'status' => 'Judged', 'score' => 0, 'time' => 0, 'memory' => 0, 'error' => 'Judgement Failed',
+			'details' => '<error>没有内存足够的评测机：这道题允许 ' . $memory['needed'] . ' MB，在线的评测机最多能评 ' . (int)$around['most'] . ' MB 的题。</error>'
+		);
+	}
+	// The problems the worker that asks is not given, as a condition on problem_id ('' for none):
+	// those it is known to have too little memory for, while a judger that has enough is around.
+	function memoryExclusion() {
+		global $memory_mb;
+		if ($memory_mb === null) {
+			return '';
+		}
+		$around = judgingMemoryAround();
+		$ids = array();
+		foreach (DB::selectAll("select id, judge_memory_mb from problems where judge_memory_version = data_version and judge_memory_mb > $memory_mb") as $row) {
+			if (judgerAroundFor((int)$row['judge_memory_mb'], $around)) {
+				$ids[] = (int)$row['id'];
+			}
+		}
+		return $ids ? ' and problem_id not in (' . join(', ', $ids) . ')' : '';
+	}
+
+	// Each takes a task back under the claim it has, and only while it has it. $memory: what the
+	// judger said when it gave the task back for want of memory, see givenBackForMemory().
+	function releaseSubmission($submission, $memory = null) {
 		$id = $submission['id'];
 		$claim = $submission['judge_claim'];
-		if ($submission['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			if (storeSubmissionResult($id, $submission, lostTaskResult())) {
+		if ($memory !== null) {
+			$failed = memoryShortage($submission['problem_id'], $memory);
+		} else {
+			$failed = $submission['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS ? lostTaskResult() : null;
+		}
+		if ($failed !== null) {
+			if (storeSubmissionResult($id, $submission, $failed)) {
 				finishJudgement('submission', $id, 'failed', $claim);
 			}
-		} elseif (DB::update("update submissions set judge_time = if(status = 'Judging', null, judge_time), status = if(status = 'Judging', 'Waiting', 'Judged, Waiting'), status_details = '', judger_name = null, judge_attempts = judge_attempts + 1, ".CLAIM_DROPPED." where id = $id and ".claimIs($claim)." and status in ('Judging', 'Judged, Judging')") && DB::affected_rows() == 1) {
-			finishJudgement('submission', $id, 'reclaimed', $claim);
+		} elseif (DB::update("update submissions set judge_time = if(status = 'Judging', null, judge_time), status = if(status = 'Judging', 'Waiting', 'Judged, Waiting'), status_details = '', judger_name = null, judge_attempts = judge_attempts + " . ($memory === null ? 1 : 0) . ", " . CLAIM_DROPPED . " where id = $id and " . claimIs($claim) . " and status in ('Judging', 'Judged, Judging')") && DB::affected_rows() == 1) {
+			finishJudgement('submission', $id, $memory === null ? 'reclaimed' : 'memory', $claim);
 		}
 	}
-	function releaseCustomTest($submission) {
+	function releaseCustomTest($submission, $memory = null) {
 		$id = $submission['id'];
 		$claim = $submission['judge_claim'];
-		if ($submission['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			if (storeCustomTestResult($id, $submission, lostTaskResult())) {
+		if ($memory !== null) {
+			$failed = memoryShortage($submission['problem_id'], $memory);
+		} else {
+			$failed = $submission['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS ? lostTaskResult() : null;
+		}
+		if ($failed !== null) {
+			if (storeCustomTestResult($id, $submission, $failed)) {
 				finishJudgement('custom_test', $id, 'failed', $claim);
 			}
-		} elseif (DB::update("update custom_test_submissions set judge_time = null, status = 'Waiting', status_details = '', judger_name = null, judge_attempts = judge_attempts + 1, ".CLAIM_DROPPED." where id = $id and ".claimIs($claim)." and status = 'Judging'") && DB::affected_rows() == 1) {
-			finishJudgement('custom_test', $id, 'reclaimed', $claim);
+		} elseif (DB::update("update custom_test_submissions set judge_time = null, status = 'Waiting', status_details = '', judger_name = null, judge_attempts = judge_attempts + " . ($memory === null ? 1 : 0) . ", " . CLAIM_DROPPED . " where id = $id and " . claimIs($claim) . " and status = 'Judging'") && DB::affected_rows() == 1) {
+			finishJudgement('custom_test', $id, $memory === null ? 'reclaimed' : 'memory', $claim);
 		}
 	}
-	function releaseHack($hack) {
+	function releaseHack($hack, $memory = null) {
 		$id = $hack['id'];
 		$claim = $hack['judge_claim'];
-		if ($hack['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			if (storeHackResult($id, $hack, lostTaskResult())) {
+		if ($memory !== null) {
+			$failed = memoryShortage($hack['problem_id'], $memory);
+		} else {
+			$failed = $hack['judge_attempts'] + 1 >= JUDGE_MAX_ATTEMPTS ? lostTaskResult() : null;
+		}
+		if ($failed !== null) {
+			if (storeHackResult($id, $hack, $failed)) {
 				finishJudgement('hack', $id, 'failed', $claim);
 			}
-		} elseif (DB::update("update hacks set judge_time = null, judger_name = null, judge_attempts = judge_attempts + 1, ".CLAIM_DROPPED." where id = $id and ".claimIs($claim)." and success is null") && DB::affected_rows() == 1) {
-			finishJudgement('hack', $id, 'reclaimed', $claim);
+		} elseif (DB::update("update hacks set judge_time = null, judger_name = null, judge_attempts = judge_attempts + " . ($memory === null ? 1 : 0) . ", " . CLAIM_DROPPED . " where id = $id and " . claimIs($claim) . " and success is null") && DB::affected_rows() == 1) {
+			finishJudgement('hack', $id, $memory === null ? 'reclaimed' : 'memory', $claim);
 		}
 	}
 	function releaseVersion($version_row) {
@@ -344,21 +436,22 @@
 		}
 		$id = $_POST['id'];
 		if (isset($_POST['requeue'])) {
-			// the judger could not judge the task, for example because it was overloaded
+			// the judger could not judge the task: it was overloaded, or had too little memory
+			$memory = givenBackForMemory();
 			if (isset($_POST['is_hack'])) {
 				$hack = queryHackBeingJudged($id, $claim);
 				if ($hack != null) {
-					releaseHack($hack);
+					releaseHack($hack, $memory);
 				}
 			} elseif (isset($_POST['is_custom_test'])) {
 				$submission = queryCustomTestBeingJudged($id, $claim);
 				if ($submission != null) {
-					releaseCustomTest($submission);
+					releaseCustomTest($submission, $memory);
 				}
 			} else {
 				$submission = querySubmissionBeingJudged($id, $claim);
 				if ($submission != null) {
-					releaseSubmission($submission);
+					releaseSubmission($submission, $memory);
 				}
 			}
 		} elseif (isset($_POST['is_hack'])) {
@@ -441,7 +534,8 @@
 	}
 	function querySubmissionToJudge($status, $set_q) {
 		global $submission, $kind;
-		$submission = DB::selectFirst("select id, problem_id, content from submissions where status = '$status' order by id limit 1");
+		global $skip_problems;
+		$submission = DB::selectFirst("select id, problem_id, content from submissions where status = '$status'$skip_problems order by id limit 1");
 		if ($submission) {
 			DB::update("update submissions set $set_q, ".claimedBy()." where id = {$submission['id']} and status = '$status'");
 			if (DB::affected_rows() != 1) {
@@ -454,7 +548,8 @@
 	}
 	function queryCustomTestSubmissionToJudge() {
 		global $submission, $kind;
-		$submission = DB::selectFirst("select id, problem_id, content from custom_test_submissions where judge_time is null order by id limit 1");
+		global $skip_problems;
+		$submission = DB::selectFirst("select id, problem_id, content from custom_test_submissions where judge_time is null$skip_problems order by id limit 1");
 		if ($submission) {
 			DB::update("update custom_test_submissions set judge_time = now(), status = 'Judging', ".claimedBy()." where id = {$submission['id']} and judge_time is null");
 			if (DB::affected_rows() != 1) {
@@ -468,7 +563,8 @@
 	}
 	function queryHackToJudge() {
 		global $hack;
-		$hack = DB::selectFirst("select id, submission_id, input, input_type from hacks where judge_time is null order by id limit 1");
+		global $skip_problems;
+		$hack = DB::selectFirst("select id, submission_id, input, input_type from hacks where judge_time is null$skip_problems order by id limit 1");
 		if ($hack) {
 			DB::update("update hacks set judge_time = now(), ".claimedBy()." where id = {$hack['id']} and judge_time is null");
 			if (DB::affected_rows() != 1) {
@@ -550,6 +646,9 @@
 	// The same asking again: its answer was lost on the way. It is given again, under the same
 	// claim while that is held, and nothing is taken back from the worker for it.
 	$esc_worker_of = "judger_name = '".DB::escape(judgerName())."' and worker = '$worker'";
+	// what the worker can judge, which only an asking for work says: null for no limit
+	$memory_mb = isset($_POST['memory_mb']) && is_string($_POST['memory_mb']) && validateUInt($_POST['memory_mb']) && strlen($_POST['memory_mb']) <= 7 ? (int)$_POST['memory_mb'] : null;
+	DB::update("update judger_workers set memory_mb = ".($memory_mb === null ? 'null' : $memory_mb)." where $esc_worker_of");
 	$asked = DB::selectFirst("select last_fetch_id, last_claim, last_answer from judger_workers where $esc_worker_of");
 	if ($asked && $asked['last_fetch_id'] === $fetch_id) {
 		if ($asked['last_claim'] !== null && $asked['last_answer'] !== null && claimIsHeld($asked['last_claim'])) {
@@ -574,6 +673,7 @@
 		die("Nothing to judge");
 	}
 	
+	$skip_problems = memoryExclusion();
 	$version_row = findVersionToPrepare();
 	if ($version_row) {
 		answerWith(array(
@@ -599,12 +699,13 @@
 		$asked = isset($_POST['wait']) && is_string($_POST['wait']) && validateUInt($_POST['wait']) && strlen($_POST['wait']) <= 4 ? (int)$_POST['wait'] : 0;
 		return max(0, min($asked, $limit, 25));
 	}
-	// whether anything waits for a judger, in one look that costs little
+	// whether anything waits that the worker may be given, in one look that costs little
 	function somethingToJudge() {
+		global $skip_problems;
 		return DB::selectCount("select exists(select 1 from problem_data_versions where status = 'pending')
-			or exists(select 1 from submissions where status in ('Waiting', 'Waiting Rejudge', 'Judged, Waiting'))
-			or exists(select 1 from custom_test_submissions where judge_time is null)
-			or exists(select 1 from hacks where judge_time is null)") == 1;
+			or exists(select 1 from submissions where status in ('Waiting', 'Waiting Rejudge', 'Judged, Waiting')$skip_problems)
+			or exists(select 1 from custom_test_submissions where judge_time is null$skip_problems)
+			or exists(select 1 from hacks where judge_time is null$skip_problems)") == 1;
 	}
 	// whether the worker that waits has not asked again meanwhile, and may still be given work
 	function stillWaiting() {
@@ -627,6 +728,8 @@
 				if (!stillWaiting()) {
 					break;
 				}
+				// the judgers that are around come and go
+				$skip_problems = memoryExclusion();
 			}
 		}
 		die("Nothing to judge");

@@ -1072,11 +1072,34 @@ def prepare():
 #
 # A judger in a container with a memory limit (judger/workers.sh gives every judger one) judges
 # only what fits in it: a program that is killed because the container ran out of memory would
-# be judged wrongly, as a runtime error or worse. A problem whose programs may use more than the
-# judger has, with room left for the compiler, the checker and the judger itself, is given back
-# for a judger with more memory.
-MEMORY_MARGIN_MB = 768
+# be judged wrongly, as a runtime error or worse. Of its memory, MEMORY_MARGIN_MB are left to the
+# judger itself, the compiler and the checker, which run before or after the program; the rest is
+# for the programs of the problem that run at the same time: the program of the contestant, and
+# where there is one, the interactor that talks to it. (The passes of a communication problem,
+# Hydro's, DOMjudge's and Polygon's, run one after another, never side by side.)
+#
+# A judger says with every asking for work what it can judge (memory_mb), and the web server
+# gives it no problem it knows to need more while a judger that can judge it is around. A
+# problem it gets and can not judge it gives back, saying how much it needs: the web server
+# remembers that for the version of the data, and does not count it as a failed attempt.
+MEMORY_MARGIN_MB = 512
 CGROUP_MEMORY_FILES = ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]
+# what a program may use where problem.conf does not say, as main_judger has it
+DEFAULT_MEMORY_LIMIT_MB = 256
+
+
+class MemoryTooSmall(Exception):
+    """this judger has too little memory for the programs of a problem"""
+
+    def __init__(self, problem_id, needed, capacity):
+        self.problem_id = problem_id
+        self.needed = needed
+        self.capacity = capacity
+        super().__init__(
+            "problem #%d needs %d MB, and this judger judges problems of up to %d MB (%d MB are left "
+            "to the compiler, the checker and the judger): it is left to a judger with more memory"
+            % (problem_id, needed, capacity, MEMORY_MARGIN_MB)
+        )
 
 
 def container_memory_mb():
@@ -1095,34 +1118,62 @@ def container_memory_mb():
     return None
 
 
+def judger_memory_mb():
+    """the most memory the programs of a problem may need that this judger judges, in MB, or
+    None where it has no limit"""
+    limit = container_memory_mb()
+    return None if limit is None else max(0, limit - MEMORY_MARGIN_MB)
+
+
 def problem_memory_mb(data_dir):
-    """the most memory a program of the problem may use in MB, as its problem.conf says, or
-    None where that can not be told"""
+    """the memory the programs of the problem may need at the same time in MB, as its
+    problem.conf says: the most any test allows the program, and the most any allows the
+    interactor where one runs beside it. None where that can not be told."""
     try:
         with open(os.path.join(data_dir, "problem.conf"), errors="replace") as f:
             lines = f.read().splitlines()
     except OSError:
         return None
-    most = 256
+    conf = {}
     for line in lines:
         parts = line.split()
-        if len(parts) == 2 and re.fullmatch(r"memory_limit(_[0-9]+)?", parts[0]) and parts[1].isdigit():
-            most = max(most, int(parts[1]))
-    return most
+        if len(parts) == 2:
+            conf[parts[0]] = parts[1]
+
+    def most(key):
+        values = [int(v) for k, v in conf.items() if re.fullmatch(key + r"(_[0-9]+)?", k) and v.isdigit()]
+        return max(values + [int(conf[key]) if conf.get(key, "").isdigit() else DEFAULT_MEMORY_LIMIT_MB])
+
+    needed = most("memory_limit")
+    if conf.get("interaction_mode") == "on" or conf.get("polygon_runtwice_interactive") == "on":
+        needed += most("interactor_memory_limit")
+    return needed
 
 
 def check_memory_fits(problem_id):
-    """refuse to judge a problem whose programs may use more memory than this judger has"""
-    limit = container_memory_mb()
-    if limit is None:
+    """refuse to judge a problem whose programs may need more memory than this judger has"""
+    capacity = judger_memory_mb()
+    if capacity is None:
         return
     needed = problem_memory_mb(os.path.join(uoj_judger_path("/data"), str(problem_id)))
-    if needed is not None and needed + MEMORY_MARGIN_MB > limit:
-        raise Exception(
-            "problem #%d allows %d MB, and this judger has %d MB, %d of them left to the compiler, "
-            "the checker and the judger: it is left to a judger with more memory"
-            % (problem_id, needed, limit, MEMORY_MARGIN_MB)
+    if needed is not None and needed > capacity:
+        raise MemoryTooSmall(problem_id, needed, capacity)
+
+
+def hand_back_task(error):
+    """Tell the web server that this judger did not do the task it was given, and why where that
+    matters: returns the seconds to leave the task to the other judgers for."""
+    report = give_back_report()
+    if isinstance(error, MemoryTooSmall):
+        # not a failure: it is not given to this judger again while another can judge it
+        report.update(
+            {"reason": "memory", "needed_mb": str(error.needed), "problem_data_version": str(submission.get("problem_data_version"))}
         )
+        pause = 0
+    else:
+        pause = 5
+    send_and_fetch(fetch_new=False, report=report)
+    return pause
 
 
 def judge():
@@ -1379,6 +1430,9 @@ def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
     else:
         data["protocol"] = PROTOCOL
         data.update(describe_judger())
+        memory = judger_memory_mb()
+        if memory is not None:
+            data["memory_mb"] = str(memory)
         # sent again as it is when no answer comes: the web server answers the same asking the same
         data["fetch_id"] = uuid.uuid4().hex
         if wait > 0:
@@ -1494,15 +1548,17 @@ def judger_loop():
 
         try:
             res = run_task(judge)
-        except Exception:
-            # Nothing was judged: the data could not be fetched or built here, or the machine was
-            # too busy. The submission is not to blame, so another judger gets to try.
+        except Exception as e:
+            # Nothing was judged: the data could not be fetched or built here, the machine was
+            # too busy, or this judger has too little memory for the problem. The submission is
+            # not to blame, so another judger gets to try.
             print_judge_client_status()
             traceback.print_exc()
-            send_and_fetch(fetch_new=False, report=give_back_report())
-            # leave the task to the other judgers for a moment
+            pause = hand_back_task(e)
             ok = False
-            time.sleep(5)
+            if pause:
+                # leave the task to the other judgers for a moment
+                time.sleep(pause)
             continue
 
         ok = send_and_fetch(result=res, fetch_new=fetch_new)

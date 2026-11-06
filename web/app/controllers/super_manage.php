@@ -686,6 +686,8 @@ EOD;
 								<?php endif ?>
 								<?php if ($account['workers'] > 1): ?>
 								<small data-workers="<?= $account['workers'] ?>"><?= $account['workers'] ?> 个进程在用这个账户（最近 10 分钟），各评各的：<?= HTML::escape(join('、', $account['worker_labels'])) ?></small>
+								<?php elseif ($account['worker_memory']): ?>
+								<small data-workers="1">进程：<?= HTML::escape($account['worker_labels'][0]) ?></small>
 								<?php endif ?>
 							</td>
 							<td data-have="<?= $account['data_have'] === null ? '' : (int)$account['data_have'] ?>" data-total="<?= $account['data_total'] === null ? '' : (int)$account['data_total'] ?>">

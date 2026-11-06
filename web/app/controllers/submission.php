@@ -139,7 +139,7 @@
 	<?php
 		// who judged the submission, with which data and which tools
 		$judgements = DB::selectAll("select * from submission_judgements where kind = 'submission' and target_id = {$submission['id']} order by id desc limit 10");
-		$judgement_outcome_names = array('judged' => '完成', 'reclaimed' => '评测机未完成，已重新排队', 'failed' => '多次未完成，判为失败', 'superseded' => '评测中被要求重测');
+		$judgement_outcome_names = array('judged' => '完成', 'reclaimed' => '评测机未完成，已重新排队', 'memory' => '评测机内存不够，留给内存够的评测机', 'failed' => '判为失败', 'superseded' => '评测中被要求重测');
 	?>
 	<?php if ($judgements): ?>
 	<div class="card border-secondary mb-3">

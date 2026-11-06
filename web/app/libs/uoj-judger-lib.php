@@ -134,9 +134,12 @@
 		$accounts = DB::selectAll("select id, judger_name, enabled, note, created_by, created_at, version, last_heartbeat_at, timestampdiff(second, last_heartbeat_at, now()) as silent_seconds, data_have, data_total, data_checked_at, timestampdiff(second, data_checked_at, now()) as data_checked_seconds from judger_info order by id", MYSQLI_ASSOC);
 		foreach ($accounts as &$account) {
 			// the workers that worked for the account lately (judge protocol 3)
+			// what each of them is called, with the most memory a problem may need for it to judge it
 			$account['worker_labels'] = array();
-			foreach (DB::selectAll("select worker from judger_workers where judger_name = '".DB::escape($account['judger_name'])."' and last_seen_at > now() - interval 10 minute order by worker") as $row) {
-				$account['worker_labels'][] = judgerWorkerLabel($row['worker']);
+			$account['worker_memory'] = false;
+			foreach (DB::selectAll("select worker, memory_mb from judger_workers where judger_name = '".DB::escape($account['judger_name'])."' and last_seen_at > now() - interval 10 minute order by worker") as $row) {
+				$account['worker_labels'][] = judgerWorkerLabel($row['worker']) . ($row['memory_mb'] !== null ? '（≤' . (int)$row['memory_mb'] . ' MB）' : '');
+				$account['worker_memory'] = $account['worker_memory'] || $row['memory_mb'] !== null;
 			}
 			$account['workers'] = count($account['worker_labels']);
 			$account['judging'] = array();

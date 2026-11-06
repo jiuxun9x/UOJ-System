@@ -269,12 +269,14 @@ class WorkersTest(unittest.TestCase):
             self.assertRegex(name, r"^cpu[01]-[0-9a-f]{16}$")
 
         problem_id = self.admin.create_problem(ab_problem_files())
-        big = self.admin.create_problem(ab_problem_files(memory_limit=2560))
-        # the other judgers have nothing to do meanwhile
+        big = self.admin.create_problem(ab_problem_files(memory_limit=2600))
+        # the other judgers have nothing to do meanwhile, and the workers of the fake judger of the
+        # tests are not around
         uoj.wait_idle()
         names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
         db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
         self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
+        db("update judger_workers set last_seen_at = now() - interval 1 hour where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
 
         submissions = [self.admin.submit(problem_id, AB_SLOW) for _ in range(6)]
         for submission_id in submissions:
@@ -294,17 +296,143 @@ class WorkersTest(unittest.TestCase):
         worker = db_value("select worker from submission_judgements where kind = 'submission' and target_id = %d" % submissions[0])
         self.assertIn('data-worker="%s">%s</small>' % (worker, worker.split("-")[0]), page)
         page = self.admin.get("/super-manage/judger").text
-        self.assertIn("2 个进程在用这个账户（最近 10 分钟），各评各的：cpu0、cpu1", uoj.text_of(page))
+        # each with the most memory a problem may need for it to judge it: 3 GB but 512 MB
+        self.assertIn("2 个进程在用这个账户（最近 10 分钟），各评各的：cpu0（≤2560 MB）、cpu1（≤2560 MB）", uoj.text_of(page))
 
-        # A problem whose programs may use more memory than a judger has (3 GB, 768 MB of them
-        # for the compiler, the checker and the judger) is given back, and not judged wrongly:
-        # with no judger that can take it, it fails.
+        # A problem whose programs may use more memory than the judgers have is given back, not
+        # judged wrongly; with no judger around that can judge it, it fails at once, saying why.
         submission_id = self.admin.submit(big, AB)
         j = uoj.wait_submission(submission_id, timeout=600)
         self.assertEqual(j.error, "Judgement Failed", j)
-        self.assertEqual([outcome for _, outcome in uoj.judgements("submission", submission_id)], ["reclaimed", "reclaimed", "failed"])
+        self.assertIn("没有内存足够的评测机：这道题允许 2600 MB，在线的评测机最多能评 2560 MB 的题", j.details)
+        self.assertEqual([outcome for _, outcome in uoj.judgements("submission", submission_id)], ["failed"])
         logs = "".join(uoj.judger_log(container) for container in containers)
-        self.assertIn("problem #%d allows 2560 MB, and this judger has 3072 MB" % big, logs)
+        self.assertIn("problem #%d needs 2600 MB, and this judger judges problems of up to 2560 MB" % big, logs)
+
+
+class MemoryGiveBackTest(unittest.TestCase):
+    """A judger with too little memory for a problem gives it back, which is no failed attempt.
+    The problem keeps what it needs for the version of its data, and is not given to judgers
+    with less while one with enough is around; with none around, it fails at once."""
+
+    SMALL = "e2e-memory-small-01"
+    BIG = "e2e-memory-big-0001"
+    RESULT = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = uoj.admin()
+        cls.problem_id = cls.admin.create_problem(ab_problem_files(memory_limit=2000))
+
+    def setUp(self):
+        # only the fake judger is around: the judgers of the tests are switched off, and the other
+        # workers of the fake judger were not heard of for an hour
+        uoj.wait_idle()
+        names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
+        self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
+        db("update judger_workers set last_seen_at = now() - interval 1 hour where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
+
+    def ask(self, worker, memory=None, wait=None):
+        data = {"protocol": "3", "judger_version": "e2e-fake", "toolchain": "{}", "worker": worker, "fetch_id": uuid.uuid4().hex}
+        if memory is not None:
+            data["memory_mb"] = str(memory)
+        if wait is not None:
+            data["wait"] = str(wait)
+        r = uoj.judge_api("/judge/submit", data)
+        self.assertEqual(r.status_code, 200, r.text[:300])
+        return r.text
+
+    def task_for(self, worker, memory=None):
+        answer = self.ask(worker, memory)
+        self.assertNotIn(answer, ("Nothing to judge", "Ask again"), worker)
+        return json.loads(answer)
+
+    def give_back(self, task, worker, needed):
+        r = uoj.judge_api("/judge/submit", {
+            "fetch_new": "0", "worker": worker, "requeue": "1", "id": task["id"], "claim": task["claim"],
+            "reason": "memory", "needed_mb": str(needed), "problem_data_version": str(task["problem_data_version"]),
+        })  # fmt: skip
+        self.assertEqual(r.status_code, 200)
+
+    def finish(self, task, worker):
+        r = uoj.judge_api("/judge/submit", {"fetch_new": "0", "worker": worker, "submit": "1", "id": task["id"], "claim": task["claim"], "result": json.dumps(self.RESULT)})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(uoj.wait_submission(task["id"]).score, 100)
+
+    def state(self, submission_id):
+        return tuple(db("select status, judge_attempts from submissions where id = %d" % submission_id)[0])
+
+    def remembered(self):
+        return tuple(db("select ifnull(judge_memory_mb, 'NULL'), ifnull(judge_memory_version, 'NULL') from problems where id = %d" % self.problem_id)[0])
+
+    def test_problem_is_left_to_a_judger_with_enough_memory(self):
+        version = db_value("select data_version from problems where id = %d" % self.problem_id)
+        # a judger with no limit is around
+        self.assertEqual(self.ask(self.BIG), "Nothing to judge")
+
+        # ---- (a) a judger that can judge problems of up to 1000 MB is given one of 2000, gives it
+        # back, and that is no failed attempt; the problem keeps what it needs
+        first = self.admin.submit(self.problem_id, AB)
+        task = self.task_for(self.SMALL, memory=1000)
+        self.assertEqual(task["id"], first)
+        self.give_back(task, self.SMALL, 2000)
+        self.assertEqual(self.state(first), ("Waiting", "0"))
+        self.assertEqual(self.remembered(), ("2000", version))
+        self.assertEqual(uoj.judgements("submission", first), [(uoj.FAKE_JUDGER["judger_name"], "memory")])
+        self.assertIn("评测机内存不够，留给内存够的评测机", self.admin.get("/submission/%d" % first).text)
+
+        # ---- (b) it is not given it again, nor woken for it while it waits; the judger with no
+        # limit is given it
+        self.assertEqual(self.ask(self.SMALL, memory=1000), "Nothing to judge")
+        started = time.time()
+        self.assertEqual(self.ask(self.SMALL, memory=1000, wait=2), "Nothing to judge")
+        self.assertGreaterEqual(time.time() - started, 1.8)
+        task = self.task_for(self.BIG)
+        self.assertEqual(task["id"], first)
+        self.finish(task, self.BIG)
+
+        # ---- (e) while a judger that can judge it is around, giving it back fails nothing,
+        # however often (the problem is forgotten each time, so that the small judger gets it)
+        second = self.admin.submit(self.problem_id, AB)
+        for _ in range(5):
+            db("update problems set judge_memory_version = null where id = %d" % self.problem_id)
+            task = self.task_for(self.SMALL, memory=1000)
+            self.assertEqual(task["id"], second)
+            self.give_back(task, self.SMALL, 2000)
+            self.assertEqual(self.state(second), ("Waiting", "0"))
+        self.finish(self.task_for(self.BIG), self.BIG)
+
+        # ---- (c) with no judger around that can judge it, the small one is given it, and giving
+        # it back fails it at once, saying why
+        db("update judger_workers set last_seen_at = now() - interval 1 hour where worker = '%s'" % self.BIG)
+        third = self.admin.submit(self.problem_id, AB)
+        task = self.task_for(self.SMALL, memory=1000)
+        self.assertEqual(task["id"], third)
+        self.give_back(task, self.SMALL, 2000)
+        j = uoj.wait_submission(third)
+        self.assertEqual((j.score, j.error), (0, "Judgement Failed"), j)
+        self.assertIn("没有内存足够的评测机：这道题允许 2000 MB，在线的评测机最多能评 1000 MB 的题", j.details)
+        self.assertEqual(uoj.judgements("submission", third), [(uoj.FAKE_JUDGER["judger_name"], "failed")])
+
+        # ---- (d) once new data is published, what the problem kept counts no more: the small
+        # judger is given it again, even with the big one around, and finds out for itself
+        files = ab_problem_files(memory_limit=2000)
+        files["input1.txt"] = "40 2\n"
+        files["output1.txt"] = "42\n"
+        self.assertIn("上传成功", self.admin.upload_data(self.problem_id, files).text)
+        self.assertEqual(self.admin.sync(self.problem_id, wait=False), "")
+        # (the data is built by the fake judger, which is all there is)
+        prepared = self.task_for(self.BIG)
+        self.assertIn("prepare", prepared)
+        r = uoj.judge_api("/judge/submit", {"fetch_new": "0", "worker": self.BIG, "prepare_result": "1", "id": prepared["prepare"]["id"], "claim": prepared["claim"], "ok": "1", "message": ""})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(uoj.wait_data_version(self.problem_id), "")
+        self.assertNotEqual(db_value("select data_version from problems where id = %d" % self.problem_id), version)
+        fourth = self.admin.submit(self.problem_id, AB)
+        task = self.task_for(self.SMALL, memory=1000)
+        self.assertEqual(task["id"], fourth)
+        self.finish(task, self.SMALL)
 
 
 class LongPollTest(unittest.TestCase):

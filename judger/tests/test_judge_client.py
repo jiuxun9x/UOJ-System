@@ -1260,16 +1260,62 @@ class MemoryTest(JudgeClientTestCase):
         self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 256)
         self.assertIsNone(self.jc.problem_memory_mb(self.data_path("8")))
 
+    def test_interactor_that_runs_beside_the_program_counts(self):
+        self.problem("memory_limit 512\ninteraction_mode on\n")
+        self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 512 + 256)
+        self.problem("memory_limit 512\npolygon_runtwice on\npolygon_runtwice_interactive on\ninteractor_memory_limit 128\ninteractor_memory_limit_3 300\n")
+        self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 512 + 300)
+        # the passes of a communication problem run one after another: nothing is added
+        self.problem("memory_limit 512\nmulti_pass 3\n")
+        self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 512)
+
     def test_problem_that_does_not_fit_is_given_back(self):
         self.cgroup(str(3 << 30))
-        self.problem("memory_limit 2048\n")
-        self.jc.check_memory_fits(7)
+        self.assertEqual(self.jc.judger_memory_mb(), 3072 - 512)
         self.problem("memory_limit 2560\n")
-        with self.assertRaisesRegex(Exception, "allows 2560 MB, and this judger has 3072 MB"):
+        self.jc.check_memory_fits(7)
+        self.problem("memory_limit 2600\n")
+        with self.assertRaises(self.jc.MemoryTooSmall) as raised:
             self.jc.check_memory_fits(7)
+        self.assertEqual((raised.exception.needed, raised.exception.capacity), (2600, 2560))
+        self.assertIn("problem #7 needs 2600 MB, and this judger judges problems of up to 2560 MB", str(raised.exception))
         # without a limit everything fits
         self.cgroup("max")
+        self.assertIsNone(self.jc.judger_memory_mb())
         self.jc.check_memory_fits(7)
+
+    def test_judger_says_what_it_can_judge_when_it_asks_for_work(self):
+        self.cgroup(str(2 << 30))
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch()
+        self.assertEqual(interact.call_args[0][0]["memory_mb"], str(2048 - 512))
+        # and not when it only reports
+        self.jc.submission = {"id": 5, "claim": "a" * 32}
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch(result={"score": 100, "time": 1, "memory": 1, "details": ""}, fetch_new=False)
+        self.assertNotIn("memory_mb", interact.call_args[0][0])
+        # a judger without a limit says nothing: it judges whatever comes
+        self.cgroup("max")
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch()
+        self.assertNotIn("memory_mb", interact.call_args[0][0])
+
+    def test_task_given_back_for_memory_says_so_and_is_not_waited_for(self):
+        claim = "b" * 32
+        self.jc.submission = {"id": 5, "problem_id": 7, "problem_data_version": 4, "claim": claim}
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            pause = self.jc.hand_back_task(self.jc.MemoryTooSmall(7, 2600, 2560))
+        self.assertEqual(pause, 0)
+        self.assertEqual(interact.call_args[0][0], {
+            "fetch_new": "0", "requeue": "1", "claim": claim, "id": 5,
+            "reason": "memory", "needed_mb": "2600", "problem_data_version": "4",
+        })  # fmt: skip
+        # what else goes wrong is given back as before, and left to the others for a while
+        self.jc.submission = {"id": 6, "problem_id": 7, "claim": claim}
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            pause = self.jc.hand_back_task(Exception("this judger was too busy to judge"))
+        self.assertEqual(pause, 5)
+        self.assertNotIn("reason", interact.call_args[0][0])
 
 
 class TimingTest(JudgeClientTestCase):
