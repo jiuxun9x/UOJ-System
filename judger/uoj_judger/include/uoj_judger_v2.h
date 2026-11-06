@@ -407,6 +407,13 @@ struct run_checker_result {
             if (fres == NULL || fscanf(fres, "%20s", type) != 1) {
                 return run_checker_result::failed_result();
             }
+            if (strcmp(type, "FAIL") == 0) {
+                // testlib's quitf(_fail, ...): the checker itself went wrong, not the program
+                fclose(fres);
+                run_checker_result failed = run_checker_result::failed_result();
+                failed.info = file_preview(file_name);
+                return failed;
+            }
             if (strcmp(type, "ok") == 0) {
                 res.scr = 100;
             } else if (strcmp(type, "points") == 0) {

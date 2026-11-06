@@ -5,7 +5,7 @@ import json
 import unittest
 
 import uoj
-from fixtures import AB, AB_WRONG, ab_problem_files
+from fixtures import AB, AB_WRONG, ab_problem_files, checker_problem_files
 from uoj import db, db_value, docker_exec
 
 # A+B in the languages of the site but C++ (which every other test submits in)
@@ -309,6 +309,46 @@ class SiteTickTest(unittest.TestCase):
         docker_exec(uoj.WEB, TICK_ALERTS % "array()")
         self.assertEqual(db_value("select count(*) from site_alerts where kind = 'tick_failed' and subject = 'p15_step' and active_slot = 1"), "0")
         self.assertNotEqual(db_value("select ifnull(resolved_at, 'NULL') from site_alerts where kind = 'tick_failed' and subject = 'p15_step' order by id desc limit 1"), "NULL")
+
+
+# a checker that can not judge a sum below zero, and says so the way testlib has for it
+FAILING_CHECKER = r"""
+#include "testlib.h"
+int main(int argc, char **argv) {
+    registerTestlibCmd(argc, argv);
+    long long expected = ans.readLong();
+    long long found = ouf.readLong();
+    if (found < 0) {
+        quitf(_fail, "this checker can not judge a negative sum");
+    }
+    if (found != expected) {
+        quitf(_wa, "expected %lld, found %lld", expected, found);
+    }
+    quitf(_ok, "fine");
+}
+"""
+
+
+class CheckerFailTest(unittest.TestCase):
+    """A testlib checker that says FAIL (quitf(_fail, ...)) went wrong itself: the program it
+    judged was given a wrong answer for it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.problem_id = uoj.admin().create_problem(checker_problem_files(FAILING_CHECKER))
+        cls.student = uoj.client(("p15_checker", "p15-password"))
+
+    def test_a_checker_that_fails_is_a_judgment_failure(self):
+        judgement = uoj.wait_submission(self.student.submit(self.problem_id, AB.replace('"%lld\\n", a + b', '"-1\\n"')))
+        self.assertEqual(judgement.score, 0, judgement)
+        self.assertTrue(judgement.infos, judgement)
+        self.assertEqual(set(judgement.infos), {"Checker Judgment Failed"}, judgement)
+        self.assertIn("this checker can not judge a negative sum", judgement.details)
+
+    def test_a_wrong_answer_is_one_still(self):
+        judgement = uoj.wait_submission(self.student.submit(self.problem_id, AB_WRONG))
+        self.assertEqual(set(judgement.infos), {"Wrong Answer"}, judgement)
+        self.assertEqual(uoj.wait_submission(self.student.submit(self.problem_id, AB)).score, 100)
 
 if __name__ == "__main__":
     unittest.main()

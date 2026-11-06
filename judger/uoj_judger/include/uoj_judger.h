@@ -654,6 +654,15 @@ struct RunCheckerResult {
             if (fres == NULL || fscanf(fres, "%20s", type) != 1) {
                 return RunCheckerResult::failed_result();
             }
+            if (strcmp(type, "FAIL") == 0) {
+                // what testlib says with quitf(_fail, ...): the checker (or the interactor) itself
+                // went wrong, or the answer of the problem did not read; the program that was
+                // judged is not to blame, and is not given a wrong answer for it
+                fclose(fres);
+                RunCheckerResult failed = RunCheckerResult::failed_result();
+                failed.info = file_preview(file_name);
+                return failed;
+            }
             if (strcmp(type, "ok") == 0) {
                 res.scr = 100;
             } else if (strcmp(type, "points") == 0) {
@@ -1989,9 +1998,10 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
                 run_checker(conf_run_limit("checker", num, RL_CHECKER_DEFAULT), tpc.checker,
                             tpc.input_file_name, tpc.output_file_name, tpc.answer_file_name);
             if (chk_ret.type != runp::RS_AC) {
+                // what the checker said of why, if it said anything, is for whoever looks into it
                 return PointInfo(num, 0, -1, -1, "Checker " + info_str(chk_ret.type),
                                  file_preview(tpc.input_file_name),
-                                 file_preview(tpc.output_file_name), "");
+                                 file_preview(tpc.output_file_name), chk_ret.info);
             }
             return PointInfo(num, chk_ret.scr, pro_ret.ust, pro_ret.usm, "default",
                              file_preview(tpc.input_file_name), file_preview(tpc.output_file_name),
