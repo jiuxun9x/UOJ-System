@@ -270,13 +270,12 @@ class WorkersTest(unittest.TestCase):
 
         problem_id = self.admin.create_problem(ab_problem_files())
         big = self.admin.create_problem(ab_problem_files(memory_limit=2600))
-        # the other judgers have nothing to do meanwhile, and the workers of the fake judger of the
-        # tests are not around
+        # the other judgers have nothing to do meanwhile, and no other worker is around
         uoj.wait_idle()
         names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
         db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
         self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
-        db("update judger_workers set last_seen_at = now() - interval 1 hour where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
+        db("update judger_workers set last_seen_at = now() - interval 1 hour where judger_name <> '%s'" % self.ACCOUNT)
 
         submissions = [self.admin.submit(problem_id, AB_SLOW) for _ in range(6)]
         for submission_id in submissions:
@@ -325,13 +324,13 @@ class MemoryGiveBackTest(unittest.TestCase):
         cls.problem_id = cls.admin.create_problem(ab_problem_files(memory_limit=2000))
 
     def setUp(self):
-        # only the fake judger is around: the judgers of the tests are switched off, and the other
-        # workers of the fake judger were not heard of for an hour
+        # only the workers of the test are around: the judgers of the tests are switched off, and
+        # no other worker was heard of for an hour
         uoj.wait_idle()
         names_in = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
         db("update judger_info set enabled = 0 where judger_name in (%s)" % names_in)
         self.addCleanup(db, "update judger_info set enabled = 1 where judger_name in (%s)" % names_in)
-        db("update judger_workers set last_seen_at = now() - interval 1 hour where judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"])
+        db("update judger_workers set last_seen_at = now() - interval 1 hour where worker not in ('%s', '%s')" % (self.SMALL, self.BIG))
 
     def ask(self, worker, memory=None, wait=None):
         data = {"protocol": "3", "judger_version": "e2e-fake", "toolchain": "{}", "worker": worker, "fetch_id": uuid.uuid4().hex}
