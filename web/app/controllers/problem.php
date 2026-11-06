@@ -68,6 +68,7 @@
 				} else {
 					$is_in_contest = true;
 					DB::update("update contests_registrants set has_participated = 1 where username = '{$myUser['username']}' and contest_id = {$contest['id']}");
+					contestNoteAddress($contest, $myUser['username']);
 				}
 			} else {
 				// over: a contest that is not for everybody stays with the people who took part
@@ -83,6 +84,7 @@
 			$running_virtual = runningVirtual($contest['id'], $myUser);
 			if ($running_virtual) {
 				$ban_in_contest = false;
+				contestNoteAddress($contest, $myUser['username']);
 			}
 		}
 	} elseif (!$homework) {

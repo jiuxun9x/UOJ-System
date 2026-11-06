@@ -68,12 +68,16 @@
 
 <?php
 	if ($show_ip) {
-		$header_row = '<tr><th>#</th><th>'.UOJLocale::get('username').'</th><th>remote_addr</th><th>rating</th></tr>';
-	
-		$ip_owner = array();
-		foreach (DB::selectAll("select * from contests_registrants where contest_id = {$contest['id']} order by user_rating asc") as $reg) {
-			$user = queryUser($reg['username']);
-			$ip_owner[$user['remote_addr']] = $reg['username'];
+		// Where each contestant took part from, while the contest ran (or while they sat it
+		// virtually): not where they are now, which is nobody's business here. A row whose
+		// address is the address of another contestant as well is marked.
+		$header_row = '<tr><th>#</th><th>'.UOJLocale::get('username').'</th><th>比赛期间的 IP</th><th>rating</th></tr>';
+		$addresses = contestAddresses($contest);
+		$ip_users = array();
+		foreach ($addresses as $username => $ips) {
+			foreach ($ips as $ip) {
+				$ip_users[$ip][$username] = true;
+			}
 		}
 	} else {
 		$header_row = '<tr><th>#</th><th>'.UOJLocale::get('username').'</th><th>rating</th></tr>';
@@ -83,23 +87,19 @@
 		$header_row,
 		function($contest, $num) {
 			global $myUser;
-			global $show_ip, $ip_owner;
+			global $show_ip, $addresses, $ip_users;
 			
-			$user = queryUser($contest['username']);
 			$user_link = getUserLink($contest['username'], $contest['user_rating']);
-			if (!$show_ip) {
-				echo '<tr>';
-			} else {
-				if ($ip_owner[$user['remote_addr']] !== $user['username']) {
-					echo '<tr class="table-danger">';
-				} else {
-					echo '<tr>';
-				}
+			$ips = $show_ip && isset($addresses[$contest['username']]) ? $addresses[$contest['username']] : array();
+			$shared = false;
+			foreach ($ips as $ip) {
+				$shared = $shared || count($ip_users[$ip]) > 1;
 			}
+			echo $shared ? '<tr class="table-danger">' : '<tr>';
 			echo '<td>'.$num.'</td>';
 			echo '<td>'.$user_link.'</td>';
 			if ($show_ip) {
-				echo '<td>'.$user['remote_addr'].'</td>';
+				echo '<td data-ips="', HTML::escape(implode(' ', $ips)), '">', $ips ? HTML::escape(implode('、', $ips)) : '<span class="text-muted">比赛期间没有来过</span>', '</td>';
 			}
 			echo '<td>'.$contest['user_rating'].'</td>';
 			echo '</tr>';

@@ -49,6 +49,10 @@
 		$my_virtual = runningVirtual($contest['id'], $myUser);
 	}
 	$virtual_elapsed = $my_virtual ? virtualElapsed($my_virtual, UOJTime::$time_now->getTimestamp()) : null;
+	// where a contestant takes part from, for the people who run the contest
+	if ($myUser != null && ($my_virtual || ($contest['cur_progress'] == CONTEST_IN_PROGRESS && hasRegistered($myUser, $contest)))) {
+		contestNoteAddress($contest, $myUser['username']);
+	}
 	
 	// A contest that gives balloons is told by its contestants where they sit, if they want
 	// to tell: whoever brings a balloon has to find them. The people who run the contest can

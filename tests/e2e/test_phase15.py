@@ -702,5 +702,36 @@ class ArrayParameterTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text[:300])
         self.assertIn("time", r.json())
 
+
+class ContestAddressesTest(unittest.TestCase):
+    """The page of the members of a contest showed its assistants where each registrant is now
+    (the address of their last request anywhere on the site), and whoever runs a contest can put
+    anybody of the site into it. It shows where they took part from, while the contest ran."""
+
+    def test_the_members_page_has_the_addresses_of_the_contest_only(self):
+        admin = uoj.admin()
+        contest_id = admin.new_contest("p15 比赛期间 IP", problems=str(admin.create_problem(ab_problem_files())))
+        came, away = uoj.client(("p15_ip_came", "p15-password")), uoj.client(("p15_ip_away", "p15-password"))
+        for pupil in (came, away):
+            pupil.register_for_contest(contest_id)
+        kept = lambda: db("select username, last_seen_at from contest_ips where contest_id = %d order by username" % contest_id)
+        # before the contest nothing is kept
+        came.get("/contest/%d" % contest_id)
+        self.assertEqual(kept(), [])
+        uoj.move_contest(contest_id, -60, 600)
+        self.assertEqual(came.get("/contest/%d" % contest_id).status_code, 200)
+        rows = kept()
+        self.assertEqual([row[0] for row in rows], ["p15_ip_came"])
+        page = admin.get("/contest/%d/registrants" % contest_id).text
+        ip = db_value("select ip from contest_ips where contest_id = %d and username = 'p15_ip_came'" % contest_id)
+        self.assertIn('data-ips="%s"' % ip, page)
+        # who did not come while it ran has no address there, whatever they did elsewhere
+        self.assertRegex(page, r'p15_ip_away</span></td><td data-ips=""><span class="text-muted">比赛期间没有来过</span>')
+        # and after the contest nothing more is kept
+        db("update contest_ips set last_seen_at = '2000-01-01 00:00:00' where contest_id = %d" % contest_id)
+        uoj.move_contest(contest_id, -7200, 60)
+        came.get("/contest/%d" % contest_id)
+        self.assertEqual(kept(), [["p15_ip_came", "2000-01-01 00:00:00"]])
+
 if __name__ == "__main__":
     unittest.main()

@@ -42,6 +42,7 @@ function usernameColumns() {
 		'contest_allowed_users' => array('username', 'added_by'),
 		'contest_balloons' => array('username', 'done_by'),
 		'contest_virtuals' => array('username'),
+		'contest_ips' => array('username'),
 		'contests_permissions' => array('username'),
 		'contests_registrants' => array('username'),
 		'contests_submissions' => array('submitter'),

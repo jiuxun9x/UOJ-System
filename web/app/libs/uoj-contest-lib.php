@@ -797,7 +797,7 @@ function contestDelete($contest, $actor) {
 	// what was submitted to it is what was submitted to its problems
 	DB::update("update submissions set contest_id = null where contest_id = $id");
 	DB::update("update hacks set contest_id = null where contest_id = $id");
-	foreach (array('contests_registrants', 'contests_permissions', 'contests_problems', 'contests_submissions', 'contests_notice', 'contests_asks', 'contest_allowed_users', 'contest_virtuals', 'contest_balloons', 'contest_balloon_colors') as $table) {
+	foreach (array('contests_registrants', 'contests_permissions', 'contests_problems', 'contests_submissions', 'contests_notice', 'contests_asks', 'contest_allowed_users', 'contest_virtuals', 'contest_balloons', 'contest_balloon_colors', 'contest_ips') as $table) {
 		DB::delete("delete from $table where contest_id = $id");
 	}
 	DB::delete("delete from click_zans where type = 'C' and target_id = $id");
@@ -1042,6 +1042,29 @@ function contestWaitingSubmissions($contest) {
 		}
 	}
 	return $rows;
+}
+
+// ---- where the contestants were
+//
+// The address a contestant came from, to a page of the contest while it ran or while they sat it
+// virtually, is kept with the contest: the page of its members shows the people who run it where
+// each contestant took part from (upgrade 1038), and nothing of where they are at other times.
+function contestNoteAddress($contest, $username) {
+	$ip = substr((string)UOJContext::remoteAddr(), 0, 64);
+	if ($ip === '' || !validateUsername($username)) {
+		return;
+	}
+	$esc_ip = DB::escape($ip);
+	DB::insert("insert into contest_ips (contest_id, username, ip, first_seen_at, last_seen_at) values (".(int)$contest['id'].", '$username', '$esc_ip', now(), now())"
+		." on duplicate key update last_seen_at = now()");
+}
+// the addresses each contestant took part from: username => list of addresses, the first first
+function contestAddresses($contest) {
+	$addresses = array();
+	foreach (DB::selectAll("select username, ip from contest_ips where contest_id = ".(int)$contest['id']." order by first_seen_at, ip", MYSQLI_ASSOC) as $row) {
+		$addresses[$row['username']][] = $row['ip'];
+	}
+	return $addresses;
 }
 
 // $freeze_offset: the standings as the people see them who are kept from what was submitted
