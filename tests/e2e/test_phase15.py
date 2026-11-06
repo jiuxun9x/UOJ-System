@@ -542,5 +542,37 @@ class FrozenBoardLastTryTest(unittest.TestCase):
         self.assertEqual(row["cells"][0][0], "failed", row)
         self.assertEqual(row["cells"][0][2], "0:10", row)
 
+
+class RemovedThingsTest(unittest.TestCase):
+    """What was submitted to a problem that was taken out of a contest stood on its board under no
+    problem at all, with a warning every time the board was made; the page of a hack whose
+    submission was deleted failed."""
+
+    def test_a_problem_taken_out_of_a_contest_leaves_its_board(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 移除题目", rule="IOI", problems="%d, %d" % (first, second))
+        pupil = uoj.client(("p15_removed", "p15-password"))
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        for problem_id in (first, second):
+            pupil.submit_in_contest(contest_id, problem_id, AB)
+        uoj.wait_idle()
+        db("delete from contests_problems where contest_id = %d and problem_id = %d" % (contest_id, second))
+        page = pupil.get("/contest/%d/standings" % contest_id).text
+        cells = json.loads(re.search(r"(?m)^score=(.*);$", page).group(1))[pupil.username]
+        positions = [str(n) for n in range(len(cells))] if isinstance(cells, list) else list(cells)
+        self.assertEqual(positions, ["0"], cells)
+
+    def test_the_hack_of_a_deleted_submission_is_gone(self):
+        problem_id = uoj.admin().create_problem(ab_problem_files())
+        db("insert into hacks (problem_id, contest_id, submission_id, hacker, owner, input, input_type, submit_time, judge_time, success, details, is_hidden)"
+           " values (%d, null, 3999999999, 'p15_hacker', 'p15_owner', 'none', 'USE_FORMATTER', now(), now(), 0, '', 0)" % problem_id)  # fmt: skip
+        hack_id = int(db_value("select max(id) from hacks where submission_id = 3999999999"))
+        try:
+            self.assertEqual(uoj.admin().get("/hack/%d" % hack_id).status_code, 404)
+        finally:
+            db("delete from hacks where id = %d" % hack_id)
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,8 +4,10 @@
 	if (!validateUInt($_GET['id']) || !($hack = queryHack($_GET['id']))) {
 		become404Page();
 	}
-	$submission = querySubmission($hack['submission_id']);	
-	$problem = queryProblemBrief($submission['problem_id']);
+	// a hack of a submission that was deleted since is gone with it
+	if (!($submission = querySubmission($hack['submission_id'])) || !($problem = queryProblemBrief($submission['problem_id']))) {
+		become404Page();
+	}
 	$problem_extra_config = getProblemExtraConfig($problem);
 
 	if ($submission['contest_id']) {

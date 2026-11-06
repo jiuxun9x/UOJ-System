@@ -922,7 +922,8 @@ function queryContestData($contest, $config = array()) {
 				." where contest_id = {$contest['id']} and score is not null order by id");
 		while ($row = DB::fetch($result, MYSQLI_NUM)) {
 			$r = json_decode($row[4], true);
-			if (!isset($r['final_result'])) {
+			// (what was submitted to a problem that was taken out of the contest is not of it)
+			if (!isset($r['final_result']) || !isset($prob_pos[$row[3]])) {
 				continue;
 			}
 			$row[0] = (int)$row[0];
@@ -943,6 +944,11 @@ function queryContestData($contest, $config = array()) {
 				." submitter, problem_id, score, attempts from contests_submissions where contest_id = {$contest['id']}");
 		}
 		while ($row = DB::fetch($result, MYSQLI_NUM)) {
+			// what was submitted to a problem that was taken out of the contest since is not of
+			// its board any more
+			if (!isset($prob_pos[$row[3]])) {
+				continue;
+			}
 			$row[0] = (int)$row[0];
 			$row[3] = $prob_pos[$row[3]];
 			$row[4] = $row[4] === null ? null : (int)$row[4];
