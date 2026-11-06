@@ -2,6 +2,7 @@
 told by what it does wrong and kept from coming back."""
 
 import json
+import re
 import unittest
 
 import uoj
@@ -467,6 +468,31 @@ class ProfileSolvedTest(unittest.TestCase):
             self.assertTrue(solved_on_profile(pupil, pupil.username, problem_id))
         finally:
             db("update problems set is_hidden = 0 where id = %d" % problem_id)
+
+
+def full_scores_in_statistics(viewer, problem_id):
+    """how many submissions of score 100 the statistics of a problem count, as the page says"""
+    page = viewer.get("/problem/%d/statistics" % problem_id).text
+    data = json.loads(re.search(r"new Morris\.Bar\(\{\s*element: 'score-distribution-chart',\s*data: (\[.*?\]),", page, re.S).group(1))
+    return sum(int(row["count"]) for row in data if int(row["score"]) == 100)
+
+
+class StatisticsInContestTest(unittest.TestCase):
+    """The statistics of a problem counted every submission to it: of a problem in a contest that
+    runs, or whose board is frozen, they told how many had solved it there."""
+
+    def test_the_statistics_wait_for_the_contest(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p15 统计", rule="ICPC", problems=str(problem_id))
+        pupil, other = uoj.client(("p15_stats", "p15-password")), uoj.client(("p15_stats_look", "p15-password"))
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        uoj.wait_submission(pupil.submit_in_contest(contest_id, problem_id, AB))
+        self.assertEqual(full_scores_in_statistics(other, problem_id), 0)
+        self.assertEqual(full_scores_in_statistics(admin, problem_id), 1)
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(full_scores_in_statistics(other, problem_id), 1)
 
 if __name__ == "__main__":
     unittest.main()

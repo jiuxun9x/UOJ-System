@@ -18,8 +18,15 @@
 	}
 
 	function scoreDistributionData($problem) {
+		global $myUser;
 		$data = array();
-		$result = DB::select("select score, count(*) from submissions where problem_id = {$problem['id']} and score is not null group by score order by score");
+		// What is submitted in a contest that runs, or whose board is frozen, is counted once the
+		// contest tells it: until then the scores would tell how many solved the problem in it.
+		$told = '';
+		if (!can($myUser, 'problem.manage', $problem) && !can($myUser, 'submission.view_all')) {
+			$told = " and (contest_id is null or contest_id not in (select contests.id from contests where ".keepingContestsCond()."))";
+		}
+		$result = DB::select("select score, count(*) from submissions where problem_id = {$problem['id']} and score is not null$told group by score order by score");
 		$is_res_empty = true;
 		$has_score_0 = false;
 		$has_score_100 = false;
