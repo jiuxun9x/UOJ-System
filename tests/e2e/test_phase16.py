@@ -69,5 +69,37 @@ class DomainProblemManagerTest(unittest.TestCase):
         self.assertEqual(managers(problem_id), [])
 
 
+class RestrictedContestSubmissionTest(unittest.TestCase):
+    """A contest with a password, or for the people on a list, stays with the people who took part
+    in it after it is over, and its page says so. What was submitted in it was on the lists of
+    submissions of the site for everybody, with its code where the problem shows everybody the code."""
+
+    def test_what_was_submitted_in_it_stays_with_who_took_part(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files(), extra_config={"view_content_type": "ALL", "view_all_details_type": "ALL"})
+        contest_id = admin.new_contest("p16 locked", rule="ICPC", problems=str(problem_id), join_mode="password", join_password="p16 sesame")
+        pupil = account("p16_locked_pupil")
+        mate = account("p16_locked_mate")
+        stranger = account("p16_locked_stranger")
+        for client in (pupil, mate):
+            self.assertEqual(client.submit_form("/contest/%d/register" % contest_id, "register", {"join_password": "p16 sesame"}), "")
+        uoj.move_contest(contest_id, -60, 60)
+        inside = pupil.submit_in_contest(contest_id, problem_id, AB + "// p16-inside\n")
+        uoj.move_contest(contest_id, -7200, 60)
+        outside = stranger.submit(problem_id, AB + "// p16-outside\n")
+
+        # what was submitted inside: for who took part, the staff, and nobody else, on no list
+        for client in (pupil, mate, admin):
+            self.assertIn("p16-inside", client.get("/submission/%d" % inside).text)
+            self.assertIn('href="/submission/%d"' % inside, client.get("/submissions?problem_id=%d" % problem_id).text)
+        for client in (stranger, uoj.Client()):
+            self.assertEqual(client.get("/submission/%d" % inside).status_code, 403)
+            for page in ("/submissions?problem_id=%d" % problem_id, "/submissions", "/problem/%d/statistics" % problem_id):
+                self.assertNotIn('href="/submission/%d"' % inside, client.get(page).text, page)
+        # what was submitted to the problem outside of the contest is everybody's to read
+        for client in (pupil, stranger, uoj.Client()):
+            self.assertIn("p16-outside", client.get("/submission/%d" % outside).text)
+
+
 if __name__ == "__main__":
     unittest.main()

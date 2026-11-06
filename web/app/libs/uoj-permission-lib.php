@@ -744,7 +744,7 @@ function can($user, $ability, $resource = null) {
 			if (can($user, 'contest.assist', $resource)) {
 				return true;
 			}
-			if (isset($resource['join_mode']) && $resource['join_mode'] !== 'open') {
+			if (!contestIsForEverybody($resource)) {
 				return $name !== null && $facts->hasRegistered($name, $resource['id']);
 			}
 			return true;
@@ -789,6 +789,11 @@ function can($user, $ability, $resource = null) {
 			// and where its board froze until its results are published.
 			$contest = $facts->contest($resource['contest_id']);
 			if ($contest != null && contestKeepsResults($contest)) {
+				return $name !== null && $resource['submitter'] === $name;
+			}
+			// A contest that is not for everybody keeps what was submitted to it with the people
+			// who may get inside it, as it keeps its problems and its board: after it is over too.
+			if ($contest != null && !contestIsForEverybody($contest) && !can($user, 'contest.enter', $contest)) {
 				return $name !== null && $resource['submitter'] === $name;
 			}
 			return true;
@@ -998,6 +1003,12 @@ function runningHomeworksCond() {
 	return "homeworks.status = 'published' and homeworks.begin_at <= '$now' and homeworks.end_at > '$now'";
 }
 
+// Whether everybody may take part in a contest, without a password and without being on a list.
+// A contest that says nothing about it is from before there were either, and is for everybody.
+function contestIsForEverybody($contest) {
+	return !isset($contest['join_mode']) || $contest['join_mode'] === 'open';
+}
+
 // the contests that are running, as a condition on the table contests
 function runningContestsCond() {
 	$now = UOJTime::$time_now_str;
@@ -1034,8 +1045,10 @@ function visibleSubmissionsCond($user) {
 	}
 	// the same rules as 'submission.view'
 	$in_running_contest = "submissions.contest_id in (select id from contests where ".keepingContestsCond().")";
+	// (a contest that is not for everybody keeps what is submitted to it with who may get inside)
+	$in_open_contest = "submissions.contest_id in (select id from contests where join_mode = 'open')";
 	if ($user == null) {
-		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or not $in_running_contest)";
+		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or ($in_open_contest and not $in_running_contest))";
 	}
 	$esc_username = DB::escape($user['username']);
 	$manages_problem = "submissions.problem_id in (".managedProblemIdsSql($esc_username).")";
@@ -1050,7 +1063,10 @@ function visibleSubmissionsCond($user) {
 	$my_virtual = "(submissions.submitter = '$esc_username' and submissions.contest_id is null and exists (select 1 from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
 		." where contest_virtuals.username = submissions.submitter and contests_problems.problem_id = submissions.problem_id"
 		." and submissions.submit_time >= contest_virtuals.start_time and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)))";
-	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or ((submissions.is_hidden = false or $my_virtual) and (submissions.domain_id is null or $in_my_domain) and (submissions.contest_id is null or not $in_running_contest or submissions.submitter = '$esc_username') and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
+	$in_my_contest = "submissions.contest_id in (select contest_id from contests_registrants where username = '$esc_username')";
+	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or ((submissions.is_hidden = false or $my_virtual) and (submissions.domain_id is null or $in_my_domain)"
+		." and (submissions.contest_id is null or submissions.submitter = '$esc_username' or (not $in_running_contest and ($in_open_contest or $in_my_contest)))"
+		." and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
 }
 // a query for the ids of the domains in which a user has at least a role
 function domainIdsOfUserSql($esc_username, $role) {

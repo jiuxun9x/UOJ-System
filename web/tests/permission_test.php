@@ -661,6 +661,19 @@ $facts->problems[40] = array('id' => 40, 'is_hidden' => 1, 'extra_config' => '{}
 check_same(true, canViewContestProblem($permission_test_users['bob'], $facts->problems[40], $open_contest), 'a problem of a contest for everybody, after it');
 check_same(false, canViewContestProblem($permission_test_users['bob'], $facts->problems[40], $locked_contest), 'a problem of a contest with a password, for who did not take part');
 check_same(true, canViewContestProblem($permission_test_users['setter'], $facts->problems[40], $locked_contest), 'and for who did');
+// and so does what was submitted to it: the problem is open to everybody, and shows everybody the
+// code submitted to it, but not what was submitted inside the contest
+$facts->problems[41] = array('id' => 41, 'is_hidden' => 0, 'extra_config' => '{"view_content_type": "ALL", "view_all_details_type": "ALL"}');
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, fake_submission('setter', 41, 32), array('nobody' => false, 'alice' => false, 'bob' => false, 'setter' => true, 'helper' => true, 'root' => true), 'what was submitted in a contest with a password');
+	check_ability($ability, fake_submission('alice', 41, 31), array('nobody' => false, 'bob' => false, 'teacher' => false, 'alice' => true, 'helper' => true), 'what was submitted in a contest for a list');
+	check_ability($ability, fake_submission('setter', 41, 30), array('nobody' => true, 'alice' => true, 'bob' => true), 'what was submitted in a contest for everybody');
+	check_ability($ability, fake_submission('setter', 41), array('nobody' => true, 'alice' => true, 'bob' => true), 'what was submitted to the problem outside of the contests');
+}
+// who registered for it sees what the others submitted as well
+$facts->registered[] = array('bob', 32);
+check_ability('submission.view_source', fake_submission('setter', 41, 32), array('bob' => true, 'alice' => false), 'what was submitted in a contest with a password, to another who took part');
+array_pop($facts->registered);
 // a contest that says nothing about who may take part is one for everybody
 check_ability('contest.enter', fake_contest(11, CONTEST_FINISHED), array('nobody' => true, 'bob' => true), 'a contest from before there were lists');
 // a contest is sat virtually once its results are final, by whoever may go inside
