@@ -40,6 +40,10 @@
 		<title><?= isset($PageTitle) ? $PageTitle : UOJConfig::$data['profile']['oj-name-short'] ?> - <?= $PageMainTitle ?></title>
 
 		<script type="text/javascript">uojHome = '<?= HTML::url('/') ?>'</script>
+		<?php if (Auth::check()): ?>
+		<?php // what the scripts of the page send with what they change, as every form does ?>
+		<script type="text/javascript">uojToken = '<?= crsf_token() ?>'</script>
+		<?php endif ?>
 
 		<!-- Bootstrap core CSS -->
 		<?= HTML::css_link('/css/bootstrap.min.css?v=2019.5.31') ?>

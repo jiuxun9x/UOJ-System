@@ -336,7 +336,8 @@ function click_zan(zan_id, zan_type, zan_delta, node) {
 	$.post(zan_link + '/click-zan', {
 		id : zan_id,
 		delta : zan_delta,
-		type : zan_type
+		type : zan_type,
+		_token : typeof uojToken === 'undefined' ? '' : uojToken
 	}, function(ret) {
 		$(loading_node).replaceWith($(ret).click_zan_block());
 	}).fail(function() {

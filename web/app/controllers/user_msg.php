@@ -5,6 +5,10 @@
 
 	function handleMsgPost() {
 		global $myUser;
+		// a message is sent by the user, from this page, not by another page that makes them post
+		if (!crsf_check()) {
+			return 'expired';
+		}
 		if (!isset($_POST['receiver'])) {
 			return 'fail';
 		}
@@ -208,6 +212,7 @@ function submitMessagePost(conversationName) {
 
 		$.post('/user/msg', {
 				user_msg : 1,
+				_token : uojToken,
 				receiver : conversationName,
 				message : $('#input-message').val()
     }, function(msg) {

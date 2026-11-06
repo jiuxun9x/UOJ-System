@@ -20,6 +20,37 @@
 	if ($myUser == null) {
 		die('<div class="text-danger">please <a href="'.HTML::url('/login').'">log in</a></div>');
 	}
+	// a vote is the user's, from a page of the site
+	if (!crsf_check()) {
+		die('<div class="text-danger">failed</div>');
+	}
+	// and is for what they may see: how many liked what they may not see is nothing to tell them
+	function zanTargetVisible($type, $id, $user) {
+		switch ($type) {
+			case 'P':
+				$problem = queryProblemBrief($id);
+				return $problem && can($user, 'problem.view', $problem);
+			case 'C':
+				$contest = queryContest($id);
+				if (!$contest) {
+					return false;
+				}
+				genMoreContestInfo($contest);
+				return can($user, 'contest.view', $contest);
+			case 'B':
+			case 'BC':
+				if ($type === 'BC') {
+					$comment = queryBlogComment($id);
+					$id = $comment ? $comment['blog_id'] : 0;
+				}
+				$blog = $id ? queryBlog($id) : null;
+				return $blog && (!$blog['is_hidden'] || $blog['poster'] === $user['username'] || can($user, 'blog.manage', $blog['poster']));
+		}
+		return false;
+	}
+	if (!zanTargetVisible($_POST['type'], (int)$_POST['id'], $myUser)) {
+		die('<div class="text-danger">failed</div>');
+	}
 	
 	$id = $_POST['id'];
 	$delta = $_POST['delta'];

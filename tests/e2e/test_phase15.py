@@ -574,5 +574,41 @@ class RemovedThingsTest(unittest.TestCase):
         finally:
             db("delete from hacks where id = %d" % hack_id)
 
+
+class ForgedRequestTest(unittest.TestCase):
+    """A private message and a vote were taken from any page that made the browser of a user post
+    them: neither asked for the token every form of the site sends. And a vote on what the user may
+    not see told how many had liked it."""
+
+    def test_a_message_needs_the_token(self):
+        sender, receiver = uoj.client(("p15_sender", "p15-password")), uoj.client(("p15_receiver", "p15-password"))
+        count = lambda: int(db_value("select count(*) from user_msg where sender = 'p15_sender' and receiver = 'p15_receiver'"))
+        before = count()
+        forged = sender.post("/user/msg", {"user_msg": "1", "receiver": receiver.username, "message": "forged"}, token=False)
+        self.assertEqual(forged.text, "expired")
+        self.assertEqual(count(), before)
+        sent = sender.post("/user/msg", {"user_msg": "1", "receiver": receiver.username, "message": "hello"})
+        self.assertEqual(sent.text, "ok")
+        self.assertEqual(count(), before + 1)
+        # the page hands its script the token
+        self.assertIn("uojToken = '%s'" % sender.token, sender.get("/user/msg").text)
+
+    def test_a_vote_needs_the_token_and_a_problem_one_may_see(self):
+        admin = uoj.admin()
+        public = admin.create_problem(ab_problem_files())
+        hidden = admin.create_problem(ab_problem_files())
+        db("update problems set is_hidden = 1 where id = %d" % hidden)
+        voter = uoj.client(("p15_voter", "p15-password"))
+        zan = lambda problem_id: int(db_value("select zan from problems where id = %d" % problem_id))
+        before = zan(public)
+        forged = voter.post("/click-zan", {"id": str(public), "delta": "1", "type": "P"}, token=False)
+        self.assertIn("failed", forged.text)
+        self.assertEqual(zan(public), before)
+        self.assertNotIn("failed", voter.post("/click-zan", {"id": str(public), "delta": "1", "type": "P"}).text)
+        self.assertEqual(zan(public), before + 1)
+        hidden_before = zan(hidden)
+        self.assertIn("failed", voter.post("/click-zan", {"id": str(hidden), "delta": "1", "type": "P"}).text)
+        self.assertEqual(zan(hidden), hidden_before)
+
 if __name__ == "__main__":
     unittest.main()
