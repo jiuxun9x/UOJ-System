@@ -226,6 +226,12 @@ struct result {
         return res;
     }
 
+    // whether the program was stopped for the CPU time it used itself, not for the time that
+    // went by (as a program that waits for another one does)
+    bool used_up_its_cpu_time() const {
+        return type == RS_TLE && extra.find("CPU time limit exceeded") != std::string::npos;
+    }
+
     static result from_file(const std::string &file_name) {
         result res;
         FILE *fres = fopen(file_name.c_str(), "r");

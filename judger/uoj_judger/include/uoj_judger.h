@@ -1459,19 +1459,26 @@ RunSimpleInteractionResult run_interaction_to(
 
     RunSimpleInteractionResult rires;
     RunResult res = RunResult::from_file(rpc.result_file_name);
-    RunCheckerResult ires = RunCheckerResult::from_file(
-        irpc.error_file_name, RunResult::from_file(irpc.result_file_name));
+    RunResult iret = RunResult::from_file(irpc.result_file_name);
+    RunCheckerResult ires = RunCheckerResult::from_file(irpc.error_file_name, iret);
 
     if (res.type == runp::RS_AC && res.exit_code != 0) {
         res.type = runp::RS_RE;
     }
 
-    if (ires.type == runp::RS_JGF) {
-        ires.info = "Interactor Judgment Failed";
-    }
-    if (ires.type == runp::RS_TLE) {
+    if (ires.type == runp::RS_TLE && iret.used_up_its_cpu_time()) {
+        // The interactor used up the CPU time it may use itself: it is too slow, or its limit
+        // (interactor_time_limit) too small. Waiting for the program uses none of it.
+        ires.type = runp::RS_JGF;
+        ires.info = "Interactor Time Limit Exceeded: " + iret.extra;
+    } else if (ires.type == runp::RS_TLE) {
+        // the time went by while the interactor waited for the program: the program was slow
         ires.type = runp::RS_AC;
         res.type = runp::RS_TLE;
+    }
+    if (ires.type == runp::RS_JGF && ires.info.compare(0, 11, "Interactor ") != 0) {
+        // what a testlib interactor said of why it failed (quitf(_fail, ...)) stays with it
+        ires.info = ires.info == "Checker Judgment Failed" ? "Interactor Judgment Failed" : "Interactor Judgment Failed: " + ires.info;
     }
 
     rires.res = res;
@@ -2017,7 +2024,7 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
         if (rires.ires.type != runp::RS_AC) {
             return PointInfo(num, 0, -1, -1, "Interactor " + info_str(rires.ires.type),
                              file_preview(real_input_file_name),
-                             file_preview(real_output_file_name), "");
+                             file_preview(real_output_file_name), rires.ires.info);
         }
         if (rires.res.type != runp::RS_AC) {
             return PointInfo(num, 0, -1, -1, info_str(rires.res.type),

@@ -5,7 +5,7 @@ import json
 import unittest
 
 import uoj
-from fixtures import AB, AB_WRONG, ab_problem_files, checker_problem_files
+from fixtures import AB, AB_WRONG, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
 from uoj import db, db_value, docker_exec
 
 # A+B in the languages of the site but C++ (which every other test submits in)
@@ -349,6 +349,35 @@ class CheckerFailTest(unittest.TestCase):
         judgement = uoj.wait_submission(self.student.submit(self.problem_id, AB_WRONG))
         self.assertEqual(set(judgement.infos), {"Wrong Answer"}, judgement)
         self.assertEqual(uoj.wait_submission(self.student.submit(self.problem_id, AB)).score, 100)
+
+
+# the interactor of DOUBLE, slow: it spends seconds of its own CPU time before it gives the number
+SLOW_INTERACTOR = DOUBLE_INTERACTOR.replace(
+    "std::cout << n << std::endl;",
+    "volatile unsigned long long spent = 0; for (unsigned long long i = 0; i < 6000000000ULL; i++) spent = spent + 1;\n    std::cout << n << std::endl;",
+)
+# waits for a second number that never comes, while the interactor waits for its answer
+DOUBLE_THAT_WAITS = DOUBLE.replace('scanf("%d", &n);', 'int m; scanf("%d%d", &n, &m);')
+
+
+class InteractorTimeTest(unittest.TestCase):
+    """An interactor that ran out of its own CPU time had the program it talked to given a time
+    limit exceeded. It is the interactor that failed; a program the interactor waited for until
+    the time was up still exceeded it."""
+
+    def test_an_interactor_too_slow_is_a_judgment_failure(self):
+        files = interactive_problem_files()
+        files["interactor.cpp"] = SLOW_INTERACTOR
+        problem_id = uoj.admin().create_problem(files)
+        judgement = uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE))
+        self.assertEqual(set(judgement.infos), {"Interactor Judgment Failed"}, judgement)
+        self.assertIn("Interactor Time Limit Exceeded", judgement.details)
+
+    def test_a_program_the_interactor_waits_for_exceeds_the_time(self):
+        problem_id = uoj.admin().create_problem(interactive_problem_files())
+        judgement = uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE_THAT_WAITS))
+        self.assertEqual(set(judgement.infos), {"Time Limit Exceeded"}, judgement)
+        self.assertEqual(uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE)).score, 100)
 
 if __name__ == "__main__":
     unittest.main()
