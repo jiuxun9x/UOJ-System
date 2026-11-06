@@ -142,14 +142,14 @@
 	<div id="div-email" class="form-group">
 		<label for="input-email" class="col-sm-2 control-label"><?= UOJLocale::get('email') ?></label>
 		<div class="col-sm-3">
-			<input type="email" class="form-control" name="email" id="input-email" value="<?=$myUser['email']?>" placeholder="<?= UOJLocale::get('enter your email') ?>" maxlength="50" />
+			<input type="email" class="form-control" name="email" id="input-email" value="<?= HTML::escape($myUser['email']) ?>" placeholder="<?= UOJLocale::get('enter your email') ?>" maxlength="50" />
 			<span class="help-block" id="help-email"></span>
 		</div>
 	</div>
 	<div id="div-qq" class="form-group">
 		<label for="input-qq" class="col-sm-2 control-label"><?= UOJLocale::get('QQ') ?></label>
 		<div class="col-sm-3">
-			<input type="text" class="form-control" name="qq" id="input-qq" value="<?= $myUser['qq'] != 0 ? $myUser['qq'] : '' ?>" placeholder="<?= UOJLocale::get('enter your QQ') ?>" maxlength="50" />
+			<input type="text" class="form-control" name="qq" id="input-qq" value="<?= $myUser['qq'] != 0 ? HTML::escape($myUser['qq']) : '' ?>" placeholder="<?= UOJLocale::get('enter your QQ') ?>" maxlength="50" />
 			<span class="help-block" id="help-qq"></span>
 		</div>
 	</div>

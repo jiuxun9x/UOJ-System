@@ -677,5 +677,14 @@ class ProfileFormTest(unittest.TestCase):
         self.assertIn("logout?_token=", elsewhere.get("/").text)
         uoj.Client().login(*account)
 
+    def test_the_email_is_escaped_on_the_form(self):
+        user = uoj.client(("p15_profile_mail", "p15-password"))
+        # an address the site takes (anything with an @), as single sign-on may bring one
+        address = 'a"autofocus onfocus="alert(1)@b'
+        db("update user_info set email = '%s' where username = '%s'" % (address.replace("'", "''"), user.username))
+        page = user.get("/user/modify-profile").text
+        self.assertNotIn('onfocus="alert(1)', page)
+        self.assertIn('value="a&quot;autofocus onfocus=&quot;alert(1)@b"', page)
+
 if __name__ == "__main__":
     unittest.main()
