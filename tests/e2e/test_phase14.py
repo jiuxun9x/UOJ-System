@@ -422,13 +422,19 @@ class MemoryGiveBackTest(unittest.TestCase):
         files["output1.txt"] = "42\n"
         self.assertIn("上传成功", self.admin.upload_data(self.problem_id, files).text)
         self.assertEqual(self.admin.sync(self.problem_id, wait=False), "")
-        # (the data is built by the fake judger, which is all there is)
-        prepared = self.task_for(self.BIG)
-        self.assertIn("prepare", prepared)
-        r = uoj.judge_api("/judge/submit", {"fetch_new": "0", "worker": self.BIG, "prepare_result": "1", "id": prepared["prepare"]["id"], "claim": prepared["claim"], "ok": "1", "message": ""})
-        self.assertEqual(r.status_code, 200)
+        # (data with programs to build waits for a judger to build them: the fake judger is the
+        # only one there is; data without any is published at once)
+        pending = db_value("select id from problem_data_versions where problem_id = %d and status = 'pending' order by id desc limit 1" % self.problem_id)
+        if pending is not None:
+            prepared = self.task_for(self.BIG)
+            self.assertEqual(prepared["prepare"]["id"], int(pending))
+            r = uoj.judge_api("/judge/submit", {"fetch_new": "0", "worker": self.BIG, "prepare_result": "1", "id": prepared["prepare"]["id"], "claim": prepared["claim"], "ok": "1", "message": ""})
+            self.assertEqual(r.status_code, 200)
         self.assertEqual(uoj.wait_data_version(self.problem_id), "")
         self.assertNotEqual(db_value("select data_version from problems where id = %d" % self.problem_id), version)
+        # the problem still says 2000 MB, of the version of before; the big judger is around again
+        self.assertEqual(self.remembered(), ("2000", version))
+        self.assertEqual(self.ask(self.BIG), "Nothing to judge")
         fourth = self.admin.submit(self.problem_id, AB)
         task = self.task_for(self.SMALL, memory=1000)
         self.assertEqual(task["id"], fourth)
