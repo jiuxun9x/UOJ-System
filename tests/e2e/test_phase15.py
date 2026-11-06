@@ -379,5 +379,33 @@ class InteractorTimeTest(unittest.TestCase):
         self.assertEqual(set(judgement.infos), {"Time Limit Exceeded"}, judgement)
         self.assertEqual(uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE)).score, 100)
 
+
+# A+B after some seconds of system calls, which take next to no time of its own
+AB_IN_THE_KERNEL = r"""#include <cstdio>
+#include <unistd.h>
+#include <sys/syscall.h>
+int main() {
+    long long a, b;
+    scanf("%lld%lld", &a, &b);
+    for (long i = 0; i < 60000000; i++) {
+        syscall(SYS_getpid);
+    }
+    printf("%lld\n", a + b);
+}
+"""
+
+
+class KernelTimeTest(unittest.TestCase):
+    """The time limit counted the CPU time a program used itself, and not what it used in the
+    kernel for it: a program that spends its time in system calls ran on until the time that went
+    by stopped it, and was told it had used less than its limit."""
+
+    def test_time_in_the_kernel_counts(self):
+        # (the time that may go by is long, so that only the CPU time can stop it)
+        problem_id = uoj.admin().create_problem(ab_problem_files(real_time_limit=30))
+        judgement = uoj.wait_submission(uoj.admin().submit(problem_id, AB_IN_THE_KERNEL), timeout=600)
+        self.assertEqual(set(judgement.infos), {"Time Limit Exceeded"}, judgement)
+        self.assertEqual(uoj.wait_submission(uoj.admin().submit(problem_id, AB)).score, 100)
+
 if __name__ == "__main__":
     unittest.main()

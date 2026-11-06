@@ -560,7 +560,11 @@ run_event next_event() {
     ruse0p = p == 1 ? &ruse : NULL;
 
     if (p >= 1) {
-        e.usertim = ruse.ru_utime.tv_sec * 1000 + ruse.ru_utime.tv_usec / 1000;
+        // the CPU time of the program is what it used in the kernel as well: a program that
+        // spends its time in system calls or in faults of its pages is not to run on for free
+        struct timeval cpu;
+        timeradd(&ruse.ru_utime, &ruse.ru_stime, &cpu);
+        e.usertim = cpu.tv_sec * 1000 + cpu.tv_usec / 1000;
         e.usermem = ruse.ru_maxrss;
         if (e.usertim > run_program_config.limits.time * 1000) {
             e.type = ET_USER_CPU_TLE;
@@ -685,7 +689,7 @@ void dispatch_event(run_event &&e) {
             stop_all(runp::result(runp::RS_JGF, "UOJ_OVERLOADED: the machine is too busy to judge"));
         }
         case ET_USER_CPU_TLE:
-            stop_all(runp::result(runp::RS_TLE, "user CPU time limit exceeded: >"
+            stop_all(runp::result(runp::RS_TLE, "CPU time limit exceeded: >"
                                                     + std::to_string(run_program_config.limits.time)
                                                     + "s"));
         case ET_MLE:
