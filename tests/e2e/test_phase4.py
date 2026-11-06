@@ -1593,6 +1593,16 @@ class HomeworkStateTest(unittest.TestCase):
         self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "remove_participant", username="p4_st_pupil0"), "")
         self.assertEqual(set(scores_of(self.teacher, self.slug, homework_id)), {"p4_st_pupil1", "p4_st_pupil2"})
         self.assertEqual(db_value("select homework_id from submissions where id = %d" % submission_id), str(homework_id))
+        # (phase 15) and does not claim their way back in: taken out is not stepped back
+        self.assertEqual(db_value("select status from homework_participants where homework_id = %d and username = 'p4_st_pupil0'" % homework_id), "removed")
+        self.assertNotEqual(claimed.form(self.url(homework_id), "claim"), "")
+        self.assertNotIn("p4_st_pupil0", set(scores_of(self.teacher, self.slug, homework_id)))
+        page = self.teacher.get(self.url(homework_id, "/manage?tab=participants")).text
+        self.assertIn("p4_st_pupil0", re.search(r'(?s)id="list-removed">(.*?)</table>', page).group(1))
+        self.assertNotIn("p4_st_pupil0", re.search(r'(?s)id="list-unclaimed">(.*?)</table>', page).group(1) if 'id="list-unclaimed"' in page else "")
+        # those who took them out put them back
+        self.assertEqual(homework_form(self.teacher, self.slug, homework_id, "add_participant", username="p4_st_pupil0"), "")
+        self.assertIn("p4_st_pupil0", set(scores_of(self.teacher, self.slug, homework_id)))
 
     def test_maintainer_looks_after_one_homework(self):
         homework_id = self.published("p4 维护者")

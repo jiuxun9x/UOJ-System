@@ -119,7 +119,7 @@ class UOJPermissionFacts {
 		}
 		return $this->homeworks[$homework_id];
 	}
-	// 'active', 'withdrawn' or null
+	// 'active', 'withdrawn' (stepped back), 'removed' (taken out) or null
 	public function homeworkParticipantStatus($username, $homework_id) {
 		$row = homeworkParticipation($homework_id, $username);
 		return $row ? $row['status'] : null;
@@ -604,7 +604,8 @@ function can($user, $ability, $resource = null) {
 				return false;
 			}
 			$until = $resource['claim_end_at'] !== null ? $resource['claim_end_at'] : $resource['end_at'];
-			return $facts->now() < strtotime($until) && $facts->homeworkParticipantStatus($name, $resource['id']) !== 'active';
+			// who stepped back may claim it again; who was taken out of it is put back by its people
+			return $facts->now() < strtotime($until) && in_array($facts->homeworkParticipantStatus($name, $resource['id']), array(null, 'withdrawn'), true);
 		// its problems: whoever claimed it, once it has begun
 		case 'homework.solve':
 			if (can($user, 'homework.view_scores', $resource)) {

@@ -924,15 +924,16 @@ function homeworkSetParticipant($homework, $target, $active, $actor) {
 		}
 		DB::insert("insert into homework_participants (homework_id, username, status, claimed_at, added_by) values ({$homework['id']}, '$esc_target', 'active', '".DB::escape(UOJTime::$time_now_str)."', '".DB::escape($actor['username'])."') on duplicate key update status = 'active', added_by = '".DB::escape($actor['username'])."'");
 	} else {
-		DB::update("update homework_participants set status = 'withdrawn' where homework_id = {$homework['id']} and username = '$esc_target'");
+		// taken out, which is not stepping back: claiming the homework does not put them back
+		DB::update("update homework_participants set status = 'removed' where homework_id = {$homework['id']} and username = '$esc_target'");
 	}
 	auditLog($active ? 'homework.add_participant' : 'homework.remove_participant', 'homework', $homework['id'], null, array('username' => $target['username']), $actor);
 	return '';
 }
-// the students of the domain who have not claimed a homework
+// the students of the domain who have not claimed a homework (and were not taken out of it)
 function homeworkUnclaimedMembers($homework) {
 	$names = array();
-	foreach (DB::selectAll("select username from domain_members where domain_id = {$homework['domain_id']} and role = 'member' and username not in (select username from homework_participants where homework_id = {$homework['id']} and status = 'active') order by username") as $row) {
+	foreach (DB::selectAll("select username from domain_members where domain_id = {$homework['domain_id']} and role = 'member' and username not in (select username from homework_participants where homework_id = {$homework['id']} and status in ('active', 'removed')) order by username") as $row) {
 		$names[] = $row['username'];
 	}
 	return $names;

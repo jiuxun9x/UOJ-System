@@ -558,7 +558,7 @@ $facts->homeworks = array(
 $facts->domain_members['mate'] = 'member';
 $facts->domain_members['mate/1'] = 'member';
 $permission_test_users['mate'] = fake_user('mate');
-$facts->homework_participants = array('pupil/1' => 'active', 'classmate/1' => 'active', 'pupil/2' => 'active', 'pupil/4' => 'active', 'mate/4' => 'active', 'mate/1' => 'withdrawn');
+$facts->homework_participants = array('pupil/1' => 'active', 'classmate/1' => 'active', 'pupil/2' => 'active', 'pupil/4' => 'active', 'mate/4' => 'active', 'mate/1' => 'withdrawn', 'mate/2' => 'removed');
 // classmate is a student who was asked to look after homework 1; alice was too, but is no member of the domain
 $facts->homework_maintainers = array('classmate/1', 'alice/1');
 
@@ -570,8 +570,10 @@ check_ability('homework.view', $running, $outsiders + array('pupil' => true, 'ma
 check_ability('homework.view', $facts->homeworks[3], $outsiders + array('lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false, 'mate' => false), 'a draft');
 
 // students claim a homework to take part, until claiming ends
-check_ability('homework.claim', $facts->homeworks[2], $outsiders + array('mate' => true, 'classmate' => true, 'pupil' => false, 'tutor' => false, 'lecturer' => false, 'lead' => false, 'root' => false), 'a homework that has not begun');
+check_ability('homework.claim', $facts->homeworks[2], $outsiders + array('mate' => false, 'classmate' => true, 'pupil' => false, 'tutor' => false, 'lecturer' => false, 'lead' => false, 'root' => false), 'a homework that has not begun');
 check_ability('homework.claim', $running, array('mate' => true, 'pupil' => false), 'a homework that is running: somebody who stepped back may claim it again');
+// mate was taken out of homework 2 by its people: claiming it does not put them back
+check_ability('homework.claim', $facts->homeworks[2], array('mate' => false), 'a homework somebody was taken out of');
 check_ability('homework.claim', $facts->homeworks[3], array('mate' => false), 'a draft');
 check_ability('homework.claim', $facts->homeworks[4], array('classmate' => false), 'a homework that is over');
 check_ability('homework.claim', $facts->homeworks[5], array('mate' => false, 'classmate' => false), 'a homework whose claiming has ended');

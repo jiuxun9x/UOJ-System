@@ -535,6 +535,7 @@ $(document).ready(function() {
 <?php
 	$participants = homeworkParticipants($homework);
 	$withdrawn = homeworkParticipants($homework, 'withdrawn');
+	$removed = homeworkParticipants($homework, 'removed');
 	$unclaimed = homeworkUnclaimedMembers($homework);
 	$maintainers = homeworkMaintainers($homework);
 ?>
@@ -576,6 +577,12 @@ $(document).ready(function() {
 		<?php if ($withdrawn): ?>
 		<h4 class="uoj-domain-section-title">已退出 <small class="text-muted">(<?= count($withdrawn) ?>)</small></h4>
 		<?php echoRoster('list-withdrawn', $withdrawn) ?>
+		<?php endif ?>
+
+		<?php if ($removed): ?>
+		<h4 class="uoj-domain-section-title">已移出 <small class="text-muted">(<?= count($removed) ?>)</small></h4>
+		<p class="text-muted small">移出的学生不能自己再认领；要让他们回来，在上面“加入作业”。</p>
+		<?php echoRoster('list-removed', $removed) ?>
 		<?php endif ?>
 	</div>
 	<div class="col-lg-4">
