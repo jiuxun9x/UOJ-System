@@ -78,18 +78,25 @@ int execute(const Args &...args) {
     return WEXITSTATUS(status);
 }
 
+// A command made as printf makes a text, run as execute() runs one. The command is as long as it
+// is: one longer than a buffer of 1024 bytes was not run at all, without a word, and the
+// cleaning and copying of a judgement in a deep folder were skipped.
 int executef(const char *fmt, ...) {
-    constexpr int L = 1 << 10;
-    char cmd[L];
-    va_list ap;
+    va_list ap, again;
     va_start(ap, fmt);
-    int res = vsnprintf(cmd, L, fmt, ap);
-    if (res < 0 || res >= L) {
+    va_copy(again, ap);
+    int length = vsnprintf(nullptr, 0, fmt, ap);
+    va_end(ap);
+    if (length < 0) {
+        va_end(again);
+        std::cerr << "executef: the command can not be made of " << fmt << std::endl;
         return -1;
     }
-    res = execute(cmd);
-    va_end(ap);
-    return res;
+    std::string cmd(length + 1, '\0');
+    vsnprintf(&cmd[0], cmd.size(), fmt, again);
+    va_end(again);
+    cmd.resize(length);
+    return execute(cmd);
 }
 
 class cannot_determine_class_name_error : std::invalid_argument {
