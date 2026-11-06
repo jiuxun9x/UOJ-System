@@ -25,4 +25,7 @@ check_same(array('first', 'last'), $done, 'the steps after one that failed are d
 check_same(array('throws', 'mistyped'), array_keys($failed), 'the steps that failed are told');
 check_same(1, preg_match('/^Exception: the disk is full \(tick_test\.php:\d+\)$/', $failed['throws']), 'what went wrong, and where');
 check_same(0, strpos($failed['mistyped'], 'TypeError: '), 'an error of PHP is caught as well');
-check_same(array(), siteTickRunSteps(array('fine' => function () {})), 'nothing failed');
+$fine = function () {
+	return true;
+};
+check_same(array(), siteTickRunSteps(array('fine' => $fine)), 'nothing failed');
