@@ -58,3 +58,8 @@ check_same('尝试次数过多，请 1 分钟后再试', authWaitMessage(1), 'a 
 $scopes = authLoginScopes('ann', '10.0.0.7');
 check_same(array('login:pair:ann|10.0.0.7' => 5, 'login:user:ann' => 20, 'login:ip:10.0.0.7' => 100), $scopes, 'the scopes of a login');
 check_same(array('contest:12:ann' => 20), authContestScopes('ann', '12'), 'the scope of the password of a contest');
+// a name is one name in any letters, as it is to the database: trying another way of writing it
+// tries the same name again
+check_same($scopes, authLoginScopes('Ann', '10.0.0.7'), 'the scopes of a login with the name written otherwise');
+check_same($scopes, authLoginScopes('ANN', '10.0.0.7'), 'the scopes of a login with the name in capitals');
+check_same(array('contest:12:ann' => 20), authContestScopes('Ann', '12'), 'the scope of the password of a contest, with the name written otherwise');

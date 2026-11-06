@@ -22,6 +22,15 @@ def title_of(problem_id):
     return db_value("select title from problems where id = %d" % problem_id)
 
 
+def try_login(username, password):
+    """what the site answers a login with this password"""
+    client = uoj.Client()
+    r = client.http.post(uoj.BASE_URL + "/login", data={
+        "_token": client.token, "login": "", "username": username, "password": client.password_hash(password),
+    })  # fmt: skip
+    return r.text
+
+
 class DomainProblemManagerTest(unittest.TestCase):
     """A problem of a domain could be given to anybody to manage, and stayed theirs when they
     left the domain or were taken out of it: from its address on the site they changed it still."""
@@ -133,6 +142,21 @@ class ArchivedDomainTest(unittest.TestCase):
         self.assertEqual(teacher.form("/d/p16-archived/settings", "archive"), "")
         self.assertEqual(teacher.contest_settings(contest_id, name="p16 renamed"), "")
         self.assertEqual(contest_name(), "p16 renamed")
+
+
+class LoginNameLettersTest(unittest.TestCase):
+    """The wrong passwords of a name were counted by the name as it was typed, while the user is
+    found by the name in any letters: past the limit, the same name in capitals tried on."""
+
+    def test_a_name_written_otherwise_is_the_same_name(self):
+        uoj.Client().register("p16_letters", "p16-letters-password")
+        for name in ("p16_letters", "P16_letters", "p16_LETTERS", "P16_LETTERS", "p16_Letters"):
+            self.assertEqual(try_login(name, "wrong"), "failed")
+        # the sixth is not looked at, however the name is written
+        for name in ("p16_letters", "P16_LETTERS", "p16_lEtTeRs"):
+            self.assertRegex(try_login(name, "p16-letters-password"), r"^throttled \d+$")
+        db("delete from auth_failures where scope like 'login:%p16_letters%'")
+        self.assertEqual(try_login("P16_LETTERS", "p16-letters-password"), "ok")
 
 
 if __name__ == "__main__":

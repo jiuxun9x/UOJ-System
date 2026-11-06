@@ -143,9 +143,12 @@ function authLimits() {
 		'seconds' => 60 * (isset($conf['minutes']) ? max(1, (int)$conf['minutes']) : 15)
 	);
 }
-// the scopes of logging in as a user from an address: scope => how many failures it allows
+// The scopes of logging in as a user from an address: scope => how many failures it allows. A
+// name is the same name whatever its letters are, as it is to the database that finds the user:
+// Ann and ANN are the passwords of ann tried again.
 function authLoginScopes($username, $ip) {
 	$limits = authLimits();
+	$username = strtolower((string)$username);
 	return array(
 		"login:pair:$username|$ip" => $limits['pair'],
 		"login:user:$username" => $limits['user'],
@@ -154,6 +157,7 @@ function authLoginScopes($username, $ip) {
 }
 function authContestScopes($username, $contest_id) {
 	$limits = authLimits();
+	$username = strtolower((string)$username);
 	return array("contest:" . (int)$contest_id . ":$username" => $limits['contest']);
 }
 // How many seconds one has to wait: so many failures since the start of a window that began so
