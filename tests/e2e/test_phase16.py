@@ -159,5 +159,26 @@ class LoginNameLettersTest(unittest.TestCase):
         self.assertEqual(try_login("P16_LETTERS", "p16-letters-password"), "ok")
 
 
+class DecimalScoreTest(unittest.TestCase):
+    """A problem may count in decimals (score_type real-1). The site keeps a score as a whole
+    number, and 99.6 was kept as 100: a pass, counted among the solved problems."""
+
+    def test_a_score_short_of_full_is_no_pass(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files(score_type="real-1", point_score_1="49.8", point_score_2="49.8", point_score_3="0.4"))
+        pupil = account("p16_decimal")
+        solved = lambda: db_value("select count(*) from best_ac_submissions where submitter = 'p16_decimal' and problem_id = %d" % problem_id)
+        # the third test (999999999 1) is the 0.4 that it misses
+        almost = pupil.submit(problem_id, AB.replace("a + b", "a < 1000000 ? a + b : 0"))
+        judgement = uoj.wait_submission(almost)
+        self.assertEqual(judgement.score, 99, judgement)
+        self.assertEqual(judgement.result["score"], 99.6, judgement)
+        self.assertEqual(db_value("select score from submission_judgements where kind = 'submission' and target_id = %d and outcome = 'judged'" % almost), "99")
+        self.assertEqual(solved(), "0")
+        # all of it is 100, and a pass
+        self.assertEqual(uoj.wait_submission(pupil.submit(problem_id, AB)).score, 100)
+        self.assertEqual(solved(), "1")
+
+
 if __name__ == "__main__":
     unittest.main()

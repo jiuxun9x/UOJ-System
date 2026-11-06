@@ -4,6 +4,11 @@
 
 require_once __DIR__ . '/../app/libs/uoj-contest-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-board-lib.php';
+require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
+
+// ---- the score a judgement is kept with: a whole number, never more than was earned. 99.6 of a
+// problem that counts in decimals was rounded up to 100, and passed.
+check_same(array(99, 100, 0, 59, 60, 33, 100), array(judgedScore(99.6), judgedScore(100), judgedScore(0), judgedScore('59.99'), judgedScore('60'), judgedScore(33.3), judgedScore(99.9999999)), 'judged scores are cut down to the whole point');
 
 // ---- the ICPC rule. The standings as calcStandings() leaves them, and the cells: score,
 // penalty, submission, failed attempts, attempts nobody knows the outcome of

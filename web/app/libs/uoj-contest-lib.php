@@ -928,7 +928,7 @@ function queryContestData($contest, $config = array()) {
 			}
 			$row[0] = (int)$row[0];
 			$row[3] = $prob_pos[$row[3]];
-			$row[4] = (int)($r['final_result']['score']);
+			$row[4] = judgedScore($r['final_result']['score']);
 			$data[] = $row;
 		}
 	} else {

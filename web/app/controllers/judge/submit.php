@@ -118,7 +118,7 @@
 	function finishJudgement($kind, $target_id, $outcome, $claim, $score = null) {
 		$set = "finished_at = now(), outcome = '$outcome'";
 		if ($score !== null) {
-			$set .= ", score = " . (int)round($score);
+			$set .= ", score = " . judgedScore($score);
 		}
 		// the judger reports the data it really used
 		if ($outcome == 'judged' && isset($_POST['problem_data_version']) && validateUInt($_POST['problem_data_version'])
@@ -157,7 +157,7 @@
 					$esc_error = DB::escape($result['error']);
 					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = '$esc_error', result = '$esc_result', score = null, used_time = null, used_memory = null, ".CLAIM_DROPPED." where $held";
 				} else {
-					$score = sprintf('%F', $result['score']);
+					$score = judgedScore($result['score']);
 					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = null, result = '$esc_result', score = $score, used_time = {$result['time']}, used_memory = {$result['memory']}, ".CLAIM_DROPPED." where $held";
 				}
 			})) {

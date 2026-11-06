@@ -10,6 +10,14 @@ function mergeConfig(&$config, $default_config) {
 	}
 }
 
+// The score of a judgement as the site keeps it: a whole number, which is what the columns of
+// scores hold. A problem that counts in decimals (score_type real-1 and so on) is cut down to the
+// whole point below, so that only a full score is 100 and passes: 99.6 was rounded up to 100,
+// and to a pass. (A full score is 100 exactly: the judger says so of every judgement that passed.)
+function judgedScore($score) {
+	return (int)floor((float)$score + 1e-6);
+}
+
 function strStartWith($str, $pre) {
 	return substr($str, 0, strlen($pre)) === $pre;
 }
