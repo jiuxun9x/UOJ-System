@@ -80,14 +80,41 @@ $handlers = [
 	// What the site does by itself every minute: what homework:tick does, and looking after
 	// the judgers and the queue. The container of the web server runs it in a loop; without
 	// containers it belongs in a crontab.
+	// What the site does by itself, every minute: each step is done whatever became of the ones
+	// before it, and a step that fails is told (on the standard error, which the loop of the
+	// image keeps in /var/log/uoj-site-tick.log) and is an alert on the page of the monitor.
 	'site:tick' => function () {
-		$advanced = homeworkAdvanceDue();
-		// the contests and the homeworks that are over and were told to show their problems
-		$shown = contestsRevealDue() + homeworksRevealDue();
-		$backup = backupTick() ? ', started a backup' : '';
-		list($opened, $resolved) = monitorTick();
-		$forgot = authTick();
-		die("advanced $advanced homeworks, showed $shown problems, opened $opened alerts, resolved $resolved alerts, forgot $forgot old logins$backup\n");
+		$said = array();
+		$steps = array(
+			'homeworks' => function () use (&$said) {
+				$said[] = 'advanced ' . homeworkAdvanceDue() . ' homeworks';
+			},
+			// the contests and the homeworks that are over and were told to show their problems
+			'reveal' => function () use (&$said) {
+				$said[] = 'showed ' . (contestsRevealDue() + homeworksRevealDue()) . ' problems';
+			},
+			'backup' => function () use (&$said) {
+				if (backupTick()) {
+					$said[] = 'started a backup';
+				}
+			},
+			'monitor' => function () use (&$said) {
+				list($opened, $resolved) = monitorTick();
+				$said[] = "opened $opened alerts, resolved $resolved alerts";
+			},
+			'logins' => function () use (&$said) {
+				$said[] = 'forgot ' . authTick() . ' old logins';
+			}
+		);
+		$failed = siteTickRunSteps($steps);
+		$failed += siteTickRunSteps(array('alerts' => function () use ($failed, $steps) {
+			siteTickAlerts($failed, $steps);
+		}));
+		echo date('Y-m-d H:i:s'), ' ', implode(', ', $said), "\n";
+		foreach ($failed as $name => $message) {
+			fwrite(STDERR, date('Y-m-d H:i:s') . " site:tick: $name failed: $message\n");
+		}
+		exit($failed ? 1 : 0);
 	},
 	// Makes a backup of the database, the data of the problems and the submissions now.
 	'backup:run' => function ($reason = 'manual') {

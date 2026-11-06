@@ -276,5 +276,39 @@ class PublishingTest(unittest.TestCase):
         self.assertGreater(rating_of(winner.username), after_first)
         self.assertEqual(db_value("select user_rating from contests_registrants where contest_id = %d and username = '%s'" % (second, winner.username)), str(after_first))
 
+
+# what site:tick does with the steps that failed, called the way cli.php calls it
+TICK_ALERTS = r"""cat > /tmp/p15_tick.php <<'PHP'
+<?php
+$_SERVER['DOCUMENT_ROOT'] = '/opt/uoj/web';
+require '/opt/uoj/web/app/libs/uoj-lib.php';
+echo json_encode(siteTickAlerts(%s, array()));
+PHP
+php /tmp/p15_tick.php"""
+
+
+class SiteTickTest(unittest.TestCase):
+    """What the site does by itself every minute (cli.php site:tick, in a loop of the image) had all
+    it said thrown away, and a step that failed kept the ones after it, the backups and the
+    alerts among them, from being done, without a word."""
+
+    def test_a_tick_tells_what_it_did(self):
+        said = docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php site:tick")
+        self.assertRegex(said, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d advanced \d+ homeworks, showed \d+ problems, opened \d+ alerts")
+
+    def test_the_loop_keeps_a_log(self):
+        uoj.wait_until("site:tick writes its log", lambda: "advanced" in docker_exec(uoj.WEB, "cat /var/log/uoj-site-tick.log 2>/dev/null || true"), timeout=180)
+
+    def test_a_step_that_fails_is_an_alert_until_it_works_again(self):
+        before = int(db_value("select count(*) from user_system_msg where title = '告警：定时任务出错'"))
+        opened = json.loads(docker_exec(uoj.WEB, TICK_ALERTS % "array('p15_step' => 'the disk is full')"))
+        self.assertEqual(opened, [1, 0])
+        message = db_value("select message from site_alerts where kind = 'tick_failed' and subject = 'p15_step' order by id desc limit 1")
+        self.assertIn("the disk is full", message)
+        self.assertGreater(int(db_value("select count(*) from user_system_msg where title = '告警：定时任务出错'")), before)
+        docker_exec(uoj.WEB, TICK_ALERTS % "array()")
+        self.assertEqual(db_value("select count(*) from site_alerts where kind = 'tick_failed' and subject = 'p15_step' and active_slot = 1"), "0")
+        self.assertNotEqual(db_value("select ifnull(resolved_at, 'NULL') from site_alerts where kind = 'tick_failed' and subject = 'p15_step' order by id desc limit 1"), "NULL")
+
 if __name__ == "__main__":
     unittest.main()

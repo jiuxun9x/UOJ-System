@@ -61,7 +61,7 @@ RUN sh web/install.sh -p && \
       'fi' \
       'php /opt/uoj/web/app/cli.php upgrade:latest' \
       'php /opt/uoj/web/app/cli.php user:finish-renames' \
-      '(while sleep 60; do php /opt/uoj/web/app/cli.php site:tick > /dev/null 2>&1; done) &' \
+      '(while sleep 60; do php /opt/uoj/web/app/cli.php site:tick >> /var/log/uoj-site-tick.log 2>&1 || true; if [ "$(stat -c %s /var/log/uoj-site-tick.log)" -gt 1048576 ]; then mv -f /var/log/uoj-site-tick.log /var/log/uoj-site-tick.log.1; fi; done) &' \
       'rm -f /var/run/apache2/apache2.pid' \
       'exec apache2ctl -D FOREGROUND' > /opt/up && \
     chmod +x /opt/up

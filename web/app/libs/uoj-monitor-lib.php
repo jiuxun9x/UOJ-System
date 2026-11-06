@@ -93,7 +93,8 @@ function alertKindName($kind) {
 		'judger_silent' => '评测机离线',
 		'queue_stuck' => '评测积压',
 		'backup_failed' => '备份失败',
-		'backup_overdue' => '备份过期'
+		'backup_overdue' => '备份过期',
+		'tick_failed' => '定时任务出错'
 	);
 	return isset($names[$kind]) ? $names[$kind] : $kind;
 }
@@ -183,6 +184,42 @@ function monitorTick() {
 	$problems = monitorFindProblems(monitorJudgers(), monitorQueue(), siteSetting('alert.judger_silent_seconds'), siteSetting('alert.queue_wait_seconds'));
 	$problems = array_merge($problems, backupCurrentProblems());
 	$changes = alertsSync(array('no_judger', 'judger_silent', 'queue_stuck', 'backup_failed', 'backup_overdue'), $problems);
+	foreach ($changes['opened'] as $alert) {
+		alertNotify($alert, false);
+	}
+	foreach ($changes['resolved'] as $alert) {
+		alertNotify($alert, true);
+	}
+	return array(count($changes['opened']), count($changes['resolved']));
+}
+
+// ---- the steps of site:tick
+//
+// cli.php site:tick does every minute what the site does by itself: it closes homeworks, shows
+// problems, starts backups, watches the judgers. Each step is done whatever became of the ones
+// before it: a step that fails does not keep the backups or the alerts from happening.
+
+// Runs the steps (name => function), each of them. Returns name => what went wrong, of the
+// ones that failed.
+function siteTickRunSteps($steps) {
+	$failed = array();
+	foreach ($steps as $name => $step) {
+		try {
+			$step();
+		} catch (Throwable $e) {
+			$failed[$name] = get_class($e) . ': ' . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')';
+		}
+	}
+	return $failed;
+}
+// A step that failed is an alert, one for each step, that is told to the administrators and is
+// closed once the step works again. Returns array(opened, resolved).
+function siteTickAlerts($failed, $steps) {
+	$problems = array();
+	foreach ($failed as $name => $message) {
+		$problems[] = array('kind' => 'tick_failed', 'subject' => (string)$name, 'message' => mb_substr("定时任务的 $name 一步出错：$message", 0, 400, 'UTF-8'));
+	}
+	$changes = alertsSync(array('tick_failed'), $problems);
 	foreach ($changes['opened'] as $alert) {
 		alertNotify($alert, false);
 	}
