@@ -3,6 +3,12 @@
 	requirePHPLib('data');
 	
 	requireJudgerAuthentication();
+	// An account that is turned off is given nothing more: no task, and no data of the problems
+	// either. (What a judger of it says of the task it had is still taken, see judge/submit.)
+	if (!$uojJudger['enabled']) {
+		header($_SERVER['SERVER_PROTOCOL'] . " 403 Forbidden", true, 403);
+		die("this judging account is turned off");
+	}
 	
 	// the names that make the paths of the files are what they can be, and nothing that leaves
 	// the folders of the files

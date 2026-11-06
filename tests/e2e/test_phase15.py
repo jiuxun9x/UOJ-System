@@ -645,5 +645,17 @@ class JudgeDownloadTest(unittest.TestCase):
         r = uoj.judge_api("/judge/download/tmp/%s?type=submission&id=../.." % self.NAME)
         self.assertEqual((r.status_code, r.headers.get("X-UOJ-SHA256")), (200, expected))
 
+    def test_an_account_that_is_turned_off_downloads_nothing(self):
+        problem_id = uoj.admin().create_problem(ab_problem_files())
+        where = "judger_name = '%s'" % uoj.FAKE_JUDGER["judger_name"]
+        self.assertEqual(uoj.judge_api("/judge/download/problem/%d" % problem_id).status_code, 200)
+        db("update judger_info set enabled = 0 where %s" % where)
+        try:
+            for path in ("/judge/download/problem/%d" % problem_id, "/judge/download/tmp/%s" % self.NAME):
+                r = uoj.judge_api(path)
+                self.assertEqual((r.status_code, r.text), (403, "this judging account is turned off"), path)
+        finally:
+            db("update judger_info set enabled = 1 where %s" % where)
+
 if __name__ == "__main__":
     unittest.main()
