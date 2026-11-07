@@ -66,6 +66,42 @@
 		return null;
 	};
 
+	// ---- who is shown: a part of a name looked for, and the people followed (kept in the browser,
+	// for every board alike)
+	var follows = {};
+	try {
+		$.each(JSON.parse(keep('follow') || '[]'), function(index, username) {
+			follows[String(username)] = true;
+		});
+	} catch (e) {
+		follows = {};
+	}
+	var followed = function(username) {
+		return follows[username] === true;
+	};
+	var follow = function(username, on) {
+		if (on) {
+			follows[username] = true;
+		} else {
+			delete follows[username];
+		}
+		keep('follow', JSON.stringify($.map(follows, function(yes, name) {
+			return name;
+		})));
+	};
+	var onlyFollowed = keep('only-followed') === 'on';
+	var looked = '';
+	// whether somebody of the board is shown: who sat the contest virtually is never followed
+	var matchesName = function(username, nickname) {
+		if (onlyFollowed && !followed(username)) {
+			return false;
+		}
+		return looked === '' || username.toLowerCase().indexOf(looked) >= 0 || String(nickname || '').toLowerCase().indexOf(looked) >= 0;
+	};
+	var shown = function(row) {
+		return matchesName(row.username, row.nickname);
+	};
+
 	// ---- the table
 	var head = function() {
 		var html = '<tr><th class="uoj-ob-rank">排名</th><th class="uoj-ob-name">选手</th>';
@@ -149,6 +185,12 @@
 			// who sat it virtually is under a star, and their name shows the board as they see it
 			name = '<a class="uoj-ob-vp" href="' + esc(viewOf(row.username)) + '" title="看 ' + esc(row.username) + ' 虚拟参赛时看到的榜单">'
 				+ '<span class="uoj-ob-star">*</span>' + name + '</a>';
+		} else {
+			// a contestant may be followed, and their name tells what they submitted when
+			var on = followed(row.username);
+			name = '<button type="button" class="uoj-ob-follow' + (on ? ' uoj-ob-follow-on' : '') + '" data-username="' + esc(row.username) + '"'
+				+ ' aria-pressed="' + (on ? 'true' : 'false') + '" title="' + (on ? '取消关注' : '关注') + '">' + (on ? '★' : '☆') + '</button>'
+				+ '<a href="#" class="uoj-ob-person" data-username="' + esc(row.username) + '" title="看 TA 的提交">' + name + '</a>';
 		}
 		html += '<td class="uoj-ob-name">' + name + '</td>';
 		$.each(row.cells, function(pos, cell) {
@@ -193,7 +235,8 @@
 				return cell.join('|');
 			});
 			tr.attr({'data-key': row.key, 'data-username': row.username, 'data-rank': row.rank, 'data-solved': row.solved, 'data-penalty': row.penalty, 'data-virtual': row.virtual ? 1 : 0})
-				.attr('class', 'uoj-ob-band-' + row.band + (whose() !== '' && row.key === whose() ? ' uoj-ob-me' + (state.viewing ? ' uoj-ob-viewed' : '') : ''))
+				.attr('class', 'uoj-ob-band-' + row.band + (whose() !== '' && row.key === whose() ? ' uoj-ob-me' + (state.viewing ? ' uoj-ob-viewed' : '') : '')
+					+ (!row.virtual && followed(row.username) ? ' uoj-ob-followed' : '') + (shown(row) ? '' : ' uoj-ob-hidden'))
 				.html(rowHtml(row)).data('said', said);
 			if (moving && was) {
 				tr.children('td.uoj-ob-cell').each(function(pos) {
@@ -235,6 +278,8 @@
 				body.find('.uoj-ob-flash, .uoj-ob-up, .uoj-ob-new').removeClass('uoj-ob-flash uoj-ob-up uoj-ob-new');
 			}, 2600);
 		}
+		var visible = $.grep(state.rows, shown).length;
+		$('#outer-board-shown').text(visible < state.rows.length ? '显示 ' + visible + ' / ' + state.rows.length + ' 人' : '');
 		var nobody = state.phase !== 'before' && state.rows.length === 0;
 		$('#outer-board-empty').toggle(state.phase === 'before' || nobody)
 			.text(state.phase === 'before' ? '比赛开始之后，榜单会出现在这里。' : '还没有选手上榜：选手打开题目之后就会出现。');
@@ -352,7 +397,7 @@
 	// The submissions are asked for only while somebody looks at them: the board is asked for
 	// every few seconds by everybody who watches it.
 	var wantsRuns = function() {
-		return tab !== 'board' && icpc();
+		return (tab !== 'board' || person !== null) && icpc();
 	};
 	// what somebody is called on the board
 	var nameOf = function(username) {
@@ -388,8 +433,14 @@
 			$('#outer-board-runs-more').hide();
 			return;
 		}
+		var nicknames = {};
+		$.each(state.rows, function(index, row) {
+			if (!row.virtual) {
+				nicknames[row.username] = row.nickname;
+			}
+		});
 		var runs = $.grep(state.runs, function(run) {
-			return (problem === null || run[2] === problem) && (!outcome || run[3] === outcome);
+			return (problem === null || run[2] === problem) && (!outcome || run[3] === outcome) && matchesName(run[1], nicknames[run[1]]);
 		}).reverse();
 		$('#outer-board-runs-count').text('共 ' + runs.length + ' 次提交');
 		$('#outer-board-runs-note').text('按时间从新到旧。不含编译错误，也不含一道题通过之后再交的提交，和榜单的算法一样。'
@@ -398,8 +449,8 @@
 		$.each(runs.slice(0, shownRuns), function(index, run) {
 			var letter = state.problems[run[2]] ? state.problems[run[2]].letter : '?';
 			var color = state.problems[run[2]] ? state.problems[run[2]].color : null;
-			html += '<tr data-username="' + esc(run[1]) + '"><td class="uoj-ob-runs-time">' + clock(run[0]) + '</td>'
-				+ '<td class="uoj-ob-runs-name">' + esc(nameOf(run[1])) + '</td>'
+			html += '<tr data-username="' + esc(run[1]) + '"' + (followed(run[1]) ? ' class="uoj-ob-followed"' : '') + '><td class="uoj-ob-runs-time">' + clock(run[0]) + '</td>'
+				+ '<td class="uoj-ob-runs-name"><a href="#" class="uoj-ob-person" data-username="' + esc(run[1]) + '">' + esc(nameOf(run[1])) + '</a></td>'
 				+ '<td class="uoj-ob-runs-problem">' + (color ? '<i style="background-color: ' + esc(color) + '"></i>' : '') + esc(letter) + '</td>'
 				+ '<td><span class="uoj-ob-verdict uoj-ob-verdict-' + run[3] + '">' + said[run[3]] + '</span></td></tr>';
 		});
@@ -620,6 +671,10 @@
 	};
 	var panels = function() {
 		$('#outer-board-tab-runs').toggle(icpc());
+		$('#outer-board-people-filters').toggle(tab !== 'stats' && state.phase !== 'before');
+		if (person !== null) {
+			drawPerson();
+		}
 		if (tab === 'runs') {
 			drawRuns();
 		} else if (tab === 'stats') {
@@ -671,16 +726,143 @@
 	});
 	// one tip for every mark, where it is pointed at or reached by the keyboard
 	var tip = $('#outer-board-tip');
-	$('#outer-board-panel-stats').on('pointermove focusin', '.uoj-ob-hit', function(e) {
+	root.on('pointermove focusin', '.uoj-ob-hit', function(e) {
 		var mark = this.getBoundingClientRect();
 		tip.text($(this).attr('data-tip')).show();
 		var x = e.type === 'focusin' ? mark.left + mark.width / 2 : e.clientX;
 		var y = e.type === 'focusin' ? mark.top : e.clientY;
 		tip.css({left: Math.min(window.innerWidth - tip.outerWidth() - 8, Math.max(8, x + 12)) + 'px', top: Math.max(8, y - tip.outerHeight() - 10) + 'px'});
 		$(this).addClass('uoj-ob-hit-on');
-	}).on('pointerleave focusout', '.uoj-ob-hit', function() {
+	});
+	root.on('pointerleave focusout', '.uoj-ob-hit', function() {
 		tip.hide();
 		$(this).removeClass('uoj-ob-hit-on');
+	});
+
+	// ---- one contestant: where they stand, and what they submitted when, problem by problem
+	var person = null;
+	var drawPerson = function() {
+		var box = $('#outer-board-person');
+		var row = null;
+		$.each(state.rows, function(index, one) {
+			if (one.username === person && !one.virtual) {
+				row = one;
+				return false;
+			}
+		});
+		if (person === null || !row) {
+			box.hide();
+			person = null;
+			return;
+		}
+		$('#outer-board-person-name').text(nameOf(person));
+		var medal = row.medal ? state.medals[row.medal - 1] : null;
+		$('#outer-board-person-sum').text('排名 ' + row.rank + ' · ' + (icpc() ? '通过 ' + row.solved + ' 题 · 罚时 ' + Math.floor(row.penalty / 60) + (row.dirt === null ? '' : ' · Dirt ' + row.dirt + '%')
+			: '总分 ' + row.solved + ' · 用时 ' + clock(row.penalty)) + (medal ? ' · ' + medal.name : ''));
+		$('#outer-board-person-key').toggle(icpc());
+		var body = $('#outer-board-person-body');
+		if (!icpc()) {
+			// a board of scores tells the last submission to every problem, with its score
+			var rows = [];
+			$.each(row.cells, function(pos, cell) {
+				if (cell[0] !== 'none') {
+					rows.push('<tr><td>' + esc(state.problems[pos].letter) + '</td><td>' + esc(cell[1]) + '</td><td>' + esc(cell[2]) + '</td></tr>');
+				}
+			});
+			body.html(rows.length ? '<table class="uoj-ob-runs"><thead><tr><th>题目</th><th>得分</th><th>时间</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>'
+				: '<p class="uoj-ob-runs-empty">还没有提交</p>');
+			return;
+		}
+		if (!state.runs) {
+			body.html('<p class="uoj-ob-runs-empty">正在载入……</p>');
+			return;
+		}
+		var runs = $.grep(state.runs, function(run) {
+			return run[1] === person;
+		});
+		// a line of every problem, with what was submitted to it along the contest
+		var width = Math.max(320, Math.min(640, Math.floor(body.width() || 560)));
+		var left = 34, right = 14, line = 26, upper = 6, lower = 22;
+		var span = width - left - right;
+		var xOf = function(seconds) {
+			return left + span * Math.min(1, seconds / Math.max(1, state.duration));
+		};
+		var inner = '';
+		for (var hour = 0; hour * 3600 <= state.duration; hour++) {
+			inner += '<line class="uoj-ob-grid" x1="' + xOf(hour * 3600) + '" x2="' + xOf(hour * 3600) + '" y1="' + upper + '" y2="' + (upper + line * state.problems.length) + '"></line>'
+				+ '<text class="uoj-ob-axis-label" x="' + xOf(hour * 3600) + '" y="' + (upper + line * state.problems.length + 15) + '" text-anchor="middle">' + hour + ':00</text>';
+		}
+		if (state.freeze !== null && state.freeze !== undefined) {
+			inner += '<line class="uoj-ob-freeze" x1="' + xOf(state.freeze) + '" x2="' + xOf(state.freeze) + '" y1="' + upper + '" y2="' + (upper + line * state.problems.length) + '"></line>';
+		}
+		$.each(state.problems, function(pos, problem) {
+			var y = upper + pos * line + line / 2;
+			inner += '<text class="uoj-ob-axis-label" x="' + (left - 10) + '" y="' + y + '" text-anchor="end" dominant-baseline="central">' + esc(problem.letter) + '</text>'
+				+ '<line class="uoj-ob-axis" x1="' + left + '" x2="' + (width - right) + '" y1="' + y + '" y2="' + y + '"></line>';
+		});
+		var list = [];
+		$.each(runs, function(index, run) {
+			var y = upper + run[2] * line + line / 2;
+			var letter = state.problems[run[2]] ? state.problems[run[2]].letter : '?';
+			inner += '<circle class="uoj-ob-dot uoj-ob-mark-' + run[3] + '" cx="' + xOf(run[0]) + '" cy="' + y + '" r="5"></circle>'
+				+ '<circle class="uoj-ob-hit" cx="' + xOf(run[0]) + '" cy="' + y + '" r="12" tabindex="0" data-tip="' + esc(clock(run[0]) + ' · ' + letter + ' 题 · ' + said[run[3]]) + '"></circle>';
+			list.push([clock(run[0]), letter, said[run[3]]]);
+		});
+		body.html(svg(width, upper + line * state.problems.length + lower, inner, nameOf(person) + ' 的提交')
+			+ (runs.length ? table(['比赛时间', '题目', '结果'], list.reverse()) : '<p class="uoj-ob-runs-empty">还没有提交</p>'));
+	};
+	var openPerson = function(username) {
+		person = username;
+		$('#outer-board-person').show();
+		drawPerson();
+		$('#outer-board-person-close').focus();
+		if (wantsRuns() && !state.runs) {
+			clearTimeout(timer);
+			ask();
+		}
+	};
+	var closePerson = function() {
+		person = null;
+		$('#outer-board-person').hide();
+	};
+	root.on('click', '.uoj-ob-person', function(e) {
+		e.preventDefault();
+		openPerson(String($(this).attr('data-username')));
+	});
+	$('#outer-board-person-close').on('click', closePerson);
+	$('#outer-board-person').on('click', function(e) {
+		if (e.target === this) {
+			closePerson();
+		}
+	});
+	$(document).on('keydown', function(e) {
+		if (e.key === 'Escape' && person !== null) {
+			closePerson();
+		}
+	});
+	root.on('click', '.uoj-ob-follow', function() {
+		var username = String($(this).attr('data-username'));
+		follow(username, !followed(username));
+		draw(false);
+		panels();
+	});
+	$('#outer-board-search').on('input', function() {
+		looked = $.trim($(this).val()).toLowerCase();
+		draw(false);
+		shownRuns = 100;
+		panels();
+	});
+	var onlyButton = function() {
+		$('#outer-board-only-followed').toggleClass('uoj-ob-button-on', onlyFollowed).attr('aria-pressed', onlyFollowed ? 'true' : 'false');
+	};
+	onlyButton();
+	$('#outer-board-only-followed').on('click', function() {
+		onlyFollowed = !onlyFollowed;
+		keep('only-followed', onlyFollowed ? 'on' : 'off');
+		onlyButton();
+		draw(false);
+		shownRuns = 100;
+		panels();
 	});
 
 	// ---- keeping up to date

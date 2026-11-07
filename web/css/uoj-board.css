@@ -26,6 +26,7 @@
 	--ob-chart-no: #e0603f;
 	--ob-chart-track: #dfe4ec;
 	--ob-chart-grid: #e8ebf0;
+	--ob-followed: #fff1c2;
 	/* as wide as the window, whatever the page around it is */
 	width: 98vw;
 	margin: 0.75rem calc(50% - 49vw) 2rem;
@@ -56,6 +57,7 @@ body.uoj-ob-dark-page .uoj-ob {
 	--ob-viewed: #22345a;
 	--ob-chart-track: #2a3447;
 	--ob-chart-grid: #1f2838;
+	--ob-followed: #4a3d12;
 }
 
 /* ---- what stands over the table */
@@ -454,6 +456,103 @@ body.uoj-ob-dark-page .uoj-ob {
 }
 .uoj-ob-filters-count {
 	margin-left: auto;
+}
+
+/* who is shown, and who is followed */
+.uoj-ob-people-filters {
+	justify-content: center;
+	max-width: none;
+}
+.uoj-ob-search {
+	width: 16rem;
+	max-width: 100%;
+	padding: 0.25rem 0.6rem;
+	border: 1px solid var(--ob-line);
+	border-radius: 0.35rem;
+	color: var(--ob-fg);
+	background-color: var(--ob-bg);
+}
+.uoj-ob-people-filters .uoj-ob-filters-count {
+	margin-left: 0;
+}
+.uoj-ob-table tr.uoj-ob-hidden {
+	display: none;
+}
+.uoj-ob-follow {
+	margin-right: 0.3em;
+	padding: 0 0.15em;
+	border: 0;
+	font-size: 1.05em;
+	line-height: 1;
+	color: var(--ob-muted);
+	background: none;
+	opacity: 0.45;
+	cursor: pointer;
+}
+.uoj-ob-follow:hover, .uoj-ob-follow:focus {
+	opacity: 1;
+}
+.uoj-ob-follow.uoj-ob-follow-on {
+	color: #e0a100;
+	opacity: 1;
+}
+.uoj-ob-table tr.uoj-ob-followed > td.uoj-ob-name, .uoj-ob-table tr.uoj-ob-followed > td.uoj-ob-rank, .uoj-ob-runs tr.uoj-ob-followed > td {
+	background-color: var(--ob-followed);
+}
+a.uoj-ob-person {
+	color: inherit;
+}
+a.uoj-ob-person:hover {
+	text-decoration: underline;
+}
+
+/* one contestant: where they stand, and what they submitted when */
+.uoj-ob-person-box {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+	background-color: rgba(10, 14, 22, 0.45);
+}
+.uoj-ob-person-card {
+	position: relative;
+	width: 42rem;
+	max-width: 100%;
+	max-height: 90vh;
+	overflow-y: auto;
+	padding: 1.2rem 1.4rem;
+	border-radius: 0.6rem;
+	text-align: left;
+	color: var(--ob-fg);
+	background-color: var(--ob-bg);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.uoj-ob-person-card h2 {
+	margin: 0 2rem 0.2rem 0;
+	font-size: 1.3rem;
+	font-weight: 700;
+}
+.uoj-ob-person-sum {
+	margin: 0 0 0.6rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-person-close {
+	position: absolute;
+	top: 0.6rem;
+	right: 0.8rem;
+	border: 0;
+	font-size: 1.6rem;
+	line-height: 1;
+	color: var(--ob-muted);
+	background: none;
+	cursor: pointer;
+}
+.uoj-ob-dot {
+	stroke: var(--ob-bg);
+	stroke-width: 2;
 }
 
 /* what was submitted, the newest first */

@@ -655,6 +655,27 @@ def outer_board_tells_its_statistics(page, seeded):
     page.wait_for_selector("#outer-board-chart-time svg")
 
 
+def outer_board_follows_and_filters(page, seeded):
+    """who is on the outer board can be looked for by name and followed, and what one of them
+    submitted when is told by their name"""
+    page.wait_for_selector("#table-outer-board tbody tr")
+    student, second = seeded["student"].username, seeded["second_student"].username
+    shown = "Array.from(document.querySelectorAll('#table-outer-board tbody tr:not(.uoj-ob-hidden)')).map(row => row.getAttribute('data-username'))"
+    page.click('#table-outer-board .uoj-ob-follow[data-username="%s"]' % second)
+    assert page.evaluate("localStorage.getItem('uoj-outer-board-follow')") == json.dumps([second])
+    assert "uoj-ob-followed" in page.get_attribute('#table-outer-board tr[data-username="%s"]' % second, "class")
+    page.click("#outer-board-only-followed")
+    assert page.evaluate(shown) == [second], page.evaluate(shown)
+    page.click("#outer-board-only-followed")
+    page.fill("#outer-board-search", student)
+    found = page.evaluate(shown)
+    assert student in found and (second in found) == (student in second), found
+    page.fill("#outer-board-search", "")
+    page.click('a.uoj-ob-person[data-username="%s"]' % second)
+    page.wait_for_selector("#outer-board-person-body circle.uoj-ob-dot")
+    assert second in page.inner_text("#outer-board-person-name")
+
+
 def outer_board_goes_dark(page, seeded):
     """the outer board for a wall: dark, and the row of whoever looks is marked"""
     page.wait_for_selector("#table-outer-board tbody tr")
@@ -864,6 +885,7 @@ def pages(seeded):
         ("outer-board-final", "visitor", "/contest/%d/board" % seeded["contest"]),
         ("outer-board-vp", "visitor", "/contest/%d/board?vp=%s" % (seeded["contest"], seeded["sitter"].username), outer_board_is_seen_as_a_virtual_participant),
         ("outer-board-stats", "visitor", "/contest/%d/board#stats" % seeded["icpc"], outer_board_tells_its_statistics),
+        ("outer-board-follow", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_follows_and_filters),
         ("balloons-settings", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_settings_are_opened),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),

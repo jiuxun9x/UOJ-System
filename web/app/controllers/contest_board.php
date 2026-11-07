@@ -85,6 +85,11 @@
 			<button type="button" class="uoj-ob-tab" role="tab" data-tab="runs" id="outer-board-tab-runs">提交</button>
 			<button type="button" class="uoj-ob-tab" role="tab" data-tab="stats">统计</button>
 		</div>
+		<div class="uoj-ob-filters uoj-ob-people-filters" id="outer-board-people-filters">
+			<input type="search" class="uoj-ob-search" id="outer-board-search" placeholder="筛选选手：用户名或昵称" aria-label="筛选选手" />
+			<button type="button" class="uoj-ob-button" id="outer-board-only-followed" title="只显示点了 ☆ 关注的选手">只看关注</button>
+			<span class="uoj-ob-filters-count" id="outer-board-shown"></span>
+		</div>
 	</div>
 	<div class="uoj-ob-panel" id="outer-board-panel-board">
 	<div class="uoj-ob-scroll">
@@ -145,8 +150,19 @@
 			</div>
 			<div class="uoj-ob-chart-body"></div>
 		</section>
-		<div class="uoj-ob-tip" id="outer-board-tip" role="tooltip" style="display:none"></div>
 	</div>
+	<div class="uoj-ob-person-box" id="outer-board-person" role="dialog" aria-modal="true" aria-labelledby="outer-board-person-name" style="display:none">
+		<div class="uoj-ob-person-card">
+			<button type="button" class="uoj-ob-person-close" id="outer-board-person-close" title="关闭" aria-label="关闭">×</button>
+			<h2 id="outer-board-person-name"></h2>
+			<p class="uoj-ob-person-sum" id="outer-board-person-sum"></p>
+			<div class="uoj-ob-chart-key" id="outer-board-person-key">
+				<span><i class="uoj-ob-key-yes"></i>通过</span><span><i class="uoj-ob-key-wait"></i>待定</span><span><i class="uoj-ob-key-no"></i>未通过</span>
+			</div>
+			<div id="outer-board-person-body"></div>
+		</div>
+	</div>
+	<div class="uoj-ob-tip" id="outer-board-tip" role="tooltip" style="display:none"></div>
 	<noscript><p class="text-center">外榜需要浏览器打开 JavaScript 才能显示。</p></noscript>
 </div>
 <script type="text/javascript">
