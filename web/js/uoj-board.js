@@ -305,7 +305,7 @@
 			note = viewing.username + ' 的虚拟参赛已经结束：这是比赛的最终榜单，带 * 的是虚拟参赛的选手，TA 的那一行标了出来。';
 		}
 		if (state.frozen) {
-			note += '榜单已封榜，这是比赛进行到 ' + clock(state.freeze) + ' 时的样子；此后的提交只显示次数' + (state.phase === 'replay' ? '。' : '，公布成绩后揭晓。');
+			// the pill says the board is frozen, and the bar from when: nothing more is said
 		} else if (state.freeze !== null && (state.phase === 'running' || (state.phase === 'replay' && state.ticking) || state.phase === 'before')) {
 			note += '榜单将在 ' + clock(state.freeze) + ' 之后封榜。';
 		} else if (state.phase === 'waiting') {
@@ -313,7 +313,7 @@
 		} else if (state.phase === 'final') {
 			note += '比赛已结束，这是最终榜单。' + (state.virtual ? '带 * 的是赛后虚拟参赛的选手，和正式选手一起排名，不是正式成绩。' : '');
 		}
-		$('#outer-board-note').text(note);
+		$('#outer-board-note').text(note).toggle(note !== '');
 		// Codeforces heads the board of a participant with whose it is: so does this one
 		var line = $('#outer-board-viewing');
 		if (viewing) {

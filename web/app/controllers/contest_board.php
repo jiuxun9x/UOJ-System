@@ -168,5 +168,5 @@
 <script type="text/javascript">
 window.uojOuterBoard = <?= json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-board.js?v=4') ?>
+<?= HTML::js_src('/js/uoj-board.js?v=5') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>
