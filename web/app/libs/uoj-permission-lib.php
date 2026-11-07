@@ -1108,7 +1108,10 @@ function visibleSubmissionsCond($user) {
 	}
 	$esc_username = DB::escape($user['username']);
 	$manages_problem = "submissions.problem_id in (".managedProblemIdsSql($esc_username).")";
-	$assists_contest = "submissions.contest_id in (select contest_id from contests_permissions where username = '$esc_username')";
+	// (the staff of a contest of a domain are its staff while they are members of the domain)
+	$assists_contest = "submissions.contest_id in (select contests_permissions.contest_id from contests_permissions join contests on contests.id = contests_permissions.contest_id"
+		." where contests_permissions.username = '$esc_username'"
+		." and (contests.domain_id is null or contests.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")))";
 	// the domains of the user, and the ones where they see everything
 	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";
 	$assists_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'ta').")";

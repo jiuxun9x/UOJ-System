@@ -186,8 +186,10 @@ class DomainContestStaffTest(unittest.TestCase):
         submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
         uoj.wait_submission(submission_id)
         source = "/submission/%d" % submission_id
+        listed = 'href="/submission/%d"' % submission_id
         self.assertEqual(helper.get(source).status_code, 200)
         self.assertIn("scanf", helper.get(source).text)
+        self.assertIn(listed, helper.get("/submissions?problem_id=%d" % problem_id).text)
         self.assertNotEqual(classmate.get(source).status_code, 200)
 
         # taken out of the domain, the helper is off the staff of its contests, and reads nothing
@@ -197,9 +199,11 @@ class DomainContestStaffTest(unittest.TestCase):
             page = client.get(source)
             self.assertNotEqual(page.status_code, 200, client.username)
             self.assertNotIn("scanf", page.text)
+            self.assertNotIn(listed, client.get("/submissions?problem_id=%d" % problem_id).text, client.username)
         # nor does anybody made staff of it before this was so, who is not in the domain
         db("insert into contests_permissions (username, contest_id, role) values ('p20_a01_out', %d, 'assistant')" % contest_id)
         self.assertNotEqual(outsider.get(source).status_code, 200)
+        self.assertNotIn(listed, outsider.get("/submissions?problem_id=%d" % problem_id).text)
         self.assertNotIn("scanf", outsider.get(source).text)
         # the staff who are members, and the administrators of the site, read it as before
         self.assertIn("scanf", teacher.get(source).text)
