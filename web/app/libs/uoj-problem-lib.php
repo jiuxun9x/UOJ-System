@@ -426,6 +426,13 @@ function problemNamesPattern($names, $lead = '') {
 	return $pattern;
 }
 
+// Whether a test of a problem may be an input file alone: where the answer is not a file (an
+// interactive problem, a problem whose program runs several times), and where the checker is
+// the problem's own, which may need nothing but the input to judge what a program wrote. Such a
+// test is handed an empty answer.
+function problemInputsSuffice($settings) {
+	return $settings['type'] === 'interactive' || $settings['type'] === 'multi_pass' || $settings['checker'] === 'custom';
+}
 // Finds the tests among the files of a problem by their names.
 //   $names            the files that lie in the folder of the problem itself
 //   $inputs_suffice   whether a test may be an input file alone, as in a problem where the
@@ -699,9 +706,8 @@ function problemPlanSettings($problem, $settings) {
 	$conf_path = "$upload_dir/problem.conf";
 	$old_conf = is_file($conf_path) ? getUOJConf($conf_path) : array();
 	$old_conf = is_array($old_conf) ? $old_conf : array();
-	$inputs_suffice = $settings['type'] === 'interactive' || $settings['type'] === 'multi_pass';
 	$names = problemUploadedNames($upload_dir);
-	$found = problemDetectTests($names, $inputs_suffice);
+	$found = problemDetectTests($names, problemInputsSuffice($settings));
 	// the programs are chosen among the files as they will be called
 	$renamed = array();
 	foreach ($names as $name) {
@@ -721,7 +727,7 @@ function problemPlanSettings($problem, $settings) {
 		$notes[] = '为了让评测机认得，重命名了 ' . count($found['renames']) . " 个文件：测试点叫 data1.in、data1.out……，额外测试点叫 ex_data1.in……";
 	}
 	if ($found['create']) {
-		$notes[] = '给 ' . count($found['create']) . ' 个只有输入的测试点补了空的答案文件';
+		$notes[] = '给 ' . count($found['create']) . ' 个只有输入的测试点补了空的答案文件：评测时校验器拿到的答案是空的';
 	}
 	if ($found['unpaired']) {
 		$notes[] = '有 ' . count($found['unpaired']) . ' 个文件像是测试数据，却配不成对：' . join('、', array_slice($found['unpaired'], 0, 6)) . (count($found['unpaired']) > 6 ? ' 等' : '');

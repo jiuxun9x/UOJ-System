@@ -426,6 +426,28 @@
 			}
 			$this->copy_to_prepare($file_name);
 		}
+		// Whether the tests of the problem may do without answers: where its own checker, or its
+		// interactor, looks at what a program wrote, it may well need nothing but the input. A way
+		// of comparing of this site compares with the answer, and needs one.
+		private function answers_optional() {
+			return !isset($this->problem_conf['use_builtin_checker']) || $this->check_conf_on('interaction_mode')
+				|| (isset($this->problem_conf['multi_pass']) && (int)$this->problem_conf['multi_pass'] > 1)
+				|| $this->check_conf_on('domjudge_multipass') || $this->check_conf_on('polygon_runtwice');
+		}
+		// The answer of a test: the file that was uploaded, or, where there is none and none is
+		// needed, an empty one, which is what the checker is handed.
+		private function copy_answer_to_prepare($file_name) {
+			if (isset($this->allow_files[$file_name]) && is_file("{$this->upload_dir}/$file_name")) {
+				$this->copy_to_prepare($file_name);
+				return;
+			}
+			if (!$this->answers_optional()) {
+				throw new Exception("file <strong>" . htmlspecialchars($file_name) . "</strong> not found：内置的比较方式要拿答案比较，每个测试点都要有答案文件（用自己写的校验器时可以不传）");
+			}
+			if (file_put_contents("{$this->prepare_dir}/$file_name", '') === false) {
+				throw new Exception("<strong>" . htmlspecialchars($file_name) . "</strong> : failed to make an empty answer");
+			}
+		}
 		// The programs are built by the judgers, in the sandbox that also compiles submissions.
 		private function need_compile($name, $config = array()) {
 			$step = array('type' => 'compile', 'name' => $name);
@@ -520,7 +542,7 @@
 						$output_file_name = getUOJProblemOutputFileName($this->problem_conf, $num);
 
 						$this->copy_file_to_prepare($input_file_name);
-						$this->copy_file_to_prepare($output_file_name);
+						$this->copy_answer_to_prepare($output_file_name);
 					}
 
 					// A problem of Polygon that is run twice and whose interactor says the verdict has
@@ -570,7 +592,7 @@
 							$output_file_name = getUOJProblemExtraOutputFileName($this->problem_conf, $num);
 
 							$this->copy_file_to_prepare($input_file_name);
-							$this->copy_file_to_prepare($output_file_name);
+							$this->copy_answer_to_prepare($output_file_name);
 						}
 
 						if ($this->problem['hackable']) {

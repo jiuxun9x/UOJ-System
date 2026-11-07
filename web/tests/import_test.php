@@ -217,3 +217,6 @@ foreach ($files as $name => $content) {
 $read = importReadPackage($unpacked, 'p', array_keys($files));
 check_same(array(array('zh_cn', 'en'), array('tool.pdf')), array(array_keys($read['pdf_statements']), array_keys($read['attachments'])), 'a package with its statement in two languages, and a PDF that is only a file of it');
 exec('rm -rf ' . escapeshellarg($unpacked));
+
+// a problem whose checker is its own may have tests that are an input alone
+check_same(array(true, false, true), array(problemInputsSuffice(array('type' => 'traditional', 'checker' => 'custom')), problemInputsSuffice(array('type' => 'traditional', 'checker' => 'wcmp')), problemInputsSuffice(array('type' => 'interactive', 'checker' => 'wcmp'))), 'tests that are an input alone');

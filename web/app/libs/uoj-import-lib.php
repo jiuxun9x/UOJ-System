@@ -114,6 +114,7 @@ use_builtin_checker wcmp        # 用内置的比较方式，可以写：
 # input_suf in
 # output_pre data               # 第 3 个测试点的答案文件叫 data3.out
 # output_suf out
+#      用自己写的校验器（或交互题、通信题）时，答案文件可以不传：交给校验器的答案是空的。
 
 # ---- 计分：什么都不写时，每个测试点分值相同，通过几个得几个的分（OI 的做法）
 # n_subtasks 1                  # 全部测试点通过才得分（ICPC 的做法）：只启用这一行
@@ -1166,7 +1167,7 @@ function importCreate($package, $actor, $domain, $public) {
 			}
 		}
 		if ($settings['scoring'] === 'subtasks' && $settings['subtasks'] && $settings['subtasks'][count($settings['subtasks']) - 1][0] === null) {
-			$tests = problemDetectTests(problemUploadedNames($upload_dir), $settings['type'] === 'interactive' || $settings['type'] === 'multi_pass');
+			$tests = problemDetectTests(problemUploadedNames($upload_dir), problemInputsSuffice($settings));
 			$settings['subtasks'][count($settings['subtasks']) - 1][0] = count($tests['tests']);
 		}
 		list($found, $err) = problemApplySettings($problem, $settings, $actor);
