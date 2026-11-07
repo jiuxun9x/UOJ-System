@@ -1628,13 +1628,18 @@ class ProblemDataPageTest(unittest.TestCase):
         self.assertEqual(self.act(problem_id, "delete_file", name="download/说明.md")[0], "success")
         self.assertEqual(uploaded_files(problem_id), sorted(["data1.in", "data1.out", "data2.in", "data2.out", "ex_data1.in", "ex_data1.out",
                                                              "judge-v2.cpp", "problem.conf"]))  # fmt: skip
-        # what the problem misses afterwards is said, before anybody syncs it
+        # an answer its own checker does without is no file it misses (see test_phase18): it is said
         self.assertEqual(self.act(problem_id, "delete_file", name="data2.out")[0], "success")
         page = admin.get(manage).text
+        self.assertNotIn("有问题，同步会失败", page)
+        self.assertIn("1 个测试点没有答案文件：交给校验器的答案是空的", uoj.text_of(page))
+        # what the problem misses afterwards is said, before anybody syncs it
+        self.assertEqual(self.act(problem_id, "delete_file", name="data2.in")[0], "success")
+        page = admin.get(manage).text
         self.assertIn("有问题，同步会失败", page)
-        self.assertIn("缺少文件：data2.out", uoj.text_of(page))
+        self.assertIn("缺少文件：data2.in", uoj.text_of(page))
         # a file that is uploaded again takes the place of the one of that name
-        self.assertEqual(upload_files(admin, problem_id, {"data2.out": "11\n", "data1.out": "4\n"}).status_code, 302)
+        self.assertEqual(upload_files(admin, problem_id, {"data2.in": "5 5\n", "data2.out": "11\n", "data1.out": "4\n"}).status_code, 302)
         self.assertIn("评测设置没有变", uoj.text_of(admin.get(manage).text))
         self.assertEqual(docker_exec(uoj.WEB, "cat %s/data1.out" % upload_dir), "4\n")
         self.assertIn("文件齐全", admin.get(manage).text)
