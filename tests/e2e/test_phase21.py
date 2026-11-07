@@ -13,13 +13,13 @@ INNER_BOARD_SENTENCES = ("此后的提交只显示次数", "这是只有工作�
                          "交了 3 次都没通过", "有还不知道结果的提交", "上面一行是你自己的实际成绩", "（虚拟参赛）")  # fmt: skip
 
 
-def frozen_contest(prefix):
-    """an ICPC contest that runs with its board frozen, and a contestant who solved A before and
-    submitted to it after the board froze"""
+def frozen_contest(prefix, username):
+    """an ICPC contest that runs with its board frozen, and a contestant who submitted to it after
+    the board froze"""
     admin = uoj.admin()
     problem_id = admin.create_problem(ab_problem_files())
     contest_id = admin.new_contest(prefix + " 封榜", minutes=300, rule="ICPC", freeze_minutes="60", problems=str(problem_id))
-    pupil = account(prefix.replace(" ", "_") + "_pupil")
+    pupil = account(username)
     pupil.register_for_contest(contest_id)
     uoj.move_contest(contest_id, -250 * 60, 300)
     pupil.submit_in_contest(contest_id, problem_id, AB)
@@ -33,7 +33,7 @@ class InnerBoardTest(unittest.TestCase):
     when, in two words."""
 
     def test_the_board_explains_nothing(self):
-        admin, pupil, contest_id = frozen_contest("p21 内榜")
+        admin, pupil, contest_id = frozen_contest("p21 内榜", "p21_inner_pupil")
         standings = "/contest/%d/standings" % contest_id
         for client, words, link in ((pupil, "已封榜 4:00:00", None), (admin, "完整榜单", "封榜榜单")):
             page = client.get(standings).text
@@ -54,7 +54,7 @@ class OuterBoardTest(unittest.TestCase):
     many got it."""
 
     def test_the_outer_board_explains_nothing(self):
-        admin, pupil, contest_id = frozen_contest("p21 外榜")
+        admin, pupil, contest_id = frozen_contest("p21 外榜", "p21_outer_pupil")
         page = uoj.Client().get("/contest/%d/board" % contest_id).text
         self.assertIn('id="outer-board"', page)
         for sentence in ('id="outer-board-note"', "尝试过，未通过", "结果待揭晓", "Dirt：", "名字前带 *", "灰色是交过这道题的人数", "只算正式选手",
@@ -73,7 +73,7 @@ class ResolverTest(unittest.TestCase):
     how other tools count, under it. It has its buttons, the exports among them."""
 
     def test_the_resolver_explains_nothing(self):
-        admin, pupil, contest_id = frozen_contest("p21 滚榜")
+        admin, pupil, contest_id = frozen_contest("p21 滚榜", "p21_rs_pupil")
         uoj.move_contest(contest_id, -400 * 60, 300)
         page = admin.get("/contest/%d/resolver" % contest_id).text
         self.assertIn('id="table-resolver"', page)

@@ -376,7 +376,8 @@ class VirtualInContestTest(unittest.TestCase):
         self.sat(contest_id, early, 4000, {})
         rows, page = board(watcher, "?unofficial=1")
         self.assertEqual(rows, [(name(quick), 1, True), (name(early), 2, False), (name(sitter), 3, True), (name(late), 4, False), (name(early), 5, True)])
-        self.assertIn("赛后虚拟参赛的 3 人", uoj.text_of(page))
+        # (the box that shows them says nothing more: how many they are is under the board)
+        self.assertIn('id="standings-unofficial"', page)
         if rule == "ICPC":
             # the contestants are counted as what they are
             self.assertIn("共 2 名参赛者，另有 3 人带 * 号", uoj.text_of(page))
@@ -438,7 +439,7 @@ class VirtualInContestTest(unittest.TestCase):
         self.sat(contest_id, sitter, 55 * 60, mine)
         rows, me, page = icpc_board(sitter, contest_id)
         self.assertIn('data-frozen="1"', page)
-        self.assertIn("已到封榜时间", uoj.text_of(page))
+        self.assertIn("已封榜 0:40:00", uoj.text_of(page))
         self.assertEqual(rows["p9_vf_early"], (1, 1, {"A": ("first", "+ 0:05")}))
         self.assertEqual(rows["p9_vf_late"], (2, 0, {"A": ("pending", "? 0 + 1")}))
         self.assertEqual(rows["p9_vf_sitter"], (2, 0, {"A": ("pending", "? 0 + 1")}))
