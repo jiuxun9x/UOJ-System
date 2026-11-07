@@ -93,6 +93,18 @@
 		<?php if ($in_domain): ?>这场比赛属于一个域，无论哪种方式，都只有域的成员能参加。<?php endif ?>
 	</small>
 </div>
+<?php if ($in_domain): ?>
+<div class="form-group">
+	<label>外榜</label>
+	<div class="custom-control custom-checkbox">
+		<input type="checkbox" class="custom-control-input" id="input-contest-public_board" name="public_board"<?= !empty($settings['public_board']) ? ' checked="checked"' : '' ?> />
+		<label class="custom-control-label" for="input-contest-public_board">公开外榜</label>
+	</div>
+	<small class="form-text text-muted">
+		勾选后，这场比赛的外榜谁都能看，不用登录，也不用是本域的成员：上面只有选手的名字、分数和时间，没有题目和代码。不勾选则外榜只有本域的成员能看。比赛的题目、榜单和提交不受影响。
+	</small>
+</div>
+<?php endif ?>
 <div class="form-group">
 	<label>比赛结束后</label>
 	<div class="custom-control custom-checkbox">

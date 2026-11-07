@@ -770,14 +770,13 @@ class OuterBoardTest(unittest.TestCase):
         self.assertEqual(state(admin)["hash"], frozen["hash"])
         self.assertEqual(icpc_board(admin, contest_id)[0]["p9_ob_cat"][:2], (3, 1))
 
-        # ---- a contest that is not for everybody keeps its board with the people who are in it
+        # ---- a contest that is not for everybody has its outer board for everybody all the same:
+        # names, scores and times, nothing of its problems (see test_phase17)
         self.assertEqual(admin.contest_settings(contest_id, join_mode="password", join_password="open sesame"), "")
-        page = outsider.get(board).text
-        self.assertIn("不对所有人开放", uoj.text_of(page))
-        self.assertNotIn('id="outer-board"', page)
-        self.assertNotIn('"rows"', outsider.get(board + "?json=1").text)
-        self.assertEqual(uoj.Client().get(board).status_code, 302)
-        self.assertEqual(state(ann)["hash"], frozen["hash"])
+        self.assertIn('id="outer-board"', outsider.get(board).text)
+        self.assertEqual(uoj.Client().get(board).status_code, 200)
+        for client in (outsider, uoj.Client(), ann):
+            self.assertEqual(state(client)["hash"], frozen["hash"])
         self.assertEqual(admin.contest_settings(contest_id, join_mode="open"), "")
 
         # ---- when it is over the board waits, frozen, and when the results are published it is the board

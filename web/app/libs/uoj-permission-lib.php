@@ -763,6 +763,15 @@ function can($user, $ability, $resource = null) {
 			return true;
 		// A contest of an archived domain is changed by nobody: not by its owners, nor by the
 		// administrators of the site, until the domain is brought back.
+		// The outer board of a contest, for the people who watch: for everybody, also who is
+		// not logged in, whatever it takes to take part (a password, a list). It has the names,
+		// the scores and the times, and nothing of the problems or of what was submitted. A
+		// contest of a domain keeps it with the people of the domain, unless they made it public.
+		case 'contest.view_board':
+			if (empty($resource['domain_id']) || contestBoardIsPublic($resource)) {
+				return true;
+			}
+			return can($user, 'contest.view', $resource) && can($user, 'contest.enter', $resource);
 		case 'contest.manage':
 			if (!empty($resource['domain_id']) && permissionDomainIsArchived($facts->domain($resource['domain_id']))) {
 				return false;

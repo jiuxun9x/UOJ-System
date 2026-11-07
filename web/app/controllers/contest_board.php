@@ -1,22 +1,20 @@
 <?php
 	// The outer board of a contest: its board for the people who watch, on a wall of the room
 	// or from outside. A page of its own, without the site around it, that keeps itself up to
-	// date. It is for whoever may get into the contest - registered or not, while it runs as
-	// well - and it shows nobody more than everybody may know: see uoj-board-lib.php.
+	// date. It is for everybody, also who is not logged in, whatever it takes to take part in
+	// the contest; a contest of a domain keeps it with the people of the domain unless they made
+	// it public ('contest.view_board'). It shows nobody more than everybody may know: see
+	// uoj-board-lib.php.
 	if (!validateUInt($_GET['id']) || !($contest = queryContest($_GET['id']))) {
 		become404Page();
 	}
 	genMoreContestInfo($contest);
-	if (!can($myUser, 'contest.view', $contest)) {
+	if (!can($myUser, 'contest.view_board', $contest)) {
 		if ($myUser == null) {
 			redirectToLogin();
 		}
-		become404Page();
-	}
-	// a contest that is not for everybody keeps its board with the people who are in it
-	if (!can($myUser, 'contest.enter', $contest)) {
-		if ($myUser == null) {
-			redirectToLogin();
+		if (!can($myUser, 'contest.view', $contest)) {
+			become404Page();
 		}
 		becomeMsgPage('<h1 id="contest-closed">这场比赛不对所有人开放</h1><p>它的榜单只有报名参加的选手能看到。</p>');
 	}

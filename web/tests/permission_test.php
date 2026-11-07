@@ -554,6 +554,9 @@ check_ability('contest.view', $facts->contests[10], array('nobody' => true, 'ali
 check_ability('contest.manage', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'co_admin' => true, 'lecturer' => true, 'tutor' => false, 'pupil' => false, 'owner' => false), 'a contest of a domain');
 check_ability('contest.assist', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'lecturer' => true, 'tutor' => true, 'pupil' => false), 'a contest of a domain');
 check_ability('contest.rate', $domain_contest, array('lead' => false, 'lecturer' => false, 'root' => false, 'owner' => false), 'a contest of a domain counts for no rating');
+// A contest of a domain keeps its outer board with the people of the domain, unless they made it public.
+check_ability('contest.view_board', $domain_contest, $outsiders + array('root' => true, 'lead' => true, 'tutor' => true, 'pupil' => true, 'setter' => false), 'the outer board of a contest of a domain');
+check_ability('contest.view_board', array('extra_config' => array('public_board' => true)) + $domain_contest, array('nobody' => true, 'alice' => true, 'setter' => true, 'pupil' => true), 'the public outer board of a contest of a domain');
 // The contest of an archived domain is read, and changed by nobody: not by the teacher who made
 // it and owns it, not by the administrators of the site. Its staff see everything, and answer
 // no questions any more.
@@ -698,6 +701,11 @@ check_ability('submission.view_source', fake_submission('setter', 41, 32), array
 array_pop($facts->registered);
 // a contest that says nothing about who may take part is one for everybody
 check_ability('contest.enter', fake_contest(11, CONTEST_FINISHED), array('nobody' => true, 'bob' => true), 'a contest from before there were lists');
+// The outer board is for everybody, also who is not logged in, whatever it takes to take part:
+// it has names, scores and times, and nothing of the problems or of what was submitted.
+foreach (array($open_contest, $listed_contest, $locked_contest) as $contest) {
+	check_ability('contest.view_board', $contest, array('nobody' => true, 'alice' => true, 'bob' => true, 'setter' => true, 'teacher' => true), 'the outer board of a contest that is ' . $contest['join_mode']);
+}
 // a contest is sat virtually once its results are final, by whoever may go inside
 check_ability('contest.virtual', $open_contest, array('nobody' => false, 'alice' => true, 'bob' => true, 'root' => true), 'a contest that is finished');
 check_ability('contest.virtual', array('join_mode' => 'open') + fake_contest(33, CONTEST_PENDING_FINAL_TEST), array('alice' => false, 'root' => false), 'a contest whose results are not final');
@@ -756,6 +764,10 @@ check_same(1, contestSettingsFromForm(array('standings_version' => '1') + $form,
 check_same(true, contestSettingsFromForm(array('join_password' => '') + $form, $defaults, true)[1] !== '', 'a password is needed');
 check_same(array('', ''), array(contestSettingsFromForm(array('join_password' => '') + $form, $defaults, true, true)[1], contestSettingsFromForm(array('join_password' => '') + $form, $defaults, true, true)[0]['join_password']), 'unless there is one already');
 check_same('', contestSettingsFromForm(array('join_mode' => 'open', 'join_password' => 'x') + $form, $defaults, true)[0]['join_password'], 'a password is of no use to a contest that asks for none');
+// the outer board of a contest of a domain is made public with a box (kept in the extra config: see test_phase17)
+check_same(array(false, true), array($checked['public_board'], contestSettingsFromForm(array('public_board' => 'on') + $form, $defaults, true)[0]['public_board']), 'the box of the public outer board');
+check_same(array(false, true, false), array(contestBoardIsPublic(array('extra_config' => array())), contestBoardIsPublic(array('extra_config' => array('public_board' => true))), contestBoardIsPublic(array('extra_config' => array('public_board' => 'yes')))),
+	'whether an outer board is public');
 foreach (array(
 	array('name' => ''), array('name' => str_repeat('长', 101)), array('start_time' => 'tomorrow'), array('start_time' => '2026-02-30T10:00'), array('start_time' => '2026-10-12T25:00'),
 	array('start_time' => "2026-10-12T10:00\nx"), array('last_min' => '0'), array('last_min' => 'long'), array('last_min' => '999999999'), array('rule' => 'ACM'), array('rule' => ''),

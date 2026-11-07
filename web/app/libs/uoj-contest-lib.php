@@ -463,7 +463,8 @@ function contestDefaultSettings() {
 		'rating_k' => 400,
 		'join_mode' => 'open',
 		'join_password' => '',
-		'reveal_problems' => false
+		'reveal_problems' => false,
+		'public_board' => false
 	);
 }
 // the settings a contest has: $contest as genMoreContestInfo() leaves it
@@ -479,8 +480,14 @@ function contestSettings($contest) {
 		'rating_k' => isset($contest['extra_config']['rating_k']) ? (int)$contest['extra_config']['rating_k'] : 400,
 		'join_mode' => $contest['join_mode'],
 		'join_password' => '',
-		'reveal_problems' => !empty($contest['reveal_problems'])
+		'reveal_problems' => !empty($contest['reveal_problems']),
+		'public_board' => contestBoardIsPublic($contest)
 	);
+}
+// Whether the outer board of a contest of a domain is for everybody, as the outer board of any
+// other contest is (see 'contest.view_board'): its people made it so.
+function contestBoardIsPublic($contest) {
+	return isset($contest['extra_config']['public_board']) && $contest['extra_config']['public_board'] === true;
 }
 // What a form says, checked: array(the settings, '') or array(null, why not).
 //   $may_rate       whether whoever sent the form decides about ratings: otherwise what the
@@ -547,6 +554,7 @@ function contestSettingsFromForm($input, $current, $may_rate, $has_password = fa
 		$settings['join_password'] = $password;
 	}
 	$settings['reveal_problems'] = isset($input['reveal_problems']);
+	$settings['public_board'] = isset($input['public_board']);
 	return array($settings, '');
 }
 // what the settings are in the columns of a contest, as SQL
@@ -558,6 +566,11 @@ function contestSettingsSql($settings, $extra_config) {
 		unset($extra_config['unrated']);
 	} else {
 		$extra_config['unrated'] = '';
+	}
+	if (!empty($settings['public_board'])) {
+		$extra_config['public_board'] = true;
+	} else {
+		unset($extra_config['public_board']);
 	}
 	$set = array(
 		'name' => "'".DB::escape(HTML::pruifier()->purify($settings['name']))."'",
