@@ -54,6 +54,11 @@ article img {
 	vertical-align: baseline
 }
 
+/* a picture that stands alone in its paragraph stands in the middle (see uoj_pictures) */
+article p.uoj-picture-alone {
+	text-align: center;
+}
+
 pre {
 	-moz-tab-size: 4;
 	-o-tab-size: 4;

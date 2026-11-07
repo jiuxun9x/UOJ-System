@@ -51,7 +51,7 @@
 		<?= HTML::css_link('/css/bootstrap-glyphicons.min.css?v=2019.5.31') ?>
 
 		<!-- Custom styles for this template -->
-		<?= HTML::css_link('/css/uoj-theme.css?v=2.3334') ?>
+		<?= HTML::css_link('/css/uoj-theme.css?v=2.3335') ?>
 		<?= HTML::css_link('/css/uoj-domain.css?v=23') ?>
 
 		<!-- jQuery (necessary for Bootstrap\'s JavaScript plugins) -->
@@ -84,7 +84,7 @@
 		<?= HTML::js_src('/js/color-converter.min.js') ?>
 
 		<!-- uoj -->
-		<?= HTML::js_src('/js/uoj.js?v=2026.11.06') ?>
+		<?= HTML::js_src('/js/uoj.js?v=2026.11.07') ?>
 
 		<!-- readmore -->
 		<?= HTML::js_src('/js/readmore/readmore.min.js') ?>

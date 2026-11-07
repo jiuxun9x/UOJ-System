@@ -38,9 +38,11 @@ $$\sum_{i=1}^{n} a_i^2 + \left\lfloor \frac{n}{2} \right\rfloor$$
 
 > 中间结果会超过 32 位整数，要用 `long long`。
 
+![](/images/logo_small.png)
+
 ## **输入格式**
 
-第一行一个整数 $n$ $(1\le n\le 10^5)$；第二行 $n$ 个整数 $a_1,a_2,\ldots,a_n$ $(|a_i|\le 10^9)$。
+第一行一个整数 $n$ $(1\le n\le 10^5)$；第二行 $n$ 个整数 $a_1,a_2,\ldots,a_n$ $(|a_i|\le 10^9)$，像这样 ![](/images/logo_small.png) 写在一行里。
 
 ## **样例**
 
@@ -671,9 +673,12 @@ def statement_is_read_as_it_was_written(page, seeded):
                     row => [...row.querySelectorAll('.uoj-sample-title span')].map(title => title.textContent).join(' + ')),
                 left: document.querySelectorAll('article pre > code[class*="language-input"], article pre > code[class*="language-output"]').length,
                 wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+                pictures: [...document.querySelectorAll('article p img')].map(img => getComputedStyle(img.parentElement).textAlign),
             };
         }"""
     )
+    # a picture on a line of its own stands in the middle, one in a line of text where the text puts it
+    assert seen["pictures"] == ["center", "left"] or seen["pictures"] == ["center", "start"], seen
     # A Mac has the STIX fonts, and MathJax left to itself takes them: the machine that takes
     # these pictures is given them too, or this would show nothing of what a Mac shows.
     assert seen["stix"], "this browser has no STIX fonts (the package fonts-stix): %r" % seen

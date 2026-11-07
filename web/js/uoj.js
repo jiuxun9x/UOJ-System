@@ -575,6 +575,33 @@ $.fn.uoj_samples = function() {
 	});
 };
 
+// The pictures of a text: one that stands alone in its paragraph (a line of its own in what was
+// written) stands in the middle, as in the statements of most judges; one in a line of text stays
+// where the text puts it.
+$.fn.uoj_pictures = function() {
+	return $(this).each(function() {
+		$(this).find('article p').each(function() {
+			var paragraph = $(this);
+			if (paragraph.find('img').length === 0) {
+				return;
+			}
+			var alone = true;
+			paragraph.contents().each(function() {
+				if (this.nodeType === 3) {
+					alone = alone && $.trim(this.nodeValue) === '';
+				} else if (this.nodeType === 1) {
+					var tag = this.tagName.toLowerCase();
+					// a picture, a picture that is a link, the end of a line
+					var picture = tag === 'img' || tag === 'br'
+						|| (tag === 'a' && $(this).find('img').length > 0 && $.trim($(this).text()) === '' && $(this).children().not('img').length === 0);
+					alone = alone && picture;
+				}
+			});
+			paragraph.toggleClass('uoj-picture-alone', alone);
+		});
+	});
+};
+
 // ---- what is typed is kept in the browser until it is taken
 //
 // A long text is typed into a form, and then the page is left, the tab is closed or the
@@ -687,6 +714,7 @@ $.fn.uoj_form_draft = function(key, names, $note) {
 
 $(document).ready(function() {
 	$('body').uoj_samples();
+	$('body').uoj_pictures();
 	$('body').uoj_highlight();
 	$('.uoj-problem-picker').uoj_problem_picker();
 });
