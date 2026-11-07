@@ -146,6 +146,14 @@
 				两边的功能并不完全对应，所以建议整理成上面的格式，用 <code>problem.conf</code> 写评测设置；包里有 <code>problem.conf</code> 时不读 <code>config.yaml</code>。
 			</div>
 		</div>
+		<div class="card mb-3" id="import-about-polygon">
+			<div class="card-header">从 Polygon 搬题</div>
+			<div class="card-body small text-muted">
+				Polygon 的题目包（有 <code>problem.xml</code> 的 zip）可以直接导入：名字、时间和内存限制、测试数据、样例、分组分值、校验器、交互器和标准程序从 <code>problem.xml</code> 翻译过来，
+				LaTeX 题面转成 Markdown，包里有 PDF 题面的同时导入。请在 Polygon 上下载 <strong>Standard</strong> 格式的包：里面有生成好的全部测试数据，这里不运行数据生成器。
+				一次可以选多个包；也可以把几道题的包解压成各自的文件夹，打进一个 zip。
+			</div>
+		</div>
 	</div>
 </div>
 <?php echoUOJPageFooter() ?>

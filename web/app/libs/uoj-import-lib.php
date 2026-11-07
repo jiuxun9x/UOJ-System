@@ -886,7 +886,8 @@ function importFindProblems($files) {
 	$roots = array();
 	foreach ($files as $file) {
 		$base = uojFileBaseName($file);
-		if ($base === 'problem.yaml' || $base === 'problem.yml' || preg_match('/^problem(_[A-Za-z_]+)?\.md$/D', $base)) {
+		// (problem.xml: a package of Polygon)
+		if ($base === 'problem.yaml' || $base === 'problem.yml' || $base === 'problem.xml' || preg_match('/^problem(_[A-Za-z_]+)?\.md$/D', $base)) {
 			$roots[importFolder($file)] = true;
 		}
 	}
@@ -925,6 +926,9 @@ function importReadTemplate($text, $fallback_title) {
 		'settings' => $settings,
 		'data' => array(),
 		'cases' => null,
+		// the tests that are samples as well, rows of array(input, output or null): they are the
+		// samples here too
+		'samples' => array(),
 		// the problem.conf that came with it, read; null when there is none
 		'conf' => null,
 		'native' => false,
@@ -949,6 +953,10 @@ function importReadPackage($dir, $root, $files) {
 	$read = function($name) use ($dir, $prefix) {
 		return file_get_contents("$dir/$prefix$name");
 	};
+	// a package of Polygon says everything in problem.xml
+	if (in_array('problem.xml', $own, true)) {
+		return importReadPolygon($dir, $root, $own);
+	}
 	// the statement: the Chinese one first, as Hydro names them
 	$statement_file = null;
 	foreach (array('problem_zh.md', 'problem_zh_CN.md', 'problem.md', 'problem_en.md') as $name) {
@@ -1065,6 +1073,527 @@ function importPdfStatementLang($name) {
 	return $lang === 'zh' ? 'zh_cn' : $lang;
 }
 
+// ---- packages of Polygon
+//
+// A package of Polygon is a folder with problem.xml, which says everything: the names of the
+// problem, its limits, its tests (tests/01, tests/01.a: a package with its tests in it, which a
+// Standard package is), which tests are samples and how many points what is worth, the checker,
+// the interactor, the solutions, and the statements - in LaTeX, by sections, and as PDF where
+// they were made. Generators are not run here: a package without its tests says so.
+
+// the ways of comparing that come with the judgers here, as Polygon names them std::wcmp.cpp
+function importBuiltinCheckers() {
+	return array('acmp', 'bcmp', 'caseicmp', 'casencmp', 'casewcmp', 'dcmp', 'fcmp', 'hcmp', 'icmp', 'lcmp', 'ncmp', 'rcmp', 'rcmp4', 'rcmp6', 'rcmp9', 'rncmp', 'uncmp', 'wcmp', 'yesno');
+}
+// the language of a statement here, for a language as Polygon calls it, or null
+function importPolygonLang($language) {
+	$langs = array('chinese' => 'zh_cn', 'english' => 'en', 'russian' => 'ru', 'japanese' => 'ja', 'korean' => 'ko');
+	return isset($langs[$language]) ? $langs[$language] : null;
+}
+// of the languages a problem is written in, the one it is shown in here: Chinese, else English
+function importPolygonPreferredLang($languages) {
+	foreach (array('chinese', 'english') as $language) {
+		if (in_array($language, $languages, true)) {
+			return $language;
+		}
+	}
+	return $languages ? reset($languages) : null;
+}
+// A name made of a pattern of Polygon (tests/%02d) and a number, or null for a pattern that is
+// not one: one number in it, and nothing else that printf would read.
+function importPolygonPath($pattern, $number) {
+	if (!is_string($pattern) || !preg_match('/^[^%]*%0?[0-9]*d[^%]*$/D', $pattern)) {
+		return null;
+	}
+	return sprintf($pattern, $number);
+}
+
+// LaTeX as Polygon writes statements in it, as Markdown: what the formulas say is left as it is
+// ($...$, which the Markdown of this site keeps), what the text is is made Markdown, and what
+// is only layout is dropped. What can not be said in Markdown keeps its words.
+function importLatexToMarkdown($tex) {
+	$tex = str_replace(array("\r\n", "\r"), "\n", (string)$tex);
+	// comments, but not a \%
+	$tex = preg_replace('/(?<!\\\\)%[^\n]*/', '', $tex);
+	// the formulas are kept away from what follows, as they are
+	$kept = array();
+	$keep = function($text) use (&$kept) {
+		$kept[] = $text;
+		return "\x01" . (count($kept) - 1) . "\x02";
+	};
+	$tex = preg_replace_callback('/\$\$(.+?)\$\$|\\\\\[(.+?)\\\\\]/s', function($m) use ($keep) {
+		return $keep('$$' . (isset($m[2]) && $m[2] !== '' ? $m[2] : $m[1]) . '$$');
+	}, $tex);
+	$tex = preg_replace_callback('/(?<!\\\\)\$(.+?)(?<!\\\\)\$|\\\\\((.+?)\\\\\)/s', function($m) use ($keep) {
+		return $keep('$' . (isset($m[2]) && $m[2] !== '' ? $m[2] : $m[1]) . '$');
+	}, $tex);
+	// what is to be read as it is
+	$tex = preg_replace_callback('/\\\\begin\{(verbatim|lstlisting)\}(?:\[[^\]]*\])?\n?(.*?)\\\\end\{\1\}/s', function($m) use ($keep) {
+		return "\n\n" . $keep("```\n" . rtrim($m[2], "\n") . "\n```") . "\n\n";
+	}, $tex);
+	$tex = preg_replace_callback('/\\\\verb(.)(.*?)\1/', function($m) use ($keep) {
+		return $keep('`' . $m[2] . '`');
+	}, $tex);
+	// a brace that is a brace, kept from the braces of the commands
+	$tex = str_replace(array('\\{', '\\}'), array("\x03", "\x04"), $tex);
+	// tables, as tables of Markdown
+	$tex = preg_replace_callback('/\\\\begin\{tabular\}\{[^}]*\}(.*?)\\\\end\{tabular\}/s', function($m) use ($keep) {
+		$rows = array();
+		foreach (preg_split('/\\\\\\\\/', $m[1]) as $line) {
+			$line = trim(str_replace(array('\\hline', '\\toprule', '\\midrule', '\\bottomrule'), '', $line));
+			if ($line === '') {
+				continue;
+			}
+			$rows[] = '| ' . join(' | ', array_map('trim', explode('&', $line))) . ' |';
+		}
+		if (!$rows) {
+			return '';
+		}
+		$columns = substr_count($rows[0], '|') - 1;
+		// (the line under the head is no dash of the text)
+		array_splice($rows, 1, 0, $keep('|' . str_repeat(' --- |', max(1, $columns))));
+		return "\n\n" . join("\n", $rows) . "\n\n";
+	}, $tex);
+	// lists
+	$tex = preg_replace_callback('/\\\\begin\{(itemize|enumerate)\}(.*?)\\\\end\{\1\}/s', function($m) {
+		$items = preg_split('/\\\\item\b\s*/', $m[2]);
+		array_shift($items);
+		$lines = array();
+		foreach ($items as $index => $item) {
+			$lines[] = ($m[1] === 'enumerate' ? ($index + 1) . '. ' : '- ') . preg_replace('/\s*\n\s*/', ' ', trim($item));
+		}
+		return "\n\n" . join("\n", $lines) . "\n\n";
+	}, $tex);
+	$tex = preg_replace('/\\\\(begin|end)\{(center|flushleft|flushright|figure|quote|quotation|minipage)\}(\{[^}]*\}|\[[^\]]*\])*/', "\n", $tex);
+	// what says something
+	$tex = preg_replace('/\\\\(?:sub)*section\*?\{([^{}]*)\}/', "\n\n### $1\n\n", $tex);
+	$tex = preg_replace('/\\\\paragraph\*?\{([^{}]*)\}/', "\n\n**$1**\n\n", $tex);
+	$tex = preg_replace_callback('/\\\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}/', function($m) use ($keep) {
+		return $keep('![](file://' . trim($m[1]) . ')');
+	}, $tex);
+	$tex = preg_replace_callback('/\\\\href\{([^{}]*)\}\{([^{}]*)\}/', function($m) use ($keep) {
+		return $keep('[' . $m[2] . '](' . $m[1] . ')');
+	}, $tex);
+	$tex = preg_replace_callback('/\\\\url\{([^{}]*)\}/', function($m) use ($keep) {
+		return $keep('<' . $m[1] . '>');
+	}, $tex);
+	for ($round = 0; $round < 4; $round++) {
+		$tex = preg_replace('/\\\\textbf\{([^{}]*)\}|\{\\\\bf\s+([^{}]*)\}/', '**$1$2**', $tex);
+		$tex = preg_replace('/\\\\(?:textit|emph)\{([^{}]*)\}|\{\\\\(?:it|em)\s+([^{}]*)\}/', '*$1$2*', $tex);
+		$tex = preg_replace('/\\\\(?:texttt|t|ttfamily)\{([^{}]*)\}|\{\\\\tt\s+([^{}]*)\}/', '`$1$2`', $tex);
+		$tex = preg_replace('/\\\\footnote\{([^{}]*)\}/', '（$1）', $tex);
+		// any other command with its words: the words
+		$tex = preg_replace('/\\\\(?:underline|textsc|textrm|textsf|textup|textnormal|mbox|text|uline|sout)\{([^{}]*)\}/', '$1', $tex);
+	}
+	// what is only layout
+	$tex = preg_replace('/\\\\(?:vspace|hspace)\*?\{[^{}]*\}|\\\\(?:bigskip|medskip|smallskip|noindent|indent|clearpage|newpage|centering|small|large|Large|normalsize|footnotesize|hfill|vfill)\b\s*/', '', $tex);
+	// (a break of a line, and a brace that is a brace, are kept from what follows)
+	$tex = preg_replace('/\\\\\\\\(\[[^\]]*\])?|\\\\newline\b/', "\x05", $tex);
+	$tex = preg_replace('/\\\\par\b/', "\n\n", $tex);
+	// what a letter stands for
+	$tex = str_replace(array('---', '--', '<<', '>>', '\\ldots', '\\dots', '\\%', '\\&', '\\_', '\\#', '\\textbackslash', '``', "''", '\\$'),
+		array('—', '–', '«', '»', '…', '…', '%', '&', '\\_', '\\#', '\\\\', '“', '”', '\\$'), $tex);
+	$tex = preg_replace('/(?<!\\\\)~/', ' ', $tex);
+	$tex = preg_replace('/\\\\[,;: ]/', ' ', $tex);
+	// a command left: away with it, its words stay
+	$tex = preg_replace('/\\\\[A-Za-z]+\*?(\[[^\]]*\])?/', '', $tex);
+	$tex = str_replace(array('{', '}', "\x03", "\x04"), array('', '', '{', '}'), $tex);
+	// the formulas as they were
+	$tex = preg_replace_callback('/\x01([0-9]+)\x02/', function($m) use (&$kept) {
+		return $kept[(int)$m[1]];
+	}, $tex);
+	// (a formula may hold another that was kept in it)
+	$tex = preg_replace_callback('/\x01([0-9]+)\x02/', function($m) use (&$kept) {
+		return $kept[(int)$m[1]];
+	}, $tex);
+	$tex = preg_replace('/[ \t]+\n/', "\n", $tex);
+	$tex = preg_replace('/[ \t]*\x05[ \t]*\n?/', "  \n", $tex);
+	$tex = preg_replace('/\n{3,}/', "\n\n", $tex);
+	return trim($tex);
+}
+
+// A statement of Polygon as Markdown: its sections, the samples, the notes.
+//   $sections   section => LaTeX: legend, input, output, interaction, scoring, notes
+//   $examples   rows of array(input, output)
+function importPolygonStatementMarkdown($sections, $examples) {
+	$parts = array();
+	foreach (array('legend' => '题目描述', 'input' => '输入格式', 'output' => '输出格式', 'interaction' => '交互方式') as $key => $heading) {
+		if (isset($sections[$key]) && trim($sections[$key]) !== '') {
+			$parts[] = "## $heading\n\n" . importLatexToMarkdown($sections[$key]);
+		}
+	}
+	if ($examples) {
+		$text = "## 样例";
+		foreach (array_values($examples) as $index => $example) {
+			$number = $index + 1;
+			$text .= "\n\n```input$number\n" . rtrim(str_replace("\r\n", "\n", $example[0]), "\n") . "\n```\n\n```output$number\n" . rtrim(str_replace("\r\n", "\n", $example[1]), "\n") . "\n```";
+		}
+		$parts[] = $text;
+	}
+	foreach (array('notes' => '提示', 'scoring' => '评分方式') as $key => $heading) {
+		if (isset($sections[$key]) && trim($sections[$key]) !== '') {
+			$parts[] = "## $heading\n\n" . importLatexToMarkdown($sections[$key]);
+		}
+	}
+	return join("\n\n", $parts) . "\n";
+}
+// The sections of a whole statement of Polygon (problem.tex, made with olymp.sty): what stands
+// between \begin{problem}{...}{...}{...}{...}{...} and \end{problem}, cut where \InputFile,
+// \OutputFile, \Interaction, \Scoring, \Examples and \Note begin. The samples written in it
+// with \exmp{input}{output} are its examples. Returns array(title, sections, examples).
+function importPolygonProblemTex($tex) {
+	$title = null;
+	if (preg_match('/\\\\begin\{problem\}\{([^{}]*)\}/', $tex, $m)) {
+		$title = trim($m[1]);
+	}
+	if (preg_match('/\\\\begin\{problem\}(?:\{[^{}]*\}){0,5}(.*?)(\\\\end\{problem\}|$)/s', $tex, $m)) {
+		$tex = $m[1];
+	}
+	$examples = array();
+	if (preg_match_all('/\\\\exmp\{(.*?)\}%?\s*\{(.*?)\}%?/s', $tex, $all, PREG_SET_ORDER)) {
+		foreach ($all as $one) {
+			$examples[] = array(trim($one[1], "\n") . "\n", trim($one[2], "\n") . "\n");
+		}
+	}
+	$marks = array('\\InputFile' => 'input', '\\OutputFile' => 'output', '\\Interaction' => 'interaction', '\\Scoring' => 'scoring',
+		'\\Examples' => 'examples', '\\Example' => 'examples', '\\Note' => 'notes', '\\Notes' => 'notes');
+	$pieces = preg_split('/(\\\\(?:InputFile|OutputFile|Interaction|Scoring|Examples|Example|Notes|Note)\b)/', $tex, -1, PREG_SPLIT_DELIM_CAPTURE);
+	$sections = array('legend' => $pieces[0]);
+	for ($i = 1; $i + 1 < count($pieces); $i += 2) {
+		$sections[$marks[$pieces[$i]]] = $pieces[$i + 1];
+	}
+	unset($sections['examples']);
+	return array($title, $sections, $examples);
+}
+
+// What a package of Polygon is: a problem with everything it comes with, the way
+// importReadPackage() says one.
+//   $dir, $root, $own   where it was unpacked, its folder in it, and its files below that
+function importReadPolygon($dir, $root, $own) {
+	$prefix = $root === '' ? '' : "$root/";
+	$has = array_flip($own);
+	$path = function($name) use ($dir, $prefix) {
+		return "$dir/$prefix$name";
+	};
+	$package = array(
+		'title' => $root === '' ? '导入的题目' : uojFileBaseName($root), 'tags' => array(), 'public' => null, 'statement_md' => '',
+		'settings' => array(), 'data' => array(), 'cases' => null, 'samples' => array(), 'conf' => null, 'native' => false,
+		'attachments' => array(), 'pdf_statements' => array(), 'notes' => array()
+	);
+	$xml = @simplexml_load_string((string)file_get_contents($path('problem.xml')), 'SimpleXMLElement', LIBXML_NONET);
+	if ($xml === false || $xml->getName() !== 'problem') {
+		$package['notes'][] = 'problem.xml 读不懂，只导入了名字';
+		return $package;
+	}
+	$settings = array();
+	$notes = array();
+
+	// ---- the names, and the language the problem is shown in
+	$names = array();
+	if (isset($xml->names->name)) {
+		foreach ($xml->names->name as $name) {
+			$names[(string)$name['language']] = trim((string)$name['value']);
+		}
+	}
+	$statements = array();
+	if (isset($xml->statements->statement)) {
+		foreach ($xml->statements->statement as $statement) {
+			$statements[] = array('language' => (string)$statement['language'], 'path' => (string)$statement['path'], 'type' => (string)$statement['type']);
+		}
+	}
+	$languages = array_values(array_unique(array_merge(array_keys($names), array_column($statements, 'language'))));
+	$language = importPolygonPreferredLang($languages);
+	if ($language !== null && isset($names[$language]) && $names[$language] !== '') {
+		$package['title'] = $names[$language];
+	} elseif ($names) {
+		$package['title'] = reset($names);
+	} elseif (isset($xml['short-name']) && (string)$xml['short-name'] !== '') {
+		$package['title'] = (string)$xml['short-name'];
+	}
+	if (isset($xml->tags->tag)) {
+		$tags = array();
+		foreach ($xml->tags->tag as $tag) {
+			if (trim((string)$tag['value']) !== '') {
+				$tags[] = trim((string)$tag['value']);
+			}
+		}
+		$package['tags'] = array_slice(array_values(array_unique($tags)), 0, 20);
+	}
+
+	// ---- how it is judged
+	$judging = $xml->judging;
+	if ($judging && ((string)$judging['input-file'] !== '' || (string)$judging['output-file'] !== '')) {
+		$notes[] = "这道题在 Polygon 上用文件输入输出（{$judging['input-file']} / {$judging['output-file']}），这里只支持标准输入输出，请在题面里说明";
+	}
+	$testset = null;
+	if ($judging && isset($judging->testset)) {
+		foreach ($judging->testset as $one) {
+			if ($testset === null || (string)$one['name'] === 'tests') {
+				$testset = $one;
+			}
+		}
+	}
+	if ($testset !== null) {
+		$seconds = importSeconds((string)$testset->{'time-limit'}, 'ms');
+		if ($seconds !== null) {
+			$settings['time_limit'] = $seconds;
+		}
+		$bytes = (string)$testset->{'memory-limit'};
+		if (validateUInt($bytes) && $bytes > 0) {
+			$settings['memory_limit'] = max(1, (int)ceil($bytes / 1048576));
+		}
+	}
+
+	// the checker: a way of comparing of the judgers here where it is one of the standard ones of
+	// testlib, else the checker itself
+	$checker = $xml->assets->checker;
+	if ($checker) {
+		$checker_name = (string)$checker['name'];
+		$source = (string)$checker->source['path'];
+		if (preg_match('/^std::([a-z0-9]+)\.cpp$/D', $checker_name, $m) && in_array($m[1], importBuiltinCheckers(), true)) {
+			$settings['checker'] = $m[1];
+		} elseif ($source !== '' && isset($has[$source])) {
+			$settings['checker'] = 'custom';
+			$settings['checker_file'] = uojFileBaseName($source);
+			$package['data'][$settings['checker_file']] = $path($source);
+		} else {
+			$notes[] = "包里没有校验器的源文件（{$checker_name}），用了默认的比较方式";
+		}
+	}
+	$interactor = $xml->assets->interactor;
+	if ($interactor && (string)$interactor->source['path'] !== '' && isset($has[(string)$interactor->source['path']])) {
+		$settings['type'] = 'interactive';
+		$settings['interactor_file'] = uojFileBaseName((string)$interactor->source['path']);
+		$package['data'][$settings['interactor_file']] = $path((string)$interactor->source['path']);
+	}
+	if ($judging && (int)$judging['run-count'] == 2) {
+		$settings['type'] = 'multi_pass';
+		$settings['comm_style'] = 'polygon';
+		$settings['run_twice_interactive'] = $interactor ? true : false;
+		$settings['run_twice_interactor_verdict'] = false;
+	} elseif ($judging && (int)$judging['run-count'] > 2) {
+		$notes[] = "Polygon 上程序运行 {$judging['run-count']} 次，这里的 Polygon 写法只支持运行两次";
+	}
+	// the main solution is the standard program, which judges what hacks give
+	if (isset($xml->assets->solutions->solution)) {
+		foreach ($xml->assets->solutions->solution as $solution) {
+			$source = (string)$solution->source['path'];
+			if ((string)$solution['tag'] === 'main' && $source !== '' && isset($has[$source])) {
+				$settings['std_file'] = uojFileBaseName($source);
+				$package['data'][$settings['std_file']] = $path($source);
+			}
+		}
+	}
+	// what the checker and the interactor may include, besides testlib.h which the judgers have
+	if (isset($xml->files->resources->file)) {
+		foreach ($xml->files->resources->file as $file) {
+			$source = (string)$file['path'];
+			if (preg_match('/\.(h|hpp)$/i', $source) && uojFileBaseName($source) !== 'testlib.h' && isset($has[$source])) {
+				$package['data'][uojFileBaseName($source)] = $path($source);
+			}
+		}
+	}
+
+	// ---- the tests
+	if ($testset !== null) {
+		$count = (int)(string)$testset->{'test-count'};
+		$input_pattern = (string)$testset->{'input-path-pattern'};
+		$answer_pattern = (string)$testset->{'answer-path-pattern'};
+		$tests = array();
+		if (isset($testset->tests->test)) {
+			foreach ($testset->tests->test as $test) {
+				$tests[] = $test;
+			}
+		}
+		$count = max($count, count($tests));
+		$cases = array();
+		$missing = 0;
+		$no_answer = 0;
+		for ($number = 1; $number <= $count; $number++) {
+			$input = importPolygonPath($input_pattern, $number);
+			$answer = importPolygonPath($answer_pattern, $number);
+			if ($input === null || !isset($has[$input])) {
+				$missing++;
+				continue;
+			}
+			$package['data'][$input] = $path($input);
+			if ($answer !== null && isset($has[$answer])) {
+				$package['data'][$answer] = $path($answer);
+			} else {
+				$answer = null;
+				$no_answer++;
+			}
+			$cases[] = array($input, $answer);
+			$test = isset($tests[$number - 1]) ? $tests[$number - 1] : null;
+			if ($test !== null && (string)$test['sample'] === 'true') {
+				$package['samples'][] = array($input, $answer);
+			}
+		}
+		if ($missing > 0) {
+			$notes[] = $missing == $count
+				? "包里没有测试数据（{$input_pattern}）：这是只有生成器的包，请在 Polygon 上下载 Standard 格式的包（里面有生成好的数据）再导入"
+				: "有 {$missing} 个测试点的输入文件包里没有，导入了其余的；完整的数据在 Polygon 的 Standard 包里";
+		}
+		if ($no_answer > 0) {
+			$notes[] = "有 {$no_answer} 个测试点没有答案文件" . (isset($settings['checker']) && $settings['checker'] === 'custom' ? '：评测时交给校验器的答案是空的' : '：用内置的比较方式时数据检查不会通过，请补上答案文件');
+		}
+		$package['cases'] = $cases ? $cases : null;
+
+		// what the tests are worth: groups of Polygon are subtasks here where they can be
+		$groups = array();
+		if (isset($testset->groups->group)) {
+			foreach ($testset->groups->group as $group) {
+				$groups[(string)$group['name']] = $group;
+			}
+		}
+		$points = array();
+		$of_group = array();
+		foreach ($tests as $index => $test) {
+			if ((string)$test['points'] !== '') {
+				$points[$index] = (float)(string)$test['points'];
+			}
+			if ((string)$test['group'] !== '') {
+				$of_group[$index] = (string)$test['group'];
+			}
+		}
+		if ($of_group && count($of_group) == count($tests) && count($tests) == count($cases)) {
+			$rows = array();
+			$fits = true;
+			$seen = array();
+			$previous = null;
+			foreach ($tests as $index => $test) {
+				$name = $of_group[$index];
+				if ($name !== $previous) {
+					if (isset($seen[$name])) {
+						$fits = false;
+					}
+					$seen[$name] = true;
+					$group = isset($groups[$name]) ? $groups[$name] : null;
+					$policy = $group ? (string)$group['points-policy'] : '';
+					$worth = $group && (string)$group['points'] !== '' ? (float)(string)$group['points'] : 0.0;
+					if ($policy === 'each-test') {
+						$worth = 0.0;
+						foreach ($of_group as $at => $of) {
+							$worth += $of === $name && isset($points[$at]) ? $points[$at] : 0;
+						}
+						$fits = false;
+					}
+					if ($group && isset($group->dependencies->dependency)) {
+						$fits = false;
+					}
+					$rows[] = array($index + 1, $worth);
+					$previous = $name;
+				}
+				$rows[count($rows) - 1][0] = $index + 1;
+			}
+			$total = array_sum(array_column($rows, 1));
+			$whole = true;
+			foreach ($rows as $row) {
+				$whole = $whole && abs($row[1] - round($row[1])) < 1e-9;
+			}
+			if ($fits && count($rows) >= 2 && abs($total - 100) < 1e-9 && $whole) {
+				$settings['scoring'] = 'subtasks';
+				$settings['subtasks'] = array_map(function($row) {
+					return array($row[0], (int)round($row[1]));
+				}, $rows);
+			} else {
+				$notes[] = 'Polygon 里的分组没有照原样导入（' . (!$fits ? '分组不连续、按测试点给分或者有依赖' : (abs($total - 100) >= 1e-9 ? "分值加起来是 $total 不是 100" : (!$whole ? '分值不是整数' : '只有一个分组'))) . '），现在按测试点平均给分，请在评测设置里检查';
+			}
+		} elseif ($points) {
+			$total = array_sum($points);
+			$equal = count(array_unique(array_map('strval', $points))) == 1 && count($points) == count($cases);
+			if (!($equal && abs($total - 100) < 1e-6)) {
+				$notes[] = "Polygon 里给测试点单独写了分值（加起来是 {$total}），这里没有照搬，现在按测试点平均给分：需要的话在 problem.conf 里写 point_score_3 20 这样的行";
+			}
+		} else {
+			// a problem without points is passed as a whole, as on Codeforces
+			$settings['scoring'] = 'all';
+			$notes[] = 'Polygon 里没有给分：按“全部测试点通过才得分”导入，需要部分分的话在评测设置里改';
+		}
+	} else {
+		$notes[] = 'problem.xml 里没有测试数据的设置';
+	}
+
+	// ---- the statement: by sections, else the whole of it; and the PDF files there are
+	$lang_dir = $language !== null ? $language : '';
+	$sections = array();
+	$title_tex = null;
+	foreach (array('legend', 'input', 'output', 'interaction', 'scoring', 'notes', 'name') as $section) {
+		$file = "statement-sections/$lang_dir/$section.tex";
+		if ($lang_dir !== '' && isset($has[$file])) {
+			$sections[$section] = (string)file_get_contents($path($file));
+		}
+	}
+	$examples = array();
+	for ($number = 1; $number <= 99; $number++) {
+		$file = sprintf("statement-sections/%s/example.%02d", $lang_dir, $number);
+		if (!isset($has[$file]) || !isset($has["$file.a"])) {
+			break;
+		}
+		$examples[] = array((string)file_get_contents($path($file)), (string)file_get_contents($path("$file.a")));
+	}
+	if (!$sections) {
+		foreach ($statements as $statement) {
+			if ($statement['language'] === $language && $statement['type'] === 'application/x-tex' && isset($has[$statement['path']])) {
+				list($title_tex, $sections, $tex_examples) = importPolygonProblemTex((string)file_get_contents($path($statement['path'])));
+				if (!$examples) {
+					$examples = $tex_examples;
+				}
+				break;
+			}
+		}
+	}
+	if (!$examples) {
+		// the samples among the tests are the samples of the statement
+		foreach ($package['samples'] as $sample) {
+			$examples[] = array((string)file_get_contents($path($sample[0])), $sample[1] !== null ? (string)file_get_contents($path($sample[1])) : '');
+		}
+	}
+	unset($sections['name']);
+	if ($sections) {
+		$package['statement_md'] = importPolygonStatementMarkdown($sections, $examples);
+		$notes[] = '题面是从 Polygon 的 LaTeX 转成 Markdown 的，复杂的排版请在题面编辑里核对';
+		// the pictures of the statement come with it
+		if ($lang_dir !== '') {
+			foreach ($own as $name) {
+				if (strpos($name, "statement-sections/$lang_dir/") === 0 && preg_match('/\.(png|jpe?g|gif|svg|webp)$/i', $name)) {
+					$package['attachments'][uojFileBaseName($name)] = $path($name);
+				}
+			}
+		}
+	} else {
+		$notes[] = '包里没有 LaTeX 题面';
+	}
+	foreach ($statements as $statement) {
+		$lang = importPolygonLang($statement['language']);
+		if ($statement['type'] === 'application/pdf' && $lang !== null && isset($has[$statement['path']])) {
+			$package['pdf_statements'][$lang] = $path($statement['path']);
+		}
+	}
+	if (!$package['pdf_statements']) {
+		// a package names its PDF files where it made them; one that did not say lays them there all the same
+		foreach ($own as $name) {
+			if (preg_match('/^statements\/\.pdf\/([a-z]+)\/problem\.pdf$/D', $name, $m) && ($lang = importPolygonLang($m[1])) !== null) {
+				$package['pdf_statements'][$lang] = $path($name);
+			}
+		}
+	}
+
+	$dropped = array();
+	foreach (array('generators' => isset($xml->files->executables->executable), 'validators' => isset($xml->assets->validators->validator), 'stresses' => isset($xml->stresses->list->stress)) as $what => $there) {
+		if ($there) {
+			$dropped[] = array('generators' => '数据生成器', 'validators' => '数据校验器', 'stresses' => '对拍')[$what];
+		}
+	}
+	if ($dropped) {
+		$notes[] = '没有导入：' . join('、', $dropped);
+	}
+	$notes[] = '这是 Polygon 的题目包：评测设置是从 problem.xml 翻译来的，请在“数据与评测”里核对';
+	$package['settings'] = $settings;
+	$package['notes'] = $notes;
+	return $package;
+}
+
 // ---- making the problems
 
 // Makes a problem of what was read. $public: what whoever imports said about showing it;
@@ -1124,6 +1653,15 @@ function importCreate($package, $actor, $domain, $public) {
 			} else {
 				file_put_contents("$upload_dir/" . ($index + 1) . '.out', '');
 			}
+		}
+	}
+	// the samples among the tests are the samples here as well: extra tests, sample1.in ...
+	foreach ($package['samples'] as $index => $sample) {
+		$put($package['data'][$sample[0]], 'sample' . ($index + 1) . '.in');
+		if ($sample[1] !== null) {
+			$put($package['data'][$sample[1]], 'sample' . ($index + 1) . '.out');
+		} else {
+			file_put_contents("$upload_dir/sample" . ($index + 1) . '.out', '');
 		}
 	}
 	foreach ($package['data'] as $name => $path) {

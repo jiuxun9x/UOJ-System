@@ -218,5 +218,180 @@ $read = importReadPackage($unpacked, 'p', array_keys($files));
 check_same(array(array('zh_cn', 'en'), array('tool.pdf')), array(array_keys($read['pdf_statements']), array_keys($read['attachments'])), 'a package with its statement in two languages, and a PDF that is only a file of it');
 exec('rm -rf ' . escapeshellarg($unpacked));
 
+// ---- packages of Polygon
+
+// LaTeX as Polygon writes statements, as Markdown: formulas as they are, text made Markdown,
+// layout dropped
+$tex = <<<'TEX'
+Given $n$ integers $a_1, a_2, \ldots, a_n$ % a comment
+and an integer~$k$. Find the \textbf{maximum} sum of \emph{any} segment --- \t{long long} is needed.
+
+\begin{itemize}
+\item the first, with $x_i \le 10^9$;
+\item the second.
+\end{itemize}
+\begin{enumerate}
+\item one
+\item two
+\end{enumerate}
+Line one\\
+line two. A brace \{ and 50\% of it, and {\bf bold}.
+$$\sum_{i=1}^{n} a_i$$
+\begin{center}
+\includegraphics[width=5cm]{pic.png}
+\end{center}
+\begin{tabular}{|c|c|}
+\hline
+$n$ & points \\
+\hline
+$\le 10$ & 20 \\
+\end{tabular}
+\begin{verbatim}
+a  b -- c
+\end{verbatim}
+TEX;
+check_same(join("\n", array(
+	'Given $n$ integers $a_1, a_2, \ldots, a_n$',
+	'and an integer $k$. Find the **maximum** sum of *any* segment — `long long` is needed.',
+	'',
+	'- the first, with $x_i \le 10^9$;',
+	'- the second.',
+	'',
+	'1. one',
+	'2. two',
+	'',
+	'Line one  ',
+	'line two. A brace { and 50% of it, and **bold**.',
+	'$$\sum_{i=1}^{n} a_i$$',
+	'',
+	'![](file://pic.png)',
+	'',
+	'| $n$ | points |',
+	'| --- | --- |',
+	'| $\le 10$ | 20 |',
+	'',
+	'```',
+	'a  b -- c',
+	'```'
+)), importLatexToMarkdown($tex), 'a statement of Polygon in LaTeX, as Markdown');
+check_same('$\{1, 2\}$ and $x$ is $x$', importLatexToMarkdown('$\{1, 2\}$ and \(x\) is \(x\)'), 'a formula keeps its braces, and \( \) is $ $');
+
+// a whole statement of Polygon, made with olymp.sty: its sections and its samples
+$problem_tex = <<<'TEX'
+\begin{problem}{A+B}{standard input}{standard output}{1 second}{256 megabytes}
+Compute $a+b$.
+\InputFile
+Two integers $a$ and $b$.
+\OutputFile
+Their sum.
+\Examples
+\exmp{1 2
+}{3
+}%
+\Note
+Easy.
+\end{problem}
+TEX;
+list($title, $sections, $examples) = importPolygonProblemTex($problem_tex);
+check_same(array('A+B', array('legend', 'input', 'output', 'notes'), array(array("1 2\n", "3\n"))), array($title, array_keys($sections), $examples), 'the parts of problem.tex');
+$markdown = importPolygonStatementMarkdown($sections, $examples);
+check_same(true, strpos($markdown, "## 题目描述\n\nCompute \$a+b\$.\n\n## 输入格式\n\nTwo integers \$a\$ and \$b\$.\n\n## 输出格式\n\nTheir sum.\n\n## 样例\n\n```input1\n1 2\n```\n\n```output1\n3\n```\n\n## 提示\n\nEasy.") === 0, 'a statement of Polygon, as the statements here are written: ' . $markdown);
+check_same(array('tests/01', 'tests/12.a', null, null), array(importPolygonPath('tests/%02d', 1), importPolygonPath('tests/%02d.a', 12), importPolygonPath('tests/%s', 1), importPolygonPath('tests/%d%d', 1)), 'the names of the tests of Polygon');
+check_same(array('chinese', 'english', 'russian', null), array(importPolygonPreferredLang(array('english', 'chinese')), importPolygonPreferredLang(array('russian', 'english')), importPolygonPreferredLang(array('russian')), importPolygonPreferredLang(array())), 'the language a problem of Polygon is shown in');
+
+// a package of Polygon, as it lies in a folder
+$polygon = sys_get_temp_dir() . '/uoj-polygon-test-' . getmypid();
+$polygon_files = array(
+	'problem.xml' => <<<'XML'
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<problem revision="3" short-name="a-plus-b">
+    <names>
+        <name language="english" value="A plus B"/>
+        <name language="chinese" value="加法"/>
+    </names>
+    <statements>
+        <statement charset="UTF-8" language="chinese" mathjax="true" path="statements/chinese/problem.tex" type="application/x-tex"/>
+        <statement language="chinese" path="statements/.pdf/chinese/problem.pdf" type="application/pdf"/>
+    </statements>
+    <judging cpu-name="x" cpu-speed="3600" input-file="" output-file="" run-count="1">
+        <testset name="tests">
+            <time-limit>1500</time-limit>
+            <memory-limit>268435456</memory-limit>
+            <test-count>3</test-count>
+            <input-path-pattern>tests/%02d</input-path-pattern>
+            <answer-path-pattern>tests/%02d.a</answer-path-pattern>
+            <tests>
+                <test method="manual" sample="true" group="0" points="0"/>
+                <test cmd="gen 1" method="generated" group="1" points="40"/>
+                <test cmd="gen 2" method="generated" group="2" points="60"/>
+            </tests>
+            <groups>
+                <group feedback-policy="complete" name="0" points="0" points-policy="complete-group"/>
+                <group feedback-policy="complete" name="1" points="40" points-policy="complete-group"/>
+                <group feedback-policy="complete" name="2" points="60" points-policy="complete-group"/>
+            </groups>
+        </testset>
+    </judging>
+    <files>
+        <resources>
+            <file path="files/testlib.h" type="h.g++"/>
+            <file path="files/sum.h" type="h.g++"/>
+        </resources>
+        <executables>
+            <executable><source path="files/gen.cpp" type="cpp.g++17"/></executable>
+        </executables>
+    </files>
+    <assets>
+        <checker name="check.cpp" type="testlib">
+            <source path="files/check.cpp" type="cpp.g++17"/>
+        </checker>
+        <solutions>
+            <solution tag="main"><source path="solutions/ab.cpp" type="cpp.g++17"/></solution>
+            <solution tag="wrong-answer"><source path="solutions/wrong.cpp" type="cpp.g++17"/></solution>
+        </solutions>
+    </assets>
+    <tags>
+        <tag value="math"/>
+        <tag value="implementation"/>
+    </tags>
+</problem>
+XML
+,
+	'tests/01' => "1 2\n", 'tests/01.a' => "3\n", 'tests/02' => "3 4\n", 'tests/02.a' => "7\n", 'tests/03' => "5 6\n",
+	'files/check.cpp' => "// a checker\n", 'files/sum.h' => "// a header\n", 'files/testlib.h' => "// testlib\n", 'files/gen.cpp' => "// a generator\n",
+	'solutions/ab.cpp' => "// the main solution\n", 'solutions/wrong.cpp' => "// a wrong one\n",
+	'statement-sections/chinese/legend.tex' => 'Compute $a+b$.', 'statement-sections/chinese/input.tex' => 'Two integers.', 'statement-sections/chinese/output.tex' => 'The sum.',
+	'statement-sections/chinese/example.01' => "1 2\n", 'statement-sections/chinese/example.01.a' => "3\n", 'statement-sections/chinese/pic.png' => 'png',
+	'statements/.pdf/chinese/problem.pdf' => '%PDF-1.4'
+);
+foreach ($polygon_files as $name => $content) {
+	@mkdir(dirname("$polygon/pkg/$name"), 0755, true);
+	file_put_contents("$polygon/pkg/$name", $content);
+}
+$read = importReadPolygon($polygon, 'pkg', array_keys($polygon_files));
+check_same(array('加法', array('math', 'implementation')), array($read['title'], $read['tags']), 'the name in Chinese, and the tags');
+check_same(array('time_limit' => '1.5', 'memory_limit' => 256, 'checker' => 'custom', 'checker_file' => 'check.cpp', 'std_file' => 'ab.cpp', 'scoring' => 'subtasks', 'subtasks' => array(array(1, 0), array(2, 40), array(3, 60))),
+	$read['settings'], 'the limits, the checker, the main solution and the groups as subtasks');
+check_same(array(array('tests/01', 'tests/01.a'), array('tests/02', 'tests/02.a'), array('tests/03', null)), $read['cases'], 'the tests, one of them without an answer');
+check_same(array(array('tests/01', 'tests/01.a')), $read['samples'], 'the sample among them');
+check_same(array('check.cpp', 'ab.cpp', 'sum.h'), array_values(array_intersect(array_keys($read['data']), array('check.cpp', 'ab.cpp', 'sum.h', 'testlib.h', 'gen.cpp', 'wrong.cpp'))), 'the programs that are taken: the checker, the main solution, a header it needs');
+check_same(true, strpos($read['statement_md'], "## 题目描述\n\nCompute \$a+b\$.") === 0 && strpos($read['statement_md'], "```input1\n1 2\n```") !== false, 'the statement from its sections');
+check_same(array('pic.png'), array_keys($read['attachments']), 'the pictures of the statement');
+check_same(array('zh_cn'), array_keys($read['pdf_statements']), 'the PDF statement');
+check_same(true, (bool)preg_grep('/1 个测试点没有答案文件：评测时交给校验器的答案是空的/', $read['notes']), 'what is said about the test without an answer');
+check_same(true, (bool)preg_grep('/没有导入：数据生成器/', $read['notes']), 'what is said about what was left behind');
+// a package without its tests, as the packages of Polygon with generators only are
+foreach (array('tests/01', 'tests/01.a', 'tests/02', 'tests/02.a', 'tests/03') as $name) {
+	unlink("$polygon/pkg/$name");
+}
+$bare = importReadPolygon($polygon, 'pkg', array_values(array_diff(array_keys($polygon_files), array('tests/01', 'tests/01.a', 'tests/02', 'tests/02.a', 'tests/03'))));
+check_same(array(null, true), array($bare['cases'], (bool)preg_grep('/Standard 格式的包/', $bare['notes'])), 'a package without its tests says where they are');
+// a standard checker of testlib is the same way of comparing here; no points is passed as a whole
+$xml = str_replace(array('<checker name="check.cpp" type="testlib">', ' group="0" points="0"', ' group="1" points="40"', ' group="2" points="60"'), array('<checker name="std::rcmp6.cpp" type="testlib">', '', '', ''), $polygon_files['problem.xml']);
+file_put_contents("$polygon/pkg/problem.xml", $xml);
+$plain = importReadPolygon($polygon, 'pkg', array_keys($polygon_files));
+check_same(array('rcmp6', 'all'), array($plain['settings']['checker'], $plain['settings']['scoring']), 'a standard checker, and no points');
+exec('rm -rf ' . escapeshellarg($polygon));
+
 // a problem whose checker is its own may have tests that are an input alone
 check_same(array(true, false, true), array(problemInputsSuffice(array('type' => 'traditional', 'checker' => 'custom')), problemInputsSuffice(array('type' => 'traditional', 'checker' => 'wcmp')), problemInputsSuffice(array('type' => 'interactive', 'checker' => 'wcmp'))), 'tests that are an input alone');
