@@ -358,10 +358,12 @@
 		var kinds = state.medals || [];
 		var html = '';
 		$.each(kinds, function(index, kind) {
-			var amount = String(kind.amount);
-			var said = kind.of ? amount + (kind.of === 'all' ? ' 参赛人数' : ' 有效人数') : amount + ' 人';
+			// "10% 有效人数，3 人", or "3 人"; and how many got it, where those level with the last
+			// of them, or nobody who solved something, made it another number
+			var said = (kind.of ? String(kind.amount) + (kind.of === 'all' ? ' 参赛人数，' : ' 有效人数，') : '') + kind.count + ' 人'
+				+ (kind.given !== kind.count ? '，实发 ' + kind.given + ' 人' : '');
 			html += '<span class="uoj-ob-medal-kind" data-medal="' + (index + 1) + '"><i style="background-color: ' + esc(kind.color) + '"></i>'
-				+ esc(kind.name) + '<small>' + esc(said) + ' · ' + kind.given + ' 人</small></span>';
+				+ esc(kind.name) + '<small>' + esc(said) + '</small></span>';
 		});
 		if (kinds.length > 0 && $.grep(kinds, function(kind) {
 			return !!kind.of;
