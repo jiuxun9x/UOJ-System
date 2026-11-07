@@ -75,10 +75,11 @@
 				<button type="button" class="uoj-ob-button" id="resolver-restart">从头再来</button>
 				<button type="button" class="uoj-ob-button" id="outer-board-theme" title="深色 / 浅色">深色</button>
 				<button type="button" class="uoj-ob-button" id="outer-board-full" title="全屏">全屏</button>
+				<a class="uoj-ob-button" id="resolver-export-clics" href="/contest/<?= $contest['id'] ?>/resolver?export=clics" title="ICPC Tools 的 Resolver 用的事件流（CCS 2023-06）">导出 CLICS</a>
+				<a class="uoj-ob-button" id="resolver-export-xcpcio" href="/contest/<?= $contest['id'] ?>/resolver?export=xcpcio" title="XCPCIO 的 config.json、team.json、run.json">导出 XCPCIO</a>
 				<a class="uoj-ob-button" href="/contest/<?= $contest['id'] ?>">返回比赛</a>
 			</div>
 		</div>
-		<p class="uoj-ob-note" id="resolver-note">这是封榜时的榜单。按“下一步”从榜单最下面开始，一位一位揭晓封榜后的提交：先选中还有待揭晓提交的排名最低的选手，再从左到右揭晓 TA 的题目。全部揭晓之后显示奖牌。</p>
 	</div>
 	<div class="uoj-ob-scroll">
 		<table class="uoj-ob-table" id="table-resolver">
@@ -87,14 +88,6 @@
 		</table>
 	</div>
 	<div class="uoj-ob-medals" id="resolver-medals" style="display:none"></div>
-	<div class="uoj-rs-export" id="resolver-export">
-		<strong>用别的滚榜工具：</strong>
-		<a class="uoj-ob-button" id="resolver-export-clics" href="/contest/<?= $contest['id'] ?>/resolver?export=clics">CLICS 事件流</a>
-		<span>给 ICPC Tools 的 Resolver（CCS 规范 2023-06 的 event feed）</span>
-		<a class="uoj-ob-button" id="resolver-export-xcpcio" href="/contest/<?= $contest['id'] ?>/resolver?export=xcpcio">XCPCIO 数据</a>
-		<span>config.json、team.json、run.json</span>
-		<p>两份都含封榜之后的全部结果，只给工作人员下载，不要公开。前三档奖牌对应金、银、铜。罚时按秒计算，和本站榜单一致；按分钟计算罚时的工具可能在罚时只差几秒的选手之间排出不同的名次。</p>
-	</div>
 	<noscript><p class="text-center">滚榜需要浏览器打开 JavaScript。</p></noscript>
 </div>
 <script type="text/javascript">

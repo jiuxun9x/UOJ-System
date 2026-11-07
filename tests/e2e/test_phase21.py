@@ -68,5 +68,20 @@ class OuterBoardTest(unittest.TestCase):
             self.assertNotIn(sentence, script, sentence)
 
 
+class ResolverTest(unittest.TestCase):
+    """The resolver said how it is used over the board, and what its exports hold, for whom, and
+    how other tools count, under it. It has its buttons, the exports among them."""
+
+    def test_the_resolver_explains_nothing(self):
+        admin, pupil, contest_id = frozen_contest("p21 滚榜")
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        page = admin.get("/contest/%d/resolver" % contest_id).text
+        self.assertIn('id="table-resolver"', page)
+        for button in ('id="resolver-export-clics"', 'id="resolver-export-xcpcio"', "导出 CLICS", "导出 XCPCIO"):
+            self.assertIn(button, page)
+        for sentence in ('id="resolver-note"', "按“下一步”", 'id="resolver-export"', "只给工作人员下载", "罚时按秒计算", "前三档奖牌对应"):
+            self.assertNotIn(sentence, page, sentence)
+
+
 if __name__ == "__main__":
     unittest.main()
