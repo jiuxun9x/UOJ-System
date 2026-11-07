@@ -217,6 +217,51 @@ function boardLastTries($contest, $until = null) {
 	}
 	return $tries;
 }
+// What was submitted to a contest as its outer board tells it (its tab of submissions, and
+// what its statistics over time are drawn from): what the board counts and nothing more - no
+// number of a submission, no code, no verdict but that it passed, failed, or is not told yet;
+// as DOMjudge counts (see contestCells()), nothing that did not compile and nothing submitted to
+// a problem after it was solved. Under the ICPC rule only: the other rules tell a score that
+// is not final while the contest runs.
+//   $people  the usernames whose submissions are told: the contestants on the board
+//   $frozen  whether the board is frozen: what was submitted since it froze is not told
+//   $until   up to how many seconds into the contest (null: to its end)
+// Returns rows of array(seconds into the contest, username, position of the problem, 'yes',
+// 'no' or 'wait'), the oldest first.
+function boardRuns($contest, $people, $frozen, $until = null) {
+	if (contestRule($contest) !== 'ICPC' || !$people) {
+		return array();
+	}
+	$pos = array_flip(array_map('intval', contestProblemIds($contest['id'])));
+	$people = array_flip(array_map('strval', $people));
+	$start = $contest['start_time']->getTimestamp();
+	$end = $until === null ? (int)$contest['last_min'] * 60 : (int)$until;
+	$freeze = $frozen ? contestFreezeOffset($contest) : null;
+	$runs = array();
+	$closed = array();
+	foreach (DB::selectAll("select submitter, problem_id, submit_time, score, status from submissions where contest_id = {$contest['id']} order by id", MYSQLI_ASSOC) as $row) {
+		$name = (string)$row['submitter'];
+		$offset = strtotime($row['submit_time']) - $start;
+		if (!isset($people[$name]) || !isset($pos[(int)$row['problem_id']]) || $offset < 0 || $offset > $end) {
+			continue;
+		}
+		$at = $pos[(int)$row['problem_id']];
+		$judged = strpos((string)$row['status'], 'Judged') === 0;
+		if (isset($closed[$name][$at]) || ($row['score'] === null && $judged)) {
+			continue;
+		}
+		if ($row['score'] === null || ($freeze !== null && $offset >= $freeze)) {
+			$outcome = 'wait';
+		} else {
+			$outcome = judgedScore($row['score']) == 100 ? 'yes' : 'no';
+		}
+		if ($row['score'] !== null && judgedScore($row['score']) == 100) {
+			$closed[$name][$at] = true;
+		}
+		$runs[] = array($offset, $name, $at, $outcome);
+	}
+	return $runs;
+}
 // Up to when the last tries of a board are told, in seconds into the contest: a frozen board
 // tells nothing that was submitted since it froze, and so no time of it either (a submission that
 // did not compile is no attempt on the board, but was a last try). null: to $until, the moment
@@ -329,8 +374,11 @@ function boardVirtuals($contest) {
 //   'virtuals' when it is over, the people who sat it virtually: see boardVirtuals() (nothing
 //              for whoever sits it now)
 //   'hash'     a word that changes when what is shown changes (the clock aside)
+//   'runs'     where it was asked for ('runs' => true), what the contestants on the board
+//              submitted, as boardRuns() tells it
 // $options: 'vp' => whose view is asked for (a username), 'virtual' => false for the board of a
-// contest that is over without the people who sat it virtually.
+// contest that is over without the people who sat it virtually, 'runs' => true for the
+// submissions as well.
 function boardState($contest, $viewer, $options = array()) {
 	$now = UOJTime::$time_now->getTimestamp();
 	$start = $contest['start_time']->getTimestamp();
@@ -388,6 +436,16 @@ function boardState($contest, $viewer, $options = array()) {
 	if ($finished && !$mine) {
 		$state['virtuals'] = boardVirtuals($contest);
 	}
-	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['stats'], $state['viewing'], $state['virtual'], $state['virtuals'])));
+	if (!empty($options['runs'])) {
+		// of who is on the board as a contestant, up to the moment the board is of
+		$people = array();
+		foreach ($state['rows'] as $row) {
+			if (!$row['virtual']) {
+				$people[] = $row['username'];
+			}
+		}
+		$state['runs'] = $state['phase'] === 'before' ? array() : boardRuns($contest, $people, $state['frozen'], $state['phase'] === 'replay' ? $state['elapsed'] : null);
+	}
+	$state['hash'] = md5(json_encode(array(isset($state['runs']) ? $state['runs'] : null,$state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['stats'], $state['viewing'], $state['virtual'], $state['virtuals'])));
 	return $state;
 }

@@ -19,6 +19,13 @@
 	--ob-accent: #2f6fed;
 	--ob-frozen: #7a9cf0;
 	--ob-viewed: #dce8fd;
+	/* the marks of the charts: passed, not told, failed (checked against colour blindness in
+	   this order, which is the order they are stacked in), the track under a bar, the grid */
+	--ob-chart-yes: #12852f;
+	--ob-chart-wait: #5b8def;
+	--ob-chart-no: #e0603f;
+	--ob-chart-track: #dfe4ec;
+	--ob-chart-grid: #e8ebf0;
 	/* as wide as the window, whatever the page around it is */
 	width: 98vw;
 	margin: 0.75rem calc(50% - 49vw) 2rem;
@@ -47,6 +54,8 @@ body.uoj-ob-dark-page .uoj-ob {
 	--ob-accent: #6d9bff;
 	--ob-frozen: #4466c0;
 	--ob-viewed: #22345a;
+	--ob-chart-track: #2a3447;
+	--ob-chart-grid: #1f2838;
 }
 
 /* ---- what stands over the table */
@@ -398,6 +407,228 @@ body.uoj-ob-dark-page .uoj-ob {
 }
 .uoj-ob-table td.uoj-ob-pending, .uoj-ob-legend i.uoj-ob-pending {
 	background-color: var(--ob-pending);
+}
+
+/* ---- the tabs: the board, what was submitted, the statistics */
+.uoj-ob-tabs {
+	display: flex;
+	justify-content: center;
+	gap: 0.3rem;
+	margin: 0.2rem 0 0.8rem;
+	border-bottom: 1px solid var(--ob-line);
+}
+.uoj-ob-tab {
+	padding: 0.35rem 1.2rem;
+	border: 0;
+	border-bottom: 3px solid transparent;
+	font-size: 1rem;
+	font-weight: 600;
+	color: var(--ob-muted);
+	background: none;
+	cursor: pointer;
+}
+.uoj-ob-tab:hover {
+	color: var(--ob-fg);
+}
+.uoj-ob-tab.uoj-ob-tab-on {
+	color: var(--ob-accent);
+	border-bottom-color: var(--ob-accent);
+}
+.uoj-ob-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.4rem 1rem;
+	max-width: 60rem;
+	margin: 0 auto 0.6rem;
+	font-size: 0.9rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-filters.uoj-ob-chart-filters {
+	max-width: 70rem;
+	padding-top: 0.6rem;
+	border-top: 1px solid var(--ob-line);
+}
+.uoj-ob-filters label {
+	margin: 0;
+}
+.uoj-ob-filters-count {
+	margin-left: auto;
+}
+
+/* what was submitted, the newest first */
+.uoj-ob-runs-note {
+	max-width: 60rem;
+	margin: 0 auto 0.5rem;
+	text-align: left;
+	font-size: 0.85rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-runs {
+	width: 100%;
+	max-width: 60rem;
+	margin: 0 auto 0.8rem;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+}
+.uoj-ob-runs th {
+	padding: 0.4rem 0.6rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--ob-muted);
+	border-bottom: 2px solid var(--ob-line);
+}
+.uoj-ob-runs td {
+	padding: 0.35rem 0.6rem;
+	border-bottom: 1px solid var(--ob-line);
+}
+.uoj-ob-runs td.uoj-ob-runs-name {
+	font-weight: 600;
+}
+.uoj-ob-runs-problem i {
+	display: inline-block;
+	width: 0.8em;
+	height: 0.8em;
+	margin-right: 0.35em;
+	border-radius: 50%;
+	vertical-align: -0.05em;
+}
+.uoj-ob-runs-empty {
+	padding: 1.5rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-verdict {
+	display: inline-block;
+	min-width: 5em;
+	padding: 0.1em 0.6em;
+	border-radius: 999px;
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+.uoj-ob-verdict-yes {
+	background-color: var(--ob-solved);
+}
+.uoj-ob-verdict-no {
+	background-color: var(--ob-failed);
+}
+.uoj-ob-verdict-wait {
+	background-color: var(--ob-pending);
+}
+
+/* the charts */
+.uoj-ob-chart {
+	max-width: 70rem;
+	margin: 0 auto 1.6rem;
+	text-align: left;
+}
+.uoj-ob-chart h2 {
+	margin: 0 0 0.15rem;
+	font-size: 1.1rem;
+	font-weight: 700;
+}
+.uoj-ob-chart-sub {
+	margin: 0 0 0.5rem;
+	font-size: 0.85rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-chart-key {
+	display: flex;
+	gap: 1rem;
+	margin-bottom: 0.3rem;
+	font-size: 0.85rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-chart-key i {
+	display: inline-block;
+	width: 0.9em;
+	height: 0.9em;
+	margin-right: 0.35em;
+	border-radius: 2px;
+	vertical-align: -0.1em;
+}
+.uoj-ob-svg {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	overflow: visible;
+}
+.uoj-ob-mark-yes, .uoj-ob-chart-key .uoj-ob-key-yes {
+	fill: var(--ob-chart-yes);
+	background-color: var(--ob-chart-yes);
+}
+.uoj-ob-mark-wait, .uoj-ob-chart-key .uoj-ob-key-wait {
+	fill: var(--ob-chart-wait);
+	background-color: var(--ob-chart-wait);
+}
+.uoj-ob-mark-no, .uoj-ob-chart-key .uoj-ob-key-no {
+	fill: var(--ob-chart-no);
+	background-color: var(--ob-chart-no);
+}
+.uoj-ob-mark-track {
+	fill: var(--ob-chart-track);
+}
+.uoj-ob-mark-accent {
+	fill: var(--ob-chart-wait);
+}
+.uoj-ob-grid, .uoj-ob-axis {
+	stroke: var(--ob-chart-grid);
+	stroke-width: 1;
+}
+.uoj-ob-axis {
+	stroke: var(--ob-line);
+}
+.uoj-ob-freeze {
+	stroke: var(--ob-frozen);
+	stroke-width: 1;
+}
+.uoj-ob-axis-label {
+	font-size: 12px;
+	fill: var(--ob-muted);
+	font-variant-numeric: tabular-nums;
+}
+.uoj-ob-value {
+	font-size: 12px;
+	font-weight: 600;
+	fill: var(--ob-fg);
+}
+.uoj-ob-hit {
+	fill: transparent;
+	cursor: default;
+	outline: none;
+}
+.uoj-ob-hit.uoj-ob-hit-on {
+	fill: var(--ob-fg);
+	fill-opacity: 0.05;
+}
+.uoj-ob-tip {
+	position: fixed;
+	z-index: 50;
+	max-width: 22rem;
+	padding: 0.35rem 0.6rem;
+	border-radius: 0.35rem;
+	font-size: 0.85rem;
+	color: var(--ob-bg);
+	background-color: var(--ob-fg);
+	pointer-events: none;
+}
+.uoj-ob-chart-table {
+	margin-top: 0.4rem;
+	font-size: 0.85rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-chart-table summary {
+	cursor: pointer;
+}
+.uoj-ob-chart-table table {
+	margin-top: 0.4rem;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+	color: var(--ob-fg);
+}
+.uoj-ob-chart-table th, .uoj-ob-chart-table td {
+	padding: 0.15rem 0.8rem;
+	border-bottom: 1px solid var(--ob-line);
+	text-align: right;
 }
 
 /* ---- under the table: the statistics of every problem, as XCPCIO has them */

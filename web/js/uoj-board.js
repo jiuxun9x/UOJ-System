@@ -346,6 +346,343 @@
 			.text(ok ? '实时 · ' + two(now.getHours()) + ':' + two(now.getMinutes()) + ':' + two(now.getSeconds()) : '连接中断，重试中');
 	};
 
+	// ---- the tabs: the board, what was submitted to the contest, its statistics
+	var tab = 'board';
+	var shownRuns = 100;
+	// The submissions are asked for only while somebody looks at them: the board is asked for
+	// every few seconds by everybody who watches it.
+	var wantsRuns = function() {
+		return tab !== 'board' && icpc();
+	};
+	// what somebody is called on the board
+	var nameOf = function(username) {
+		var named = username;
+		$.each(state.rows, function(index, row) {
+			if (row.username === username && !row.virtual) {
+				named = row.nickname !== '' ? row.nickname + '（' + row.username + '）' : row.username;
+				return false;
+			}
+		});
+		return named;
+	};
+	// the choice of a problem, keeping what was chosen
+	var problemChoice = function(select) {
+		var chosen = select.val() || '';
+		var options = '<option value="">全部</option>';
+		$.each(state.problems, function(pos, problem) {
+			options += '<option value="' + pos + '">' + esc(problem.letter) + '</option>';
+		});
+		select.html(options).val(chosen);
+		if (select.val() === null) {
+			select.val('');
+		}
+		return select.val() === '' ? null : parseInt(select.val(), 10);
+	};
+	var said = {yes: '✓ 通过', no: '✗ 未通过', wait: '? 待定'};
+	var drawRuns = function() {
+		var body = $('#table-outer-board-runs tbody');
+		var problem = problemChoice($('#outer-board-runs-problem'));
+		var outcome = $('#outer-board-runs-outcome').val();
+		if (!state.runs) {
+			body.html('<tr><td colspan="4" class="uoj-ob-runs-empty">正在载入……</td></tr>');
+			$('#outer-board-runs-more').hide();
+			return;
+		}
+		var runs = $.grep(state.runs, function(run) {
+			return (problem === null || run[2] === problem) && (!outcome || run[3] === outcome);
+		}).reverse();
+		$('#outer-board-runs-count').text('共 ' + runs.length + ' 次提交');
+		$('#outer-board-runs-note').text('按时间从新到旧。不含编译错误，也不含一道题通过之后再交的提交，和榜单的算法一样。'
+			+ (state.frozen ? '封榜之后的提交结果都是“待定”，公布成绩后揭晓。' : ''));
+		var html = '';
+		$.each(runs.slice(0, shownRuns), function(index, run) {
+			var letter = state.problems[run[2]] ? state.problems[run[2]].letter : '?';
+			var color = state.problems[run[2]] ? state.problems[run[2]].color : null;
+			html += '<tr data-username="' + esc(run[1]) + '"><td class="uoj-ob-runs-time">' + clock(run[0]) + '</td>'
+				+ '<td class="uoj-ob-runs-name">' + esc(nameOf(run[1])) + '</td>'
+				+ '<td class="uoj-ob-runs-problem">' + (color ? '<i style="background-color: ' + esc(color) + '"></i>' : '') + esc(letter) + '</td>'
+				+ '<td><span class="uoj-ob-verdict uoj-ob-verdict-' + run[3] + '">' + said[run[3]] + '</span></td></tr>';
+		});
+		body.html(html || '<tr><td colspan="4" class="uoj-ob-runs-empty">没有提交</td></tr>');
+		$('#outer-board-runs-more').toggle(runs.length > shownRuns);
+	};
+
+	// ---- the charts of the statistics: SVG, in the colours of the board
+	var svg = function(width, height, inner, label) {
+		return '<svg class="uoj-ob-svg" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" role="img" aria-label="' + esc(label) + '">' + inner + '</svg>';
+	};
+	// a bar or a column with its end rounded and the end at its baseline square
+	var bar = function(x, y, w, h, cls, end) {
+		if (w <= 0 || h <= 0) {
+			return '';
+		}
+		var r = Math.min(4, end === 'right' ? w : h, end === 'right' ? h / 2 : w / 2);
+		var d = end === 'right'
+			? 'M' + x + ',' + y + 'h' + (w - r) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + 'v' + (h - 2 * r) + 'a' + r + ',' + r + ' 0 0 1 ' + (-r) + ',' + r + 'h' + (r - w) + 'z'
+			: 'M' + x + ',' + (y + h) + 'v' + (r - h) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + (-r) + 'h' + (w - 2 * r) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + 'v' + (h - r) + 'z';
+		return '<path class="' + cls + '" d="' + d + '"></path>';
+	};
+	var square = function(x, y, w, h, cls) {
+		return w > 0 && h > 0 ? '<rect class="' + cls + '" x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '"></rect>' : '';
+	};
+	// what a mark says when it is pointed at or reached by the keyboard
+	var hit = function(x, y, w, h, tip) {
+		return '<rect class="uoj-ob-hit" x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" tabindex="0" data-tip="' + esc(tip) + '"></rect>';
+	};
+	// clean steps for an axis of counts: 1, 2, 5, 10, 20, 50, ...
+	var ticks = function(max) {
+		var step = 1;
+		for (var k = 0; max / step > 5; k++) {
+			step = [1, 2, 5][(k + 1) % 3] * Math.pow(10, Math.floor((k + 1) / 3));
+		}
+		var top = Math.max(step, Math.ceil(max / step) * step);
+		var list = [];
+		for (var v = 0; v <= top; v += step) {
+			list.push(v);
+		}
+		return list;
+	};
+	var table = function(heads, rows) {
+		var html = '<details class="uoj-ob-chart-table"><summary>看表格</summary><table><thead><tr>';
+		$.each(heads, function(index, head) {
+			html += '<th>' + esc(head) + '</th>';
+		});
+		html += '</tr></thead><tbody>';
+		$.each(rows, function(index, row) {
+			html += '<tr>' + $.map(row, function(cell) {
+				return '<td>' + esc(cell) + '</td>';
+			}).join('') + '</tr>';
+		});
+		return html + '</tbody></table></details>';
+	};
+	var chartWidth = function(id) {
+		return Math.max(320, Math.min(1100, Math.floor($('#' + id).width() || 800)));
+	};
+	// of every problem how many tried it, and how many of them solved it
+	var problemsChart = function() {
+		var width = chartWidth('outer-board-chart-problems');
+		var left = 40, right = 90, row = 30, thick = 16;
+		var max = 1;
+		$.each(state.problems, function(pos) {
+			max = Math.max(max, state.stats[pos] ? state.stats[pos].people : 0);
+		});
+		var span = width - left - right;
+		var inner = '';
+		var rows = [];
+		$.each(state.problems, function(pos, problem) {
+			var stat = state.stats[pos] || {people: 0};
+			var y = pos * row + (row - thick) / 2;
+			var tried = span * stat.people / max;
+			var solved = span * problem.solved / max;
+			var share = stat.people > 0 ? Math.floor(100 * problem.solved / stat.people) + '%' : '–';
+			inner += '<text class="uoj-ob-axis-label" x="' + (left - 10) + '" y="' + (y + thick / 2) + '" text-anchor="end" dominant-baseline="central">' + esc(problem.letter) + '</text>';
+			inner += bar(left, y, tried, thick, 'uoj-ob-mark-track', 'right') + bar(left, y, solved, thick, 'uoj-ob-mark-yes', 'right');
+			inner += '<text class="uoj-ob-value" x="' + (left + tried + 8) + '" y="' + (y + thick / 2) + '" dominant-baseline="central">' + problem.solved + ' / ' + stat.people + '</text>';
+			inner += hit(0, pos * row, width, row, problem.letter + ' 题：交过 ' + stat.people + ' 人，通过 ' + problem.solved + ' 人（' + share + '）');
+			rows.push([problem.letter, String(stat.people), String(problem.solved), share]);
+		});
+		var height = Math.max(1, state.problems.length) * row + 4;
+		$('#outer-board-chart-problems .uoj-ob-chart-body').html(svg(width, height, inner, '每题通过人数') + table(['题目', '交过的人数', '通过的人数', '通过的比例'], rows));
+	};
+	// what was submitted, in slices of the contest, by how it went
+	var timeChart = function() {
+		var section = $('#outer-board-chart-time');
+		section.add('#outer-board-stats-filters').toggle(icpc());
+		if (!icpc()) {
+			return;
+		}
+		var body = section.find('.uoj-ob-chart-body');
+		if (!state.runs) {
+			body.html('<p class="uoj-ob-runs-empty">正在载入……</p>');
+			return;
+		}
+		var problem = problemChoice($('#outer-board-stats-problem'));
+		var minutesOf = 5;
+		$.each([5, 10, 15, 20, 30, 60, 120, 240, 480, 1440], function(index, size) {
+			minutesOf = size;
+			return state.duration / (size * 60) > 36;
+		});
+		var size = minutesOf * 60;
+		var n = Math.max(1, Math.ceil(state.duration / size));
+		var counts = [];
+		for (var i = 0; i < n; i++) {
+			counts.push({yes: 0, wait: 0, no: 0});
+		}
+		$.each(state.runs, function(index, run) {
+			if (problem === null || run[2] === problem) {
+				counts[Math.min(n - 1, Math.floor(run[0] / size))][run[3]]++;
+			}
+		});
+		var max = 1;
+		$.each(counts, function(index, c) {
+			max = Math.max(max, c.yes + c.wait + c.no);
+		});
+		var axis = ticks(max);
+		var top = axis[axis.length - 1];
+		var width = chartWidth('outer-board-chart-time');
+		var left = 40, right = 12, upper = 14, plot = 200, lower = 26;
+		var slot = (width - left - right) / n;
+		var thick = Math.max(2, Math.min(24, slot - 4));
+		var y = function(v) {
+			return upper + plot - plot * v / top;
+		};
+		var inner = '';
+		$.each(axis, function(index, v) {
+			inner += '<line class="uoj-ob-grid" x1="' + left + '" x2="' + (width - right) + '" y1="' + y(v) + '" y2="' + y(v) + '"></line>'
+				+ '<text class="uoj-ob-axis-label" x="' + (left - 8) + '" y="' + y(v) + '" text-anchor="end" dominant-baseline="central">' + v + '</text>';
+		});
+		var labelled = Math.ceil(n / Math.max(1, Math.floor((width - left - right) / 64)));
+		var rows = [];
+		$.each(counts, function(index, c) {
+			var x = left + index * slot + (slot - thick) / 2;
+			var base = upper + plot;
+			// passed at the bottom, then what is not told, then what failed: a gap of the surface between
+			$.each([['yes', 'uoj-ob-mark-yes'], ['wait', 'uoj-ob-mark-wait'], ['no', 'uoj-ob-mark-no']], function(k, part) {
+				var h = plot * c[part[0]] / top;
+				if (h <= 0) {
+					return;
+				}
+				var last = (part[0] === 'no') || (part[0] === 'wait' && c.no === 0) || (part[0] === 'yes' && c.wait === 0 && c.no === 0);
+				var drawn = Math.max(1, h - (last ? 0 : 2));
+				inner += last ? bar(x, base - drawn, thick, drawn, part[1], 'top') : square(x, base - drawn, thick, drawn, part[1]);
+				base -= h;
+			});
+			var from = minutes(index * size), to = minutes(Math.min(state.duration, (index + 1) * size));
+			if (index % labelled === 0) {
+				inner += '<text class="uoj-ob-axis-label" x="' + (left + index * slot) + '" y="' + (upper + plot + 16) + '" text-anchor="start">' + from + '</text>';
+			}
+			inner += hit(left + index * slot, upper, slot, plot, from + '–' + to + '：通过 ' + c.yes + '，待定 ' + c.wait + '，未通过 ' + c.no);
+			rows.push([from + '–' + to, String(c.yes), String(c.wait), String(c.no)]);
+		});
+		inner += '<line class="uoj-ob-axis" x1="' + left + '" x2="' + (width - right) + '" y1="' + (upper + plot) + '" y2="' + (upper + plot) + '"></line>';
+		if (state.freeze !== null && state.freeze !== undefined) {
+			var fx = left + (width - left - right) * state.freeze / state.duration;
+			inner += '<line class="uoj-ob-freeze" x1="' + fx + '" x2="' + fx + '" y1="' + upper + '" y2="' + (upper + plot) + '"></line>'
+				+ '<text class="uoj-ob-axis-label" x="' + (fx + 4) + '" y="' + (upper + 2) + '" dominant-baseline="hanging">封榜</text>';
+		}
+		section.find('.uoj-ob-chart-sub').text('每 ' + minutesOf + ' 分钟一格' + (problem === null ? '，所有题目' : '，' + state.problems[problem].letter + ' 题')
+			+ '；不含编译错误，也不含通过之后再交的提交');
+		body.html(svg(width, upper + plot + lower, inner, '提交随时间') + table(['比赛时间', '通过', '待定', '未通过'], rows));
+	};
+	// how many of the contestants solved so many problems
+	var solvedChart = function() {
+		var n = state.problems.length;
+		var counts = [];
+		for (var k = 0; k <= n; k++) {
+			counts.push(0);
+		}
+		$.each(state.rows, function(index, row) {
+			if (!row.virtual) {
+				counts[$.grep(row.cells, function(cell) {
+					return cell[0] === 'solved' || cell[0] === 'first';
+				}).length]++;
+			}
+		});
+		var max = 1;
+		$.each(counts, function(index, c) {
+			max = Math.max(max, c);
+		});
+		var axis = ticks(max);
+		var top = axis[axis.length - 1];
+		var width = Math.min(chartWidth('outer-board-chart-solved'), 120 + 56 * (n + 1));
+		var left = 40, right = 12, upper = 18, plot = 160, lower = 26;
+		var slot = (width - left - right) / (n + 1);
+		var thick = Math.min(24, slot - 6);
+		var y = function(v) {
+			return upper + plot - plot * v / top;
+		};
+		var inner = '';
+		$.each(axis, function(index, v) {
+			inner += '<line class="uoj-ob-grid" x1="' + left + '" x2="' + (width - right) + '" y1="' + y(v) + '" y2="' + y(v) + '"></line>'
+				+ '<text class="uoj-ob-axis-label" x="' + (left - 8) + '" y="' + y(v) + '" text-anchor="end" dominant-baseline="central">' + v + '</text>';
+		});
+		var rows = [];
+		$.each(counts, function(k, c) {
+			var x = left + k * slot + (slot - thick) / 2;
+			inner += bar(x, y(c), thick, upper + plot - y(c), 'uoj-ob-mark-accent', 'top');
+			if (c > 0) {
+				inner += '<text class="uoj-ob-value" x="' + (x + thick / 2) + '" y="' + (y(c) - 5) + '" text-anchor="middle">' + c + '</text>';
+			}
+			inner += '<text class="uoj-ob-axis-label" x="' + (x + thick / 2) + '" y="' + (upper + plot + 16) + '" text-anchor="middle">' + k + '</text>';
+			inner += hit(left + k * slot, upper, slot, plot, '通过 ' + k + ' 道：' + c + ' 人');
+			rows.push([String(k), String(c)]);
+		});
+		inner += '<line class="uoj-ob-axis" x1="' + left + '" x2="' + (width - right) + '" y1="' + (upper + plot) + '" y2="' + (upper + plot) + '"></line>';
+		$('#outer-board-chart-solved .uoj-ob-chart-body').html(svg(width, upper + plot + lower, inner, '解题数分布') + table(['通过的题数', '人数'], rows));
+	};
+	var drawStats = function() {
+		if (state.phase === 'before') {
+			return;
+		}
+		problemsChart();
+		timeChart();
+		solvedChart();
+	};
+	var panels = function() {
+		$('#outer-board-tab-runs').toggle(icpc());
+		if (tab === 'runs') {
+			drawRuns();
+		} else if (tab === 'stats') {
+			drawStats();
+		}
+	};
+	var showTab = function(next) {
+		if (next !== 'runs' && next !== 'stats' || (next === 'runs' && !icpc())) {
+			next = 'board';
+		}
+		var before = tab;
+		tab = next;
+		$('#outer-board-tabs .uoj-ob-tab').each(function() {
+			var on = $(this).data('tab') === tab;
+			$(this).toggleClass('uoj-ob-tab-on', on).attr('aria-selected', on ? 'true' : 'false');
+		});
+		$('#outer-board-panel-board').toggle(tab === 'board');
+		$('#outer-board-panel-runs').toggle(tab === 'runs');
+		$('#outer-board-panel-stats').toggle(tab === 'stats');
+		root.attr('data-tab', tab);
+		try {
+			window.history.replaceState(null, '', window.location.pathname + window.location.search + (tab === 'board' ? '' : '#' + tab));
+		} catch (e) {
+			// the address keeps what it had
+		}
+		panels();
+		// what was submitted is asked for as soon as somebody wants to see it
+		if (wantsRuns() && !state.runs && before !== tab && timer !== null) {
+			clearTimeout(timer);
+			ask();
+		}
+	};
+	$('#outer-board-tabs').on('click', '.uoj-ob-tab', function() {
+		showTab($(this).data('tab'));
+	});
+	$('#outer-board-runs-problem, #outer-board-runs-outcome').on('change', function() {
+		shownRuns = 100;
+		drawRuns();
+	});
+	$('#outer-board-runs-more').on('click', function() {
+		shownRuns += 100;
+		drawRuns();
+	});
+	$('#outer-board-stats-problem').on('change', timeChart);
+	var resized = null;
+	$(window).on('resize', function() {
+		clearTimeout(resized);
+		resized = setTimeout(panels, 200);
+	});
+	// one tip for every mark, where it is pointed at or reached by the keyboard
+	var tip = $('#outer-board-tip');
+	$('#outer-board-panel-stats').on('pointermove focusin', '.uoj-ob-hit', function(e) {
+		var mark = this.getBoundingClientRect();
+		tip.text($(this).attr('data-tip')).show();
+		var x = e.type === 'focusin' ? mark.left + mark.width / 2 : e.clientX;
+		var y = e.type === 'focusin' ? mark.top : e.clientY;
+		tip.css({left: Math.min(window.innerWidth - tip.outerWidth() - 8, Math.max(8, x + 12)) + 'px', top: Math.max(8, y - tip.outerHeight() - 10) + 'px'});
+		$(this).addClass('uoj-ob-hit-on');
+	}).on('pointerleave focusout', '.uoj-ob-hit', function() {
+		tip.hide();
+		$(this).removeClass('uoj-ob-hit-on');
+	});
+
 	// ---- keeping up to date
 	var every = function() {
 		if (failures > 0) {
@@ -375,7 +712,7 @@
 			later();
 			return;
 		}
-		$.ajax({url: url, data: {have: state.hash}, dataType: 'json', cache: false, timeout: 10000}).done(function(next) {
+		$.ajax({url: url + (wantsRuns() ? '&runs=1' : ''), data: {have: state.hash}, dataType: 'json', cache: false, timeout: 10000}).done(function(next) {
 			failures = 0;
 			told = Date.now();
 			if (next.same) {
@@ -386,6 +723,7 @@
 				state = next;
 				draw(true);
 				words();
+				panels();
 			}
 			tick();
 			live(true);
@@ -472,6 +810,7 @@
 
 	draw(false);
 	words();
+	showTab(window.location.hash.replace('#', ''));
 	tick();
 	live(true);
 	// the bar stands where the contest is, and moves on from there
@@ -479,5 +818,10 @@
 		$('#outer-board-progress').addClass('uoj-ob-progress-going');
 	}, 50);
 	setInterval(tick, 1000);
-	later();
+	// a page opened on what was submitted asks for it at once
+	if (wantsRuns() && !state.runs) {
+		ask();
+	} else {
+		later();
+	}
 })(jQuery);

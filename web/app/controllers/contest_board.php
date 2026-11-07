@@ -28,6 +28,10 @@
 	if (isset($_GET['virtual']) && $_GET['virtual'] === '0') {
 		$options['virtual'] = false;
 	}
+	// the page asks for the submissions once somebody looks at them
+	if (isset($_GET['runs']) && $_GET['runs'] === '1') {
+		$options['runs'] = true;
+	}
 	$state = boardState($contest, $myUser, $options);
 	$here = "/contest/{$contest['id']}/board";
 	// (what the page asks for again is what it was asked for)
@@ -76,7 +80,13 @@
 			<div class="uoj-ob-progress-done" id="outer-board-progress-done"></div>
 		</div>
 		<p class="uoj-ob-note" id="outer-board-note"></p>
+		<div class="uoj-ob-tabs" id="outer-board-tabs" role="tablist">
+			<button type="button" class="uoj-ob-tab" role="tab" data-tab="board">榜单</button>
+			<button type="button" class="uoj-ob-tab" role="tab" data-tab="runs" id="outer-board-tab-runs">提交</button>
+			<button type="button" class="uoj-ob-tab" role="tab" data-tab="stats">统计</button>
+		</div>
 	</div>
+	<div class="uoj-ob-panel" id="outer-board-panel-board">
 	<div class="uoj-ob-scroll">
 		<table class="uoj-ob-table" id="table-outer-board">
 			<thead></thead>
@@ -93,6 +103,49 @@
 		<span><i class="uoj-ob-pending"></i>结果待揭晓（封榜后或评测中）</span>
 		<span class="uoj-ob-legend-virtual" id="outer-board-legend-virtual" style="display:none">名字前带 * 的是赛后虚拟参赛的选手，不是正式成绩；点名字看 TA 的视角</span>
 		<span class="uoj-ob-legend-dirt">Dirt：已通过的题目里，未通过的提交占全部提交的比例</span>
+	</div>
+	</div>
+	<div class="uoj-ob-panel" id="outer-board-panel-runs" style="display:none">
+		<div class="uoj-ob-filters">
+			<label>题目 <select class="uoj-ob-select" id="outer-board-runs-problem"></select></label>
+			<label>结果 <select class="uoj-ob-select" id="outer-board-runs-outcome">
+				<option value="">全部</option>
+				<option value="yes">通过</option>
+				<option value="no">未通过</option>
+				<option value="wait">待定</option>
+			</select></label>
+			<span class="uoj-ob-filters-count" id="outer-board-runs-count"></span>
+		</div>
+		<p class="uoj-ob-runs-note" id="outer-board-runs-note"></p>
+		<table class="uoj-ob-runs" id="table-outer-board-runs">
+			<thead><tr><th>比赛时间</th><th>选手</th><th>题目</th><th>结果</th></tr></thead>
+			<tbody></tbody>
+		</table>
+		<button type="button" class="uoj-ob-button" id="outer-board-runs-more" style="display:none">显示更多</button>
+	</div>
+	<div class="uoj-ob-panel" id="outer-board-panel-stats" style="display:none">
+		<section class="uoj-ob-chart" id="outer-board-chart-problems">
+			<h2>每题通过人数</h2>
+			<p class="uoj-ob-chart-sub">灰色是交过这道题的人数，绿色是其中通过（OI、IOI 赛制为满分）的人数</p>
+			<div class="uoj-ob-chart-body"></div>
+		</section>
+		<section class="uoj-ob-chart" id="outer-board-chart-solved">
+			<h2>解题数分布</h2>
+			<p class="uoj-ob-chart-sub">通过 k 道题（OI、IOI 赛制为得满分 k 道）的人数，只算正式选手</p>
+			<div class="uoj-ob-chart-body"></div>
+		</section>
+		<div class="uoj-ob-filters uoj-ob-chart-filters" id="outer-board-stats-filters">
+			<label>题目 <select class="uoj-ob-select" id="outer-board-stats-problem"></select></label>
+		</div>
+		<section class="uoj-ob-chart" id="outer-board-chart-time">
+			<h2>提交随时间</h2>
+			<p class="uoj-ob-chart-sub"></p>
+			<div class="uoj-ob-chart-key">
+				<span><i class="uoj-ob-key-yes"></i>通过</span><span><i class="uoj-ob-key-wait"></i>待定</span><span><i class="uoj-ob-key-no"></i>未通过</span>
+			</div>
+			<div class="uoj-ob-chart-body"></div>
+		</section>
+		<div class="uoj-ob-tip" id="outer-board-tip" role="tooltip" style="display:none"></div>
 	</div>
 	<noscript><p class="text-center">外榜需要浏览器打开 JavaScript 才能显示。</p></noscript>
 </div>

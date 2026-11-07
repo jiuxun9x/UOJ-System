@@ -5,7 +5,7 @@ import re
 import unittest
 
 import uoj
-from fixtures import AB, AB_WRONG, ab_problem_files
+from fixtures import AB, AB_COMPILE_ERROR, AB_WRONG, ab_problem_files
 from test_phase3 import account
 from test_phase17 import at
 from uoj import db_value
@@ -151,6 +151,48 @@ class StatisticsTest(unittest.TestCase):
             {"people": 0, "rejected": 0, "pending": 0, "first": None, "last": None},
         ])  # fmt: skip
         self.assertIn("<tfoot></tfoot>", uoj.Client().get("/contest/%d/board" % contest_id).text)
+
+
+class SubmissionsTabTest(unittest.TestCase):
+    """The outer board has tabs, as XCPCIO has them: the board, what was submitted, and the
+    statistics. What was submitted is told as the board counts it, and no more: nothing that did
+    not compile, nothing after a problem was solved, and nothing of what was submitted since the
+    board froze but that it was."""
+
+    def test_what_was_submitted_is_told_as_the_board_counts_it(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p19 提交页签", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d, %d" % (first, second))
+        ann, bob = account("p19_runs_ann"), account("p19_runs_bob")
+        for client in (ann, bob):
+            client.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -270 * 60, 300)
+        made = [(10, ann, first, AB_WRONG), (12, ann, first, AB_COMPILE_ERROR), (20, ann, first, AB), (25, ann, first, AB),
+                (30, bob, first, AB_WRONG), (250, bob, second, AB)]  # fmt: skip
+        made = [(minutes, client.submit_in_contest(contest_id, problem, code)) for minutes, client, problem, code in made]
+        uoj.wait_idle()
+        for minutes, submission_id in made:
+            at(contest_id, minutes, submission_id)
+        board = "/contest/%d/board" % contest_id
+
+        # the board alone does not carry them: they are asked for when somebody looks at them
+        self.assertNotIn("runs", uoj.Client().get(board + "?json=1").json())
+        told = uoj.Client().get(board + "?json=1&runs=1").json()
+        self.assertTrue(told["frozen"])
+        # ann's attempt in vain, and what passed; not what did not compile, nor what she sent
+        # after; bob's attempt, and what he sent after the board froze, which is not told
+        self.assertEqual(told["runs"], [[600, "p19_runs_ann", 0, "no"], [1200, "p19_runs_ann", 0, "yes"], [1800, "p19_runs_bob", 0, "no"], [15000, "p19_runs_bob", 1, "wait"]])
+        page = uoj.Client().get(board).text
+        for part in ('id="outer-board-tabs"', 'id="table-outer-board-runs"', 'id="outer-board-chart-time"'):
+            self.assertIn(part, page)
+
+        # the results published, everything is told
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        for minutes, submission_id in made:
+            at(contest_id, minutes, submission_id)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        told = uoj.Client().get(board + "?json=1&runs=1").json()
+        self.assertEqual(told["runs"][-1], [15000, "p19_runs_bob", 1, "yes"])
 
 
 if __name__ == "__main__":
