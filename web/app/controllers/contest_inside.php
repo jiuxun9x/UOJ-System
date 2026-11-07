@@ -544,11 +544,12 @@ EOD;
 			// contest. It freezes when the board of the contest froze, for them as for the
 			// contestants: what the others submitted from then on is counted and not told.
 			list($standings, $score, $contest_data, $frozen) = virtualBoard($contest, $virtual_elapsed, $with_unofficial);
-			echo '<p class="text-muted text-left mb-2" id="standings-replayed">这是原比赛进行到 <strong>', virtualClock($virtual_elapsed), '</strong> 时的榜单：其他选手显示的是他们在这一时刻之前的提交与结果。';
+			// a board is looked at, not read: what moment it is of, and whether it froze, in a word
+			echo '<div class="uoj-standings-status" id="standings-replayed"><span class="badge badge-info">回放 ', virtualClock($virtual_elapsed), '</span>';
 			if ($frozen) {
-				echo '已到封榜时间（开始后 ', virtualClock(contestFreezeOffset($contest)), '），此后其他选手的提交只显示次数。';
+				echo ' <span class="badge badge-secondary">已封榜 ', virtualClock(contestFreezeOffset($contest)), '</span>';
 			}
-			echo '</p>';
+			echo '</div>';
 			$me = '*' . Auth::id();
 			if ($frozen) {
 				// above the frozen board, how it really stands with them
@@ -566,17 +567,18 @@ EOD;
 			$frozen = $board_is_frozen && (!$is_staff || isset($_GET['frozen']));
 			$contest_data = queryContestData($contest);
 			calcStandings($contest, $contest_data, $score, $standings, false, $frozen ? contestFreezeOffset($contest) : null);
+			// whether the board froze, in a word; the staff go between both boards
 			if ($board_is_frozen) {
 				$since = virtualClock(contestFreezeOffset($contest));
-				echo '<div class="alert alert-info" id="standings-frozen">';
+				echo '<div class="uoj-standings-status" id="standings-frozen">';
 				if ($frozen) {
-					echo "榜单已封榜：这是比赛开始后 $since 时的榜单，此后的提交只显示次数，公布成绩时揭晓。";
+					echo '<span class="badge badge-secondary">已封榜 ', $since, '</span>';
 					if ($is_staff) {
-						echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings">看完整的榜单</a>';
+						echo ' <a class="small ml-1" href="/contest/', $contest['id'], '/standings">完整榜单</a>';
 					}
 				} else {
-					echo "选手看到的榜单从比赛开始后 $since 起封榜，公布成绩时揭晓。这是只有工作人员能看到的完整榜单。";
-					echo ' <a class="alert-link" href="/contest/', $contest['id'], '/standings?frozen=1">看选手看到的榜单</a>';
+					echo '<span class="badge badge-warning">完整榜单</span>';
+					echo ' <a class="small ml-1" href="/contest/', $contest['id'], '/standings?frozen=1">封榜榜单</a>';
 				}
 				echo '</div>';
 			}
@@ -610,7 +612,6 @@ EOD;
 			echo '<div class="custom-control custom-checkbox text-left mb-2" id="standings-unofficial">';
 			echo '<input type="checkbox" class="custom-control-input" id="input-show-unofficial"', $with_unofficial ? ' checked="checked"' : '', ' data-href="', $here, '?unofficial=', $with_unofficial ? '0' : '1', '" />';
 			echo '<label class="custom-control-label" for="input-show-unofficial">显示非官方排行榜</label>';
-			echo ' <small class="text-muted ml-1">名字前带 * 的是赛后虚拟参赛的 ', count($unofficial_people), ' 人，不是正式成绩</small>';
 			echo '</div>';
 			echo '<script type="text/javascript">$("#input-show-unofficial").on("change", function() { window.location.href = $(this).data("href"); });</script>';
 		}

@@ -258,23 +258,31 @@
 .uoj-scoreboard .uoj-icpc-total, .uoj-scoreboard .uoj-icpc-total-none {
 	font-weight: 700;
 }
-.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a, .uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a,
-.uoj-icpc-legend .uoj-icpc-solved, .uoj-icpc-legend .uoj-icpc-first {
+.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a, .uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a {
 	color: rgb(0, 204, 0);
 	font-weight: 700;
 }
 /* the first to solve a problem */
-.uoj-scoreboard .uoj-icpc-first, .uoj-icpc-legend .uoj-icpc-first {
+.uoj-scoreboard .uoj-icpc-first {
 	background-color: #c3e6cb !important;
 }
-.uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a, .uoj-icpc-legend .uoj-icpc-failed {
+.uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a {
 	color: rgb(204, 0, 0);
 	font-weight: 700;
 }
 /* submitted after the board froze, or still judged: the "?" in blue */
-.uoj-scoreboard .uoj-icpc-pending, .uoj-icpc-legend .uoj-icpc-pending {
+.uoj-scoreboard .uoj-icpc-pending {
 	color: blue;
 	font-weight: 700;
+}
+/* over a board: what it is of, in a word (frozen, a replay), and the way to the other board */
+.uoj-standings-status {
+	margin-bottom: 0.5rem;
+	text-align: left;
+}
+.uoj-standings-status .badge {
+	font-size: 85%;
+	font-weight: 600;
 }
 /* the row of whoever looks at the board, as on QOJ: the yellow of .table-warning */
 .uoj-icpc-board tr.uoj-scoreboard-me, .uoj-icpc-board tr.uoj-scoreboard-me > td,

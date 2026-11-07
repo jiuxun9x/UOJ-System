@@ -56,7 +56,7 @@
 <?php if ($mine): ?>
 <?php // While the board is frozen a contestant is shown how it really stands with them, as DOMjudge does: they were told the outcome of every one of their submissions. Where that puts them among the others nobody knows yet. ?>
 <div class="table-responsive" id="standings-mine">
-	<table class="table table-bordered uoj-scoreboard uoj-icpc-board mb-1">
+	<table class="table table-bordered uoj-scoreboard uoj-icpc-board mb-3">
 		<thead>
 			<tr>
 				<th style="width:3em">#</th>
@@ -79,7 +79,6 @@
 		</tbody>
 	</table>
 </div>
-<p class="text-muted small mb-3">上面一行是你自己的实际成绩，只有你能看到；下面的榜单是封榜时的样子，你在榜上的那一行也一样。</p>
 <?php endif ?>
 <div class="table-responsive">
 	<table class="table table-bordered table-striped uoj-scoreboard uoj-icpc-board" id="table-icpc-standings"<?= $frozen ? ' data-frozen="1"' : '' ?>>
@@ -114,11 +113,6 @@
 	</table>
 </div>
 <div class="text-right text-muted">
-	<small class="mr-3">表头：通过人数/尝试人数</small>
-	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-solved">+2</span> 通过，此前 2 次未通过；下面是通过的时间</small>
-	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-failed">-3</span> 交了 3 次都没通过</small>
-	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-first px-2">+</span> 最先通过</small>
-	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-pending">?</span> 有还不知道结果的提交<?= $frozen ? '（封榜后交的，或正在评测）' : '（正在评测）' ?>：“1 + 2”是 1 次未通过、2 次结果未知</small>
 	<?php
 		// the people who sat the contest virtually are on the board, and are not its contestants
 		$n_contestants = 0;
@@ -126,5 +120,5 @@
 			$n_contestants += virtualPersonOfKey($row[2][0])[0] ? 0 : 1;
 		}
 	?>
-	<span id="standings-count"><?= UOJLocale::get('contests::n participants', $n_contestants) ?><?= count($standings) > $n_contestants ? '，另有 ' . (count($standings) - $n_contestants) . ' 人带 * 号（虚拟参赛）' : '' ?></span>
+	<span id="standings-count"><?= UOJLocale::get('contests::n participants', $n_contestants) ?><?= count($standings) > $n_contestants ? '，另有 ' . (count($standings) - $n_contestants) . ' 人带 * 号' : '' ?></span>
 </div>

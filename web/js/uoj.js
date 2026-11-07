@@ -1667,7 +1667,7 @@ function showStandings() {
 				}).length;
 				var others = standings.length - contestants;
 				return '<div class="text-right text-muted" id="standings-count">' + uojLocale("contests::n participants", contestants)
-					+ (others > 0 ? '，另有 ' + others + ' 人带 * 号（虚拟参赛）' : '') + '</div>';
+					+ (others > 0 ? '，另有 ' + others + ' 人带 * 号' : '') + '</div>';
 			}
 		}
 	);
