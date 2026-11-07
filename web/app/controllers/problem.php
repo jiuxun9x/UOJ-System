@@ -227,18 +227,26 @@
 		$after_submitting = '/submissions';
 	}
 
+	// A problem of an archived domain is read, and nothing is submitted to it any more: not code,
+	// not answers, not a custom test, through the domain, a homework or a contest (A02).
+	$problem_archived = permissionProblemIsArchived($problem);
+	$refusal = function() use ($problem_archived) {
+		global $ban_in_contest;
+		if ($problem_archived) {
+			return '这个域已经归档，题目只能阅读，不能再提交';
+		}
+		if ($ban_in_contest) {
+			return '请耐心等待比赛结束后题目对所有人可见了再提交';
+		}
+		return '';
+	};
+
 	if ($can_use_zip_upload) {
 		$zip_answer_form = newZipSubmissionForm('zip_answer',
 			$submission_requirement,
 			'uojRandAvailableSubmissionFileName',
 			'handleUpload');
-		$zip_answer_form->extra_validator = function() {
-			global $ban_in_contest;
-			if ($ban_in_contest) {
-				return '请耐心等待比赛结束后题目对所有人可见了再提交';
-			}
-			return '';
-		};
+		$zip_answer_form->extra_validator = $refusal;
 		$zip_answer_form->succ_href = $after_submitting;
 		$zip_answer_form->runAtServer();
 	}
@@ -247,13 +255,7 @@
 		$submission_requirement,
 		'uojRandAvailableSubmissionFileName',
 		'handleUpload');
-	$answer_form->extra_validator = function() {
-		global $ban_in_contest;
-		if ($ban_in_contest) {
-			return '请耐心等待比赛结束后题目对所有人可见了再提交';
-		}
-		return '';
-	};
+	$answer_form->extra_validator = $refusal;
 	$answer_form->succ_href = $after_submitting;
 	$answer_form->runAtServer();
 
@@ -269,10 +271,10 @@
 EOD
 		);
 		$custom_test_form->succ_href = 'none';
-		$custom_test_form->extra_validator = function() {
-			global $ban_in_contest, $custom_test_submission;
-			if ($ban_in_contest) {
-				return '请耐心等待比赛结束后题目对所有人可见了再提交';
+		$custom_test_form->extra_validator = function() use ($refusal) {
+			global $custom_test_submission;
+			if ($refusal() !== '') {
+				return $refusal();
 			}
 			if ($custom_test_submission && $custom_test_submission['status'] != 'Judged') {
 				return '上一个测评尚未结束';
@@ -419,6 +421,9 @@ $('#contest-countdown').countdown(<?= strtotime($running_virtual['start_time']) 
 	</div>
 	<div class="tab-pane" id="tab-submit-answer">
 		<div class="top-buffer-sm"></div>
+		<?php if ($problem_archived): ?>
+		<div class="alert alert-secondary" id="problem-archived">这个域已经归档，题目只能阅读，不能再提交。</div>
+		<?php endif ?>
 		<?php if ($can_use_zip_upload): ?>
 		<?php $zip_answer_form->printHTML(); ?>
 		<hr />

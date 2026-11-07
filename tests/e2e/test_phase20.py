@@ -206,5 +206,47 @@ class DomainContestStaffTest(unittest.TestCase):
         self.assertIn("scanf", admin.get(source).text)
 
 
+class ArchivedDomainSubmissionTest(unittest.TestCase):
+    """An archived domain is read only, and its students still submitted to its problems, which
+    were judged. Nothing is submitted there any more: not code, not answers, not a custom test.
+    (A02)"""
+
+    def test_nothing_is_submitted_in_an_archived_domain(self):
+        admin = uoj.admin()
+        teacher = account("p20_a02_teacher")
+        self.assertEqual(admin.change_user("p20_a02_teacher", "grant:teacher"), "")
+        teacher.new_domain("p20-archived")
+        pupil = account("p20_a02_pupil")
+        self.assertEqual(members(teacher, "p20-archived", "add", username="p20_a02_pupil", role="member"), "")
+        problem_id = teacher.new_problem("p20-archived")
+        self.assertIn("上传成功", teacher.upload_data(problem_id, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(problem_id), "")
+        db("update problems set is_hidden = 0 where id = %d" % problem_id)
+        path = "/d/p20-archived/problem/%d" % uoj.pid(problem_id)
+        count = lambda table: db_value("select count(*) from %s where problem_id = %d" % (table, problem_id))
+        pupil.submit(problem_id, AB, path=path)
+        self.assertEqual(count("submissions"), "1")
+
+        self.assertEqual(teacher.form("/d/p20-archived/settings", "archive"), "")
+        # it is read as before, and says nothing is submitted to it
+        page = pupil.get(path)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="problem-archived"', page.text)
+        with self.assertRaises(Exception) as refused:
+            pupil.submit(problem_id, AB, path=path)
+        self.assertIn("这个域已经归档", str(refused.exception))
+        err = pupil.submit_form(path, "custom_test", {
+            "custom_test_answer_upload_type": "editor", "custom_test_answer_editor": AB, "custom_test_answer_language": "C++17",
+            "custom_test_input_upload_type": "editor", "custom_test_input_editor": "1 2\n",
+        })  # fmt: skip
+        self.assertIn("这个域已经归档", err)
+        self.assertEqual((count("submissions"), count("custom_test_submissions")), ("1", "0"))
+
+        # brought back, it is submitted to again
+        self.assertEqual(teacher.form("/d/p20-archived/settings", "archive"), "")
+        pupil.submit(problem_id, AB, path=path)
+        self.assertEqual(count("submissions"), "2")
+
+
 if __name__ == "__main__":
     unittest.main()
