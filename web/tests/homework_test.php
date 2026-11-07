@@ -190,16 +190,20 @@ $judger = function($name, $silent_seconds, $enabled = true) {
 	return array('name' => $name, 'enabled' => $enabled, 'silent_seconds' => $silent_seconds);
 };
 $calm = array('waiting' => 0, 'oldest_wait_seconds' => null);
+// (what is wrong still, and not to be told again, in brackets)
 $kinds = function($problems) {
 	$kinds = array();
 	foreach ($problems as $problem) {
-		$kinds[] = $problem['kind'] . ($problem['subject'] !== '' ? ':' . $problem['subject'] : '');
+		$kind = $problem['kind'] . ($problem['subject'] !== '' ? ':' . $problem['subject'] : '');
+		$kinds[] = !empty($problem['keep_only']) ? "($kind)" : $kind;
 	}
 	return $kinds;
 };
 check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3), $judger('b', 120)), $calm, 120, 600)), 'judgers that answer in time');
 check_same(array('judger_silent:b'), $kinds(monitorFindProblems(array($judger('a', 3), $judger('b', 121)), $calm, 120, 600)), 'one judger is gone');
-check_same(array('no_judger'), $kinds(monitorFindProblems(array($judger('a', 500), $judger('b', 121)), $calm, 120, 600)), 'all of them are gone: one alert, not one each');
+// all of them are gone: one alert, not one each. A judger that was gone before the others is not
+// back because the others are gone too: its alert stays (it was closed, and its return told)
+check_same(array('no_judger', '(judger_silent:a)', '(judger_silent:b)'), $kinds(monitorFindProblems(array($judger('a', 500), $judger('b', 121)), $calm, 120, 600)), 'all of them are gone: one alert, not one each');
 check_same(array('no_judger'), $kinds(monitorFindProblems(array(), $calm, 120, 600)), 'there is no judger at all');
 check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3), $judger('b', 9999, false)), $calm, 120, 600)), 'a judger that was switched off is not missed');
 check_same(array('no_judger'), $kinds(monitorFindProblems(array($judger('a', 3, false)), $calm, 120, 600)), 'but it does not judge either');
@@ -207,7 +211,7 @@ check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3), $judger('n
 check_same(array('no_judger'), $kinds(monitorFindProblems(array($judger('new', null)), $calm, 120, 600)), 'which does not make it one that judges');
 check_same(array(), $kinds(monitorFindProblems(array($judger('a', 3)), array('waiting' => 40, 'oldest_wait_seconds' => 600), 120, 600)), 'a queue that moves');
 check_same(array('queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 3)), array('waiting' => 40, 'oldest_wait_seconds' => 601), 120, 600)), 'a submission that waits too long');
-check_same(array('no_judger', 'queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 900)), array('waiting' => 1, 'oldest_wait_seconds' => 900), 120, 600)), 'both');
+check_same(array('no_judger', '(judger_silent:a)', 'queue_stuck'), $kinds(monitorFindProblems(array($judger('a', 900)), array('waiting' => 1, 'oldest_wait_seconds' => 900), 120, 600)), 'both');
 check_same(array('59 秒', '2 分钟', '119 分钟', '2 小时', '2 天'), array(monitorDuration(59), monitorDuration(120), monitorDuration(7199), monitorDuration(7200), monitorDuration(172800)), 'durations for people');
 
 // ---- backups: which are kept, when one is due, and what is wrong with them

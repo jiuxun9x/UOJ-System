@@ -286,5 +286,47 @@ class DeletedSubmissionBoardTest(unittest.TestCase):
             self.assertEqual(ranks, [[cheat.username, ranks_after[0]], [honest.username, ranks_after[1]]], rule)
 
 
+def site_tick():
+    """what the web server does every minute"""
+    return docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php site:tick")
+
+
+def told(title, about):
+    """how many messages with this title about this the administrators were sent"""
+    return int(db_value("select count(*) from user_system_msg where title = '%s' and content like '%%%s%%'" % (title, about)))
+
+
+class AlertEscalationTest(unittest.TestCase):
+    """When one judger was gone and then all of them were, the alert of all of them was opened,
+    and the alert of the one closed, with a message that it was back: it was not."""
+
+    def test_a_judger_gone_before_the_others_is_not_told_back(self):
+        started = db_value("select now()")
+        names = ", ".join("'%s'" % name for name in uoj.JUDGER_NAMES)
+        alert = lambda: db("select ifnull(active_slot, 'closed'), clear_since is null from site_alerts where kind = 'judger_silent' and subject = 'p16_flaky' order by id desc limit 1")
+        db("insert into judger_info (judger_name, password, ip, enabled, last_heartbeat_at) values ('p16_flaky', 'p16-not-a-password', '', 1, now() - interval 10 minute)")
+        try:
+            with uoj.judgers_paused():
+                # the others answer, p16_flaky does not
+                db("update judger_info set last_heartbeat_at = now() where judger_name in (%s)" % names)
+                site_tick()
+                self.assertEqual(alert(), [["1", "1"]])
+                self.assertEqual(told("告警：评测机离线", "p16_flaky"), 1)
+                # and then none of them does
+                db("update judger_info set last_heartbeat_at = now() - interval 10 minute where judger_name in (%s)" % names)
+                site_tick()
+                self.assertEqual(db_value("select count(*) from site_alerts where kind = 'no_judger' and active_slot = 1 and clear_since is null"), "1")
+                # p16_flaky is not back: its alert is open, and nobody is told it is over
+                self.assertEqual(alert(), [["1", "1"]])
+                self.assertEqual(told("已恢复：评测机离线", "p16_flaky"), 0)
+                site_tick()
+                self.assertEqual((alert(), told("告警：评测机离线", "p16_flaky")), ([["1", "1"]], 1))
+        finally:
+            db("delete from judger_info where judger_name = 'p16_flaky'")
+            db("update judger_info set last_heartbeat_at = now() where judger_name in (%s)" % names)
+            # what this made go wrong is over
+            db("update site_alerts set resolved_at = now(), active_slot = null where active_slot = 1 and kind in ('no_judger', 'judger_silent') and started_at >= '%s'" % started)
+
+
 if __name__ == "__main__":
     unittest.main()

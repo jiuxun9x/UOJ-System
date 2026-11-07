@@ -53,7 +53,9 @@ function monitorDuration($seconds) {
 
 // ---- what is wrong
 
-// What is wrong with the judgers and the queue, as rows of kind, subject and message.
+// What is wrong with the judgers and the queue, as rows of kind, subject and message. A row
+// with keep_only is wrong still, but not to be told again: its alert stays open if it is, and no
+// alert is opened for it.
 // $silent_after: seconds without a sign of life after which a judger counts as gone.
 // $wait_after: seconds a new submission may wait.
 function monitorFindProblems($judgers, $queue, $silent_after, $wait_after) {
@@ -72,8 +74,12 @@ function monitorFindProblems($judgers, $queue, $silent_after, $wait_after) {
 		}
 	}
 	if ($online == 0) {
-		// one alert for all of them, not one for each
+		// one alert for all of them, not one for each; a judger that was gone before the others
+		// is not back because the others are gone too
 		$problems[] = array('kind' => 'no_judger', 'subject' => '', 'message' => '没有在线的评测机，提交无法评测');
+		foreach ($silent as $judger) {
+			$problems[] = array('kind' => 'judger_silent', 'subject' => $judger['name'], 'message' => "评测机 {$judger['name']} 没有响应", 'keep_only' => true);
+		}
 	} else {
 		foreach ($silent as $judger) {
 			$problems[] = array('kind' => 'judger_silent', 'subject' => $judger['name'], 'message' => "评测机 {$judger['name']} 没有响应");
@@ -113,6 +119,9 @@ function alertsSync($kinds, $problems) {
 	$wrong = array();
 	foreach ($problems as $problem) {
 		$wrong[$problem['kind'] . "\n" . $problem['subject']] = true;
+		if (!empty($problem['keep_only'])) {
+			continue;
+		}
 		$esc_kind = DB::escape($problem['kind']);
 		$esc_subject = DB::escape($problem['subject']);
 		// the unique key makes this the one open alert of the thing, whoever else looks
