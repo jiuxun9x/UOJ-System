@@ -868,3 +868,18 @@ a.uoj-ob-person:hover {
 		animation: none;
 	}
 }
+/* how the board leaves for the resolvers of others */
+.uoj-rs-export {
+	max-width: 60rem;
+	margin: 1.6rem auto 0;
+	padding-top: 0.8rem;
+	border-top: 1px solid var(--ob-line);
+	font-size: 0.9rem;
+	color: var(--ob-muted);
+}
+.uoj-rs-export .uoj-ob-button {
+	margin: 0 0.3rem 0 0.8rem;
+}
+.uoj-rs-export p {
+	margin: 0.5rem 0 0;
+}

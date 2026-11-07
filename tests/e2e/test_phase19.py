@@ -1,8 +1,10 @@
 """Phase 19: the boards of a contest as QOJ, DOMjudge and XCPCIO have them."""
 
+import io
 import json
 import re
 import unittest
+import zipfile
 
 import uoj
 from fixtures import AB, AB_COMPILE_ERROR, AB_WRONG, ab_problem_files
@@ -260,6 +262,63 @@ class ResolverTest(unittest.TestCase):
         oi = admin.new_contest("p19 OI 不滚榜", minutes=60, problems=str(first))
         uoj.move_contest(oi, -120 * 60, 60)
         self.assertIn("只有 ICPC 赛制的比赛可以滚榜", admin.get("/contest/%d/resolver" % oi).text)
+
+
+class ExportTest(unittest.TestCase):
+    """The board can be resolved with the tools of others as well: the staff download the contest
+    as the event feed of the CCS specifications, which the resolver of the ICPC Tools reads, or
+    as the files of XCPCIO."""
+
+    def test_the_contest_is_written_for_other_resolvers(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p19 导出", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d, %d" % (first, second))
+        ann, bob = account("p19_ex_ann"), account("p19_ex_bob")
+        for client in (ann, bob):
+            client.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -270 * 60, 300)
+        made = [(20, ann, first, AB), (30, bob, first, AB_WRONG), (250, bob, first, AB), (255, bob, second, AB_COMPILE_ERROR)]
+        made = [(minutes, client.submit_in_contest(contest_id, problem, code)) for minutes, client, problem, code in made]
+        uoj.wait_idle()
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        for minutes, submission_id in made:
+            at(contest_id, minutes, submission_id)
+        resolver = "/contest/%d/resolver" % contest_id
+        self.assertIn('id="resolver-export-clics"', admin.get(resolver).text)
+        # nobody else gets them: they hold what was submitted since the board froze
+        self.assertEqual(ann.get(resolver + "?export=clics").status_code, 404)
+        self.assertEqual(uoj.Client().get(resolver + "?export=xcpcio").status_code, 302)
+
+        # ---- the event feed
+        r = admin.get(resolver + "?export=clics")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.headers["Content-Type"].startswith("application/x-ndjson"), r.headers["Content-Type"])
+        self.assertIn("attachment", r.headers["Content-Disposition"])
+        events = [json.loads(line) for line in r.text.splitlines()]
+        of = lambda kind: [event["data"] for event in events if event["type"] == kind]
+        contest = of("contest")[0]
+        self.assertEqual((contest["id"], contest["duration"], contest["scoreboard_freeze_duration"], contest["penalty_time"]), ("uoj-%d" % contest_id, "5:00:00.000", "1:00:00.000", 20))
+        self.assertEqual([problem["label"] for problem in of("problems")], ["A", "B"])
+        self.assertEqual(sorted(team["id"] for team in of("teams")), ["p19_ex_ann", "p19_ex_bob"])
+        self.assertEqual([(s["team_id"], s["problem_id"], s["contest_time"]) for s in of("submissions")],
+                         [("p19_ex_ann", "A", "0:20:00.000"), ("p19_ex_bob", "A", "0:30:00.000"), ("p19_ex_bob", "A", "4:10:00.000"), ("p19_ex_bob", "B", "4:15:00.000")])  # fmt: skip
+        self.assertEqual([judgement["judgement_type_id"] for judgement in of("judgements")], ["AC", "WA", "AC", "CE"])
+        awards = {award["id"]: award["team_ids"] for award in of("awards")}
+        self.assertEqual((awards["gold-medal"], awards["silver-medal"], awards["winner"], awards["first-to-solve-A"]), (["p19_ex_ann"], ["p19_ex_bob"], ["p19_ex_ann"], ["p19_ex_ann"]))
+        state = events[-1]
+        self.assertEqual(state["type"], "state")
+        self.assertTrue(state["data"]["frozen"] and state["data"]["ended"] and state["data"]["finalized"], state)
+
+        # ---- the files of XCPCIO
+        r = admin.get(resolver + "?export=xcpcio")
+        self.assertEqual(r.headers["Content-Type"], "application/zip")
+        files = zipfile.ZipFile(io.BytesIO(r.content))
+        self.assertEqual(sorted(files.namelist()), ["config.json", "run.json", "team.json"])
+        config = json.loads(files.read("config.json"))
+        self.assertEqual((config["frozen_time"], config["penalty"], config["problem_id"], config["medal"]), (3600, 1200, ["A", "B"], {"official": {"gold": 1, "silver": 1, "bronze": 1}}))
+        self.assertEqual(sorted(json.loads(files.read("team.json"))), ["p19_ex_ann", "p19_ex_bob"])
+        self.assertEqual([(run["team_id"], run["problem_id"], run["timestamp"], run["status"]) for run in json.loads(files.read("run.json"))],
+                         [("p19_ex_ann", 0, 1200, "ACCEPTED"), ("p19_ex_bob", 0, 1800, "WRONG_ANSWER"), ("p19_ex_bob", 0, 15000, "ACCEPTED"), ("p19_ex_bob", 1, 15300, "COMPILATION_ERROR")])  # fmt: skip
 
 
 if __name__ == "__main__":
