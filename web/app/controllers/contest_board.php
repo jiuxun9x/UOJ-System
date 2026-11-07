@@ -81,6 +81,7 @@
 		<table class="uoj-ob-table" id="table-outer-board">
 			<thead></thead>
 			<tbody></tbody>
+			<tfoot></tfoot>
 		</table>
 	</div>
 	<p class="uoj-ob-empty" id="outer-board-empty" style="display:none"></p>

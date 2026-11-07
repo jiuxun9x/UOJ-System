@@ -400,6 +400,30 @@ body.uoj-ob-dark-page .uoj-ob {
 	background-color: var(--ob-pending);
 }
 
+/* ---- under the table: the statistics of every problem, as XCPCIO has them */
+.uoj-ob-table tfoot th.uoj-ob-stat-label {
+	position: static;
+	text-align: right;
+	padding-right: 0.7rem;
+	font-size: 0.85rem;
+	color: var(--ob-muted);
+	cursor: help;
+}
+.uoj-ob-table tfoot tr:first-child > * {
+	border-top: 2px solid var(--ob-line);
+}
+.uoj-ob-table td.uoj-ob-stat-cell {
+	font-size: 0.85rem;
+	font-weight: 600;
+	white-space: nowrap;
+	background-color: var(--ob-head);
+}
+.uoj-ob-table td.uoj-ob-stat-cell small {
+	margin-left: 0.25em;
+	font-weight: 400;
+	color: var(--ob-muted);
+}
+
 /* ---- what happened just now is seen to have happened */
 .uoj-ob-table tr {
 	will-change: transform;

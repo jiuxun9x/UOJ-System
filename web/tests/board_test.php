@@ -139,6 +139,16 @@ check_same(array(
 	array('solved' => 4, 'tries' => 4), array('solved' => 3, 'tries' => 3), array('solved' => 1, 'tries' => 6),
 	array('solved' => 0, 'tries' => 4), array('solved' => 0, 'tries' => 0)
 ), $board['problems'], 'over a problem: how many solved it, out of how many submissions that count');
+// and under it, as XCPCIO has it: how many tried it, how many submissions failed and how many
+// nobody knows the outcome of, and when it was first and last solved (the time it passed at,
+// not the penalty: ann solved C at 0:30 after two attempts in vain)
+check_same(array(
+	array('people' => 4, 'rejected' => 0, 'pending' => 0, 'first' => 600, 'last' => 3000),
+	array('people' => 3, 'rejected' => 0, 'pending' => 0, 'first' => 4200, 'last' => 5400),
+	array('people' => 2, 'rejected' => 3, 'pending' => 2, 'first' => 1800, 'last' => 1800),
+	array('people' => 2, 'rejected' => 4, 'pending' => 0, 'first' => null, 'last' => null),
+	array('people' => 0, 'rejected' => 0, 'pending' => 0, 'first' => null, 'last' => null)
+), $board['stats'], 'the statistics of the problems of an ICPC board');
 check_same(array('ann', 1600, '安'), $board['rows'][0]['person'], 'a row says who it is of');
 // the percentage is cut, not rounded: two in vain out of three is 66
 $once = contestOuterBoard('ICPC', 1, array(array(100, 3000, array('ann', 1500, ''), 1)), array('ann' => array(0 => array(100, 3000, 1, 2, 0))));
@@ -171,6 +181,11 @@ check_same(array(
 ), array_map($line, $oi['rows']), 'the rows of a board of scores: the bands are by the score, and nothing is said of dirt');
 check_same(array(array('solved' => 3, 'tries' => 3), array('solved' => 1, 'tries' => 3), array('solved' => 0, 'tries' => 2)), $oi['problems'],
 	'over a problem of a board of scores: how many got all of it, out of how many tried');
+check_same(array(
+	array('people' => 3, 'rejected' => 0, 'pending' => 0, 'first' => 600, 'last' => 1200),
+	array('people' => 3, 'rejected' => 2, 'pending' => 0, 'first' => 3800, 'last' => 3800),
+	array('people' => 2, 'rejected' => 2, 'pending' => 0, 'first' => null, 'last' => null)
+), $oi['stats'], 'the statistics of the problems of a board of scores: what got less than all of it, and when all of it was first and last got');
 
 // ---- ratings: who sits a contest alone is rated against nobody, and keeps the rating (PHP 8
 // does not divide by the number of the others when it is zero)

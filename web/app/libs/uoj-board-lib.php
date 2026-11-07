@@ -37,13 +37,25 @@
 //                 who is level with somebody may get one beyond),
 //   'counted'  => what percentages are of: array('all' => how many contestants are on the
 //                 board, 'effective' => how many of them solved something)
+//   'stats'    => of each problem, what XCPCIO tells under its board: array('people' => how many
+//                 of the board tried it, 'rejected' => how many submissions to it failed (under
+//                 the other rules: how many got less than all of it), 'pending' => how many
+//                 nobody knows the outcome of yet, 'first' and 'last' => seconds into the
+//                 contest it was first and last solved (got all of it), or null)
 // )
 function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = array(), $waiting = array(), $medals = null) {
 	$icpc = $rule === 'ICPC';
 	$problems = array();
+	$stats = array();
 	for ($pos = 0; $pos < $n_problems; $pos++) {
 		$problems[$pos] = array('solved' => 0, 'tries' => 0);
+		$stats[$pos] = array('people' => 0, 'rejected' => 0, 'pending' => 0, 'first' => null, 'last' => null);
 	}
+	// when somebody solved a problem: the first and the last of the board
+	$solved_at = function($pos, $at) use (&$stats) {
+		$stats[$pos]['first'] = $stats[$pos]['first'] === null ? $at : min($stats[$pos]['first'], $at);
+		$stats[$pos]['last'] = $stats[$pos]['last'] === null ? $at : max($stats[$pos]['last'], $at);
+	};
 	// who solved a problem first, of the contestants on the board, once that is sure (who sat
 	// the contest virtually was not there to be first)
 	$on_board = array();
@@ -87,12 +99,18 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 					$wasted += $failed;
 					$problems[$pos]['solved']++;
 					$problems[$pos]['tries'] += $failed + 1;
+					$solved_at($pos, (int)$cell[1] - CONTEST_ICPC_PENALTY * $failed);
 				} elseif ($pending > 0) {
 					$shown = array('kind' => 'pending', 'says' => $says, 'under' => $under);
 					$problems[$pos]['tries'] += $failed + $pending;
+					$stats[$pos]['pending'] += $pending;
 				} elseif ($failed > 0) {
 					$shown = array('kind' => 'failed', 'says' => $says, 'under' => $tried_at);
 					$problems[$pos]['tries'] += $failed;
+				}
+				if ($shown['kind'] !== 'none') {
+					$stats[$pos]['people']++;
+					$stats[$pos]['rejected'] += $failed;
 				}
 			} elseif ($cell) {
 				$full = $cell[0] >= 100;
@@ -104,6 +122,12 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 				$solved += $full ? 1 : 0;
 				$problems[$pos]['solved'] += $full ? 1 : 0;
 				$problems[$pos]['tries']++;
+				$stats[$pos]['people']++;
+				if ($full) {
+					$solved_at($pos, (int)$cell[1]);
+				} else {
+					$stats[$pos]['rejected']++;
+				}
 			}
 			$cells[$pos] = $shown;
 		}
@@ -129,7 +153,7 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 		);
 	}
 	list($rows, $kinds, $counted) = boardGiveMedals($rows, $medals === null ? contestDefaultMedals() : $medals);
-	return array('problems' => $problems, 'rows' => $rows, 'medals' => $kinds, 'counted' => $counted);
+	return array('problems' => $problems, 'rows' => $rows, 'medals' => $kinds, 'counted' => $counted, 'stats' => $stats);
 }
 // Gives the rows of a board their medals (see contestMedals()): every kind goes to so many of
 // the contestants after the ones the kinds before went to, by their rank among the contestants;
@@ -247,7 +271,7 @@ function boardTable($contest, $standings, $score, $last_try) {
 			'virtual' => $virtual, 'medal' => $row['medal'], 'cells' => $cells
 		);
 	}
-	return array('problems' => $problems, 'rows' => $rows, 'medals' => $board['medals'], 'counted' => $board['counted']);
+	return array('problems' => $problems, 'rows' => $rows, 'medals' => $board['medals'], 'counted' => $board['counted'], 'stats' => $board['stats']);
 }
 // The outer board of a contest as it is for everybody right now, kept between two times it
 // is asked for as long as nothing happened.
@@ -315,7 +339,7 @@ function boardState($contest, $viewer, $options = array()) {
 	$state = array(
 		'id' => (int)$contest['id'], 'name' => html_entity_decode(strip_tags((string)$contest['name']), ENT_QUOTES, 'UTF-8'), 'rule' => $rule,
 		'duration' => $duration, 'freeze' => contestFreezeOffset($contest), 'frozen' => false, 'ticking' => false,
-		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array(), 'medals' => array(), 'counted' => array('all' => 0, 'effective' => 0),
+		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array(), 'medals' => array(), 'counted' => array('all' => 0, 'effective' => 0), 'stats' => array(),
 		'viewing' => null, 'virtual' => false, 'virtuals' => array()
 	);
 	$finished = $contest['cur_progress'] == CONTEST_FINISHED;
@@ -364,6 +388,6 @@ function boardState($contest, $viewer, $options = array()) {
 	if ($finished && !$mine) {
 		$state['virtuals'] = boardVirtuals($contest);
 	}
-	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['viewing'], $state['virtual'], $state['virtuals'])));
+	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['stats'], $state['viewing'], $state['virtual'], $state['virtuals'])));
 	return $state;
 }

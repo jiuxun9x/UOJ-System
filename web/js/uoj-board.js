@@ -26,6 +26,10 @@
 		seconds = Math.max(0, Math.floor(seconds));
 		return Math.floor(seconds / 3600) + ':' + two(Math.floor(seconds / 60) % 60) + ':' + two(seconds % 60);
 	};
+	// hours and minutes, as a cell says when
+	var minutes = function(seconds) {
+		return Math.floor(seconds / 3600) + ':' + two(Math.floor(seconds / 60) % 60);
+	};
 	var icpc = function() {
 		return state.rule === 'ICPC';
 	};
@@ -78,6 +82,62 @@
 		}
 		return html + '</tr>';
 	};
+	// Under the table, as XCPCIO has it: of every problem how many submissions there were, how
+	// many tried it and how many solved it, how much of what was judged failed, and when it was
+	// first and last solved. Percentages are cut to whole ones.
+	var foot = function() {
+		if (!state.stats || state.stats.length === 0 || state.rows.length === 0) {
+			return '';
+		}
+		var pct = function(part, whole) {
+			return whole > 0 ? '<small>' + Math.floor(100 * part / whole) + '%</small>' : '';
+		};
+		var at = function(seconds) {
+			return seconds === null || seconds === undefined ? '–' : minutes(seconds);
+		};
+		var lines = icpc() ? [
+			['submitted', '提交', '提交的次数（不算编译错误和通过之后的提交）', function(problem) {
+				return String(problem.tries);
+			}],
+			['attempted', '尝试', '交过这道题的人数，百分比是占榜上人数的比例', function(problem, stat) {
+				return stat.people + pct(stat.people, state.rows.length);
+			}],
+			['accepted', '通过', '通过的人数，百分比是占尝试人数的比例', function(problem, stat) {
+				return problem.solved + pct(problem.solved, stat.people);
+			}],
+			['dirt', 'Dirt', '未通过的提交次数，百分比是占已出结果的提交的比例', function(problem, stat) {
+				return stat.rejected + pct(stat.rejected, problem.tries - stat.pending);
+			}],
+			['first', '最早通过', '第一次有人通过的时间', function(problem, stat) {
+				return at(stat.first);
+			}],
+			['last', '最晚通过', '最后一次有人通过的时间', function(problem, stat) {
+				return at(stat.last);
+			}]
+		] : [
+			['attempted', '尝试', '交过这道题的人数，百分比是占榜上人数的比例', function(problem, stat) {
+				return stat.people + pct(stat.people, state.rows.length);
+			}],
+			['accepted', '满分', '得满分的人数，百分比是占尝试人数的比例', function(problem, stat) {
+				return problem.solved + pct(problem.solved, stat.people);
+			}],
+			['first', '最早满分', '第一次有人得满分的时间', function(problem, stat) {
+				return at(stat.first);
+			}],
+			['last', '最晚满分', '最后一次有人得满分的时间', function(problem, stat) {
+				return at(stat.last);
+			}]
+		];
+		var html = '';
+		$.each(lines, function(index, line) {
+			html += '<tr class="uoj-ob-stat" data-stat="' + line[0] + '"><th class="uoj-ob-stat-label" colspan="2" title="' + esc(line[2]) + '">' + esc(line[1]) + '</th>';
+			$.each(state.problems, function(pos, problem) {
+				html += '<td class="uoj-ob-stat-cell" data-problem="' + esc(problem.letter) + '">' + line[3](problem, state.stats[pos]) + '</td>';
+			});
+			html += '<td class="uoj-ob-stat-rest" colspan="' + (icpc() ? 3 : 2) + '"></td></tr>';
+		});
+		return html;
+	};
 	var rowHtml = function(row) {
 		// the medals of the contest, in their colours: who sat the contest virtually takes none
 		var medal = row.medal ? state.medals[row.medal - 1] : null;
@@ -118,6 +178,7 @@
 		var table = $('#table-outer-board');
 		var body = table.children('tbody');
 		table.children('thead').html(head());
+		table.children('tfoot').html(foot());
 		var before = {};
 		body.children('tr').each(function() {
 			var tr = $(this);

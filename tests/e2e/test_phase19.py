@@ -124,5 +124,34 @@ class MedalsTest(unittest.TestCase):
         self.assertEqual([row["medal"] for row in state()["rows"]], [1, 2, 3, 0, 0])
 
 
+class StatisticsTest(unittest.TestCase):
+    """Under the outer board, as under the boards of XCPCIO: of every problem how many
+    submissions there were, how many tried it and solved it, how much failed, and when it was
+    first and last solved."""
+
+    def test_the_problems_are_told_of_under_the_board(self):
+        admin = uoj.admin()
+        first, second = admin.create_problem(ab_problem_files()), admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p19 每题统计", minutes=300, rule="ICPC", problems="%d, %d" % (first, second))
+        ann, bob, cat = account("p19_stat_ann"), account("p19_stat_bob"), account("p19_stat_cat")
+        for client in (ann, bob, cat):
+            client.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -100 * 60, 300)
+        # ann fails A and solves it at 0:15; bob solves it at 0:30; cat fails it; nobody tries B
+        made = [(5, ann, AB_WRONG), (15, ann, AB), (30, bob, AB), (20, cat, AB_WRONG)]
+        made = [(minutes, client.submit_in_contest(contest_id, first, code)) for minutes, client, code in made]
+        uoj.wait_idle()
+        for minutes, submission_id in made:
+            at(contest_id, minutes, submission_id)
+
+        told = uoj.Client().get("/contest/%d/board?json=1" % contest_id).json()
+        self.assertEqual([(problem["solved"], problem["tries"]) for problem in told["problems"]], [(2, 4), (0, 0)])
+        self.assertEqual(told["stats"], [
+            {"people": 3, "rejected": 2, "pending": 0, "first": 900, "last": 1800},
+            {"people": 0, "rejected": 0, "pending": 0, "first": None, "last": None},
+        ])  # fmt: skip
+        self.assertIn("<tfoot></tfoot>", uoj.Client().get("/contest/%d/board" % contest_id).text)
+
+
 if __name__ == "__main__":
     unittest.main()
