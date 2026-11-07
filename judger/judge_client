@@ -21,6 +21,8 @@ import time
 from contextlib import closing
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection
 
 from queue import Queue, Empty
 
@@ -1325,12 +1327,41 @@ READ_TIMEOUT = 300
 # for the judgers: there is nothing a judger keeps between requests but the connection.
 http_sessions = local()
 
+# A connection that died on the way (a link that dropped for a moment, a router that forgot it)
+# answers nothing, and a request on it waited for READ_TIMEOUT: every judger behind the link was
+# silent for five minutes for a drop of a few seconds, and nothing was judged. The kernel looks
+# after the connection now: after 15 seconds without a word it asks the other end whether it is
+# still there, every 5 seconds, and a connection that leaves what was sent on it unanswered for
+# 60 seconds is given up, and the request is made again on a new one. A web server that takes
+# its time to answer is not taken for gone: its kernel answers for it meanwhile.
+KEEPALIVE_OPTIONS = (("TCP_KEEPIDLE", 15), ("TCP_KEEPINTVL", 5), ("TCP_KEEPCNT", 4), ("TCP_USER_TIMEOUT", 60000))
+
+
+def keepalive_socket_options():
+    """the options of the sockets to the web server (the ones this system has)"""
+    options = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    for name, value in KEEPALIVE_OPTIONS:
+        if hasattr(socket, name):
+            options.append((socket.IPPROTO_TCP, getattr(socket, name), value))
+    return options
+
+
+class KeepAliveAdapter(HTTPAdapter):
+    """connections to the web server whose death the kernel notices"""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["socket_options"] = HTTPConnection.default_socket_options + keepalive_socket_options()
+        super().init_poolmanager(*args, **kwargs)
+
 
 def http():
     """the connection of this thread to the web server"""
     session = getattr(http_sessions, "session", None)
     if session is None:
         session = requests.Session()
+        adapter = KeepAliveAdapter()
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
         http_sessions.session = session
     return session
 

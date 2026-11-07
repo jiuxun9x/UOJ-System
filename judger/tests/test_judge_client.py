@@ -422,6 +422,39 @@ class ConnectionTest(JudgeClientTestCase):
         # the thread that reports the progress has a connection of its own
         self.assertIsNot(others[0], self.jc.http())
 
+    def test_a_connection_that_died_on_the_way_is_noticed(self):
+        """A request on a connection that died on the way (a link that dropped for a moment) waited
+        for the whole READ_TIMEOUT, five minutes, in which the judger was silent and judged nothing.
+        The kernel watches the connections now, and gives up a dead one within a minute."""
+        import socket
+
+        session = self.jc.http()
+        for scheme in ("http://", "https://"):
+            adapter = session.get_adapter(scheme + "uoj-web/judge/submit")
+            self.assertIsInstance(adapter, self.jc.KeepAliveAdapter)
+            options = adapter.poolmanager.connection_pool_kw["socket_options"]
+            self.assertIn((socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1), options)
+            # (requests sent at once, as before)
+            self.assertIn((socket.IPPROTO_TCP, socket.TCP_NODELAY, 1), options)
+        linux = sys.platform.startswith("linux")
+        if linux:
+            for name, value in (("TCP_KEEPIDLE", 15), ("TCP_KEEPINTVL", 5), ("TCP_KEEPCNT", 4), ("TCP_USER_TIMEOUT", 60000)):
+                self.assertIn((socket.IPPROTO_TCP, getattr(socket, name), value), options, name)
+
+        # a connection that is made has them
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        pool = session.get_adapter("http://127.0.0.1/").poolmanager.connection_from_url("http://127.0.0.1:%d/" % listener.getsockname()[1])
+        connection = pool._new_conn()
+        connection.connect()
+        self.addCleanup(connection.close)
+        self.assertNotEqual(connection.sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE), 0)
+        if linux:
+            self.assertEqual(connection.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT), 60000)
+            self.assertEqual(connection.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE), 15)
+
 
 class LongPollTest(JudgeClientTestCase):
     """a judger with nothing to do asks the web server to wait for a task"""
