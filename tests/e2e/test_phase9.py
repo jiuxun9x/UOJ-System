@@ -736,7 +736,7 @@ class OuterBoardTest(unittest.TestCase):
         self.assertEqual(heads(told), [("A", 2, 3), ("B", 0, 1)])
         # nothing is in it that is not for everybody: no titles, no numbers of submissions
         self.assertEqual(sorted(told["problems"][0]), ["color", "letter", "solved", "tries"])
-        self.assertEqual(sorted(told["rows"][0]), ["band", "cells", "dirt", "key", "nickname", "penalty", "rank", "solved", "username"])
+        self.assertEqual(sorted(told["rows"][0]), ["band", "cells", "dirt", "key", "medal", "nickname", "penalty", "rank", "solved", "username", "virtual"])
         self.assertEqual([problem["color"] for problem in told["problems"]], [None, None])
         # everybody is told the same
         for client in (uoj.Client(), ann, admin):
@@ -797,17 +797,22 @@ class OuterBoardTest(unittest.TestCase):
         ])  # fmt: skip
 
         # ---- to somebody who sits the contest virtually it is the board of the moment they
-        # are at, with the contestants on it and nobody else
+        # are at: the contestants, and who sits it virtually under a star (see test_phase17)
         self.assertEqual(sitter.form(here + "/virtual", "start"), "")
         db("update contest_virtuals set start_time = '%s' where contest_id = %d and username = 'p9_ob_sitter'" % (uoj.web_time(-25 * 60), contest_id))
         replay = state(sitter)
         self.assertEqual((replay["phase"], replay["frozen"], replay["ticking"]), ("replay", False, True))
         self.assertTrue(1495 <= replay["elapsed"] <= 1700, replay["elapsed"])
         # twenty five minutes in: ann has solved A, bob will in five minutes
-        self.assertEqual([row[:3] for row in rows(replay)], [("p9_ob_ann", 1, 1), ("p9_ob_bob", 2, 0), ("p9_ob_cat", 2, 0)])
+        self.assertEqual([row[:3] for row in rows(replay)], [("p9_ob_ann", 1, 1), ("p9_ob_sitter", 2, 0), ("p9_ob_bob", 2, 0), ("p9_ob_cat", 2, 0)])
+        self.assertEqual([row["virtual"] for row in replay["rows"]], [False, True, False, False])
+        self.assertEqual((replay["viewing"]["username"], replay["viewing"]["mine"]), ("p9_ob_sitter", True))
         self.assertEqual(heads(replay), [("A", 1, 2), ("B", 0, 0)])
-        # to everybody else it is what it is
-        self.assertEqual(state(outsider)["hash"], final["hash"])
+        # to everybody else it is the board of the contest, with who sits it virtually under a star
+        self.assertEqual(rows(outsider.get(board + "?json=1&virtual=0").json()), rows(final))
+        everybody = state(outsider)
+        self.assertEqual(rows(everybody)[:3], rows(final))
+        self.assertEqual([row[:3] for row in rows(everybody)[3:]], [("p9_ob_sitter", 4, 0)])
 
 
 def registered(contest_id):

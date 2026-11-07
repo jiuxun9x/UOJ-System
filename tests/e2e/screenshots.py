@@ -615,6 +615,20 @@ def outer_board_keeps_itself_up_to_date(page, seeded):
     page.wait_for_function("document.querySelectorAll('#table-outer-board .uoj-ob-up, #table-outer-board .uoj-ob-flash').length === 0", timeout=10000)
 
 
+def outer_board_is_seen_as_a_virtual_participant(page, seeded):
+    """the board as somebody who sits the contest virtually sees it, to a visitor, as Codeforces
+    shows the standings of a participant: whose view it is, their row lit up, who sat the contest
+    virtually under a star, and the list of whose view may be seen"""
+    sitter = seeded["sitter"].username
+    page.wait_for_selector("#table-outer-board tbody tr.uoj-ob-viewed")
+    assert page.is_visible("#outer-board-viewing")
+    assert sitter in page.inner_text("#outer-board-viewing"), page.inner_text("#outer-board-viewing")
+    assert page.get_attribute("#table-outer-board tbody tr.uoj-ob-viewed", "data-username") == sitter
+    assert page.locator("#table-outer-board .uoj-ob-star").count() >= 2
+    assert page.eval_on_selector("#outer-board-vp", "select => select.value") == sitter
+    assert page.locator("#outer-board-vp option").count() >= 3
+
+
 def outer_board_goes_dark(page, seeded):
     """the outer board for a wall: dark, and the row of whoever looks is marked"""
     page.wait_for_selector("#table-outer-board tbody tr")
@@ -819,6 +833,7 @@ def pages(seeded):
         ("outer-board", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_keeps_itself_up_to_date),
         ("outer-board-dark", "student", "/contest/%d/board" % seeded["icpc"], outer_board_goes_dark),
         ("outer-board-final", "visitor", "/contest/%d/board" % seeded["contest"]),
+        ("outer-board-vp", "visitor", "/contest/%d/board?vp=%s" % (seeded["contest"], seeded["sitter"].username), outer_board_is_seen_as_a_virtual_participant),
         ("balloons-settings", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_settings_are_opened),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),

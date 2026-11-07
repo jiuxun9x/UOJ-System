@@ -18,6 +18,7 @@
 	--ob-pending: #cddafa;
 	--ob-accent: #2f6fed;
 	--ob-frozen: #7a9cf0;
+	--ob-viewed: #dce8fd;
 	/* as wide as the window, whatever the page around it is */
 	width: 98vw;
 	margin: 0.75rem calc(50% - 49vw) 2rem;
@@ -45,6 +46,7 @@ body.uoj-ob-dark-page .uoj-ob {
 	--ob-pending: #2b4079;
 	--ob-accent: #6d9bff;
 	--ob-frozen: #4466c0;
+	--ob-viewed: #22345a;
 }
 
 /* ---- what stands over the table */
@@ -161,6 +163,38 @@ body.uoj-ob-dark-page .uoj-ob {
 	border-color: var(--ob-accent);
 	color: #fff !important;
 	background-color: var(--ob-accent);
+}
+/* whose view of the board it is, of the people who sat the contest virtually */
+.uoj-ob-select {
+	max-width: 16rem;
+	margin: 0.15rem 0 0.15rem 0.4rem;
+	padding: 0.2rem 0.4rem;
+	border: 1px solid var(--ob-line);
+	border-radius: 0.3rem;
+	font-size: 0.9rem;
+	color: var(--ob-fg);
+	background-color: var(--ob-bg);
+}
+.uoj-ob-viewing {
+	margin: 0.1rem 0 0.4rem;
+	font-size: 1rem;
+	color: var(--ob-muted);
+}
+.uoj-ob-viewing a {
+	color: var(--ob-accent);
+}
+/* who sat the contest virtually: under a star, and their name leads to their view */
+.uoj-ob-table a.uoj-ob-vp {
+	color: inherit;
+	text-decoration: none;
+}
+.uoj-ob-table a.uoj-ob-vp:hover .uoj-ob-nick {
+	text-decoration: underline;
+}
+.uoj-ob-star {
+	margin-right: 0.15em;
+	font-weight: 700;
+	color: var(--ob-muted);
 }
 /* how far the contest has come, and from where its board is frozen */
 .uoj-ob-progress {
@@ -314,6 +348,11 @@ body.uoj-ob-dark-page .uoj-ob {
 }
 .uoj-ob-me > td.uoj-ob-rank, .uoj-ob-me > td.uoj-ob-name {
 	color: var(--ob-accent);
+}
+/* the row of whom the board is seen as, as Codeforces lights it: the whole row */
+.uoj-ob-table tr.uoj-ob-viewed > td.uoj-ob-rank, .uoj-ob-table tr.uoj-ob-viewed > td.uoj-ob-name,
+.uoj-ob-table tr.uoj-ob-viewed > td.uoj-ob-num, .uoj-ob-table tr.uoj-ob-viewed > td.uoj-ob-none {
+	background-color: var(--ob-viewed);
 }
 
 /* a cell: what it says, and under it when */

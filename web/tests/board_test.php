@@ -4,6 +4,7 @@
 
 require_once __DIR__ . '/../app/libs/uoj-contest-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-board-lib.php';
+require_once __DIR__ . '/../app/libs/uoj-virtual-lib.php';
 require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
 
 // ---- the score a judgement is kept with: a whole number, never more than was earned. 99.6 of a
@@ -54,6 +55,32 @@ check_same(array(
 	'5 eve 0/0 dirt=NULL band=1 . . . failed:-3@0:05 .',
 	'5 fay 0/0 dirt=NULL band=1 . . . . .'
 ), array_map($line, $board['rows']), 'the rows of an ICPC board: who solved what when, who was first, and the bands by how many were solved');
+// the medals: the best three, and the ones level with them
+check_same(array(1, 2, 2, 0, 0, 0), array_map(function($row) {
+	return $row['medal'];
+}, $board['rows']), 'the medals of an ICPC board');
+check_same(array(false), array_unique(array_map(function($row) {
+	return $row['virtual'];
+}, $board['rows'])), 'nobody on it sat the contest virtually');
+// Who sat the contest virtually is on the board of a contest that is over, under a star, ranked
+// with the contestants. They take no medal, and push nobody out of one: ann is first of the
+// contestants behind somebody who sat it virtually, and dan, fourth on the board, is second of them.
+// Nor were they there to solve a problem first: vic solved A before dan, who is first all the same.
+$with_virtual = array(
+	array(400, 1000, array('*vic', 1500, ''), 1),
+	array(300, 3000 + 4200 + 1800 + 2 * 1200, array('ann', 1600, '安'), 2),
+	array(200, 600, array('*val', 1500, ''), 3),
+	array(100, 600, array('dan', 1500, ''), 4),
+	array(0, 0, array('eve', 1500, ''), 5)
+);
+$virtual_score = $score + array('*vic' => array(0 => array(100, 100, 61, 0, 0), 1 => array(100, 200, 62, 0, 0), 2 => array(100, 300, 63, 0, 0), 4 => array(100, 400, 64, 0, 0)),
+	'*val' => array(0 => array(100, 200, 71, 0, 0), 4 => array(100, 400, 72, 0, 0)));
+$board_with_virtual = contestOuterBoard('ICPC', 5, $with_virtual, $virtual_score, $last_try);
+check_same(array('*vic:1:0:1', 'ann:2:1:0', '*val:3:0:1', 'dan:4:2:0', 'eve:5:0:0'), array_map(function($row) {
+	return $row['key'] . ':' . $row['rank'] . ':' . $row['medal'] . ':' . (int)$row['virtual'];
+}, $board_with_virtual['rows']), 'who sat the contest virtually takes no medal, and the contestants keep theirs');
+check_same(array('solved', 'solved', 'first'), array($board_with_virtual['rows'][0]['cells'][0]['kind'], $board_with_virtual['rows'][2]['cells'][0]['kind'], $board_with_virtual['rows'][3]['cells'][0]['kind']),
+	'who sat the contest virtually is not the first to solve a problem');
 // Who solved first is told only when it is sure, and of the same second the smaller number is
 // first, as on the balloon page: bob and cat solved E at the same second, cat with the smaller
 // number though bob stands above him.
@@ -121,9 +148,10 @@ check_same('+2', $once['rows'][0]['cells'][0]['says'], 'a problem solved at the 
 $unknown = contestOuterBoard('ICPC', 1, array(array(0, 0, array('ann', 1500, ''), 1)), array('ann' => array(0 => array(0, 0, 1, 2, 0))));
 check_same(array('kind' => 'failed', 'says' => '-2', 'under' => ''), $unknown['rows'][0]['cells'][0], 'an attempt in vain whose time is not known');
 check_same(array('problems' => array(), 'rows' => array()), contestOuterBoard('ICPC', 0, array(), array()), 'a contest without problems and without contestants');
-// somebody who sat the contest virtually is a row like any other
+// somebody who sat the contest virtually is a row like any other, but for being first to solve
+// a problem and for medals: they were not there
 $starred = contestOuterBoard('ICPC', 1, array(array(100, 60, array('*ann', 1500, ''), 1)), array('*ann' => array(0 => array(100, 60, 1, 0, 0))));
-check_same(array('*ann', 'first'), array($starred['rows'][0]['key'], $starred['rows'][0]['cells'][0]['kind']), 'a row under a star');
+check_same(array('*ann', 'solved', true, 0), array($starred['rows'][0]['key'], $starred['rows'][0]['cells'][0]['kind'], $starred['rows'][0]['virtual'], $starred['rows'][0]['medal']), 'a row under a star');
 
 // ---- the other rules: a score, and when it was got
 $oi = contestOuterBoard('OI', 3, array(

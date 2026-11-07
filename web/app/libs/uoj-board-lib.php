@@ -24,9 +24,11 @@
 //                 (under the other rules the score), 'penalty' in seconds, 'dirt' => of the
 //                 submissions to what was solved, the percentage that failed, or null where
 //                 nothing was solved or the rule knows no such thing, 'band' => 0 or 1,
-//                 which changes wherever the next row has solved less, 'cells' => position
-//                 => array('kind' => 'none', 'first', 'solved', 'part', 'failed' or
-//                 'pending', 'says', 'under'))
+//                 which changes wherever the next row has solved less, 'virtual' => whether it
+//                 is somebody who sat the contest virtually ("*" and the name), 'medal' => 1, 2
+//                 or 3 for the best three of the contestants (who sat it virtually take no medal
+//                 and push nobody out of one), else 0, 'cells' => position => array('kind' =>
+//                 'none', 'first', 'solved', 'part', 'failed' or 'pending', 'says', 'under'))
 // )
 function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = array(), $waiting = array()) {
 	$icpc = $rule === 'ICPC';
@@ -34,11 +36,14 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 	for ($pos = 0; $pos < $n_problems; $pos++) {
 		$problems[$pos] = array('solved' => 0, 'tries' => 0);
 	}
-	// who solved a problem first, of the people on the board, once that is sure
+	// who solved a problem first, of the contestants on the board, once that is sure (who sat
+	// the contest virtually was not there to be first)
 	$on_board = array();
 	foreach ($standings as $row) {
 		$key = (string)$row[2][0];
-		$on_board[$key] = isset($score[$key]) ? $score[$key] : array();
+		if (!virtualPersonOfKey($key)[0]) {
+			$on_board[$key] = isset($score[$key]) ? $score[$key] : array();
+		}
 	}
 	$first = array();
 	foreach (contestFirstSolves(contestPassedOfScore($icpc ? 'ICPC' : $rule, $on_board), $waiting)['problems'] as $pos => $solve) {
@@ -49,8 +54,13 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 	$rows = array();
 	$band = 0;
 	$before = null;
+	// the rank of a contestant among the contestants alone: what the medals go by
+	$contestants = 0;
+	$contestant_rank = 0;
+	$last_contestant = null;
 	foreach ($standings as $row) {
 		$key = (string)$row[2][0];
+		list($virtual) = virtualPersonOfKey($key);
 		$solved = 0;
 		$wasted = 0;
 		$cells = array();
@@ -94,10 +104,19 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 			$band = 1 - $band;
 		}
 		$before = $level;
+		$medal = 0;
+		if (!$virtual) {
+			$contestants++;
+			if ($last_contestant === null || $last_contestant !== array($row[0], $row[1])) {
+				$contestant_rank = $contestants;
+				$last_contestant = array($row[0], $row[1]);
+			}
+			$medal = $contestant_rank <= 3 && $level > 0 ? $contestant_rank : 0;
+		}
 		$rows[] = array(
 			'key' => $key, 'person' => $row[2], 'rank' => $row[3], 'solved' => $level, 'penalty' => (int)$row[1],
 			'dirt' => $icpc && $solved > 0 ? (int)floor(100 * $wasted / ($solved + $wasted)) : null,
-			'band' => $band, 'cells' => $cells
+			'band' => $band, 'virtual' => $virtual, 'medal' => $medal, 'cells' => $cells
 		);
 	}
 	return array('problems' => $problems, 'rows' => $rows);
@@ -165,9 +184,12 @@ function boardTable($contest, $standings, $score, $last_try) {
 		foreach ($row['cells'] as $cell) {
 			$cells[] = array($cell['kind'], $cell['says'], $cell['under']);
 		}
+		// who sat the contest virtually is "*" and their name to the board: the page puts the star
+		list($virtual, $username) = virtualPersonOfKey($row['key']);
 		$rows[] = array(
-			'key' => $row['key'], 'username' => (string)$row['person'][0], 'nickname' => isset($row['person'][2]) ? (string)$row['person'][2] : '',
-			'rank' => (int)$row['rank'], 'solved' => $row['solved'], 'penalty' => $row['penalty'], 'dirt' => $row['dirt'], 'band' => $row['band'], 'cells' => $cells
+			'key' => $row['key'], 'username' => $username, 'nickname' => isset($row['person'][2]) ? (string)$row['person'][2] : '',
+			'rank' => (int)$row['rank'], 'solved' => $row['solved'], 'penalty' => $row['penalty'], 'dirt' => $row['dirt'], 'band' => $row['band'],
+			'virtual' => $virtual, 'medal' => $row['medal'], 'cells' => $cells
 		);
 	}
 	return array('problems' => $problems, 'rows' => $rows);
@@ -191,15 +213,46 @@ function boardTableNow($contest) {
 	}
 	return $table;
 }
+// The people who sat a contest virtually, or sit it now, for the page to offer whose view of
+// the board to see: rows of 'username', 'nickname', 'running'; who sits it now first.
+function boardVirtuals($contest) {
+	$now = UOJTime::$time_now->getTimestamp();
+	$running = array();
+	$ended = array();
+	foreach (DB::selectAll("select contest_virtuals.username, contest_virtuals.start_time, contest_virtuals.last_min, ifnull(user_info.nickname, '') as nickname from contest_virtuals"
+			." left join user_info on user_info.username = contest_virtuals.username"
+			." where contest_virtuals.contest_id = {$contest['id']} and contest_virtuals.start_time <= '".DB::escape(UOJTime::$time_now_str)."'"
+			." order by contest_virtuals.start_time desc limit 500", MYSQLI_ASSOC) as $row) {
+		$is_running = virtualPhase($row, $now) === 'running';
+		$person = array('username' => $row['username'], 'nickname' => $row['nickname'], 'running' => $is_running);
+		if ($is_running) {
+			$running[] = $person;
+		} else {
+			$ended[] = $person;
+		}
+	}
+	return array_merge($running, $ended);
+}
 // Everything the page of the outer board shows, for a viewer:
 //   'phase'    'before' (not begun: nothing is shown, not even how many problems there are),
-//              'running', 'waiting' (over, results not published), 'final', or 'replay' - for
-//              somebody who sits the contest virtually, to whom it is the board of the
-//              moment they are at, as the pages of the contest are
+//              'running', 'waiting' (over, results not published), 'final', or 'replay' - the
+//              board as somebody who sits the contest virtually sees it: the contest as it
+//              stood at the moment of their participation they are at, as the pages of the
+//              contest show it to them, with everybody who sat it virtually at the same moment
+//              of theirs, under a star. Whoever sits it sees nothing else; anybody else may ask
+//              to see it as one of them does ('vp'), the way Codeforces shows the standings of
+//              a participant. A participation that is over is seen at its end, not frozen.
 //   'elapsed'  seconds into the contest that the board is of; 'ticking' whether they go on
 //   'frozen'   whether it is the board as it froze
+//   'viewing'  in a replay, whose view it is: 'key', 'username', 'nickname', 'start_time',
+//              'running', 'mine' (whether it is the viewer's own); else null
+//   'virtual'  whether the people who sat it virtually are on the board
+//   'virtuals' when it is over, the people who sat it virtually: see boardVirtuals() (nothing
+//              for whoever sits it now)
 //   'hash'     a word that changes when what is shown changes (the clock aside)
-function boardState($contest, $viewer) {
+// $options: 'vp' => whose view is asked for (a username), 'virtual' => false for the board of a
+// contest that is over without the people who sat it virtually.
+function boardState($contest, $viewer, $options = array()) {
 	$now = UOJTime::$time_now->getTimestamp();
 	$start = $contest['start_time']->getTimestamp();
 	$duration = (int)$contest['last_min'] * 60;
@@ -207,25 +260,55 @@ function boardState($contest, $viewer) {
 	$state = array(
 		'id' => (int)$contest['id'], 'name' => html_entity_decode(strip_tags((string)$contest['name']), ENT_QUOTES, 'UTF-8'), 'rule' => $rule,
 		'duration' => $duration, 'freeze' => contestFreezeOffset($contest), 'frozen' => false, 'ticking' => false,
-		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array()
+		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array(),
+		'viewing' => null, 'virtual' => false, 'virtuals' => array()
 	);
-	$virtual = $contest['cur_progress'] == CONTEST_FINISHED && $viewer != null && can($viewer, 'contest.virtual', $contest) ? runningVirtual($contest['id'], $viewer) : null;
+	$finished = $contest['cur_progress'] == CONTEST_FINISHED;
+	$mine = $finished && $viewer != null && can($viewer, 'contest.virtual', $contest) ? runningVirtual($contest['id'], $viewer) : null;
+	// whose view it is: the viewer's own while they sit the contest (they see nothing but the
+	// moment they are at), else the one asked for, of somebody who has begun
+	$viewed = $mine;
+	if (!$viewed && $finished && isset($options['vp']) && validateUsername($options['vp'])) {
+		$asked = queryVirtual($contest['id'], (string)$options['vp']);
+		if ($asked && virtualPhase($asked, $now) !== 'upcoming') {
+			$viewed = $asked;
+		}
+	}
 	if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 		$state['phase'] = 'before';
 		$state['starts_in'] = max(0, $start - $now);
-	} elseif ($virtual) {
+	} elseif ($viewed) {
+		$running = virtualPhase($viewed, $now) === 'running';
 		$state['phase'] = 'replay';
-		$state['elapsed'] = virtualElapsed($virtual, $now);
-		$state['ticking'] = true;
-		list($standings, $score, $contest_data, $state['frozen']) = virtualBoard($contest, $state['elapsed'], false);
+		$state['elapsed'] = virtualElapsed($viewed, $now);
+		$state['ticking'] = $running;
+		$state['virtual'] = true;
+		list($standings, $score, $contest_data, $state['frozen']) = virtualBoard($running ? $contest : array('freeze_minutes' => 0) + $contest, $state['elapsed'], true);
 		$state = boardTable($contest, $standings, $score, boardLastTries($contest, boardLastTriesUntil($contest, $state['frozen'], $state['elapsed']))) + $state;
+		$person = queryUser($viewed['username']);
+		$state['viewing'] = array(
+			'key' => '*' . $viewed['username'], 'username' => $viewed['username'], 'nickname' => $person && $person['nickname'] !== null ? (string)$person['nickname'] : '',
+			'start_time' => $viewed['start_time'], 'running' => $running, 'mine' => $mine !== null
+		);
 	} else {
 		$state['phase'] = $contest['cur_progress'] <= CONTEST_IN_PROGRESS ? 'running' : ($contest['cur_progress'] < CONTEST_FINISHED ? 'waiting' : 'final');
 		$state['elapsed'] = max(0, min($duration, $now - $start));
 		$state['ticking'] = $state['phase'] === 'running';
 		$state['frozen'] = contestBoardIsFrozen($contest);
-		$state = boardTableNow($contest) + $state;
+		if ($finished && (!isset($options['virtual']) || $options['virtual']) && virtualPeople($contest, 1)) {
+			// the contest is over: everybody who sat it virtually, as they stood at the end of
+			// their participation (or stand now, while it runs), under a star
+			$state['virtual'] = true;
+			calcStandings($contest, queryContestData($contest), $score, $standings);
+			virtualAddUnofficial($contest, $standings, $score, $duration);
+			$state = boardTable($contest, $standings, $score, boardLastTries($contest)) + $state;
+		} else {
+			$state = boardTableNow($contest) + $state;
+		}
 	}
-	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'])));
+	if ($finished && !$mine) {
+		$state['virtuals'] = boardVirtuals($contest);
+	}
+	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['viewing'], $state['virtual'], $state['virtuals'])));
 	return $state;
 }
