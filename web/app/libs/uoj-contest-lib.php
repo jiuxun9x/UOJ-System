@@ -496,7 +496,8 @@ function contestDefaultSettings() {
 		'join_password' => '',
 		'reveal_problems' => false,
 		'public_board' => false,
-		'medals' => contestDefaultMedals()
+		'medals' => contestDefaultMedals(),
+		'hidden' => false
 	);
 }
 // the settings a contest has: $contest as genMoreContestInfo() leaves it
@@ -514,7 +515,8 @@ function contestSettings($contest) {
 		'join_password' => '',
 		'reveal_problems' => !empty($contest['reveal_problems']),
 		'public_board' => contestBoardIsPublic($contest),
-		'medals' => contestMedals($contest)
+		'medals' => contestMedals($contest),
+		'hidden' => contestIsHidden($contest)
 	);
 }
 // ---- the medals of a contest, on its outer board
@@ -593,6 +595,34 @@ function medalAmountCount($amount, $base) {
 	return intdiv($base * $hundredths + 9999, 10000);
 }
 
+// Whether a contest is hidden: while its problems are tested before it is held, nobody sees it but
+// the administrators of the site, its staff, the testers it invited and the people on its list,
+// as Hydro hides a contest, and Codeforces shows a round to its testers alone. Its outer board is
+// for its staff and testers alone, and its problems are not shown when it is over. It is shown
+// by hand, in its settings, and by nothing else.
+function contestIsHidden($contest) {
+	return !empty($contest['is_hidden']);
+}
+
+// Over the pages of a hidden contest, to who sees them: that it is hidden, and, the day before it
+// begins, that its contestants will find nothing unless it is shown.
+function echoContestHiddenNotice($contest, $may_show = false) {
+	if (!contestIsHidden($contest)) {
+		return;
+	}
+	$starts_in = $contest['start_time']->getTimestamp() - UOJTime::$time_now->getTimestamp();
+	$soon = $contest['cur_progress'] == CONTEST_NOT_STARTED && $starts_in <= 86400;
+	$how = $may_show ? '在<a class="alert-link" href="/contest/' . (int)$contest['id'] . '/manage">设置</a>里取消勾选“隐藏这场比赛”就会公开。' : '';
+	if ($soon) {
+		$when = $starts_in >= 3600 ? floor($starts_in / 3600) . ' 小时' : max(1, (int)ceil($starts_in / 60)) . ' 分钟';
+		echo '<div class="alert alert-danger" id="contest-hidden-notice"><strong>这场比赛仍是隐藏的，', $when, '后开始。</strong>',
+			'取消隐藏之前，选手在比赛列表里看不到它，也报不了名。', $how, '</div>';
+	} else {
+		echo '<div class="alert alert-warning" id="contest-hidden-notice"><strong>这场比赛是隐藏的（验题用）。</strong>',
+			'只有管理员、比赛的负责人和助理、受邀的验题人和名单上的人能看到它，外榜也只给工作人员和验题人看。', $how, '</div>';
+	}
+}
+
 // Whether the outer board of a contest of a domain is for everybody, as the outer board of any
 // other contest is (see 'contest.view_board'): its people made it so.
 function contestBoardIsPublic($contest) {
@@ -664,6 +694,7 @@ function contestSettingsFromForm($input, $current, $may_rate, $has_password = fa
 	}
 	$settings['reveal_problems'] = isset($input['reveal_problems']);
 	$settings['public_board'] = isset($input['public_board']);
+	$settings['hidden'] = isset($input['hidden']);
 	// the medals, where the form has them: one that does not keeps what there is
 	if (isset($input['medals'])) {
 		list($settings['medals'], $why) = contestMedalsFromText(is_string($input['medals']) ? $input['medals'] : '');
@@ -702,6 +733,7 @@ function contestSettingsSql($settings, $extra_config) {
 		'freeze_minutes' => (int)$settings['freeze_minutes'],
 		'join_mode' => "'".DB::escape($settings['join_mode'])."'",
 		'reveal_problems' => $settings['reveal_problems'] ? 1 : 0,
+		'is_hidden' => !empty($settings['hidden']) ? 1 : 0,
 		'extra_config' => "'".DB::escape(json_encode($extra_config))."'"
 	);
 	if ($settings['join_password'] !== '') {
@@ -796,7 +828,7 @@ function problemsReveal($problem_ids, $but_contest = null, $but_homework = null)
 }
 // whether a contest has problems to show now: $contest as genMoreContestInfo() leaves it
 function contestRevealIsDue($contest) {
-	return !empty($contest['reveal_problems']) && $contest['problems_revealed_at'] === null
+	return !empty($contest['reveal_problems']) && $contest['problems_revealed_at'] === null && !contestIsHidden($contest)
 		&& $contest['cur_progress'] > CONTEST_IN_PROGRESS && !contestKeepsResults($contest);
 }
 // Shows the problems of a contest that is over and was told to show them. It is done with

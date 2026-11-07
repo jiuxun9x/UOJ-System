@@ -143,10 +143,52 @@
 			if (!$user) {
 				return '没有这个用户';
 			}
+			// (a tester made staff is staff, and tests no more)
 			$esc_username = DB::escape($user['username']);
 			DB::insert("insert into contests_permissions (contest_id, username, role) values ({$contest['id']}, '$esc_username', '$role') on duplicate key update role = '$role'");
 			auditLog('contest.add_staff', 'contest', $contest['id'], null, array('username' => $user['username'], 'role' => $role));
 			$done('managers', '已把 ' . $user['username'] . ' 设为' . ($role === 'owner' ? '负责人' : '助理') . '。');
+		},
+		// The testers of a contest, as Codeforces invites them to a round: they see it while it is
+		// hidden, read and submit to its problems before it begins (on no board), see its boards,
+		// and are no staff of it. They are told of it by a message.
+		'add_tester' => function() use ($contest, $posted, $done) {
+			$user = validateUsername($posted('username')) ? queryUser($posted('username')) : null;
+			if (!$user) {
+				return '没有这个用户';
+			}
+			$esc_username = DB::escape($user['username']);
+			$row = DB::selectFirst("select role from contests_permissions where contest_id = {$contest['id']} and username = '$esc_username'");
+			if ($row && $row['role'] !== 'tester') {
+				return $user['username'] . ' 已经是这场比赛的管理者了';
+			}
+			if ($row) {
+				return $user['username'] . ' 已经是验题人了';
+			}
+			if ($contest['domain_id'] && permissionDomainRole($user, queryDomain($contest['domain_id'])) === null) {
+				return '这是域内的比赛，验题人要先是域的成员';
+			}
+			if (hasRegistered($user, $contest)) {
+				return $user['username'] . ' 已经报名参赛了，不能再当验题人';
+			}
+			DB::insert("insert into contests_permissions (contest_id, username, role) values ({$contest['id']}, '$esc_username', 'tester')");
+			auditLog('contest.add_tester', 'contest', $contest['id'], null, array('username' => $user['username']));
+			$name = HTML::escape(html_entity_decode(strip_tags((string)$contest['name']), ENT_QUOTES, 'UTF-8'));
+			sendSystemMsg($user['username'], '验题邀请', "你被邀请为比赛 <a href=\"/contest/{$contest['id']}\">{$name}</a> 验题。"
+				. '开赛前你就能看到题目、提交代码（提交不计入榜单），也能看榜单和外榜；比赛隐藏期间只有工作人员、验题人和名单上的人能看到它。');
+			$done('managers', '已邀请 ' . $user['username'] . ' 验题，并给他发了站内信。');
+		},
+		'remove_tester' => function() use ($contest, $posted, $done) {
+			if (!validateUsername($posted('username'))) {
+				return '没有这个用户';
+			}
+			$esc_username = DB::escape($posted('username'));
+			DB::delete("delete from contests_permissions where contest_id = {$contest['id']} and username = '$esc_username' and role = 'tester'");
+			if (DB::affected_rows() == 0) {
+				return '这个用户不是这场比赛的验题人';
+			}
+			auditLog('contest.remove_tester', 'contest', $contest['id'], array('username' => $posted('username')), null);
+			$done('managers', '已取消验题。');
 		},
 		'remove_manager' => function() use ($contest, $posted, $done) {
 			if (!validateUsername($posted('username'))) {
@@ -154,7 +196,7 @@
 			}
 			$esc_username = DB::escape($posted('username'));
 			$row = DB::selectFirst("select role from contests_permissions where contest_id = {$contest['id']} and username = '$esc_username'");
-			if (!$row) {
+			if (!$row || $row['role'] === 'tester') {
 				return '这个用户不是这场比赛的管理者';
 			}
 			// a contest of the site is somebody's: its last owner hands it over before leaving
@@ -191,7 +233,8 @@
 			$problems[] = array('letter' => chr(ord('A') + $index % 26), 'everything' => !contestJudgesSamplesOnly($contest, $problem_id)) + $problem;
 		}
 	}
-	$managers = DB::selectAll("select username, role from contests_permissions where contest_id = {$contest['id']} order by role desc, username");
+	$managers = DB::selectAll("select username, role from contests_permissions where contest_id = {$contest['id']} and role != 'tester' order by role desc, username");
+	$testers = DB::selectAll("select username from contests_permissions where contest_id = {$contest['id']} and role = 'tester' order by username");
 	$allowed_users = contestAllowedUsers($contest);
 	$contestants = contestRegistrants($contest);
 	$deletion_facts = contestDeletionFacts($contest);
@@ -202,6 +245,7 @@
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 比赛管理') ?>
 <?php echoContestDomainLink($contest) ?>
 <h1 class="page-header" align="center"><?= $contest['name'] ?> 管理</h1>
+<?php echoContestHiddenNotice($contest, true) ?>
 <?php if ($flash): ?>
 <div class="alert alert-<?= $flash[0] ?>" role="alert" id="contest-manage-flash"><?= HTML::escape($flash[1]) ?></div>
 <?php endif ?>
@@ -486,6 +530,40 @@
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
 		<small class="form-text text-muted">负责人可以修改比赛的设置、试题和人员，开始最终测试并公布成绩；助理可以进入后台、查看所有提交并回答提问。对已经在表里的人再添加一次，就是改他的角色。</small>
+
+		<h5 class="mt-4" id="contest-testers">验题人</h5>
+		<?php if ($testers): ?>
+		<table class="table table-bordered table-hover table-sm uoj-roster" id="table-contest-testers" style="max-width:40em">
+			<tbody>
+				<?php foreach ($testers as $tester): ?>
+				<tr>
+					<td><?= getUserLink($tester['username']) ?></td>
+					<td style="width:8em">
+						<form method="post" class="d-inline" onsubmit="return confirm('取消这位验题人？');">
+							<?= HTML::hiddenToken() ?>
+							<input type="hidden" name="form" value="remove_tester" />
+							<input type="hidden" name="tab" value="managers" />
+							<input type="hidden" name="username" value="<?= HTML::escape($tester['username']) ?>" />
+							<button type="submit" class="btn btn-sm btn-outline-danger">取消验题</button>
+						</form>
+					</td>
+				</tr>
+				<?php endforeach ?>
+			</tbody>
+		</table>
+		<?php endif ?>
+		<form method="post" class="form-inline" id="form-add-contest-tester">
+			<?= HTML::hiddenToken() ?>
+			<input type="hidden" name="form" value="add_tester" />
+			<input type="hidden" name="tab" value="managers" />
+			<label class="mr-2 mb-2" for="input-contest-tester">邀请验题人</label>
+			<input type="text" class="form-control mr-2 mb-2" id="input-contest-tester" name="username" required="required" maxlength="20" placeholder="用户名" style="width:12em" />
+			<button type="submit" class="btn btn-primary mb-2">邀请</button>
+		</form>
+		<small class="form-text text-muted">
+			验题人会收到一条站内信。他们开赛前就能看题、交题（提交不计入榜单），能看榜单和外榜，比赛隐藏时也能看到它；看不到选手的代码，不能管理比赛，也不能报名参赛。
+			也可以像 Hydro 那样，把验题的人加进“名单”：比赛隐藏时名单上的人能看到并报名，作为选手参加。<?= $contest['domain_id'] ? '域内的比赛，验题人要先是域的成员。' : '' ?>
+		</small>
 	</div>
 </div>
 <script type="text/javascript">

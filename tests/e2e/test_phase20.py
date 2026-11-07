@@ -252,5 +252,65 @@ class ArchivedDomainSubmissionTest(unittest.TestCase):
         self.assertEqual(count("submissions"), "2")
 
 
+class HiddenContestTest(unittest.TestCase):
+    """A contest can be hidden while its problems are tested, as Hydro hides one: only the
+    administrators, its staff, the testers it invited (as Codeforces invites them) and the people
+    on its list see it. The testers read and submit to its problems before it begins, on no board,
+    and see its boards; its outer board is for them and the staff alone. It is shown by hand."""
+
+    def test_a_hidden_contest_is_seen_by_who_tests_it(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p20 隐藏的比赛", starts_in=7200, rule="ICPC", problems=str(problem_id), hidden="on")
+        self.assertEqual(db_value("select is_hidden from contests where id = %d" % contest_id), "1")
+        tester, listed, stranger = account("p20_hid_tester"), account("p20_hid_listed"), account("p20_hid_stranger")
+        here, board, manage = "/contest/%d" % contest_id, "/contest/%d/board" % contest_id, "/contest/%d/manage" % contest_id
+        self.assertIn('id="input-contest-hidden" name="hidden" checked="checked"', admin.get(manage).text)
+        self.assertIn('id="contest-hidden-notice"', admin.get(here).text)
+
+        # ---- nobody else sees it: not in the list, not by its address, not its outer board
+        for client in (uoj.Client(), stranger):
+            self.assertNotIn("p20 隐藏的比赛", client.get("/contests").text)
+            self.assertIn(client.get(here).status_code, (302, 404))
+            self.assertIn(client.get(board).status_code, (302, 404))
+            self.assertIn(client.get(here + "/problem/A").status_code, (302, 404))
+
+        # ---- a tester, invited as Codeforces invites one, and told of it
+        self.assertEqual(admin.form(manage, "add_tester", username="p20_hid_tester", tab="managers"), "")
+        self.assertEqual(db_value("select role from contests_permissions where contest_id = %d and username = 'p20_hid_tester'" % contest_id), "tester")
+        self.assertEqual(db_value("select count(*) from user_system_msg where receiver = 'p20_hid_tester' and title = '验题邀请' and content like '%%/contest/%d%%'" % contest_id), "1")
+        self.assertIn('id="table-contest-testers"', admin.get(manage).text)
+        self.assertIn("p20 隐藏的比赛", tester.get("/contests").text)
+        # before it begins, the contest is open to them: its page, its problems, a submission (to no board)
+        page = tester.get(here)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="contest-hidden-notice"', page.text)
+        self.assertEqual(tester.get(here + "/problem/A").status_code, 200)
+        submission_id = tester.submit(problem_id, AB, path=here + "/problem/A")
+        self.assertEqual(db_value("select ifnull(contest_id, 'NULL') from submissions where id = %d" % submission_id), "NULL")
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        self.assertEqual(tester.get(board).status_code, 200)
+        self.assertIn('id="outer-board"', tester.get(board).text)
+        # and they are none of its staff: no management, no registering
+        self.assertEqual(tester.get(manage).status_code, 403)
+        self.assertNotEqual(tester.get("/contest/%d/backstage" % contest_id).status_code, 200)
+        self.assertNotEqual(tester.submit_form("/contest/%d/register" % contest_id, "register"), "")
+
+        # ---- the people on its list, as Hydro has it: they see it and take part
+        self.assertEqual(admin.form(manage, "allow", names="p20_hid_listed", tab="access"), "")
+        self.assertIn("p20 隐藏的比赛", listed.get("/contests").text)
+        listed.register_for_contest(contest_id)
+        # the outer board is for the staff and the testers alone
+        self.assertNotIn('id="outer-board"', listed.get(board).text)
+        self.assertNotIn('id="outer-board"', stranger.get(board).text)
+
+        # ---- shown by hand, it is a contest like any other
+        self.assertEqual(admin.contest_settings(contest_id), "")
+        self.assertEqual(db_value("select is_hidden from contests where id = %d" % contest_id), "0")
+        self.assertIn("p20 隐藏的比赛", stranger.get("/contests").text)
+        self.assertIn('id="outer-board"', uoj.Client().get(board).text)
+        self.assertNotIn('id="contest-hidden-notice"', admin.get(here).text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,8 @@
 		become404Page();
 	}
 
-	if (!can($myUser, 'contest.assist', $contest)) {
+	// its staff, and the testers it invited, are inside it before it begins
+	if (!can($myUser, 'contest.test', $contest)) {
 		if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 			header("Location: /contest/{$contest['id']}/register");
 			die();
@@ -708,6 +709,7 @@ EOD;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - ' . $tabs_info[$cur_tab]['name'] . ' - ' . UOJLocale::get('contests::contest')) ?>
 <?php echoContestDomainLink($contest) ?>
+<?php echoContestHiddenNotice($contest, can($myUser, 'contest.manage', $contest)) ?>
 <div class="text-center">
 	<h1><?= $contest['name'] ?></h1>
 	<?= getClickZanBlock('C', $contest['id'], $contest['zan']) ?>

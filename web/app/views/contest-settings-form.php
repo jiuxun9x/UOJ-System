@@ -93,6 +93,17 @@
 		<?php if ($in_domain): ?>这场比赛属于一个域，无论哪种方式，都只有域的成员能参加。<?php endif ?>
 	</small>
 </div>
+<div class="form-group" id="group-contest-hidden">
+	<label>隐藏</label>
+	<div class="custom-control custom-checkbox">
+		<input type="checkbox" class="custom-control-input" id="input-contest-hidden" name="hidden"<?= !empty($settings['hidden']) ? ' checked="checked"' : '' ?> />
+		<label class="custom-control-label" for="input-contest-hidden">隐藏这场比赛（验题用）</label>
+	</div>
+	<small class="form-text text-muted">
+		勾选后，只有管理员、比赛的负责人和助理、受邀的验题人和“名单”里的人能看到这场比赛：比赛列表里没有它，其他人打开链接是 404，外榜也只给工作人员和验题人看，比赛结束时不自动公开题目。
+		验题人在保存之后的“管理者”页里邀请，他们开赛前就能看题、交题（不计入榜单），看不到别人的代码。验完题要在这里取消勾选，比赛才会公开。
+	</small>
+</div>
 <?php if ($in_domain): ?>
 <div class="form-group">
 	<label>外榜</label>

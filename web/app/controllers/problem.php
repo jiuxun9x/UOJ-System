@@ -58,7 +58,9 @@
 	// who sits the contest virtually right now: array of the participation, or null
 	$running_virtual = null;
 	if ($contest != null) {
-		if (!can($myUser, 'contest.assist', $contest)) {
+		// its staff, and the testers it invited, read and submit to its problems before it begins,
+		// and outside of it: on no board
+		if (!can($myUser, 'contest.test', $contest)) {
 			if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 				become404Page();
 			} elseif ($contest['cur_progress'] == CONTEST_IN_PROGRESS) {

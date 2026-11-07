@@ -711,18 +711,24 @@ function can($user, $ability, $resource = null) {
 		// people who teach there.
 		// A contest of a domain exists for the members of the domain. A contest for the people
 		// on a list exists for them: nobody else sees it anywhere.
+		// A contest for a list, and a contest that is hidden while it is tested, are seen by their
+		// staff, their testers, and the people on their list or who registered.
 		case 'contest.view':
 			if (!empty($resource['domain_id']) && !can($user, 'domain.view', $facts->domain($resource['domain_id']))) {
 				return false;
 			}
-			if (isset($resource['join_mode']) && $resource['join_mode'] === 'list') {
-				return can($user, 'contest.assist', $resource)
+			if ((isset($resource['join_mode']) && $resource['join_mode'] === 'list') || contestIsHidden($resource)) {
+				return can($user, 'contest.test', $resource)
 					|| ($name !== null && ($facts->hasRegistered($name, $resource['id']) || $facts->contestAllows($name, $resource['id'])));
 			}
 			return true;
+		// Testing a contest before it is held, as its staff and the testers it invited do: its
+		// problems at any time, submitted to outside of it (on no board), and its boards.
+		case 'contest.test':
+			return can($user, 'contest.assist', $resource) || permissionContestRole($user, $resource) === 'tester';
 		// Registering before it begins. Whoever needs a password is asked for it by the page.
 		case 'contest.register':
-			return $name !== null && can($user, 'contest.view', $resource) && !can($user, 'contest.assist', $resource)
+			return $name !== null && can($user, 'contest.view', $resource) && !can($user, 'contest.test', $resource)
 				&& !$facts->hasRegistered($name, $resource['id']);
 		// Sitting a contest that is over, alone and against the clock. There are final results
 		// to be measured against once the contest is finished, and not before.
@@ -736,7 +742,7 @@ function can($user, $ability, $resource = null) {
 			if (!can($user, 'contest.view', $resource)) {
 				return false;
 			}
-			if (can($user, 'contest.assist', $resource)) {
+			if (can($user, 'contest.test', $resource)) {
 				return true;
 			}
 			if ($resource['cur_progress'] == CONTEST_NOT_STARTED) {
@@ -754,7 +760,7 @@ function can($user, $ability, $resource = null) {
 			if (!can($user, 'contest.view', $resource)) {
 				return false;
 			}
-			if (can($user, 'contest.assist', $resource)) {
+			if (can($user, 'contest.test', $resource)) {
 				return true;
 			}
 			if (!contestIsForEverybody($resource)) {
@@ -768,6 +774,10 @@ function can($user, $ability, $resource = null) {
 		// the scores and the times, and nothing of the problems or of what was submitted. A
 		// contest of a domain keeps it with the people of the domain, unless they made it public.
 		case 'contest.view_board':
+			// a contest that is hidden keeps it with the people who test it
+			if (contestIsHidden($resource)) {
+				return can($user, 'contest.test', $resource);
+			}
 			if (empty($resource['domain_id']) || contestBoardIsPublic($resource)) {
 				return true;
 			}
@@ -789,7 +799,7 @@ function can($user, $ability, $resource = null) {
 			return can($user, 'contest.assist', $resource);
 		// the people behind the scenes of a contest: they see everything and answer questions
 		case 'contest.assist':
-			if ($is_admin || permissionContestRole($user, $resource) !== null) {
+			if ($is_admin || in_array(permissionContestRole($user, $resource), array('owner', 'assistant'), true)) {
 				return true;
 			}
 			return !empty($resource['domain_id']) && can($user, 'domain.assist', $facts->domain($resource['domain_id']));
@@ -953,8 +963,8 @@ function permissionViewTypeAllows($setting, $user, $submission) {
 // the site, the people who teach in its domain, and the people it was given to manage. In a
 // domain these are only the members of the domain: whoever leaves it, or is taken out of it,
 // stops managing its problems.
-// The role somebody has among the staff of a contest ('owner' or 'assistant'), or null, as long as
-// it counts: the staff of a contest of a domain are members of the domain, and whoever was taken
+// The role somebody has among the staff of a contest ('owner' or 'assistant', or 'tester' for who
+// was invited to test it), or null, as long as it counts: the staff of a contest of a domain are members of the domain, and whoever was taken
 // out of it, or left it, is staff of its contests no more (A01: they read the code of its
 // contestants by the addresses of their submissions).
 function permissionContestRole($user, $contest) {
@@ -1084,11 +1094,12 @@ function visibleContestsCond($user) {
 	if (isSiteAdmin($user)) {
 		return '1';
 	}
+	// (as 'contest.view': a contest for a list, or one that is hidden, is for who is on it)
 	if ($user == null) {
-		return "contests.join_mode != 'list'";
+		return "(contests.join_mode != 'list' and contests.is_hidden = 0)";
 	}
 	$esc_username = DB::escape($user['username']);
-	return "(contests.join_mode != 'list'"
+	return "((contests.join_mode != 'list' and contests.is_hidden = 0)"
 		." or contests.id in (select contest_id from contests_registrants where username = '$esc_username')"
 		." or contests.id in (select contest_id from contests_permissions where username = '$esc_username')"
 		." or contests.id in (select contest_id from contest_allowed_users where username = '$esc_username' or username in (select student_id from external_identities where username = '$esc_username')))";
@@ -1108,9 +1119,10 @@ function visibleSubmissionsCond($user) {
 	}
 	$esc_username = DB::escape($user['username']);
 	$manages_problem = "submissions.problem_id in (".managedProblemIdsSql($esc_username).")";
-	// (the staff of a contest of a domain are its staff while they are members of the domain)
+	// (the staff of a contest of a domain are its staff while they are members of the domain; who
+	// was invited to test a contest is none of its staff)
 	$assists_contest = "submissions.contest_id in (select contests_permissions.contest_id from contests_permissions join contests on contests.id = contests_permissions.contest_id"
-		." where contests_permissions.username = '$esc_username'"
+		." where contests_permissions.username = '$esc_username' and contests_permissions.role in ('owner', 'assistant')"
 		." and (contests.domain_id is null or contests.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")))";
 	// the domains of the user, and the ones where they see everything
 	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";

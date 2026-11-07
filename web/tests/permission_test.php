@@ -729,7 +729,33 @@ check_ability('contest.virtual', $locked_contest, array('alice' => false, 'sette
 check_ability('contest.virtual', $listed_contest, array('bob' => false, 'alice' => true, 'teacher' => false), 'a contest for a list, for who took part');
 // the lists of contests leave out what the rule above leaves out
 check_same('1', visibleContestsCond($permission_test_users['root']), 'an administrator sees every contest in a list');
-check_same("contests.join_mode != 'list'", visibleContestsCond(null), 'a visitor sees no contest for a list');
+check_same("(contests.join_mode != 'list' and contests.is_hidden = 0)", visibleContestsCond(null), 'a visitor sees no contest for a list, nor one that is hidden');
+
+// ---- a contest hidden while it is tested: its staff, its testers and the people on its list see
+// it; its testers read its problems before it begins, and see its boards, and are not its staff
+$hidden = array('is_hidden' => 1, 'join_mode' => 'open') + fake_contest(38, CONTEST_NOT_STARTED);
+$facts->contests[38] = $hidden;
+$facts->contest_staff['helper/38'] = 'assistant';
+$facts->contest_staff['tester/38'] = 'tester';
+$facts->contest_lists[] = array('alice', 38);
+$permission_test_users['tester'] = fake_user('tester');
+check_ability('contest.view', $hidden, array('nobody' => false, 'bob' => false, 'alice' => true, 'tester' => true, 'helper' => true, 'root' => true), 'a hidden contest');
+check_ability('contest.read', $hidden, array('tester' => true, 'helper' => true, 'alice' => false, 'bob' => false), 'the problems of a hidden contest before it begins');
+check_ability('contest.view_board', $hidden, array('nobody' => false, 'bob' => false, 'alice' => false, 'tester' => true, 'helper' => true, 'root' => true), 'the outer board of a hidden contest');
+// (a tester of a contest of a domain is a member of the domain, as its staff are)
+$facts->domain_members['tester/1'] = 'member';
+check_ability('contest.view_board', array('extra_config' => array('public_board' => true), 'domain_id' => 1) + $hidden, array('nobody' => false, 'pupil' => false, 'tester' => true), 'the public outer board of a hidden contest of a domain');
+unset($facts->domain_members['tester/1']);
+check_ability('contest.view', array('domain_id' => 1) + $hidden, array('tester' => false), 'a hidden contest of a domain, to a tester who is no member');
+check_ability('contest.assist', $hidden, array('tester' => false, 'helper' => true), 'a tester is no staff');
+check_ability('contest.manage', $hidden, array('tester' => false), 'nor manages the contest');
+check_ability('contest.register', $hidden, array('tester' => false, 'alice' => true, 'bob' => false), 'and does not register for it');
+// the code of the contestants is not for its testers
+check_ability('submission.view_source', array('domain_id' => null) + fake_submission('alice', 41, 38), array('tester' => false, 'helper' => true), 'what was submitted to a contest, to its tester');
+// shown, it is a contest like any other
+$shown = array('is_hidden' => 0) + $hidden;
+check_ability('contest.view', $shown, array('nobody' => true, 'bob' => true), 'a contest that was hidden');
+check_ability('contest.view_board', $shown, array('nobody' => true), 'its outer board');
 
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');
