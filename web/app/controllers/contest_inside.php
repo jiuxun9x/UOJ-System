@@ -89,6 +89,14 @@
 		'url' => "/contest/{$contest['id']}/board"
 	);
 	
+	// the resolver, for the staff of an ICPC contest that is over
+	if (can($myUser, 'contest.assist', $contest) && contestRule($contest) === 'ICPC' && $contest['cur_progress'] > CONTEST_IN_PROGRESS) {
+		$tabs_info['resolver'] = array(
+			'name' => '滚榜',
+			'url' => "/contest/{$contest['id']}/resolver"
+		);
+	}
+	
 	if (can($myUser, 'contest.assist', $contest)) {
 		$tabs_info['backstage'] = array(
 			'name' => UOJLocale::get('contests::contest backstage'),
@@ -100,8 +108,8 @@
 		become404Page();
 	}
 	// (the outer board is a page of its own)
-	if ($cur_tab === 'board') {
-		redirectTo($tabs_info['board']['url']);
+	if ($cur_tab === 'board' || $cur_tab === 'resolver') {
+		redirectTo($tabs_info[$cur_tab]['url']);
 	}
 	
 	if (isset($_POST['check_notice'])) {

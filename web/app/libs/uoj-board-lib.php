@@ -262,6 +262,69 @@ function boardRuns($contest, $people, $frozen, $until = null) {
 	}
 	return $runs;
 }
+// ---- the resolver
+//
+// The board of an ICPC contest as it froze, and what became of everything it did not tell, for
+// the staff to reveal one by one in front of the room - the lowest of the board first, as the
+// resolver of the ICPC Tools does it. Both are worked out from what was submitted, so that a
+// contest whose results are published can be resolved as well (the board it keeps then is the
+// one of the end alone).
+// Returns array(
+//   'problems' => rows of array('letter', 'color' => of its balloon, or null),
+//   'people'   => of every contestant: array('key', 'username', 'nickname', 'cells' =>
+//                 position => array(as the board froze, as it really is), each a cell
+//                 array(kind, says, under, penalty in seconds where it is solved, else null)),
+//   'medals'   => the kinds of medals, 'medal' => key => which of them they get in the end,
+//   'freeze'   => seconds into the contest the board froze at, or null
+// )
+function boardResolverData($contest) {
+	$problem_ids = array_map('intval', contestProblemIds($contest['id']));
+	$pos = array_flip($problem_ids);
+	$start = $contest['start_time']->getTimestamp();
+	$duration = (int)$contest['last_min'] * 60;
+	// what the board counts, as it counts it while the contest runs (see queryContestData())
+	$data = array();
+	foreach (DB::selectAll("select id, submit_time, submitter, problem_id, score from submissions where contest_id = {$contest['id']} and (score is not null or status not like 'Judged%') order by id", MYSQLI_NUM) as $row) {
+		$offset = strtotime($row[1]) - $start;
+		if (isset($pos[(int)$row[3]]) && $offset >= 0 && $offset <= $duration) {
+			$data[] = array((int)$row[0], $row[1], (string)$row[2], $pos[(int)$row[3]], $row[4] === null ? null : (int)$row[4]);
+		}
+	}
+	$contest_data = array('problems' => $problem_ids, 'data' => $data, 'people' => queryContestData($contest)['people'], 'final' => false);
+	$freeze = contestFreezeOffset($contest);
+	calcStandings($contest, $contest_data, $frozen_score, $frozen_standings, false, $freeze);
+	calcStandings($contest, $contest_data, $true_score, $true_standings);
+	$medals = contestMedals($contest);
+	$boards = array(
+		array(contestOuterBoard('ICPC', count($problem_ids), $frozen_standings, $frozen_score, boardLastTries($contest, $freeze === null ? null : $freeze - 1), array(), $medals), $frozen_score),
+		array(contestOuterBoard('ICPC', count($problem_ids), $true_standings, $true_score, boardLastTries($contest), array(), $medals), $true_score)
+	);
+	$people = array();
+	$medal = array();
+	foreach ($boards as $which => $board) {
+		list($table, $score) = $board;
+		foreach ($table['rows'] as $row) {
+			$key = $row['key'];
+			if (!isset($people[$key])) {
+				$people[$key] = array('key' => $key, 'username' => $key, 'nickname' => isset($row['person'][2]) ? (string)$row['person'][2] : '', 'cells' => array());
+			}
+			foreach ($row['cells'] as $at => $cell) {
+				$solved = isset($score[$key][$at]) && $score[$key][$at][0] == 100;
+				$people[$key]['cells'][$at][$which] = array($cell['kind'], $cell['says'], $cell['under'], $solved ? (int)$score[$key][$at][1] : null);
+			}
+			if ($which === 1) {
+				$medal[$key] = $row['medal'];
+			}
+		}
+	}
+	$colors = balloonsEnabled($contest) ? balloonColors($contest) : array();
+	$problems = array();
+	foreach ($problem_ids as $at => $problem_id) {
+		$problems[] = array('letter' => chr(ord('A') + $at % 26), 'color' => isset($colors[$problem_id]) ? $colors[$problem_id]['color'] : null);
+	}
+	return array('problems' => $problems, 'people' => array_values($people), 'medals' => $boards[1][0]['medals'], 'medal' => $medal, 'freeze' => $freeze);
+}
+
 // Up to when the last tries of a board are told, in seconds into the contest: a frozen board
 // tells nothing that was submitted since it froze, and so no time of it either (a submission that
 // did not compile is no attempt on the board, but was a last try). null: to $until, the moment
