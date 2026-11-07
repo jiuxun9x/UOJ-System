@@ -169,7 +169,11 @@ function uploadZipEntries($zip) {
 // Unpacks an uploaded archive into the directory of a problem. Returns array(how many files
 // were written, '') or array(0, why the archive was refused). Nothing is written when the
 // archive is refused for what it says about itself; an archive that lies about its sizes is
-// stopped at the limit.
+// stopped at the limit. Every file is unpacked beside where it goes first and checked - all of
+// it read, as long as the archive says, with the checksum it says - and only when every file of
+// the archive is whole do they take the place of the files they replace: an archive that is
+// broken inside writes over nothing (D01: a broken stream emptied the file it replaced, and the
+// upload was said to have gone through).
 function uploadUnpack($zip_path, $dir, $limits) {
 	$zip = new ZipArchive();
 	if ($zip->open($zip_path) !== true) {
@@ -193,24 +197,40 @@ function uploadUnpack($zip_path, $dir, $limits) {
 		$zip->close();
 		return array(0, $err);
 	}
-	$written = 0;
 	$budget = $limits['bytes'] - ($existing_bytes - array_sum($existing_sizes));
+	// target => the file it is unpacked to first
+	$unpacked = array();
+	$give_up = function($why) use (&$unpacked, $zip) {
+		foreach ($unpacked as $part) {
+			@unlink($part);
+		}
+		$zip->close();
+		return array(0, $why);
+	};
 	foreach (uploadTargets($names) as $name => $target) {
 		$path = "$dir/$target";
 		if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0755, true)) {
-			$zip->close();
-			return array($written, "无法创建目录 " . dirname($target));
+			return $give_up("无法创建目录 " . dirname($target));
 		}
+		$stat = $zip->statName($name);
+		$part = dirname($path) . '/.uoj-unpack-' . bin2hex(random_bytes(8));
 		$in = $zip->getStream($name);
-		$out = $in ? fopen($path, 'wb') : false;
-		if (!$in || !$out) {
-			$zip->close();
-			return array($written, "解压 $name 失败");
+		$out = $in && $stat ? fopen($part, 'xb') : false;
+		if (!$out) {
+			if ($in) {
+				fclose($in);
+			}
+			return $give_up("解压 $name 失败");
 		}
+		$unpacked[$target] = $part;
 		$file_bytes = 0;
+		$crc = hash_init('crc32b');
+		$whole = true;
 		while (!feof($in)) {
-			$chunk = fread($in, 1048576);
+			// a stream that is broken says so in a warning, and is found out below
+			$chunk = @fread($in, 1048576);
 			if ($chunk === false) {
+				$whole = false;
 				break;
 			}
 			$file_bytes += strlen($chunk);
@@ -219,17 +239,35 @@ function uploadUnpack($zip_path, $dir, $limits) {
 			if ($file_bytes > $limits['file_bytes'] || $budget < 0) {
 				fclose($in);
 				fclose($out);
-				unlink($path);
-				$zip->close();
-				return array($written, "解压 $name 时超过了大小上限，压缩包里记录的大小不真实");
+				return $give_up("解压 $name 时超过了大小上限，压缩包里记录的大小不真实");
 			}
-			fwrite($out, $chunk);
+			hash_update($crc, $chunk);
+			if ($chunk !== '' && fwrite($out, $chunk) !== strlen($chunk)) {
+				fclose($in);
+				fclose($out);
+				return $give_up("写入 $target 失败，可能是磁盘满了");
+			}
 		}
 		fclose($in);
-		fclose($out);
-		$written++;
+		if (!fclose($out)) {
+			return $give_up("写入 $target 失败，可能是磁盘满了");
+		}
+		if (!$whole || $file_bytes !== (int)$stat['size'] || hash_final($crc) !== sprintf('%08x', $stat['crc'] & 0xffffffff)) {
+			return $give_up("解压 $name 失败：压缩包里的这个文件已经损坏，原有的文件没有改动");
+		}
 	}
 	$zip->close();
+	// every file is whole: each takes the place of what it replaces at once
+	$written = 0;
+	foreach ($unpacked as $target => $part) {
+		if (!rename($part, "$dir/$target")) {
+			foreach (array_slice($unpacked, $written, null, true) as $left) {
+				@unlink($left);
+			}
+			return array($written, "写入 $target 失败");
+		}
+		$written++;
+	}
 	return array($written, '');
 }
 

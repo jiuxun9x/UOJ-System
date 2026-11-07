@@ -558,3 +558,48 @@ foreach (array('1.in', '中文 名字.txt', 'require/lib.h', 'download/a/b.txt')
 foreach (array('', '../1.in', '/etc/passwd', 'a/../b', "a\nb", 'a\\b', '.DS_Store', '__MACOSX/x', 'folder/', 'a/b/c/d/e/f/g') as $bad) {
 	check_same(true, problemFileNameError($bad) !== '', 'no name for a file of a problem: ' . json_encode($bad));
 }
+
+// ---- an archive that is broken inside writes over nothing (D01: a broken stream of a file
+// emptied the file of the problem it replaced, and the upload was said to have gone through)
+require_once __DIR__ . '/../app/libs/uoj-backup-lib.php';
+$unpack_dir = sys_get_temp_dir() . '/uoj_unpack_test_' . getmypid();
+exec('rm -rf ' . escapeshellarg($unpack_dir));
+mkdir($unpack_dir, 0755, true);
+$unpack_limits = array('files' => 100, 'bytes' => 1 << 20, 'file_bytes' => 1 << 20, 'ratio' => 0);
+$make_zip = function($files) use ($unpack_dir) {
+	$path = "$unpack_dir/../uoj_unpack_test_" . getmypid() . '.zip';
+	@unlink($path);
+	$zip = new ZipArchive();
+	$zip->open($path, ZipArchive::CREATE);
+	foreach ($files as $name => $content) {
+		$zip->addFromString($name, $content);
+	}
+	$zip->close();
+	return $path;
+};
+// the data of the first file of an archive, broken in the middle
+$break_first = function($path) {
+	$bytes = file_get_contents($path);
+	$start = 30 + unpack('v', substr($bytes, 26, 2))[1] + unpack('v', substr($bytes, 28, 2))[1];
+	$size = unpack('V', substr($bytes, 18, 4))[1];
+	for ($i = $start + intdiv($size, 3); $i < $start + intdiv($size, 3) + 8; $i++) {
+		$bytes[$i] = chr(ord($bytes[$i]) ^ 0x5a);
+	}
+	file_put_contents($path, $bytes);
+};
+$text = str_repeat("1 2 3 4 5 6 7 8 9 10\n", 80);
+file_put_contents("$unpack_dir/1.in", 'ORIGINAL_VALID_DATA');
+file_put_contents("$unpack_dir/2.in", 'SECOND');
+// a whole archive replaces the files
+check_same(array(2, ''), uploadUnpack($make_zip(array('1.in' => $text, '2.in' => "2\n")), $unpack_dir, $unpack_limits), 'a whole archive is unpacked');
+check_same(array($text, "2\n"), array(file_get_contents("$unpack_dir/1.in"), file_get_contents("$unpack_dir/2.in")), 'and replaces the files');
+// a broken one replaces none of them, not even the whole files beside the broken one
+file_put_contents("$unpack_dir/1.in", 'ORIGINAL_VALID_DATA');
+file_put_contents("$unpack_dir/2.in", 'SECOND');
+$broken = $make_zip(array('1.in' => $text, '2.in' => "2\n"));
+$break_first($broken);
+list($n_unpacked, $unpack_error) = uploadUnpack($broken, $unpack_dir, $unpack_limits);
+check_same(array(0, true), array($n_unpacked, strpos($unpack_error, '已经损坏') !== false), 'a broken archive is refused: ' . $unpack_error);
+check_same(array('ORIGINAL_VALID_DATA', 'SECOND'), array(file_get_contents("$unpack_dir/1.in"), file_get_contents("$unpack_dir/2.in")), 'and the files of the problem are as they were');
+check_same(array('1.in', '2.in'), array_values(array_diff(scandir($unpack_dir), array('.', '..'))), 'and nothing it began to unpack is left behind');
+exec('rm -rf ' . escapeshellarg($unpack_dir) . ' ' . escapeshellarg("$unpack_dir/../uoj_unpack_test_" . getmypid() . '.zip'));
