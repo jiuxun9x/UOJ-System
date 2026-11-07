@@ -108,6 +108,10 @@ $handlers = [
 			},
 			'logins' => function () use (&$said) {
 				$said[] = 'forgot ' . authTick() . ' old logins';
+			},
+			// the boards that waited for a rejudge, should its last judgement have failed
+			'standings' => function () use (&$said) {
+				$said[] = 'made ' . contestStandingsTick() . ' boards again';
 			}
 		);
 		$failed = siteTickRunSteps($steps);

@@ -206,7 +206,7 @@
 	// What is being judged under a claim: what a judger says of a task counts while the task has
 	// the claim the judger was given it under, and not after it was taken back or given out anew.
 	function querySubmissionBeingJudged($id, $claim) {
-		return DB::selectFirst("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts, judge_claim from submissions where id = $id and judge_claim = '$claim' and status in ('Judging', 'Judged, Judging')");
+		return DB::selectFirst("select id, submitter, status, content, result, problem_id, contest_id, judger_name, judge_attempts, judge_claim from submissions where id = $id and judge_claim = '$claim' and status in ('Judging', 'Judged, Judging')");
 	}
 	function queryCustomTestBeingJudged($id, $claim) {
 		return DB::selectFirst("select id, problem_id, status, judger_name, judge_attempts, judge_claim from custom_test_submissions where id = $id and judge_claim = '$claim' and status = 'Judging'");
@@ -223,6 +223,10 @@
 		$result = getPostedJudgementResult();
 		if (storeSubmissionResult($id, $submission, $result)) {
 			finishJudgement('submission', $id, 'judged', $claim, isset($result['error']) ? null : $result['score']);
+			// the board of its contest may wait for this to be judged
+			if ($submission['contest_id']) {
+				contestUpdateStandingsIfDue($submission['contest_id']);
+			}
 		}
 	}
 

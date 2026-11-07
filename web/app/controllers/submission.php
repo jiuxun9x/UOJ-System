@@ -92,9 +92,9 @@
 			auditLog('submission.delete', 'submission', $submission['id'], array('submitter' => $submission['submitter'], 'problem_id' => (int)$submission['problem_id'], 'contest_id' => $submission['contest_id'], 'score' => $submission['score'], 'submit_time' => $submission['submit_time']), null);
 			// The board of a contest whose results are published was made of its submissions: it
 			// is made again of the ones that are left, as "更新榜单" makes it, and links to none
-			// that is gone.
+			// that is gone (once nothing of the contest waits to be judged).
 			if ($contest != null && $contest['cur_progress'] >= CONTEST_FINISHED) {
-				auditLog('contest.update_standings', 'contest', $contest['id'], null, array('participants' => contestUpdateStandings($contest), 'deleted_submission' => (int)$submission['id']));
+				contestStandingsAfterDeletion($contest, $submission['id']);
 			}
 		};
 		$delete_form->submit_button_config['class_str'] = 'btn btn-danger';

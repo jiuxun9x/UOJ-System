@@ -247,6 +247,44 @@ class DeletedSubmissionBoardTest(unittest.TestCase):
         self.assertEqual(board_submissions(admin, contest_id)["p16_del_honest"], [own])
         self.assertEqual(ranks(), [["p16_del_cheat", "2"], ["p16_del_honest", "1"]])
 
+    def test_a_board_waits_for_what_is_judged_again(self):
+        """Deleting a submission while another one of the contest was judged again made the board
+        anew at once, of the submissions that had a score: the one judged again had none yet, and
+        the published result of its contestant was gone from the board, also after its judgement."""
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        for rule, ranks_after in (("IOI", ["2", "1"]), ("ICPC", ["1", "1"])):
+            cheat, honest = account("p16_rj_cheat_" + rule.lower()), account("p16_rj_honest_" + rule.lower())
+            contest_id = admin.new_contest("p16 重测时删除 " + rule, rule=rule, problems=str(problem_id))
+            for pupil in (cheat, honest):
+                pupil.register_for_contest(contest_id)
+            uoj.move_contest(contest_id, -60, 600)
+            copied = cheat.submit_in_contest(contest_id, problem_id, AB)
+            own = honest.submit_in_contest(contest_id, problem_id, AB.replace("a + b", "a < 1000000 ? a + b : 0"))
+            uoj.wait_idle()
+            uoj.move_contest(contest_id, -7200, 60)
+            self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "", rule)
+            cells = lambda: db("select submitter, submission_id, score, penalty, attempts from contests_submissions where contest_id = %d order by submitter" % contest_id)
+            honest_cells = [cell for cell in cells() if cell[0] == honest.username]
+            self.assertEqual([cell[1] for cell in honest_cells], [str(own)], rule)
+            due = lambda: db_value("select standings_update_due from contests where id = %d" % contest_id)
+
+            with uoj.judgers_paused():
+                self.assertEqual(admin.submit_form("/submission/%d" % own, "rejudge"), "", rule)
+                self.assertEqual(db_value("select status from submissions where id = %d" % own), "Waiting Rejudge", rule)
+                self.assertEqual(admin.submit_form("/submission/%d" % copied, "delete"), "", rule)
+                # what was deleted is off the board at once; what is judged again keeps its result
+                self.assertEqual(cells(), honest_cells, rule)
+                self.assertEqual(due(), "1", rule)
+                # site:tick leaves it for the judgement as well
+                docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php site:tick")
+                self.assertEqual((cells(), due()), (honest_cells, "1"), rule)
+            # once it is judged, the board is made again of what is left
+            uoj.wait_until("the board of the %s contest is made again" % rule, lambda: due() == "0", timeout=180)
+            self.assertEqual(cells(), honest_cells, rule)
+            ranks = db("select username, `rank` from contests_registrants where contest_id = %d order by username" % contest_id)
+            self.assertEqual(ranks, [[cheat.username, ranks_after[0]], [honest.username, ranks_after[1]]], rule)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -971,6 +971,7 @@ function queryContestData($contest, $config = array()) {
 // submissions say now: after a rejudge, a corrected test, a submission deleted. The ratings stay
 // as the publishing made them, and nobody is sent a message. Returns how many took part.
 function contestUpdateStandings($contest) {
+	DB::update("update contests set standings_update_due = 0 where id = {$contest['id']}");
 	// what the submissions say now, as before the results were published
 	$contest_data = queryContestData(array('cur_progress' => CONTEST_TESTING) + $contest);
 	DB::delete("delete from contests_submissions where contest_id = {$contest['id']}");
@@ -979,6 +980,50 @@ function contestUpdateStandings($contest) {
 		DB::update("update contests_registrants set `rank` = {$row[3]} where contest_id = {$contest['id']} and username = '".DB::escape($row[2][0])."'");
 	}
 	return count($standings);
+}
+
+// When a submission of a contest whose results are published is deleted, it comes off the board
+// at once, and the board is made again of what is left. Not while something of the contest
+// waits to be judged (a rejudge): it has no score until it is judged, and a board made then
+// would leave out the published result of whoever it belongs to. Then the board is made again
+// once nothing waits any more, by the judgement that comes last (or by site:tick, should that
+// one have ended otherwise).
+function contestStandingsAfterDeletion($contest, $submission_id) {
+	DB::delete("delete from contests_submissions where contest_id = {$contest['id']} and submission_id = ".(int)$submission_id);
+	// (said before it is looked at whether anything waits: the judgement that ends last, at the
+	// same moment, finds it said)
+	DB::update("update contests set standings_update_due = 1 where id = {$contest['id']}");
+	return contestUpdateStandingsIfDue($contest['id']);
+}
+// Makes the board of a contest again if it is due to be made and nothing of the contest waits to
+// be judged. Returns whether it was made.
+function contestUpdateStandingsIfDue($contest_id) {
+	$contest_id = (int)$contest_id;
+	if (DB::selectCount("select count(*) from submissions where contest_id = $contest_id and status != 'Judged'") > 0) {
+		return false;
+	}
+	// one of whoever finds it due makes it
+	if (!DB::update("update contests set standings_update_due = 0 where id = $contest_id and standings_update_due = 1") || DB::affected_rows() != 1) {
+		return false;
+	}
+	$contest = queryContest($contest_id);
+	if (!$contest) {
+		return false;
+	}
+	genMoreContestInfo($contest);
+	if ($contest['cur_progress'] < CONTEST_FINISHED) {
+		return false;
+	}
+	auditLog('contest.update_standings', 'contest', $contest_id, null, array('participants' => contestUpdateStandings($contest), 'when' => 'all judged'));
+	return true;
+}
+// the boards that are due and can be made now: how many were made
+function contestStandingsTick() {
+	$made = 0;
+	foreach (DB::selectAll("select id from contests where standings_update_due = 1") as $row) {
+		$made += contestUpdateStandingsIfDue($row['id']) ? 1 : 0;
+	}
+	return $made;
 }
 
 // ---- who solved first
