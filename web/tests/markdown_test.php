@@ -111,3 +111,19 @@ $long = str_repeat("这是一段题面，包含公式 \$a_i \\le 10^9\$ 和 `cod
 $html = $markdown->text($long);
 check_same(2000, substr_count($html, '$a_i \le 10^9$'), 'Markdown: every formula of a long text is there');
 check_same(false, strpos($html, 'UOJFORMULA'), 'Markdown: no word that stood for a formula is left');
+
+// ---- footnotes, as the statements of Codeforces and of Luogu have them: called with [^name],
+// said on a line of their own, numbered in the order they are called, listed at the end
+$footnoted = "一棵树[^tree]与原树**同构**[^1]，再说一次树[^tree]；代码 `a[^1]` 和 [^nothing] 不是。\n\n"
+	. "[^tree]: 一棵有 \$n\$ 个节点的树 \$T(V,E)\$，\n    其中 \$|V|=n\$。\n\n"
+	. "[^1]: 称两棵树同构，当且仅当存在双射 \$f\$。\n\n"
+	. "```\nx[^1]\n```";
+check_same(
+	"<p>一棵树<sup class=\"uoj-footnote-ref\"><a href=\"#uoj-md-fn-1\" id=\"fnref-1\">1</a></sup>与原树<strong>同构</strong><sup class=\"uoj-footnote-ref\"><a href=\"#uoj-md-fn-2\" id=\"fnref-2\">2</a></sup>"
+	. "，再说一次树<sup class=\"uoj-footnote-ref\"><a href=\"#uoj-md-fn-1\">1</a></sup>；代码 <code>a[^1]</code> 和 [^nothing] 不是。</p>\n<pre><code>x[^1]</code></pre>\n"
+	. "<section class=\"uoj-footnotes\">\n<ol>\n<li id=\"fn-1\"><p>一棵有 \$n\$ 个节点的树 \$T(V,E)\$，\n其中 \$|V|=n\$。 <a href=\"#uoj-md-fnref-1\" class=\"uoj-footnote-back\">↩</a></p></li>\n"
+	. "<li id=\"fn-2\"><p>称两棵树同构，当且仅当存在双射 \$f\$。 <a href=\"#uoj-md-fnref-2\" class=\"uoj-footnote-back\">↩</a></p></li>\n</ol>\n</section>",
+	$markdown->text($footnoted), 'Markdown: footnotes');
+check_same('<p>没有脚注的 [^a] 原样。</p>', $markdown->text('没有脚注的 [^a] 原样。'), 'Markdown: a call of a note that is not there');
+// a note that is said and called nowhere is listed all the same
+check_same(true, strpos($markdown->text("正文。\n\n[^x]: 没人引用。"), '<li id="fn-1"><p>没人引用。') !== false, 'Markdown: a note that is not called');

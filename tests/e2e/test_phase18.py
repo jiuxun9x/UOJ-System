@@ -181,5 +181,30 @@ class PolygonImportTest(unittest.TestCase):
         self.assertIn("use_builtin_checker ncmp", uploaded(made[0], "problem.conf"))
 
 
+class FootnoteTest(unittest.TestCase):
+    """A statement written for Codeforces or for Luogu calls its footnotes with [^name] and says
+    them on lines of their own ("[^name]: ..."): they were shown as they were written."""
+
+    def test_the_footnotes_of_a_statement_are_footnotes(self):
+        from test_phase8 import save_statement
+
+        admin = uoj.admin()
+        problem_id = admin.new_problem()
+        statement = "奶龙拥有一棵树[^tree]，还原出一棵与原树**同构**[^1]的树。\n\n[^tree]: 一棵有 $n$ 个节点的树。\n\n[^1]: 称两棵树同构，当且仅当存在双射 $f$。\n"
+        save_statement(admin, problem_id, statement)
+        page = admin.get("/problem/%d" % problem_id).text
+        # called, numbered, and listed at the end, the one leading to the other
+        self.assertIn('<sup class="uoj-footnote-ref"><a href="#uoj-md-fn-1" id="uoj-md-fnref-1">1</a></sup>', page)
+        self.assertIn('<a href="#uoj-md-fn-2" id="uoj-md-fnref-2">2</a>', page)
+        self.assertIn('<li id="uoj-md-fn-1"><p>一棵有 $n$ 个节点的树。 <a href="#uoj-md-fnref-1" class="uoj-footnote-back">', page)
+        self.assertNotIn("[^tree]", page)
+        # a statement that was saved before there were footnotes is made anew
+        db("update problems_contents set statement = '<p>旧的 [^tree]</p>' where id = %d" % problem_id)
+        docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php upgrade:refresh 1042_footnotes")
+        page = admin.get("/problem/%d" % problem_id).text
+        self.assertIn('<li id="uoj-md-fn-1">', page)
+        self.assertNotIn("旧的", page)
+
+
 if __name__ == "__main__":
     unittest.main()

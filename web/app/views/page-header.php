@@ -51,7 +51,7 @@
 		<?= HTML::css_link('/css/bootstrap-glyphicons.min.css?v=2019.5.31') ?>
 
 		<!-- Custom styles for this template -->
-		<?= HTML::css_link('/css/uoj-theme.css?v=2.3335') ?>
+		<?= HTML::css_link('/css/uoj-theme.css?v=2.3336') ?>
 		<?= HTML::css_link('/css/uoj-domain.css?v=23') ?>
 
 		<!-- jQuery (necessary for Bootstrap\'s JavaScript plugins) -->

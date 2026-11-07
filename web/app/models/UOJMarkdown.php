@@ -35,11 +35,98 @@ class UOJMarkdown extends ParsedownMath {
 		// what is copied out of a PDF brings characters along that nothing shows
 		$text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text);
 		list($text, $formulas) = self::takeFormulas($text);
+		list($text, $notes) = self::takeFootnotes($text);
 		$html = parent::text($text);
+		if ($notes) {
+			$html = $this->footnotes($html, $notes);
+		}
 		foreach ($formulas as $word => $formula) {
 			$formulas[$word] = htmlspecialchars($formula, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 		}
 		return strtr($html, $formulas);
+	}
+
+	// ---- footnotes
+	//
+	// As the statements of Codeforces and of Luogu have them, and as GitHub writes them: a
+	// footnote is called where it is meant with [^name], and says what it says on a line of its
+	// own, anywhere in the text: "[^name]: what it says", the lines after it that are not empty
+	// going on with it. The calls are numbered in the order they come in, and the notes are listed
+	// in that order at the end of the text, each with the way back to where it was called.
+
+	// array(the text without the notes, array(name => what the note says)), in their order
+	public static function takeFootnotes($text) {
+		$lines = explode("\n", $text);
+		$kept = array();
+		$notes = array();
+		$note = null;
+		$fence = null;
+		foreach ($lines as $line) {
+			// what stands in a fenced block of code is code
+			if ($fence !== null) {
+				$kept[] = $line;
+				if (preg_match('/^[ \t]*' . preg_quote($fence[0], '/') . '{' . strlen($fence) . ',}[ \t]*$/', $line)) {
+					$fence = null;
+				}
+				continue;
+			}
+			if (preg_match('/^ {0,3}(`{3,}|~{3,})/', $line, $m)) {
+				$fence = $m[1];
+				$note = null;
+				$kept[] = $line;
+				continue;
+			}
+			if (preg_match('/^ {0,3}\[\^([^\]\s]+)\]:[ \t]*(.*)$/', $line, $m)) {
+				$note = $m[1];
+				$notes[$note] = $m[2];
+				continue;
+			}
+			if ($note !== null && trim($line) !== '') {
+				$notes[$note] .= "\n" . preg_replace('/^(?: {1,4}|\t)/', '', $line);
+				continue;
+			}
+			$note = null;
+			$kept[] = $line;
+		}
+		return array(join("\n", $kept), $notes);
+	}
+	// the calls of the notes in the text that Markdown made of the rest, and the notes at its end
+	protected function footnotes($html, $notes) {
+		$numbers = array();
+		$parts = preg_split('/(<pre\b.*?<\/pre>|<code\b.*?<\/code>)/s', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+		foreach ($parts as $index => $part) {
+			if ($index % 2 == 1) {
+				continue;
+			}
+			$parts[$index] = preg_replace_callback('/\[\^([^\]\s<>]+)\]/', function($m) use ($notes, &$numbers) {
+				$name = htmlspecialchars_decode($m[1], ENT_QUOTES);
+				if (!isset($notes[$name])) {
+					return $m[0];
+				}
+				$first = !isset($numbers[$name]);
+				if ($first) {
+					$numbers[$name] = count($numbers) + 1;
+				}
+				$number = $numbers[$name];
+				// (an id here is uoj-md-<id> on the page: see HTML::pruifier())
+				return '<sup class="uoj-footnote-ref"><a href="#uoj-md-fn-' . $number . '"' . ($first ? ' id="fnref-' . $number . '"' : '') . '>' . $number . '</a></sup>';
+			}, $part);
+		}
+		// a note that nothing calls is listed after the others
+		foreach (array_keys($notes) as $name) {
+			if (!isset($numbers[$name])) {
+				$numbers[$name] = count($numbers) + 1;
+			}
+		}
+		asort($numbers);
+		$items = '';
+		foreach ($numbers as $name => $number) {
+			$said = trim(parent::text($notes[$name]));
+			$back = ' <a href="#uoj-md-fnref-' . $number . '" class="uoj-footnote-back">↩</a>';
+			$said = substr($said, -4) === '</p>' ? substr($said, 0, -4) . $back . '</p>' : $said . $back;
+			$items .= "\n<li id=\"fn-$number\">$said</li>";
+		}
+		return join('', $parts) . "\n<section class=\"uoj-footnotes\">\n<ol>$items\n</ol>\n</section>";
 	}
 
 	// array(the text with a word where each formula was, array(word => formula))

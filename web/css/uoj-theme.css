@@ -59,6 +59,26 @@ article p.uoj-picture-alone {
 	text-align: center;
 }
 
+/* the footnotes of a text, and where they are called (see UOJMarkdown) */
+.uoj-footnotes {
+	margin-top: 1.5em;
+	padding-top: 0.6em;
+	border-top: 1px solid #e3e3e3;
+	font-size: 0.9em;
+	color: #555;
+}
+.uoj-footnotes ol {
+	padding-left: 1.8em;
+	margin-bottom: 0;
+}
+.uoj-footnotes p {
+	margin-bottom: 0.3em;
+}
+sup.uoj-footnote-ref a, a.uoj-footnote-back {
+	text-decoration: none;
+	padding: 0 0.1em;
+}
+
 pre {
 	-moz-tab-size: 4;
 	-o-tab-size: 4;

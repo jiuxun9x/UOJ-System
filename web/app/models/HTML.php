@@ -180,6 +180,10 @@ class HTML {
 		// libxml makes of a "</div>" too many, or of a "<" in the middle of a text, is a
 		// document that ends there, and the rest of the text was dropped without a word.
 		$config->set('Core.LexerImpl', 'DirectLex');
+		// A text may name its parts, as the footnotes of Markdown do, for a link to lead there:
+		// under a name of its own on the page, which nothing of the page itself is called.
+		$config->set('Attr.EnableID', true);
+		$config->set('Attr.IDPrefix', 'uoj-md-');
 		$def = $config->getHTMLDefinition(true);
 		$def->addAttribute('span', 'data-rating', 'Number');
 		
