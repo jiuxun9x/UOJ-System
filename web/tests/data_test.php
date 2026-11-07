@@ -603,3 +603,20 @@ check_same(array(0, true), array($n_unpacked, strpos($unpack_error, '已经损�
 check_same(array('ORIGINAL_VALID_DATA', 'SECOND'), array(file_get_contents("$unpack_dir/1.in"), file_get_contents("$unpack_dir/2.in")), 'and the files of the problem are as they were');
 check_same(array('1.in', '2.in'), array_values(array_diff(scandir($unpack_dir), array('.', '..'))), 'and nothing it began to unpack is left behind');
 exec('rm -rf ' . escapeshellarg($unpack_dir) . ' ' . escapeshellarg("$unpack_dir/../uoj_unpack_test_" . getmypid() . '.zip'));
+
+// ---- the files of a submission: what the data could have said follows the data, anything else
+// was written by hand (D02)
+check_same(true, dataRequirementLooksMade(array()), 'none');
+check_same(true, dataRequirementLooksMade(array(array('name' => 'answer', 'type' => 'source code', 'file_name' => 'answer.code'))), 'a program');
+check_same(true, dataRequirementLooksMade(array(array('name' => 'output1', 'type' => 'text', 'file_name' => 'out1.txt'), array('name' => 'output2', 'type' => 'text', 'file_name' => 'out2.txt'))), 'the answers of the tests');
+check_same(false, dataRequirementLooksMade(array(array('name' => 'answer', 'type' => 'source code', 'file_name' => 'answer.code'), array('name' => 'helper', 'type' => 'source code', 'file_name' => 'helper.code'))), 'two programs');
+check_same(false, dataRequirementLooksMade(array(array('name' => 'answer', 'type' => 'source code', 'file_name' => 'main.code'))), 'a program called otherwise');
+$requirement_problem = function($requirement, $extra) {
+	return array('submission_requirement' => json_encode($requirement), 'extra_config' => json_encode($extra));
+};
+check_same(array(false, true, false, true), array(
+	dataRequirementIsCustom($requirement_problem(array(array('name' => 'output1', 'type' => 'text', 'file_name' => 'o.txt')), new stdClass())),
+	dataRequirementIsCustom($requirement_problem(array(array('name' => 'answer', 'type' => 'source code', 'file_name' => 'main.code')), new stdClass())),
+	dataRequirementIsCustom($requirement_problem(array(array('name' => 'answer', 'type' => 'source code', 'file_name' => 'main.code')), array('custom_submission_requirement' => false))),
+	dataRequirementIsCustom($requirement_problem(array(), array('custom_submission_requirement' => true)))
+), 'what was written by hand: marked so, or, from before it was marked, what the data could not have said');

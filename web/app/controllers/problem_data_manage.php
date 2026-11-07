@@ -239,10 +239,19 @@ EOD
 	);
 
 	$esc_submission_requirement = HTML::escape(json_encode(json_decode($problem['submission_requirement']), JSON_PRETTY_PRINT));
+	// files of a submission written by hand that are not what the data says they are
+	$requirement_note = '';
+	$problem_extra = json_decode($problem['extra_config'], true);
+	if (dataRequirementIsCustom($problem) && is_array($problem_extra) && isset($problem_extra['auto_submission_requirement'])
+			&& $problem_extra['auto_submission_requirement'] != json_decode($problem['submission_requirement'], true)) {
+		$esc_made = HTML::escape(json_encode($problem_extra['auto_submission_requirement'], JSON_UNESCAPED_UNICODE));
+		$requirement_note = '<div class="alert alert-warning py-1 mb-1" id="requirement-custom">这是手动设置的提交文件配置，发布数据时不会改动；现在的数据要求的是：<code>' . $esc_made . '</code>。要改回跟着数据走，把它改成 <code>[]</code> 保存，下次同步数据时会按数据重新生成。</div>';
+	}
 	$info_form->appendHTML(<<<EOD
 <div class="form-group row">
 	<label class="col-sm-3 control-label">提交文件配置</label>
 	<div class="col-sm-9">
+		$requirement_note
 		<div class="form-control-static"><pre>
 $esc_submission_requirement
 </pre>
@@ -285,6 +294,19 @@ EOD
 			null);
 		$info_form->handle = function(&$vdata) {
 			global $problem;
+			// Files of a submission written by hand stay as they are when the data is published
+			// again; written back to nothing, or to what the data says, they follow the data.
+			$requirement = json_decode($vdata['submission_requirement'], true);
+			$extra_config = json_decode($vdata['extra_config'], true);
+			if ($vdata['submission_requirement'] !== json_encode(json_decode($problem['submission_requirement'], true)) && is_array($extra_config)) {
+				$made = isset($extra_config['auto_submission_requirement']) ? $extra_config['auto_submission_requirement'] : null;
+				if (!$requirement || $requirement == $made) {
+					unset($extra_config['custom_submission_requirement']);
+				} else {
+					$extra_config['custom_submission_requirement'] = true;
+				}
+				$vdata['extra_config'] = json_encode($extra_config);
+			}
 			$esc_submission_requirement = DB::escape($vdata['submission_requirement']);
 			$esc_extra_config = DB::escape($vdata['extra_config']);
 			DB::update("update problems set submission_requirement = '$esc_submission_requirement', extra_config = '$esc_extra_config' where id = {$problem['id']}");

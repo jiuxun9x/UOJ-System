@@ -162,6 +162,42 @@
 		}
 	}
 
+	// ---- the files a submission to a problem is made of (submission_requirement)
+	//
+	// The data says what they are: an answer file of every test for a problem of answers, a
+	// program for any other. What the data says is put down whenever a version of it is
+	// published - a test more is an answer more, a problem of answers that became one of
+	// programs takes a program - unless somebody wrote what they are by hand
+	// ('custom_submission_requirement' in extra_config): that stays as it was written. (D02: only
+	// a problem that had none got them, and a second answer of a problem of answers was never
+	// asked for.) A problem from before that was marked is taken as written by hand where what it
+	// says is not something the data could have said.
+
+	// whether what $requirement says could have been said by the data
+	function dataRequirementLooksMade($requirement) {
+		if (!is_array($requirement) || $requirement === array()) {
+			return true;
+		}
+		if ($requirement == array(array('name' => 'answer', 'type' => 'source code', 'file_name' => 'answer.code'))) {
+			return true;
+		}
+		foreach ($requirement as $item) {
+			if (!is_array($item) || count($item) != 3 || !isset($item['name'], $item['type'], $item['file_name'])
+					|| !preg_match('/^output[0-9]+$/D', (string)$item['name']) || $item['type'] !== 'text') {
+				return false;
+			}
+		}
+		return true;
+	}
+	// whether the files of a submission to a problem were written by hand, and stay as they are
+	function dataRequirementIsCustom($problem) {
+		$extra_config = json_decode($problem['extra_config'], true);
+		if (is_array($extra_config) && array_key_exists('custom_submission_requirement', $extra_config)) {
+			return $extra_config['custom_submission_requirement'] === true;
+		}
+		return !dataRequirementLooksMade(json_decode($problem['submission_requirement'], true));
+	}
+
 	// Publishes a version that is waiting in the staging folder of its problem.
 	function dataPublishVersion($version_row) {
 		$id = $version_row['problem_id'];
@@ -198,12 +234,17 @@
 		if (isset($pending['hackable'])) {
 			$set[] = "hackable = " . ($pending['hackable'] ? 1 : 0);
 		}
-		if (isset($pending['requirement']) && !json_decode($problem['submission_requirement'], true)) {
-			$set[] = "submission_requirement = '" . DB::escape(json_encode($pending['requirement'])) . "'";
+		$extra_config = json_decode($problem['extra_config'], true);
+		$extra_config = is_array($extra_config) ? $extra_config : array();
+		$kept_config = $extra_config;
+		if (isset($pending['requirement'])) {
+			// what the data says the files of a submission are, as it says it now
+			$extra_config['auto_submission_requirement'] = $pending['requirement'];
+			if (!dataRequirementIsCustom($problem)) {
+				$set[] = "submission_requirement = '" . DB::escape(json_encode($pending['requirement'])) . "'";
+			}
 		}
 		if (array_key_exists('custom_judger_fingerprint', (array)$pending)) {
-			$extra_config = json_decode($problem['extra_config'], true);
-			$extra_config = is_array($extra_config) ? $extra_config : array();
 			if ($pending['custom_judger_fingerprint'] === null) {
 				unset($extra_config['custom_judger_fingerprint']);
 			} else {
@@ -211,6 +252,8 @@
 				// what was approved is this content, whichever problem it turns up in
 				dataRegisterApprovedJudger($pending['custom_judger_fingerprint'], $version_row['created_by'], $id);
 			}
+		}
+		if ($extra_config !== $kept_config) {
 			$set[] = "extra_config = '" . DB::escape(json_encode($extra_config)) . "'";
 		}
 		DB::update("update problems set " . join(', ', $set) . " where id = $id");

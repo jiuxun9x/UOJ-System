@@ -5,7 +5,7 @@ import unittest
 
 import uoj
 from fixtures import AB, AB_HACKABLE, ab_problem_files
-from uoj import db, db_value, docker_exec
+from uoj import conf, db, db_value, docker_exec
 
 # a checker of a+b that went wrong where an answer differs: it says FAIL, as testlib says when a
 # check of its own fails; put right, it says the answer is wrong
@@ -104,6 +104,58 @@ class RejudgeBetweenTheTwoTestsTest(unittest.TestCase):
         self.assertEqual((status, score), ("Judged", "100"), result)
         self.assertEqual(json.loads(result)["final_result"]["score"], 100)
         self.assertEqual(db_value("select count(*) from best_ac_submissions where submission_id = %d" % submission_id), "1")
+
+
+def answers_problem(n_tests, submit_answer=True):
+    """a problem of answers with so many tests (or the same as a problem of programs)"""
+    settings = dict(use_builtin_judger="on", use_builtin_checker="ncmp", n_tests=n_tests, n_ex_tests=0, n_sample_tests=0,
+                    input_pre="input", input_suf="txt", output_pre="output", output_suf="txt", time_limit=1, memory_limit=256)  # fmt: skip
+    if submit_answer:
+        settings["submit_answer"] = "on"
+    files = {"problem.conf": conf(**settings)}
+    for num in range(1, n_tests + 1):
+        files["input%d.txt" % num] = "%d\n" % num
+        files["output%d.txt" % num] = "%d\n" % num
+    if not submit_answer:
+        files["std.cpp"] = "#include <cstdio>\nint main() { int x; scanf(\"%d\", &x); printf(\"%d\\n\", x); }\n"
+    return files
+
+
+class SubmissionFilesFollowTheDataTest(unittest.TestCase):
+    """The files a submission is made of were put down the first time the data of a problem was
+    published, and never again: a problem of answers that got a second test asked for one answer
+    still, and one that became a problem of programs for answers. They follow the data now,
+    unless somebody wrote them by hand. (D02)"""
+
+    def test_the_files_of_a_submission_follow_the_data(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(answers_problem(1))
+        requirement = lambda: json.loads(db_value("select submission_requirement from problems where id = %d" % problem_id))
+        publish = lambda files: (self.assertIn("上传成功", admin.upload_data(problem_id, files).text), self.assertEqual(admin.sync(problem_id), ""))
+        self.assertEqual([item["file_name"] for item in requirement()], ["output1.txt"])
+        # a test more is an answer more
+        publish(answers_problem(2))
+        self.assertEqual([item["file_name"] for item in requirement()], ["output1.txt", "output2.txt"])
+        page = admin.get("/problem/%d" % problem_id).text
+        self.assertIn("output2.txt", page)
+        # a problem of programs takes a program, and of answers again its answers
+        publish(answers_problem(2, submit_answer=False))
+        self.assertEqual(requirement(), [{"name": "answer", "type": "source code", "file_name": "answer.code"}])
+        publish(answers_problem(3))
+        self.assertEqual(len(requirement()), 3)
+
+        # ---- written by hand, they stay as they are, and the page says what the data asks for
+        extra = db_value("select json_extract(extra_config, '$') from problems where id = %d" % problem_id)
+        mine = [{"name": "output1", "type": "text", "file_name": "output1.txt"}, {"name": "notes", "type": "text", "file_name": "notes.txt"}]
+        self.assertEqual(admin.submit_form("/problem/%d/manage/data" % problem_id, "info", {"submission_requirement": json.dumps(mine), "extra_config": extra}), "")
+        publish(answers_problem(4))
+        self.assertEqual(requirement(), mine)
+        self.assertIn('id="requirement-custom"', admin.get("/problem/%d/manage/data" % problem_id).text)
+        # written back to nothing, they follow the data again
+        extra = db_value("select json_extract(extra_config, '$') from problems where id = %d" % problem_id)
+        self.assertEqual(admin.submit_form("/problem/%d/manage/data" % problem_id, "info", {"submission_requirement": "[]", "extra_config": extra}), "")
+        publish(answers_problem(4))
+        self.assertEqual(len(requirement()), 4)
 
 
 if __name__ == "__main__":
