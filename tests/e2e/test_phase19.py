@@ -79,6 +79,9 @@ class MedalsTest(unittest.TestCase):
         board = "/contest/%d/board" % contest_id
         state = lambda: uoj.Client().get(board + "?json=1").json()
         medals = lambda told: [(row["username"], row["medal"]) for row in told["rows"]]
+        # what the contest keeps of them, as MySQL reads it out of its settings (the client of
+        # the command line writes a backslash of what it prints twice: \u91d1 is no 金 then)
+        stored = lambda: json.loads(db_value("select ifnull(json_extract(extra_config, '$.medals'), 'null') from contests where id = %d" % contest_id))
 
         # ---- what a contest that says nothing gives: a gold, a silver and a bronze
         told = state()
@@ -97,7 +100,7 @@ class MedalsTest(unittest.TestCase):
             {"name": "铜奖", "color": "#cd7f32", "amount": "50%", "of": "effective"},
         ]
         self.assertEqual(admin.contest_settings(contest_id, medals=json.dumps(tiers)), "")
-        self.assertEqual(json.loads(db_value("select extra_config from contests where id = %d" % contest_id))["medals"], tiers)
+        self.assertEqual(stored(), tiers)
         told = state()
         self.assertEqual(medals(told), [("p19_medal_0", 1), ("p19_medal_1", 1), ("p19_medal_2", 2), ("p19_medal_3", 3), ("p19_medal_4", 0)])
         self.assertEqual([(kind["name"], kind["color"], kind["of"], kind["count"], kind["given"]) for kind in told["medals"]],
@@ -110,10 +113,10 @@ class MedalsTest(unittest.TestCase):
         self.assertIn("第 1 档奖牌的颜色应写成 #rrggbb", err)
         err = admin.contest_settings(contest_id, medals=json.dumps([{"name": "金奖", "color": "#ffd700", "amount": "120%", "of": "all"}]))
         self.assertIn("第 1 档奖牌的数量应为人数（如 3）或比例（如 10%），比例不超过 100%", err)
-        self.assertEqual(json.loads(db_value("select extra_config from contests where id = %d" % contest_id))["medals"], tiers)
+        self.assertEqual(stored(), tiers)
         # a form without the medals keeps them
         self.assertEqual(admin.contest_settings(contest_id), "")
-        self.assertEqual(json.loads(db_value("select extra_config from contests where id = %d" % contest_id))["medals"], tiers)
+        self.assertEqual(stored(), tiers)
 
         # ---- no medals at all
         self.assertEqual(admin.contest_settings(contest_id, medals="[]"), "")
@@ -122,7 +125,7 @@ class MedalsTest(unittest.TestCase):
         # and the ones of a contest that says nothing, which is then what it says
         default = [{"name": "金牌", "color": "#f6c945", "amount": "1"}, {"name": "银牌", "color": "#cfd6de", "amount": "1"}, {"name": "铜牌", "color": "#e0a36a", "amount": "1"}]
         self.assertEqual(admin.contest_settings(contest_id, medals=json.dumps(default, ensure_ascii=False)), "")
-        self.assertNotIn("medals", json.loads(db_value("select extra_config from contests where id = %d" % contest_id)))
+        self.assertIsNone(stored())
         self.assertEqual([row["medal"] for row in state()["rows"]], [1, 2, 3, 0, 0])
 
 
