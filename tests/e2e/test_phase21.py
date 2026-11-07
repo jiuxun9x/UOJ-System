@@ -46,5 +46,27 @@ class InnerBoardTest(unittest.TestCase):
         self.assertIn("已封榜 4:00:00", admin.get(standings + "?frozen=1").text)
 
 
+class OuterBoardTest(unittest.TestCase):
+    """The outer board said under its bar when it would freeze, that it froze, whose view it was
+    and how that was counted; its legend explained its colours, the stars and dirt in sentences,
+    its medals what they were of, its charts and its submissions how they were counted. It says
+    what is: the pill says the phase, the legend names the colours in a word, a medal says how
+    many got it."""
+
+    def test_the_outer_board_explains_nothing(self):
+        admin, pupil, contest_id = frozen_contest("p21 外榜")
+        page = uoj.Client().get("/contest/%d/board" % contest_id).text
+        self.assertIn('id="outer-board"', page)
+        for sentence in ('id="outer-board-note"', "尝试过，未通过", "结果待揭晓", "Dirt：", "名字前带 *", "灰色是交过这道题的人数", "只算正式选手",
+                         'id="outer-board-runs-note"', "同名次的拿同一档"):  # fmt: skip
+            self.assertNotIn(sentence, page, sentence)
+        for word in ("最先通过", "通过", "未通过", "待定", "每题通过 / 尝试人数"):
+            self.assertIn(word, page)
+        # nor does the page write any sentence of its own
+        script = uoj.Client().get("/js/uoj-board.js").text
+        for sentence in ("之后封榜", "此刻看到的榜单", "这是比赛的最终榜单", "按时间从新到旧", "有效人数，", "每 ' + minutesOf", "选手打开题目之后就会出现"):
+            self.assertNotIn(sentence, script, sentence)
+
+
 if __name__ == "__main__":
     unittest.main()

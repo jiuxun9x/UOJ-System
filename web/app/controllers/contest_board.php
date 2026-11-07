@@ -50,7 +50,7 @@
 	}
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 外榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=5') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=6') ?>
 <div class="uoj-ob" id="outer-board" data-url="<?= $here ?>?<?= HTML::escape($asked) ?>" data-here="<?= $here ?>" data-me="<?= Auth::check() ? Auth::id() : '' ?>" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title" id="outer-board-title"><?= HTML::escape($state['name']) ?></h1>
@@ -79,14 +79,13 @@
 			<div class="uoj-ob-progress-frozen" id="outer-board-progress-frozen"></div>
 			<div class="uoj-ob-progress-done" id="outer-board-progress-done"></div>
 		</div>
-		<p class="uoj-ob-note" id="outer-board-note"></p>
 		<div class="uoj-ob-tabs" id="outer-board-tabs" role="tablist">
 			<button type="button" class="uoj-ob-tab" role="tab" data-tab="board">榜单</button>
 			<button type="button" class="uoj-ob-tab" role="tab" data-tab="runs" id="outer-board-tab-runs">提交</button>
 			<button type="button" class="uoj-ob-tab" role="tab" data-tab="stats">统计</button>
 		</div>
 		<div class="uoj-ob-filters uoj-ob-people-filters" id="outer-board-people-filters">
-			<input type="search" class="uoj-ob-search" id="outer-board-search" placeholder="筛选选手：用户名或昵称" aria-label="筛选选手" />
+			<input type="search" class="uoj-ob-search" id="outer-board-search" placeholder="筛选选手" aria-label="筛选选手" />
 			<button type="button" class="uoj-ob-button" id="outer-board-only-followed" title="只显示点了 ☆ 关注的选手">只看关注</button>
 			<span class="uoj-ob-filters-count" id="outer-board-shown"></span>
 		</div>
@@ -100,14 +99,12 @@
 		</table>
 	</div>
 	<p class="uoj-ob-empty" id="outer-board-empty" style="display:none"></p>
-	<div class="uoj-ob-medals" id="outer-board-medals" title="奖牌：同名次的拿同一档，一题没过的不拿，虚拟参赛的不拿也不占名额" style="display:none"></div>
+	<div class="uoj-ob-medals" id="outer-board-medals" style="display:none"></div>
 	<div class="uoj-ob-legend" id="outer-board-legend">
-		<span><i class="uoj-ob-first"></i><span id="outer-board-legend-first">最先通过</span></span>
+		<span><i class="uoj-ob-first"></i>最先通过</span>
 		<span><i class="uoj-ob-solved"></i>通过</span>
-		<span><i class="uoj-ob-failed"></i>尝试过，未通过</span>
-		<span><i class="uoj-ob-pending"></i>结果待揭晓（封榜后或评测中）</span>
-		<span class="uoj-ob-legend-virtual" id="outer-board-legend-virtual" style="display:none">名字前带 * 的是赛后虚拟参赛的选手，不是正式成绩；点名字看 TA 的视角</span>
-		<span class="uoj-ob-legend-dirt">Dirt：已通过的题目里，未通过的提交占全部提交的比例</span>
+		<span><i class="uoj-ob-failed"></i>未通过</span>
+		<span><i class="uoj-ob-pending"></i>待定</span>
 	</div>
 	</div>
 	<div class="uoj-ob-panel" id="outer-board-panel-runs" style="display:none">
@@ -121,7 +118,6 @@
 			</select></label>
 			<span class="uoj-ob-filters-count" id="outer-board-runs-count"></span>
 		</div>
-		<p class="uoj-ob-runs-note" id="outer-board-runs-note"></p>
 		<table class="uoj-ob-runs" id="table-outer-board-runs">
 			<thead><tr><th>比赛时间</th><th>选手</th><th>题目</th><th>结果</th></tr></thead>
 			<tbody></tbody>
@@ -130,13 +126,11 @@
 	</div>
 	<div class="uoj-ob-panel" id="outer-board-panel-stats" style="display:none">
 		<section class="uoj-ob-chart" id="outer-board-chart-problems">
-			<h2>每题通过人数</h2>
-			<p class="uoj-ob-chart-sub">灰色是交过这道题的人数，绿色是其中通过（OI、IOI 赛制为满分）的人数</p>
+			<h2>每题通过 / 尝试人数</h2>
 			<div class="uoj-ob-chart-body"></div>
 		</section>
 		<section class="uoj-ob-chart" id="outer-board-chart-solved">
 			<h2>解题数分布</h2>
-			<p class="uoj-ob-chart-sub">通过 k 道题（OI、IOI 赛制为得满分 k 道）的人数，只算正式选手</p>
 			<div class="uoj-ob-chart-body"></div>
 		</section>
 		<div class="uoj-ob-filters uoj-ob-chart-filters" id="outer-board-stats-filters">
@@ -144,7 +138,6 @@
 		</div>
 		<section class="uoj-ob-chart" id="outer-board-chart-time">
 			<h2>提交随时间</h2>
-			<p class="uoj-ob-chart-sub"></p>
 			<div class="uoj-ob-chart-key">
 				<span><i class="uoj-ob-key-yes"></i>通过</span><span><i class="uoj-ob-key-wait"></i>待定</span><span><i class="uoj-ob-key-no"></i>未通过</span>
 			</div>
@@ -168,5 +161,5 @@
 <script type="text/javascript">
 window.uojOuterBoard = <?= json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-board.js?v=5') ?>
+<?= HTML::js_src('/js/uoj-board.js?v=6') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>

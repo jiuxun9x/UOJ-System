@@ -282,7 +282,7 @@
 		$('#outer-board-shown').text(visible < state.rows.length ? '显示 ' + visible + ' / ' + state.rows.length + ' 人' : '');
 		var nobody = state.phase !== 'before' && state.rows.length === 0;
 		$('#outer-board-empty').toggle(state.phase === 'before' || nobody)
-			.text(state.phase === 'before' ? '比赛开始之后，榜单会出现在这里。' : '还没有选手上榜：选手打开题目之后就会出现。');
+			.text(state.phase === 'before' ? '比赛尚未开始' : '还没有选手');
 		table.toggle(state.phase !== 'before');
 		$('#outer-board-legend').toggle(state.phase !== 'before');
 		root.attr({'data-phase': state.phase, 'data-frozen': state.frozen ? 1 : 0, 'data-hash': state.hash, 'data-rule': state.rule});
@@ -295,25 +295,7 @@
 			final: '最终榜单', replay: !state.ticking ? 'VP 视角 · 已结束' : (state.frozen ? '回放 · 已封榜' : '回放')
 		}[state.phase];
 		$('#outer-board-phase').text(phase).attr('class', 'uoj-ob-pill uoj-ob-pill-' + state.phase + (state.frozen ? ' uoj-ob-pill-frozen' : ''));
-		var note = '';
 		var viewing = state.viewing;
-		if (viewing && viewing.mine) {
-			note = '你正在虚拟参赛：这是原比赛进行到同一时刻的榜单，带 * 的是虚拟参赛的选手，也按各自的同一时刻计入。';
-		} else if (viewing && viewing.running) {
-			note = '这是 ' + viewing.username + ' 此刻看到的榜单：原比赛进行到 TA 虚拟参赛的同一时刻的样子，带 * 的是虚拟参赛的选手，也按各自的同一时刻计入。';
-		} else if (viewing) {
-			note = viewing.username + ' 的虚拟参赛已经结束：这是比赛的最终榜单，带 * 的是虚拟参赛的选手，TA 的那一行标了出来。';
-		}
-		if (state.frozen) {
-			// the pill says the board is frozen, and the bar from when: nothing more is said
-		} else if (state.freeze !== null && (state.phase === 'running' || (state.phase === 'replay' && state.ticking) || state.phase === 'before')) {
-			note += '榜单将在 ' + clock(state.freeze) + ' 之后封榜。';
-		} else if (state.phase === 'waiting') {
-			note += '比赛已结束，公布成绩后这里是最终榜单。';
-		} else if (state.phase === 'final') {
-			note += '比赛已结束，这是最终榜单。' + (state.virtual ? '带 * 的是赛后虚拟参赛的选手，和正式选手一起排名，不是正式成绩。' : '');
-		}
-		$('#outer-board-note').text(note).toggle(note !== '');
 		// Codeforces heads the board of a participant with whose it is: so does this one
 		var line = $('#outer-board-viewing');
 		if (viewing) {
@@ -339,12 +321,6 @@
 		var shown = state.phase === 'final' && state.virtuals && state.virtuals.length > 0;
 		$('#outer-board-virtual').toggle(shown).text(state.virtual ? '隐藏虚拟参赛' : '显示虚拟参赛')
 			.toggleClass('uoj-ob-button-on', state.virtual);
-		$('#outer-board-legend-virtual').toggle(state.virtual);
-		// the first to solve a problem with a balloon is in the colour of its balloon
-		var balloons = $.grep(state.problems, function(problem) {
-			return !!problem.color;
-		}).length > 0;
-		$('#outer-board-legend-first').text(balloons ? '最先通过（有气球的题目用气球的颜色）' : '最先通过');
 		medalLegend();
 		var frozen = $('#outer-board-progress-frozen');
 		if (state.freeze !== null && state.duration > 0) {
@@ -358,18 +334,10 @@
 		var kinds = state.medals || [];
 		var html = '';
 		$.each(kinds, function(index, kind) {
-			// "10% 有效人数，3 人", or "3 人"; and how many got it, where those level with the last
-			// of them, or nobody who solved something, made it another number
-			var said = (kind.of ? String(kind.amount) + (kind.of === 'all' ? ' 参赛人数，' : ' 有效人数，') : '') + kind.count + ' 人'
-				+ (kind.given !== kind.count ? '，实发 ' + kind.given + ' 人' : '');
+			// its name, and how many got it
 			html += '<span class="uoj-ob-medal-kind" data-medal="' + (index + 1) + '"><i style="background-color: ' + esc(kind.color) + '"></i>'
-				+ esc(kind.name) + '<small>' + esc(said) + '</small></span>';
+				+ esc(kind.name) + '<small>' + kind.given + ' 人</small></span>';
 		});
-		if (kinds.length > 0 && $.grep(kinds, function(kind) {
-			return !!kind.of;
-		}).length > 0) {
-			html += '<span class="uoj-ob-medal-counted">参赛人数 ' + state.counted.all + '，有效人数 ' + state.counted.effective + '</span>';
-		}
 		$('#outer-board-medals').html(html).toggle(kinds.length > 0 && state.phase !== 'before');
 	};
 	var tick = function() {
@@ -445,8 +413,6 @@
 			return (problem === null || run[2] === problem) && (!outcome || run[3] === outcome) && matchesName(run[1], nicknames[run[1]]);
 		}).reverse();
 		$('#outer-board-runs-count').text('共 ' + runs.length + ' 次提交');
-		$('#outer-board-runs-note').text('按时间从新到旧。不含编译错误，也不含一道题通过之后再交的提交，和榜单的算法一样。'
-			+ (state.frozen ? '封榜之后的提交结果都是“待定”，公布成绩后揭晓。' : ''));
 		var html = '';
 		$.each(runs.slice(0, shownRuns), function(index, run) {
 			var letter = state.problems[run[2]] ? state.problems[run[2]].letter : '?';
@@ -614,8 +580,6 @@
 				// over the plot, where no column reaches
 				+ '<text class="uoj-ob-axis-label" x="' + fx + '" y="' + (upper - 4) + '" text-anchor="middle">封榜</text>';
 		}
-		section.find('.uoj-ob-chart-sub').text('每 ' + minutesOf + ' 分钟一格' + (problem === null ? '，所有题目' : '，' + state.problems[problem].letter + ' 题')
-			+ '；不含编译错误，也不含通过之后再交的提交');
 		body.html(svg(width, upper + plot + lower, inner, '提交随时间') + table(['比赛时间', '通过', '待定', '未通过'], rows));
 	};
 	// how many of the contestants solved so many problems

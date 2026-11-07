@@ -99,7 +99,7 @@ body.uoj-ob-dark-page .uoj-ob {
 	font-weight: 700;
 	line-height: 1;
 }
-.uoj-ob-clock-label, .uoj-ob-clock-of, .uoj-ob-rule, .uoj-ob-note {
+.uoj-ob-clock-label, .uoj-ob-clock-of, .uoj-ob-rule {
 	color: var(--ob-muted);
 }
 .uoj-ob-clock-of {
@@ -235,11 +235,6 @@ body.uoj-ob-dark-page .uoj-ob {
 	background-image: repeating-linear-gradient(135deg, var(--ob-frozen) 0, var(--ob-frozen) 4px, transparent 4px, transparent 8px);
 	opacity: 0.55;
 }
-.uoj-ob-note {
-	min-height: 1.5em;
-	margin: 0.45rem 0 0.6rem;
-	font-size: 0.95rem;
-}
 .uoj-ob-empty {
 	margin: 4rem 0;
 	font-size: 1.2rem;
@@ -363,7 +358,7 @@ body.uoj-ob-dark-page .uoj-ob {
 	border-radius: 50%;
 	box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.15);
 }
-.uoj-ob-medal-kind small, .uoj-ob-medal-counted {
+.uoj-ob-medal-kind small {
 	margin-left: 0.4em;
 	color: var(--ob-muted);
 }
@@ -416,7 +411,7 @@ body.uoj-ob-dark-page .uoj-ob {
 	display: flex;
 	justify-content: center;
 	gap: 0.3rem;
-	margin: 0.2rem 0 0.8rem;
+	margin: 0.7rem 0 0.8rem;
 	border-bottom: 1px solid var(--ob-line);
 }
 .uoj-ob-tab {
@@ -556,13 +551,6 @@ a.uoj-ob-person:hover {
 }
 
 /* what was submitted, the newest first */
-.uoj-ob-runs-note {
-	max-width: 60rem;
-	margin: 0 auto 0.5rem;
-	text-align: left;
-	font-size: 0.85rem;
-	color: var(--ob-muted);
-}
 .uoj-ob-runs {
 	width: 100%;
 	max-width: 60rem;
@@ -621,14 +609,9 @@ a.uoj-ob-person:hover {
 	text-align: left;
 }
 .uoj-ob-chart h2 {
-	margin: 0 0 0.15rem;
+	margin: 0 0 0.5rem;
 	font-size: 1.1rem;
 	font-weight: 700;
-}
-.uoj-ob-chart-sub {
-	margin: 0 0 0.5rem;
-	font-size: 0.85rem;
-	color: var(--ob-muted);
 }
 .uoj-ob-chart-key {
 	display: flex;
@@ -806,11 +789,6 @@ a.uoj-ob-person:hover {
 	vertical-align: -0.2em;
 }
 
-/* a board of scores knows no dirt */
-.uoj-ob:not([data-rule="ICPC"]) .uoj-ob-legend-dirt {
-	display: none;
-}
-
 /* ---- on a telephone the table scrolls sideways under a head that is its own lines */
 @media (max-width: 767.98px) {
 	.uoj-ob-title {
@@ -829,9 +807,6 @@ a.uoj-ob-person:hover {
 	}
 	.uoj-ob-table .uoj-ob-name {
 		max-width: 46vw;
-	}
-	.uoj-ob-legend-dirt {
-		white-space: normal !important;
 	}
 }
 
