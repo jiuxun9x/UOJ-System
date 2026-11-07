@@ -1351,6 +1351,10 @@ class MemoryTest(JudgeClientTestCase):
         self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 512 + 256)
         self.problem("memory_limit 512\npolygon_runtwice on\npolygon_runtwice_interactive on\ninteractor_memory_limit 128\ninteractor_memory_limit_3 300\n")
         self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 512 + 300)
+        # Polygon runs a problem twice with an interactor beside the program in the first run,
+        # also where the second run reads its input as a file (J07: it was 2000 MB, not 3000)
+        self.problem("memory_limit 2000\npolygon_runtwice on\ninteractor_memory_limit 1000\n")
+        self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 3000)
         # the passes of a communication problem run one after another: nothing is added
         self.problem("memory_limit 512\nmulti_pass 3\n")
         self.assertEqual(self.jc.problem_memory_mb(self.data_path("7")), 512)

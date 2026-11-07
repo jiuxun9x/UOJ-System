@@ -1158,7 +1158,9 @@ def problem_memory_mb(data_dir):
         return max(values + [int(conf[key]) if conf.get(key, "").isdigit() else DEFAULT_MEMORY_LIMIT_MB])
 
     needed = most("memory_limit")
-    if conf.get("interaction_mode") == "on" or conf.get("polygon_runtwice_interactive") == "on":
+    # an interactor runs beside the program: in every test of an interactive problem, and in the
+    # first run of a problem that Polygon runs twice, whatever its second run is
+    if conf.get("interaction_mode") == "on" or conf.get("polygon_runtwice") == "on" or conf.get("polygon_runtwice_interactive") == "on":
         needed += most("interactor_memory_limit")
     return needed
 
