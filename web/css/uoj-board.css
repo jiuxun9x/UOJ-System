@@ -263,12 +263,13 @@ body.uoj-ob-dark-page .uoj-ob {
 .uoj-ob-table .uoj-ob-name {
 	max-width: 30vw;
 	overflow: hidden;
-	text-align: left;
+	text-align: center;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 .uoj-ob-table td.uoj-ob-name {
 	padding-left: 0.7rem;
+	padding-right: 0.7rem;
 }
 .uoj-ob-nick {
 	font-weight: 600;

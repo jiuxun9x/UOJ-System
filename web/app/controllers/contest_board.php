@@ -37,7 +37,7 @@
 	}
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 外榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=2') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=3') ?>
 <div class="uoj-ob" id="outer-board" data-url="<?= $here ?>?json=1" data-me="<?= Auth::check() ? Auth::id() : '' ?>" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title" id="outer-board-title"><?= HTML::escape($state['name']) ?></h1>
