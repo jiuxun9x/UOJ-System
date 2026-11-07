@@ -104,8 +104,13 @@ function alertKindName($kind) {
 	);
 	return isset($names[$kind]) ? $names[$kind] : $kind;
 }
+// the alerts that are open: also the ones whose trouble is over and that wait to be closed
 function openAlerts() {
 	return DB::selectAll("select * from site_alerts where active_slot = 1 order by started_at, id");
+}
+// the open alerts whose trouble is not over
+function troubleAlerts() {
+	return DB::selectAll("select * from site_alerts where active_slot = 1 and clear_since is null order by started_at, id");
 }
 function recentAlerts($limit = 50) {
 	return DB::selectAll("select * from site_alerts order by id desc limit ".(int)$limit);
@@ -114,16 +119,24 @@ function recentAlerts($limit = 50) {
 // Makes the open alerts of some kinds what they should be: opens the ones for what is wrong
 // and was not, closes the ones for what was wrong and is not any more. Returns
 // array('opened' => alerts, 'resolved' => alerts).
-function alertsSync($kinds, $problems) {
+//
+// A trouble that is over is closed only once it has stayed over for $hold_seconds: until then its
+// alert stays open, and should the trouble come back it goes on in that alert, which counts it
+// once more and tells nobody. A link that drops every half an hour is one alert, not a message
+// each time it drops and each time it is back.
+function alertsSync($kinds, $problems, $hold_seconds = 0) {
+	$hold_seconds = max(0, (int)$hold_seconds);
 	$changes = array('opened' => array(), 'resolved' => array());
 	$wrong = array();
 	foreach ($problems as $problem) {
 		$wrong[$problem['kind'] . "\n" . $problem['subject']] = true;
+		$esc_kind = DB::escape($problem['kind']);
+		$esc_subject = DB::escape($problem['subject']);
+		// back while its alert waited to be closed: the same alert goes on
+		DB::update("update site_alerts set clear_since = null, interruptions = interruptions + 1 where kind = '$esc_kind' and subject = '$esc_subject' and active_slot = 1 and clear_since is not null");
 		if (!empty($problem['keep_only'])) {
 			continue;
 		}
-		$esc_kind = DB::escape($problem['kind']);
-		$esc_subject = DB::escape($problem['subject']);
 		// the unique key makes this the one open alert of the thing, whoever else looks
 		DB::insert("insert ignore into site_alerts (kind, subject, message, started_at, active_slot) values ('$esc_kind', '$esc_subject', '".DB::escape($problem['message'])."', now(), 1)");
 		if (DB::affected_rows() == 1) {
@@ -131,14 +144,26 @@ function alertsSync($kinds, $problems) {
 		}
 	}
 	foreach (openAlerts() as $alert) {
-		if (in_array($alert['kind'], $kinds, true) && !isset($wrong[$alert['kind'] . "\n" . $alert['subject']])) {
-			DB::update("update site_alerts set resolved_at = now(), active_slot = null where id = {$alert['id']} and active_slot = 1");
-			if (DB::affected_rows() == 1) {
-				$changes['resolved'][] = $alert;
-			}
+		if (!in_array($alert['kind'], $kinds, true) || isset($wrong[$alert['kind'] . "\n" . $alert['subject']])) {
+			continue;
+		}
+		if ($hold_seconds > 0 && $alert['clear_since'] === null) {
+			// over: it is closed if it stays over
+			DB::update("update site_alerts set clear_since = now() where id = {$alert['id']} and active_slot = 1 and clear_since is null");
+			continue;
+		}
+		$held = $hold_seconds > 0 ? " and clear_since <= now() - interval $hold_seconds second" : '';
+		// (it was over since it was found over)
+		DB::update("update site_alerts set resolved_at = ifnull(clear_since, now()), active_slot = null where id = {$alert['id']} and active_slot = 1$held");
+		if (DB::affected_rows() == 1) {
+			$changes['resolved'][] = DB::selectFirst("select * from site_alerts where id = {$alert['id']}", MYSQLI_ASSOC);
 		}
 	}
 	return $changes;
+}
+// how long a trouble has to stay over before its alert is closed, in seconds
+function alertHoldSeconds() {
+	return 60 * siteSetting('alert.resolve_after_minutes');
 }
 
 // who is told about alerts by mail: the addresses the administrators wrote down, or else
@@ -164,7 +189,11 @@ function alertRecipients() {
 // message on the site, and by mail if they asked for that. Failing to tell stops nothing.
 function alertNotify($alert, $resolved) {
 	$title = ($resolved ? '已恢复：' : '告警：') . alertKindName($alert['kind']);
-	$text = HTML::escape($alert['message']) . ($resolved ? "（开始于 {$alert['started_at']}，现已恢复）" : '');
+	$text = HTML::escape($alert['message']);
+	if ($resolved) {
+		$times = isset($alert['interruptions']) && $alert['interruptions'] > 1 ? "，期间共出现 {$alert['interruptions']} 次" : '';
+		$text .= "（开始于 {$alert['started_at']}，{$alert['resolved_at']} 起恢复正常$times）";
+	}
 	foreach (DB::selectAll("select username from user_info where usergroup = 'S'") as $row) {
 		sendSystemMsg($row['username'], $title, "$text <a href=\"/super-manage/monitor\">查看运行状态</a>");
 	}
@@ -192,7 +221,7 @@ function alertNotify($alert, $resolved) {
 function monitorTick() {
 	$problems = monitorFindProblems(monitorJudgers(), monitorQueue(), siteSetting('alert.judger_silent_seconds'), siteSetting('alert.queue_wait_seconds'));
 	$problems = array_merge($problems, backupCurrentProblems());
-	$changes = alertsSync(array('no_judger', 'judger_silent', 'queue_stuck', 'backup_failed', 'backup_overdue'), $problems);
+	$changes = alertsSync(array('no_judger', 'judger_silent', 'queue_stuck', 'backup_failed', 'backup_overdue'), $problems, alertHoldSeconds());
 	foreach ($changes['opened'] as $alert) {
 		alertNotify($alert, false);
 	}
@@ -228,7 +257,7 @@ function siteTickAlerts($failed, $steps) {
 	foreach ($failed as $name => $message) {
 		$problems[] = array('kind' => 'tick_failed', 'subject' => (string)$name, 'message' => mb_substr("定时任务的 $name 一步出错：$message", 0, 400, 'UTF-8'));
 	}
-	$changes = alertsSync(array('tick_failed'), $problems);
+	$changes = alertsSync(array('tick_failed'), $problems, alertHoldSeconds());
 	foreach ($changes['opened'] as $alert) {
 		alertNotify($alert, false);
 	}

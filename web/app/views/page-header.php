@@ -273,7 +273,7 @@
 
 			<?php uojIncludeView($PageNav) ?>
 			<?php // the administrators are told on every page as long as something is wrong ?>
-			<?php $open_alerts = Auth::check() && isSiteAdmin(Auth::user()) ? openAlerts() : array(); ?>
+			<?php $open_alerts = Auth::check() && isSiteAdmin(Auth::user()) ? troubleAlerts() : array(); ?>
 			<?php if ($open_alerts): ?>
 			<div class="alert alert-danger py-2" id="site-alerts-banner" role="alert">
 				<span class="glyphicon glyphicon-warning-sign"></span>

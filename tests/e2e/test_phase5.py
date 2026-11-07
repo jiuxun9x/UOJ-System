@@ -158,6 +158,9 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(db_value("select count(*) from backup_runs where status = 'running'"), "0")
 
     def test_failed_backup_is_an_alert_until_one_succeeds(self):
+        # (what is over is told at once here: see test_phase16 for the wait)
+        db("insert into site_settings (name, value, updated_by, updated_at) values ('alert.resolve_after_minutes', '0', 'p5', now()) on duplicate key update value = '0'")
+        self.addCleanup(db, "delete from site_settings where name = 'alert.resolve_after_minutes'")
         uoj.wait_until("nothing is wrong", lambda: site_tick() and "backup_failed" not in open_alerts(), timeout=120)
         new_backup()
         db("insert into backup_runs (name, reason, status, started_at, finished_at, message)"
@@ -834,6 +837,8 @@ class MonitorTest(unittest.TestCase):
             mail_username="oj@example.edu.cn", mail_password="p5-monitor-secret",
             alert_email=True, alert_recipients="ops@example.edu.cn, not an address",
             alert_judger_silent_seconds="30", alert_queue_wait_seconds="60",
+            # (what is over is told at once here: see test_phase16 for the wait)
+            alert_resolve_after_minutes="0",
         )  # fmt: skip
         assert err == "", err
         # Judgers that earlier tests registered, let connect once and left behind would be

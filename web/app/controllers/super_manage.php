@@ -755,7 +755,7 @@ EOD;
 				<strong>有 <?= count($monitor_open) ?> 条告警未恢复：</strong>
 				<ul class="mb-0">
 					<?php foreach ($monitor_open as $alert): ?>
-					<li data-kind="<?= $alert['kind'] ?>"><?= HTML::escape($alert['message']) ?> <small>（从 <?= $alert['started_at'] ?> 起）</small></li>
+					<li data-kind="<?= $alert['kind'] ?>"<?= $alert['clear_since'] !== null ? ' data-clear="1"' : '' ?>><?= HTML::escape($alert['message']) ?> <small>（从 <?= $alert['started_at'] ?> 起<?= $alert['interruptions'] > 1 ? "，共出现 {$alert['interruptions']} 次" : '' ?><?= $alert['clear_since'] !== null ? "；{$alert['clear_since']} 起已正常，再观察一阵才算恢复" : '' ?>）</small></li>
 					<?php endforeach ?>
 				</ul>
 			</div>

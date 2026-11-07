@@ -291,9 +291,53 @@ def site_tick():
     return docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php site:tick")
 
 
+# the alerts of the steps of site:tick as they would be after a tick in which these failed
+TICK_ALERTS = r"""cat > /tmp/p16_tick.php <<'PHP'
+<?php
+$_SERVER['DOCUMENT_ROOT'] = '/opt/uoj/web';
+require '/opt/uoj/web/app/libs/uoj-lib.php';
+echo json_encode(siteTickAlerts(%s, array()));
+PHP
+php /tmp/p16_tick.php"""
+
+
 def told(title, about):
     """how many messages with this title about this the administrators were sent"""
     return int(db_value("select count(*) from user_system_msg where title = '%s' and content like '%%%s%%'" % (title, about)))
+
+
+class AlertFlappingTest(unittest.TestCase):
+    """Every time a trouble came and went, the administrators were told that it came and that it
+    went: judgers whose link dropped every half an hour for five minutes made 48 messages in 12
+    hours. A trouble that is over is told to be over once it stays over (alert.resolve_after_minutes,
+    30 by default); coming back meanwhile, it goes on in the same alert, which counts it."""
+
+    def test_a_trouble_that_comes_and_goes_is_one_alert(self):
+        fail, well = "array('p16_flap' => 'the disk is full')", "array()"
+        alert = lambda: db("select ifnull(active_slot, 'closed'), interruptions, clear_since is not null from site_alerts where kind = 'tick_failed' and subject = 'p16_flap' order by id desc limit 1")
+        docker_exec(uoj.WEB, TICK_ALERTS % fail)
+        self.assertEqual(told("告警：定时任务出错", "p16_flap"), 1)
+        # it goes and comes back three times: nobody is told
+        for times in (2, 3, 4):
+            docker_exec(uoj.WEB, TICK_ALERTS % well)
+            self.assertEqual(alert(), [["1", str(times - 1), "1"]])
+            docker_exec(uoj.WEB, TICK_ALERTS % fail)
+            # (the site:tick of the web server may find it over again at any moment: it fails
+            # only when this test says so)
+            self.assertEqual(alert()[0][:2], ["1", str(times)])
+        docker_exec(uoj.WEB, TICK_ALERTS % well)
+        self.assertEqual((told("告警：定时任务出错", "p16_flap"), told("已恢复：定时任务出错", "p16_flap")), (1, 0))
+        # (it is not a trouble on the pages any more, while it waits to be closed)
+        self.assertNotIn("p16_flap", uoj.admin().get("/").text)
+        self.assertIn('data-clear="1"', uoj.admin().get("/super-manage/monitor").text)
+        # it stays over for half an hour: it is closed, as over since it was over, and told once
+        db("update site_alerts set clear_since = clear_since - interval 31 minute where kind = 'tick_failed' and subject = 'p16_flap' and active_slot = 1")
+        clear_since = db_value("select clear_since from site_alerts where kind = 'tick_failed' and subject = 'p16_flap' and active_slot = 1")
+        docker_exec(uoj.WEB, TICK_ALERTS % well)
+        self.assertEqual(alert(), [["closed", "4", "1"]])
+        self.assertEqual(db_value("select resolved_at from site_alerts where kind = 'tick_failed' and subject = 'p16_flap' order by id desc limit 1"), clear_since)
+        self.assertEqual(told("已恢复：定时任务出错", "p16_flap"), 1)
+        self.assertEqual(told("已恢复：定时任务出错", "期间共出现 4 次"), 1)
 
 
 class AlertEscalationTest(unittest.TestCase):

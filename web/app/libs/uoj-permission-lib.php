@@ -334,6 +334,15 @@ function siteSettings() {
 			'min' => 1,
 			'max' => 365
 		),
+		'alert.resolve_after_minutes' => array(
+			'type' => 'number',
+			'group' => '告警',
+			'label' => '恢复后观察多久才算恢复（分钟）',
+			'help' => '问题消失后要保持这么久才发“已恢复”；期间又出问题就并入同一条告警，记下出现了几次，不再另发消息。评测机网络时断时续时，这样不会收到一连串成对的消息。填 0 则一恢复就通知。',
+			'default' => 30,
+			'min' => 0,
+			'max' => 1440
+		),
 		'alert.queue_wait_seconds' => array(
 			'type' => 'number',
 			'group' => '告警',
