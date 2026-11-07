@@ -559,8 +559,10 @@ struct SubtaskInfo {
             const auto &dep = subtasks.at(p);
             if (meta.subtask_type == "packed") {
                 if (!dep.passed) {
+                    // skipped: nothing, also to a subtask of type min that depends on this one
                     passed = false;
                     scr = 0;
+                    unrescaled_min_score = 0;
                 }
             } else if (meta.subtask_type == "min") {
                 unrescaled_min_score = min(unrescaled_min_score, dep.unrescaled_min_score);
