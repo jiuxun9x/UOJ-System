@@ -54,7 +54,7 @@
 	$data['duration'] = (int)$contest['last_min'] * 60;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 滚榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=6') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=7') ?>
 <div class="uoj-ob uoj-rs" id="resolver" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title"><?= HTML::escape($data['name']) ?></h1>

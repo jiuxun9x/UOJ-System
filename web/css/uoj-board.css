@@ -811,6 +811,11 @@ a.uoj-ob-person:hover {
 }
 
 /* ---- the resolver: who is chosen, and who still has something not told */
+/* (no clock in the middle: the buttons take the room the state does not need) */
+.uoj-rs .uoj-ob-bar > div.uoj-ob-state {
+	flex: 0 0 auto;
+	margin-right: 1rem;
+}
 .uoj-rs .uoj-rs-next {
 	font-weight: 700;
 	color: #ffffff;
