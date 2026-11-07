@@ -163,23 +163,26 @@ class LoginNameLettersTest(unittest.TestCase):
 
 class DecimalScoreTest(unittest.TestCase):
     """A problem may count in decimals (score_type real-1). The site keeps a score as a whole
-    number, and 99.6 was kept as 100: a pass, counted among the solved problems."""
+    number, and 99.6 was kept as 100: a pass, counted among the solved problems. And then, in six
+    decimals (real-6), 99.999999 was kept as 100 as well."""
 
     def test_a_score_short_of_full_is_no_pass(self):
         admin = uoj.admin()
-        problem_id = admin.create_problem(ab_problem_files(score_type="real-1", point_score_1="49.8", point_score_2="49.8", point_score_3="0.4"))
         pupil = account("p16_decimal")
-        solved = lambda: db_value("select count(*) from best_ac_submissions where submitter = 'p16_decimal' and problem_id = %d" % problem_id)
-        # the third test (999999999 1) is the 0.4 that it misses
-        almost = pupil.submit(problem_id, AB.replace("a + b", "a < 1000000 ? a + b : 0"))
-        judgement = uoj.wait_submission(almost)
-        self.assertEqual(judgement.score, 99, judgement)
-        self.assertEqual(judgement.result["score"], 99.6, judgement)
-        self.assertEqual(db_value("select score from submission_judgements where kind = 'submission' and target_id = %d and outcome = 'judged'" % almost), "99")
-        self.assertEqual(solved(), "0")
-        # all of it is 100, and a pass
-        self.assertEqual(uoj.wait_submission(pupil.submit(problem_id, AB)).score, 100)
-        self.assertEqual(solved(), "1")
+        # what misses the third test (999999999 1) misses what that test is worth
+        almost = AB.replace("a + b", "a < 1000000 ? a + b : 0")
+        for score_type, worth, short in (("real-1", ("49.8", "49.8", "0.4"), 99.6), ("real-6", ("50", "49.999999", "0.000001"), 99.999999)):
+            problem_id = admin.create_problem(ab_problem_files(score_type=score_type, point_score_1=worth[0], point_score_2=worth[1], point_score_3=worth[2]))
+            solved = lambda: db_value("select count(*) from best_ac_submissions where submitter = 'p16_decimal' and problem_id = %d" % problem_id)
+            submission_id = pupil.submit(problem_id, almost)
+            judgement = uoj.wait_submission(submission_id)
+            self.assertEqual(judgement.score, 99, (score_type, judgement))
+            self.assertAlmostEqual(judgement.result["score"], short, places=9, msg=score_type)
+            self.assertEqual(db_value("select score from submission_judgements where kind = 'submission' and target_id = %d and outcome = 'judged'" % submission_id), "99")
+            self.assertEqual(solved(), "0", score_type)
+            # all of it is 100, and a pass
+            self.assertEqual(uoj.wait_submission(pupil.submit(problem_id, AB)).score, 100, score_type)
+            self.assertEqual(solved(), "1", score_type)
 
 
 class UploadLimitTest(unittest.TestCase):

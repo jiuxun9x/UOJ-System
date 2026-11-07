@@ -12,10 +12,15 @@ function mergeConfig(&$config, $default_config) {
 
 // The score of a judgement as the site keeps it: a whole number, which is what the columns of
 // scores hold. A problem that counts in decimals (score_type real-1 and so on) is cut down to the
-// whole point below, so that only a full score is 100 and passes: 99.6 was rounded up to 100,
-// and to a pass. (A full score is 100 exactly: the judger says so of every judgement that passed.)
+// whole point below: 99.6 was rounded up to 100, and to a pass. What is short of 100 by however
+// little is never 100: a problem may count in six decimals and more (real-6), and 99.999999 is
+// not a pass. (A full score is 100 exactly: the judger says so of every judgement that passed.)
+// Below that, what is a whole number but for the last bits of a double (59.99999999999999 of a
+// judger that sums tenths) is that whole number.
 function judgedScore($score) {
-	return (int)floor((float)$score + 1e-6);
+	$score = (float)$score;
+	$kept = (int)floor($score + 1e-9);
+	return $kept >= 100 && $score < 100 ? 99 : $kept;
 }
 
 function strStartWith($str, $pre) {

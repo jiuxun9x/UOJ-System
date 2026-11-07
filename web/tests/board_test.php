@@ -8,7 +8,12 @@ require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
 
 // ---- the score a judgement is kept with: a whole number, never more than was earned. 99.6 of a
 // problem that counts in decimals was rounded up to 100, and passed.
-check_same(array(99, 100, 0, 59, 60, 33, 100), array(judgedScore(99.6), judgedScore(100), judgedScore(0), judgedScore('59.99'), judgedScore('60'), judgedScore(33.3), judgedScore(99.9999999)), 'judged scores are cut down to the whole point');
+check_same(array(99, 100, 0, 59, 60, 33), array(judgedScore(99.6), judgedScore(100), judgedScore(0), judgedScore('59.99'), judgedScore('60'), judgedScore(33.3)), 'judged scores are cut down to the whole point');
+// what is short of 100 by however little is no pass: a problem may count in six decimals and more
+check_same(array(99, 99, 99, 99, 99), array(judgedScore(99.999), judgedScore(99.999999), judgedScore('99.9999999'), judgedScore(99.99999999999), judgedScore(99.99999999999999)), 'scores short of 100 by a little');
+check_same(array(100, 100, 100), array(judgedScore('100'), judgedScore(100.0), judgedScore('1e2')), 'a full score');
+// the last bits of a double below a whole number are not a point less
+check_same(array(60, 60, 0), array(judgedScore(59.99999999999999), judgedScore(0.1 + 0.2 + 59.7), judgedScore(-0.0)), 'whole numbers that a double is a little short of');
 
 // ---- the ICPC rule. The standings as calcStandings() leaves them, and the cells: score,
 // penalty, submission, failed attempts, attempts nobody knows the outcome of
