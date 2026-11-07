@@ -573,7 +573,7 @@
 		var axis = ticks(max);
 		var top = axis[axis.length - 1];
 		var width = chartWidth('outer-board-chart-time');
-		var left = 40, right = 12, upper = 14, plot = 200, lower = 26;
+		var left = 40, right = 12, upper = 20, plot = 200, lower = 26;
 		var slot = (width - left - right) / n;
 		var thick = Math.max(2, Math.min(24, slot - 4));
 		var y = function(v) {
@@ -611,7 +611,8 @@
 		if (state.freeze !== null && state.freeze !== undefined) {
 			var fx = left + (width - left - right) * state.freeze / state.duration;
 			inner += '<line class="uoj-ob-freeze" x1="' + fx + '" x2="' + fx + '" y1="' + upper + '" y2="' + (upper + plot) + '"></line>'
-				+ '<text class="uoj-ob-axis-label" x="' + (fx + 4) + '" y="' + (upper + 2) + '" dominant-baseline="hanging">封榜</text>';
+				// over the plot, where no column reaches
+				+ '<text class="uoj-ob-axis-label" x="' + fx + '" y="' + (upper - 4) + '" text-anchor="middle">封榜</text>';
 		}
 		section.find('.uoj-ob-chart-sub').text('每 ' + minutesOf + ' 分钟一格' + (problem === null ? '，所有题目' : '，' + state.problems[problem].letter + ' 题')
 			+ '；不含编译错误，也不含通过之后再交的提交');
