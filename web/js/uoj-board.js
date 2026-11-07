@@ -37,6 +37,19 @@
 	var viewOf = function(username) {
 		return here + (username ? '?vp=' + encodeURIComponent(username) : '');
 	};
+	// Black or white, whichever reads better on a colour '#rrggbb' (the colours of balloons).
+	var inkOn = function(color) {
+		var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+		if (!m) {
+			return '#ffffff';
+		}
+		var lum = function(hex) {
+			var c = parseInt(hex, 16) / 255;
+			return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+		};
+		var l = 0.2126 * lum(m[1]) + 0.7152 * lum(m[2]) + 0.0722 * lum(m[3]);
+		return l > 0.36 ? '#111111' : '#ffffff';
+	};
 	var keep = function(name, value) {
 		try {
 			if (value === undefined) {
@@ -83,7 +96,11 @@
 				html += '<td class="uoj-ob-cell uoj-ob-none" data-problem="' + letter + '">·</td>';
 				return;
 			}
-			html += '<td class="uoj-ob-cell uoj-ob-' + cell[0] + '" data-problem="' + letter + '"><b>' + esc(cell[1]) + '</b>'
+			// As DOMjudge has it: who solved a problem first is in the colour of its balloon,
+			// where the contest gives balloons; else in the green of the first.
+			var paint = cell[0] === 'first' && problem && problem.color
+				? ' style="background-color: ' + esc(problem.color) + '; color: ' + inkOn(problem.color) + '" data-balloon="' + esc(problem.color) + '"' : '';
+			html += '<td class="uoj-ob-cell uoj-ob-' + cell[0] + '" data-problem="' + letter + '"' + paint + '><b>' + esc(cell[1]) + '</b>'
 				+ (cell[2] !== '' ? '<small>' + esc(cell[2]) + '</small>' : '') + '</td>';
 		});
 		html += '<td class="uoj-ob-num uoj-ob-total">' + row.solved + '</td>';
@@ -215,6 +232,11 @@
 		$('#outer-board-virtual').toggle(shown).text(state.virtual ? '隐藏虚拟参赛' : '显示虚拟参赛')
 			.toggleClass('uoj-ob-button-on', state.virtual);
 		$('#outer-board-legend-virtual').toggle(state.virtual);
+		// the first to solve a problem with a balloon is in the colour of its balloon
+		var balloons = $.grep(state.problems, function(problem) {
+			return !!problem.color;
+		}).length > 0;
+		$('#outer-board-legend-first').text(balloons ? '最先通过（有气球的题目用气球的颜色）' : '最先通过');
 		var frozen = $('#outer-board-progress-frozen');
 		if (state.freeze !== null && state.duration > 0) {
 			frozen.css({left: (100 * state.freeze / state.duration) + '%', width: (100 - 100 * state.freeze / state.duration) + '%'}).show();

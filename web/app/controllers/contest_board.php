@@ -85,7 +85,7 @@
 	</div>
 	<p class="uoj-ob-empty" id="outer-board-empty" style="display:none"></p>
 	<div class="uoj-ob-legend" id="outer-board-legend">
-		<span><i class="uoj-ob-first"></i>最先通过</span>
+		<span><i class="uoj-ob-first"></i><span id="outer-board-legend-first">最先通过</span></span>
 		<span><i class="uoj-ob-solved"></i>通过</span>
 		<span><i class="uoj-ob-failed"></i>尝试过，未通过</span>
 		<span><i class="uoj-ob-pending"></i>结果待揭晓（封榜后或评测中）</span>

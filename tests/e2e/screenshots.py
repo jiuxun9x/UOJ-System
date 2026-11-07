@@ -613,6 +613,13 @@ def outer_board_keeps_itself_up_to_date(page, seeded):
     page.wait_for_function("%s === %s" % (first_row, json.dumps(leader)), timeout=20000)
     # what moved has come to rest before the picture is taken
     page.wait_for_function("document.querySelectorAll('#table-outer-board .uoj-ob-up, #table-outer-board .uoj-ob-flash').length === 0", timeout=10000)
+    # As DOMjudge has it, the first to solve a problem is in the colour of its balloon, where the
+    # contest gives balloons; else in the green of the first.
+    painted = page.evaluate("""Array.from(document.querySelectorAll('#table-outer-board td.uoj-ob-first')).map(td => {
+        const th = document.querySelector('#table-outer-board th[data-problem="' + td.getAttribute('data-problem') + '"]');
+        return [th.hasAttribute('style'), td.hasAttribute('data-balloon')];
+    })""")
+    assert painted and all(balloon == colour for balloon, colour in painted), painted
 
 
 def outer_board_is_seen_as_a_virtual_participant(page, seeded):
