@@ -325,17 +325,36 @@
 		return 'ex_' . getUOJConfVal($problem_conf, 'output_pre', 'output') . $num . '.' . getUOJConfVal($problem_conf, 'output_suf', 'txt');
 	}
 	
+	// Sends the submissions that $cond picks to be judged again. What a submission of a contest
+	// that judges with the samples while it runs had been told is forgotten: one that waited for
+	// its test with all the data, or was in it, has that test as its config and the samples in
+	// first_test_config, and begins again with the samples, as when it was submitted. (J05: its
+	// test with all the data was taken for the second of two, the score of the samples it was to
+	// keep was gone, and it was left Judged without a score.)
+	function rejudgeSubmissionsWhere($cond) {
+		foreach (DB::selectAll("select id, content from submissions where ($cond) and content like '%\"first\\_test\\_config\"%'", MYSQLI_ASSOC) as $row) {
+			$content = json_decode($row['content'], true);
+			if (!is_array($content) || !isset($content['first_test_config'])) {
+				continue;
+			}
+			$content['final_test_config'] = $content['config'];
+			$content['config'] = $content['first_test_config'];
+			unset($content['first_test_config']);
+			DB::update("update submissions set content = '" . DB::escape(json_encode($content)) . "' where id = {$row['id']}");
+		}
+		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where $cond");
+	}
 	function rejudgeProblem($problem) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where problem_id = {$problem['id']}");
+		rejudgeSubmissionsWhere("problem_id = {$problem['id']}");
 	}
 	function rejudgeProblemAC($problem) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where problem_id = {$problem['id']} and score = 100");
+		rejudgeSubmissionsWhere("problem_id = {$problem['id']} and score = 100");
 	}
 	function rejudgeProblemGe97($problem) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where problem_id = {$problem['id']} and score >= 97");
+		rejudgeSubmissionsWhere("problem_id = {$problem['id']} and score >= 97");
 	}
 	function rejudgeSubmission($submission) {
-		DB::query("update submissions set judge_time = NULL , result = '' , score = NULL , status = 'Waiting Rejudge', judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$submission['id']}");
+		rejudgeSubmissionsWhere("id = {$submission['id']}");
 	}
 	function updateBestACSubmissions($username, $problem_id) {
 		$best = DB::selectFirst("select id, used_time, used_memory, tot_size from submissions where submitter = '$username' and problem_id = $problem_id and score = 100 order by used_time, used_memory, tot_size asc limit 1");

@@ -1,9 +1,10 @@
 """Phase 20: hidden contests, and what a review of judging found (J01-J07, D01, D02, A01, A02)."""
 
+import json
 import unittest
 
 import uoj
-from fixtures import AB_HACKABLE, ab_problem_files
+from fixtures import AB, AB_HACKABLE, ab_problem_files
 from uoj import db, db_value, docker_exec
 
 # a checker of a+b that went wrong where an answer differs: it says FAIL, as testlib says when a
@@ -66,6 +67,43 @@ class HackJudgementFailedTest(unittest.TestCase):
         self.assertEqual(db_value("select ifnull(result_error, 'NULL') from hacks where id = %d" % hack_id), "NULL")
         # its input is an extra test of a new version of the data
         uoj.wait_until("the input of the hack is a test", lambda: int(db_value("select data_version from problems where id = %d" % problem_id)) > version)
+
+
+class RejudgeBetweenTheTwoTestsTest(unittest.TestCase):
+    """A submission of an OI contest is judged with the samples while the contest runs, then with
+    all the data when the judgers have nothing else to do. Judged again while it waited for that
+    second test, it was left Judged without a score: the test of the samples was skipped, and the
+    test with all the data was taken for the second of two, which keeps the score of the first.
+    It begins with the samples again now. (J05)"""
+
+    def test_a_submission_judged_again_between_its_two_tests_is_judged_from_the_samples(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p20 两段评测中重测", rule="OI", problems=str(problem_id))
+        pupil = uoj.client(("p20_rejudge", "p20-password"))
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        with uoj.judgers_paused():
+            submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
+            # tested with the sample, the way judge_client does it: it waits for all the data
+            task = uoj.fake_fetch()
+            self.assertEqual(task["id"], submission_id)
+            sample = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(sample)})
+            self.assertEqual(db_value("select status from submissions where id = %d" % submission_id), "Judged, Waiting")
+            # who manages the problem judges everything of it again
+            self.assertEqual(admin.submit_form("/problem/%d/manage/data" % problem_id, "rejudge"), "")
+            status, content = db("select status, content from submissions where id = %d" % submission_id)[0]
+            self.assertEqual(status, "Waiting Rejudge")
+            content = json.loads(content)
+            self.assertNotIn("first_test_config", content)
+            self.assertIn("final_test_config", content)
+        uoj.wait_idle()
+        # both tests done again, one after the other: the score of the samples, the result of all the data
+        status, score, result = db("select status, ifnull(score, 'NULL'), result from submissions where id = %d" % submission_id)[0]
+        self.assertEqual((status, score), ("Judged", "100"), result)
+        self.assertEqual(json.loads(result)["final_result"]["score"], 100)
+        self.assertEqual(db_value("select count(*) from best_ac_submissions where submission_id = %d" % submission_id), "1")
 
 
 if __name__ == "__main__":
