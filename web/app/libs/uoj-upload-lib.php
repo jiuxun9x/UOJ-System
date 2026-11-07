@@ -297,6 +297,20 @@ function uploadPreflight($files, $conf, $hackable) {
 			$missing[] = $name;
 		}
 	};
+	// The answer of a test, which a problem whose own checker (or interactor) looks at what was
+	// written may do without: it is handed an empty one, as the check of the data makes it (see
+	// answers_optional() there). The ways of comparing of the site compare with the answer.
+	$answers_optional = !isset($conf['use_builtin_checker']) || $on('interaction_mode')
+		|| (isset($conf['multi_pass']) && (int)$conf['multi_pass'] > 1) || $on('domjudge_multipass') || $on('polygon_runtwice');
+	$without_answer = 0;
+	$need_answer = function($name) use (&$used, &$without_answer, $need, $has, $answers_optional) {
+		if ($answers_optional && !isset($has[$name])) {
+			$used[$name] = true;
+			$without_answer++;
+			return;
+		}
+		$need($name);
+	};
 	// the source of a program: the file problem.conf names for it, or else one called after it
 	$sources = array();
 	$need_source = function($name) use (&$used, &$missing, &$sources, &$report, $has, $conf) {
@@ -327,7 +341,7 @@ function uploadPreflight($files, $conf, $hackable) {
 		$report['warnings'][] = '这道题不使用内置的评测程序（use_builtin_judger 不是 on）：自定义评测程序需要系统管理员同步后才能使用';
 		return $report;
 	}
-	$n_tests = getUOJConfVal($conf, 'n_tests', 10);
+	$n_tests = getUOJConfVal($conf, 'n_tests', '10');
 	if ((string)$n_tests === '0') {
 		// what the form writes for a problem that has no data yet
 		$report['errors'][] = '还没有测试数据：上传数据包后，测试点会按文件名自动识别';
@@ -343,7 +357,7 @@ function uploadPreflight($files, $conf, $hackable) {
 	}
 	for ($num = 1; $num <= $n_tests; $num++) {
 		$need(getUOJProblemInputFileName($conf, $num));
-		$need(getUOJProblemOutputFileName($conf, $num));
+		$need_answer(getUOJProblemOutputFileName($conf, $num));
 	}
 	$report['facts'][] = "$n_tests 个测试点";
 	if (!$on('interaction_mode')) {
@@ -364,20 +378,20 @@ function uploadPreflight($files, $conf, $hackable) {
 		}
 		$report['facts'][] = '提交答案题';
 	} else {
-		$n_ex_tests = getUOJConfVal($conf, 'n_ex_tests', 0);
+		$n_ex_tests = getUOJConfVal($conf, 'n_ex_tests', '0');
 		if (!validateUInt($n_ex_tests) || $n_ex_tests > 5000) {
 			$report['errors'][] = 'n_ex_tests 必须是不太大的非负整数';
 			return $report;
 		}
 		for ($num = 1; $num <= $n_ex_tests; $num++) {
 			$need(getUOJProblemExtraInputFileName($conf, $num));
-			$need(getUOJProblemExtraOutputFileName($conf, $num));
+			$need_answer(getUOJProblemExtraOutputFileName($conf, $num));
 		}
-		$n_sample_tests = getUOJConfVal($conf, 'n_sample_tests', $n_tests);
+		$n_sample_tests = getUOJConfVal($conf, 'n_sample_tests', '0');
 		if (!validateUInt($n_sample_tests)) {
 			$report['errors'][] = 'n_sample_tests 必须是非负整数';
 		} elseif ($n_sample_tests > $n_ex_tests) {
-			$report['errors'][] = "n_sample_tests（{$n_sample_tests}）不能大于 n_ex_tests（{$n_ex_tests}）。样例是额外测试点里的前几个；没有写 n_sample_tests 时它等于 n_tests";
+			$report['errors'][] = "n_sample_tests（{$n_sample_tests}）不能大于 n_ex_tests（{$n_ex_tests}）。样例是额外测试点里的前几个；没有写 n_sample_tests 时没有样例";
 		}
 		if ($n_ex_tests > 0) {
 			$report['facts'][] = "$n_ex_tests 个额外测试点";
@@ -415,6 +429,9 @@ function uploadPreflight($files, $conf, $hackable) {
 	}
 	if ($missing) {
 		$report['errors'][] = '缺少文件：' . join('、', array_slice($missing, 0, 8)) . (count($missing) > 8 ? ' 等 ' . count($missing) . ' 个' : '');
+	}
+	if ($without_answer > 0) {
+		$report['facts'][] = "{$without_answer} 个测试点没有答案文件：交给校验器的答案是空的";
 	}
 	foreach (array('time_limit' => array(1, 60, '秒'), 'memory_limit' => array(1, 4096, 'MB')) as $key => $range) {
 		if (isset($conf[$key]) && (!is_numeric($conf[$key]) || $conf[$key] < $range[0] || $conf[$key] > $range[1])) {

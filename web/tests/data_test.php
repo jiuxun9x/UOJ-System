@@ -369,6 +369,19 @@ check_same(true, in_array('2 个测试点', $report['facts'], true), 'and the re
 $errors_of = function($files, $conf, $hackable = false) {
 	return join(' | ', uploadPreflight($files, $conf, $hackable)['errors']);
 };
+// What is not written in problem.conf is what the judgers take: a problem.conf that says nothing
+// of extra tests has none (it was refused: the defaults were numbers, and not texts)
+$bare_conf = $conf;
+unset($bare_conf['n_ex_tests'], $bare_conf['n_sample_tests']);
+check_same('', $errors_of(array('problem.conf', 'in1.txt', 'out1.txt', 'in2.txt', 'out2.txt'), $bare_conf), 'a problem.conf without extra tests');
+// A problem whose checker is its own may have tests without answers: they are handed empty ones.
+// The ways of comparing of the site compare with the answer.
+$own_checker = $bare_conf;
+unset($own_checker['use_builtin_checker']);
+$inputs_only = uploadPreflight(array('problem.conf', 'in1.txt', 'in2.txt', 'chk.cpp'), $own_checker, false);
+check_same(array(), $inputs_only['errors'], 'tests without answers, where the checker is the problem\'s own');
+check_same(true, in_array('2 个测试点没有答案文件：交给校验器的答案是空的', $inputs_only['facts'], true), 'and the report says so');
+check_same(true, strpos($errors_of(array('problem.conf', 'in1.txt', 'in2.txt'), $bare_conf), 'out1.txt') !== false, 'tests without answers, where a way of comparing of the site compares with them');
 check_same(true, strpos($errors_of(array(), -1), '还没有上传') !== false, 'nothing was uploaded');
 check_same(true, strpos($errors_of(array('in1.txt'), -1), 'problem.conf') !== false, 'no problem.conf');
 check_same(true, strpos($errors_of($files, -2), '语法错误') !== false, 'a problem.conf that can not be read');
@@ -378,7 +391,8 @@ check_same(true, strpos($errors_of($files, array('n_tests' => 'many') + $conf), 
 check_same(true, strpos($errors_of($files, array('n_sample_tests' => '2') + $conf), 'n_sample_tests') !== false, 'more samples than extra tests');
 $without = $conf;
 unset($without['n_sample_tests']);
-check_same(true, strpos($errors_of($files, $without), 'n_sample_tests') !== false, 'the number of samples that is not written is the number of tests');
+// what is not written is none, as the judgers have it (it was the number of tests, and refused)
+check_same('', $errors_of($files, $without), 'the number of samples that is not written');
 unset($without['use_builtin_checker']);
 check_same(true, strpos($errors_of($files, array('n_sample_tests' => '1') + $without), 'chk.cpp') !== false, 'no checker');
 check_same('', $errors_of(array_merge($files, array('chk.cpp', 'testlib.h')), array('n_sample_tests' => '1') + $without), 'a checker of its own');

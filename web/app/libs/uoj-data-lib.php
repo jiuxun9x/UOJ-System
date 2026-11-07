@@ -533,7 +533,8 @@
 					if (isset($this->allow_files['require']) && is_dir("{$this->upload_dir}/require")) {
 						$this->copy_to_prepare('require');
 					}
-					$n_tests = getUOJConfVal($this->problem_conf, 'n_tests', 10);
+					// (what is not written is what the judgers take; validateUInt() takes a text, as a conf has it)
+					$n_tests = getUOJConfVal($this->problem_conf, 'n_tests', '10');
 					if (!validateUInt($n_tests) || $n_tests <= 0) {
 						throw new UOJProblemConfException("n_tests must be a positive integer");
 					}
@@ -582,7 +583,7 @@
 							$this->requirement[] = array('name' => "output$num", 'type' => 'text', 'file_name' => $output_file_name);
 						}
 					} else {
-						$n_ex_tests = getUOJConfVal($this->problem_conf, 'n_ex_tests', 0);
+						$n_ex_tests = getUOJConfVal($this->problem_conf, 'n_ex_tests', '0');
 						if (!validateUInt($n_ex_tests) || $n_ex_tests < 0) {
 							throw new UOJProblemConfException("n_ex_tests must be a non-negative integer");
 						}
@@ -664,7 +665,7 @@
 							throw new UOJProblemConfException("the problem can't be hackable if its program runs more than once on a test");
 						}
 						if ($this->check_conf_on('domjudge_multipass')) {
-							$n_passes = getUOJConfVal($this->problem_conf, 'validation_passes', 2);
+							$n_passes = getUOJConfVal($this->problem_conf, 'validation_passes', '2');
 							if (!validateUInt($n_passes) || $n_passes < 2 || $n_passes > 20) {
 								throw new UOJProblemConfException("validation_passes must be an integer between 2 and 20");
 							}
@@ -685,7 +686,8 @@
 							$this->need_compile('interactor', array('need_include_header' => true));
 						}
 
-						$n_sample_tests = getUOJConfVal($this->problem_conf, 'n_sample_tests', $n_tests);
+						// (none where it is not said, as the judgers have it)
+						$n_sample_tests = getUOJConfVal($this->problem_conf, 'n_sample_tests', '0');
 						if (!validateUInt($n_sample_tests) || $n_sample_tests < 0) {
 							throw new UOJProblemConfException("n_sample_tests must be a non-negative integer");
 						}
