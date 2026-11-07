@@ -102,9 +102,8 @@ class RejudgeBetweenTheTwoTestsTest(unittest.TestCase):
             self.assertIn("final_test_config", content)
         uoj.wait_idle()
         # both tests done again, one after the other: the score of the samples, the result of all the data
-        status, score, result = db("select status, ifnull(score, 'NULL'), result from submissions where id = %d" % submission_id)[0]
-        self.assertEqual((status, score), ("Judged", "100"), result)
-        self.assertEqual(json.loads(result)["final_result"]["score"], 100)
+        status, score, final = db("select status, ifnull(score, 'NULL'), ifnull(json_extract(result, '$.final_result.score'), 'NULL') from submissions where id = %d" % submission_id)[0]
+        self.assertEqual((status, score, final), ("Judged", "100", "100"))
         self.assertEqual(db_value("select count(*) from best_ac_submissions where submission_id = %d" % submission_id), "1")
 
 
@@ -294,7 +293,9 @@ class HiddenContestTest(unittest.TestCase):
         # and they are none of its staff: no management, no registering
         self.assertEqual(tester.get(manage).status_code, 403)
         self.assertNotEqual(tester.get("/contest/%d/backstage" % contest_id).status_code, 200)
-        self.assertNotEqual(tester.submit_form("/contest/%d/register" % contest_id, "register"), "")
+        # (the page of registering sends them away)
+        tester.submit_form("/contest/%d/register" % contest_id, "register")
+        self.assertEqual(db_value("select count(*) from contests_registrants where contest_id = %d and username = 'p20_hid_tester'" % contest_id), "0")
 
         # ---- the people on its list, as Hydro has it: they see it and take part
         self.assertEqual(admin.form(manage, "allow", names="p20_hid_listed", tab="access"), "")
