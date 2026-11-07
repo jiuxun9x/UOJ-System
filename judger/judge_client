@@ -663,10 +663,59 @@ PROGRAM_CACHE_ENTRIES = 500
 # what run/compile builds with g++ and gcc: the name of the program and one of these endings
 C_SOURCE_ENDINGS = [std + ".cpp" for std in ("", "98", "03", "11", "14", "17", "20", "23", "26")]
 C_SOURCE_ENDINGS += [std + ".c" for std in ("", "89", "99", "11", "17", "23")]
-INCLUDE_LINE = re.compile(rb"^[ \t]*#[ \t]*include\b[ \t]*(.*)$", re.MULTILINE)
+# a directive starts with # (or %:, which is the same to the compiler) as the first thing on a
+# line, after the lines are joined and the comments taken out (see as_preprocessed())
+INCLUDE_LINE = re.compile(rb"^[ \t]*(?:#|%:)[ \t]*include\b[ \t]*(.*)$", re.MULTILINE)
 INCLUDED_FILE = re.compile(rb'^(?:"([^"\n]+)"|<([^>\n]+)>)[ \t]*(?://.*|/\*.*)?\r?$')
 # what pulls the contents of another file into a program without an #include the scan sees
 OPAQUE_SOURCE = re.compile(rb"#[ \t]*embed\b|incbin|__has_include|__has_embed")
+# what the scan does not read as the compiler does: trigraphs (??= is #) and raw strings
+UNREADABLE_SOURCE = re.compile(rb"\?\?[=/'()!<>-]|\bu?8?[LUuR]*R\"")
+
+
+def as_preprocessed(content):
+    """The lines of a C or C++ source as the preprocessor reads them for its directives: a line
+    that ends in a backslash joined with the next, and every comment one space, so that an
+    #include after a comment or over two lines is seen as the compiler sees it (J02: one after a
+    comment was not, and a checker was kept built against a header that had changed). Strings
+    and characters are kept as they are. None where it can not be read for sure."""
+    if UNREADABLE_SOURCE.search(content):
+        return None
+    text = re.sub(rb"\\\r?\n", b"", content)
+    out = bytearray()
+    i, n = 0, len(text)
+    while i < n:
+        if text.startswith(b"//", i):
+            end = text.find(b"\n", i)
+            i = n if end < 0 else end
+        elif text.startswith(b"/*", i):
+            end = text.find(b"*/", i + 2)
+            if end < 0:
+                return None
+            out += b" "
+            i = end + 2
+        elif text[i] in b"\"'":
+            quote = text[i]
+            if quote == ord("'"):
+                # 1'000'000: a separator of digits, not a character
+                start = i
+                while start > 0 and (chr(text[start - 1]).isalnum() or text[start - 1] in b"_.'"):
+                    start -= 1
+                if start < i and chr(text[start]).isdigit():
+                    out.append(quote)
+                    i += 1
+                    continue
+            end = i + 1
+            while end < n and text[end] != quote and text[end] != ord("\n"):
+                end += 2 if text[end] == ord("\\") else 1
+            if end >= n or text[end] != quote:
+                return None
+            out += text[i : end + 1]
+            i = end + 1
+        else:
+            out.append(text[i])
+            i += 1
+    return bytes(out)
 
 
 def program_cache_path(key=""):
@@ -704,7 +753,10 @@ def program_sources(data_dir, step):
         if OPAQUE_SOURCE.search(content):
             return None
         seen[rel] = content
-        for line in INCLUDE_LINE.findall(content):
+        directives = as_preprocessed(content)
+        if directives is None:
+            return None
+        for line in INCLUDE_LINE.findall(directives):
             found = INCLUDED_FILE.match(line.strip())
             if not found:
                 # an #include whose file is the result of a macro

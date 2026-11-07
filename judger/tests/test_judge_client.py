@@ -1089,6 +1089,27 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
         # none of which forgot what was built for the checker as it is now
         self.assertEqual(self.build(files)[1], [])
 
+    def test_include_is_seen_however_it_is_written(self):
+        """an #include after a comment, over two lines or written %:include is one to the compiler:
+        a change of the header it reads builds the program again (J02)"""
+        self.cache_set_up()
+        written = {
+            "after a comment": b'/* configuration */ #include "require/value.h"\n',
+            "after a comment of two lines": b'/* configuration\n   of the checker */ #include "require/value.h"\n',
+            "over two lines": b'#\\\ninclude "require/value.h"\n',
+            "with %:": b'%:include "require/value.h"\n',
+        }
+        for what, include in written.items():
+            files = {"chk.cpp": include + b"int main() { return EXPECTED; }\n", "require/value.h": b"#define EXPECTED 42\n"}
+            self.assertEqual(self.build(files)[1], ["chk"], what)
+            self.assertEqual(self.build(files)[1], [], what)
+            self.assertEqual(self.build(dict(files, **{"require/value.h": b"#define EXPECTED 43\n"}))[1], ["chk"], what)
+        # what only looks like an include is none: in a comment, in a string, after a separator of digits
+        not_included = b'// #include "require/value.h"\nconst char *s = "#include \\"require/value.h\\"";\nint n = 1\'000; /* #include "require/value.h" */\nint main() {}\n'
+        files = {"chk.cpp": not_included, "require/value.h": b"#define EXPECTED 42\n"}
+        self.assertEqual(self.build(files)[1], ["chk"])
+        self.assertEqual(self.build(dict(files, **{"require/value.h": b"#define EXPECTED 43\n"}))[1], [])
+
     def test_solution_with_an_implementer_depends_on_both(self):
         self.cache_set_up()
         step = [{"type": "compile", "name": "std", "impl": "implementer", "path": "require"}]
@@ -1107,6 +1128,9 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
             "a file the assembler includes": {"chk.cpp": b'asm(".incbin \\"input1.txt\\"");\nint main() {}\n'},
             "an include outside of the data": {"chk.cpp": b'#include "../../other/secret.h"\nint main() {}\n'},
             "an include from anywhere on the judger": {"chk.cpp": b"#include </etc/hostname>\nint main() {}\n"},
+            "a trigraph": {"chk.cpp": b'??=include "tables.h"\nint main() {}\n'},
+            "a raw string": {"chk.cpp": b'const char *s = R"(\n#include "tables.h"\n)";\nint main() {}\n'},
+            "a comment that does not end": {"chk.cpp": b"int main() {}\n/* \n"},
         }
         for what, files in unknowable.items():
             self.assertEqual(self.build(files)[1], ["chk"], what)
