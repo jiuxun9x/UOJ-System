@@ -102,7 +102,7 @@ class RejudgeBetweenTheTwoTestsTest(unittest.TestCase):
             self.assertIn("final_test_config", content)
         uoj.wait_idle()
         # both tests done again, one after the other: the score of the samples, the result of all the data
-        status, score, final = db("select status, ifnull(score, 'NULL'), ifnull(json_extract(result, '$.final_result.score'), 'NULL') from submissions where id = %d" % submission_id)[0]
+        status, score, final = db("select status, ifnull(score, 'NULL'), ifnull(json_extract(convert(result using utf8mb4), '$.final_result.score'), 'NULL') from submissions where id = %d" % submission_id)[0]
         self.assertEqual((status, score, final), ("Judged", "100", "100"))
         self.assertEqual(db_value("select count(*) from best_ac_submissions where submission_id = %d" % submission_id), "1")
 
