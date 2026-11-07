@@ -175,3 +175,11 @@ check_same(array(array('solved' => 3, 'tries' => 3), array('solved' => 1, 'tries
 // does not divide by the number of the others when it is zero)
 check_same(array(1500), calcRating(array(array(100, 0, array('ann', 1500, ''), 1))), 'a contest of one changes no rating');
 check_same(array(1700.0, 1300.0), calcRating(array(array(100, 0, array('ann', 1500, ''), 1), array(0, 0, array('bob', 1500, ''), 2))), 'the first of two gains what the second loses');
+
+// ---- the colour of how much of a contest somebody did, as QOJ's getColOfScore() makes it in the
+// browser (with color-converter.js): the same fraction is the same colour wherever it is drawn
+check_same(
+	array('rgb(204,0,0)', 'rgb(230,161,0)', 'rgb(230,191,0)', 'rgb(230,230,0)', 'rgb(191,230,0)', 'rgb(134,230,0)', 'rgb(0,204,0)'),
+	array_map('scoreColor', array(0, 1 / 5, 1 / 3, 1 / 2, 2 / 3, 11 / 12, 1)),
+	'nothing is red, all of it green, and in between from orange to yellow-green'
+);

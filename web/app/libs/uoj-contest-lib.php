@@ -368,6 +368,37 @@ function contestIcpcCell($cell) {
 	return $failed > 0 ? array('-' . $failed, '', 'uoj-icpc-failed') : array('', '', '');
 }
 
+// The colour of how much of a contest somebody did, as the boards of QOJ have it (getColOfScore()
+// of uoj.js): red for nothing, green for all of it, and in between from orange to yellow-green.
+// $fraction is from 0 to 1. Worked out as ColorConverter does it, so that the same fraction is
+// the same colour on a board the server writes and on one the browser draws.
+function scoreColor($fraction) {
+	if ($fraction <= 0) {
+		list($h, $v) = array(0, 80);
+	} elseif ($fraction >= 1) {
+		list($h, $v) = array(120, 80);
+	} else {
+		list($h, $v) = array(30 + $fraction * 60, 90);
+	}
+	// HSV to RGB with the saturation at its full, which leaves only the first three sixths of
+	// the circle to go round
+	$e = $v / 100;
+	$var_h = 6 * ($h / 360);
+	$var_i = (int)floor($var_h);
+	$var_2 = $e * (1 - ($var_h - $var_i));
+	$var_3 = $e * (1 - (1 - ($var_h - $var_i)));
+	if ($var_i == 0) {
+		$rgb = array($e, $var_3, 0);
+	} elseif ($var_i == 1) {
+		$rgb = array($var_2, $e, 0);
+	} else {
+		$rgb = array(0, $e, $var_3);
+	}
+	return 'rgb(' . implode(',', array_map(function($x) {
+		return (int)round(255 * $x);
+	}, $rgb)) . ')';
+}
+
 // What a submission that was judged is said to be where only passing counts: Accepted, or
 // what went wrong on the first test that it failed.
 function submissionVerdictOf($score, $details) {

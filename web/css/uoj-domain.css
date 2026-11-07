@@ -232,41 +232,54 @@
 	font-size: 0.875rem;
 }
 
-/* ---- the board of an ICPC contest: the look of the boards people know from QOJ */
-.uoj-icpc-board th, .uoj-icpc-board td {
-	padding: 0.45rem 0.3rem;
-	line-height: 1.35;
+/* ---- the board of an ICPC contest, in the fonts and colours of QOJ: the cells of Bootstrap as
+   they are, the numbers in the figures of the font, what is under them as large as they are */
+.uoj-icpc-board {
+	font-variant-numeric: normal;
 }
-/* a problem somebody solved */
+.uoj-scoreboard.uoj-icpc-board .uoj-icpc-under {
+	font-size: 100%;
+	font-weight: normal;
+	line-height: inherit;
+	color: #212529;
+}
+/* a problem somebody solved, and one nobody did: with how many solved it of how many tried */
 .uoj-scoreboard th.uoj-icpc-solved-by {
 	background-color: #c3e6cb;
 }
-.uoj-scoreboard .uoj-icpc-total {
-	color: #00a000;
+.uoj-scoreboard th.uoj-icpc-solved-by-none {
+	background-color: #f5c6cb;
+}
+.uoj-scoreboard.uoj-icpc-board th .uoj-icpc-under {
+	font-size: 75%;
 	font-weight: bold;
 }
-.uoj-scoreboard .uoj-icpc-total-none {
-	color: #d00000;
-	font-weight: bold;
+/* how many somebody solved: coloured by how much of the contest it is (scoreColor()) */
+.uoj-scoreboard .uoj-icpc-total, .uoj-scoreboard .uoj-icpc-total-none {
+	font-weight: 700;
 }
-.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a,
-.uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a {
-	color: #00a000;
-	font-weight: bold;
+.uoj-scoreboard .uoj-icpc-solved, .uoj-scoreboard .uoj-icpc-solved a, .uoj-scoreboard .uoj-icpc-first, .uoj-scoreboard .uoj-icpc-first a,
+.uoj-icpc-legend .uoj-icpc-solved, .uoj-icpc-legend .uoj-icpc-first {
+	color: rgb(0, 204, 0);
+	font-weight: 700;
 }
 /* the first to solve a problem */
-.uoj-scoreboard .uoj-icpc-first {
+.uoj-scoreboard .uoj-icpc-first, .uoj-icpc-legend .uoj-icpc-first {
 	background-color: #c3e6cb !important;
 }
-.uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a {
-	color: #d00000;
-	font-weight: bold;
+.uoj-scoreboard .uoj-icpc-failed, .uoj-scoreboard .uoj-icpc-failed a, .uoj-icpc-legend .uoj-icpc-failed {
+	color: rgb(204, 0, 0);
+	font-weight: 700;
 }
-/* submitted after the board froze */
-.uoj-scoreboard .uoj-icpc-pending {
-	background-color: #d6e4f5 !important;
-	color: #1b3a5c;
-	font-weight: bold;
+/* submitted after the board froze, or still judged: the "?" in blue */
+.uoj-scoreboard .uoj-icpc-pending, .uoj-icpc-legend .uoj-icpc-pending {
+	color: blue;
+	font-weight: 700;
+}
+/* the row of whoever looks at the board, as on QOJ: the yellow of .table-warning */
+.uoj-icpc-board tr.uoj-scoreboard-me, .uoj-icpc-board tr.uoj-scoreboard-me > td,
+.uoj-icpc-board.table-striped tbody tr.uoj-scoreboard-me .uoj-scoreboard-name {
+	background-color: #ffeeba;
 }
 
 /* ---- a field that takes problems: what is chosen stands in it as tags */
@@ -523,17 +536,6 @@ abbr.uoj-verdict-short, abbr.uoj-verdict-short[title] {
 }
 #virtual-reserve > summary {
 	cursor: pointer;
-}
-
-/* ---- the row of whoever looks at a board */
-.uoj-scoreboard tr.uoj-scoreboard-me > td {
-	box-shadow: inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
-}
-.uoj-scoreboard tr.uoj-scoreboard-me > td:first-child {
-	box-shadow: inset 2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
-}
-.uoj-scoreboard tr.uoj-scoreboard-me > td:last-child {
-	box-shadow: inset -2px 0 0 #007bff, inset 0 2px 0 #007bff, inset 0 -2px 0 #007bff;
 }
 
 /* ---- somebody who sat the contest virtually: on the board under a star */

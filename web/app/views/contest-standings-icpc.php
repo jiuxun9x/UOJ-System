@@ -59,11 +59,11 @@
 	<table class="table table-bordered uoj-scoreboard uoj-icpc-board mb-1">
 		<thead>
 			<tr>
-				<th style="width:4em">#</th>
-				<th class="uoj-scoreboard-name">我的实际成绩</th>
-				<th style="width:6em">通过<div class="uoj-icpc-under">罚时</div></th>
+				<th style="width:3em">#</th>
+				<th class="uoj-scoreboard-name" style="width:15em">我的实际成绩</th>
+				<th style="width:4em">通过<div class="uoj-icpc-under">罚时</div></th>
 				<?php foreach ($problems as $pos => $problem): ?>
-				<th style="width:5.5em"><?= chr(ord('A') + $pos % 26) ?></th>
+				<th style="width:5em"><?= chr(ord('A') + $pos % 26) ?></th>
 				<?php endforeach ?>
 			</tr>
 		</thead>
@@ -71,7 +71,7 @@
 			<tr class="uoj-scoreboard-me" data-username="<?= $my_name ?>" data-solved="<?= $mine['row'][0] / 100 ?>" data-penalty="<?= $mine['row'][1] ?>">
 				<td title="封榜期间不显示名次">?</td>
 				<td class="uoj-scoreboard-name"><?= $me_is_virtual ? $star : '' ?><?= getUserLink($my_name) ?></td>
-				<td><span class="<?= $mine['row'][0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $mine['row'][0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($mine['row'][1]) ?></div></td>
+				<td><span style="color:<?= scoreColor($problems ? $mine['row'][0] / 100 / count($problems) : 0) ?>" class="<?= $mine['row'][0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $mine['row'][0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($mine['row'][1]) ?></div></td>
 				<?php foreach ($problems as $pos => $problem): ?>
 				<?php $print_cell(isset($mine['cells'][$pos]) ? $mine['cells'][$pos] : null, $pos, false) ?>
 				<?php endforeach ?>
@@ -85,12 +85,12 @@
 	<table class="table table-bordered table-striped uoj-scoreboard uoj-icpc-board" id="table-icpc-standings"<?= $frozen ? ' data-frozen="1"' : '' ?>>
 		<thead>
 			<tr>
-				<th style="width:4em">#</th>
-				<th class="uoj-scoreboard-name"><?= UOJLocale::get('username') ?></th>
-				<th style="width:6em">通过<div class="uoj-icpc-under">罚时</div></th>
+				<th style="width:3em">#</th>
+				<th class="uoj-scoreboard-name" style="width:15em"><?= UOJLocale::get('username') ?></th>
+				<th style="width:4em">通过<div class="uoj-icpc-under">罚时</div></th>
 				<?php foreach ($problems as $pos => $problem): ?>
 				<?php $balloon = $problem && isset($balloon_colors[(int)$problem['id']]) ? $balloon_colors[(int)$problem['id']] : null; ?>
-				<th style="width:5.5em<?= $balloon ? ';box-shadow:inset 0 5px 0 ' . $balloon['color'] : '' ?>"<?= $balloon ? ' data-balloon="' . $balloon['color'] . '"' : '' ?><?= isset($solved_by[$pos]) ? ' class="uoj-icpc-solved-by"' : '' ?> title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?><?= $balloon && $balloon['name'] !== '' ? '（气球：' . HTML::escape($balloon['name']) . '）' : '' ?>">
+				<th style="width:5em<?= $balloon ? ';box-shadow:inset 0 5px 0 ' . $balloon['color'] : '' ?>"<?= $balloon ? ' data-balloon="' . $balloon['color'] . '"' : '' ?> class="<?= isset($solved_by[$pos]) ? 'uoj-icpc-solved-by' : 'uoj-icpc-solved-by-none' ?>" title="<?= $problem ? HTML::escape(strip_tags($problem['title'])) : '' ?><?= $balloon && $balloon['name'] !== '' ? '（气球：' . HTML::escape($balloon['name']) . '）' : '' ?>">
 					<a href="/contest/<?= $contest['id'] ?>/problem/<?= chr(ord('A') + $pos % 26) ?>"><?= chr(ord('A') + $pos % 26) ?></a>
 					<div class="uoj-icpc-under" data-solved-by="<?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>"><?= isset($solved_by[$pos]) ? $solved_by[$pos] : 0 ?>/<?= isset($tried_by[$pos]) ? $tried_by[$pos] : 0 ?></div>
 				</th>
@@ -104,7 +104,7 @@
 			<tr<?= $me !== null && ($key === (string)$me || $key === '*' . $me) ? ' class="uoj-scoreboard-me"' : '' ?> data-username="<?= $username ?>"<?= $is_virtual ? ' data-virtual="1"' : '' ?> data-rank="<?= $row[3] ?>" data-solved="<?= $row[0] / 100 ?>" data-penalty="<?= $row[1] ?>">
 				<td><?= $row[3] ?></td>
 				<td class="uoj-scoreboard-name"><?= $is_virtual ? $star : '' ?><span class="uoj-username" data-rating="<?= (int)$row[2][1] ?>"<?= isset($row[2][2]) && $row[2][2] !== '' ? ' data-alias="' . HTML::escape($row[2][2]) . '"' : '' ?>><?= $username ?></span></td>
-				<td><span class="<?= $row[0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $row[0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($row[1]) ?></div></td>
+				<td><span style="color:<?= scoreColor($problems ? $row[0] / 100 / count($problems) : 0) ?>" class="<?= $row[0] > 0 ? 'uoj-icpc-total' : 'uoj-icpc-total-none' ?>"><?= $row[0] / 100 ?></span><div class="uoj-icpc-under"><?= contestClock($row[1]) ?></div></td>
 				<?php foreach ($problems as $pos => $problem): ?>
 				<?php $print_cell(isset($score[$key][$pos]) ? $score[$key][$pos] : null, $pos, isset($first[$pos]) && $first[$pos][1] === $key) ?>
 				<?php endforeach ?>
@@ -115,10 +115,10 @@
 </div>
 <div class="text-right text-muted">
 	<small class="mr-3">表头：通过人数/尝试人数</small>
-	<small class="mr-3"><strong class="text-success">+2</strong> 通过，此前 2 次未通过；下面是通过的时间</small>
-	<small class="mr-3"><strong class="text-danger">-3</strong> 交了 3 次都没通过</small>
-	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-first px-2">+</span></span> 最先通过</small>
-	<small class="mr-3"><span class="uoj-scoreboard"><span class="uoj-icpc-pending px-2">?</span></span> 有还不知道结果的提交<?= $frozen ? '（封榜后交的，或正在评测）' : '（正在评测）' ?>：“1 + 2”是 1 次未通过、2 次结果未知</small>
+	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-solved">+2</span> 通过，此前 2 次未通过；下面是通过的时间</small>
+	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-failed">-3</span> 交了 3 次都没通过</small>
+	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-first px-2">+</span> 最先通过</small>
+	<small class="mr-3 uoj-icpc-legend"><span class="uoj-icpc-pending">?</span> 有还不知道结果的提交<?= $frozen ? '（封榜后交的，或正在评测）' : '（正在评测）' ?>：“1 + 2”是 1 次未通过、2 次结果未知</small>
 	<?php
 		// the people who sat the contest virtually are on the board, and are not its contestants
 		$n_contestants = 0;
