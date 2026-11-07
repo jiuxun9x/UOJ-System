@@ -191,8 +191,9 @@ function alertNotify($alert, $resolved) {
 	$title = ($resolved ? '已恢复：' : '告警：') . alertKindName($alert['kind']);
 	$text = HTML::escape($alert['message']);
 	if ($resolved) {
+		// (a name of PHP goes on through letters that are not ASCII: {} end it)
 		$times = isset($alert['interruptions']) && $alert['interruptions'] > 1 ? "，期间共出现 {$alert['interruptions']} 次" : '';
-		$text .= "（开始于 {$alert['started_at']}，{$alert['resolved_at']} 起恢复正常$times）";
+		$text .= "（开始于 {$alert['started_at']}，{$alert['resolved_at']} 起恢复正常{$times}）";
 	}
 	foreach (DB::selectAll("select username from user_info where usergroup = 'S'") as $row) {
 		sendSystemMsg($row['username'], $title, "$text <a href=\"/super-manage/monitor\">查看运行状态</a>");
