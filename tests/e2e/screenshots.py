@@ -638,6 +638,23 @@ def outer_board_is_seen_as_a_virtual_participant(page, seeded):
     assert page.locator("#outer-board-vp option").count() >= 3
 
 
+def outer_board_tells_its_statistics(page, seeded):
+    """the tabs of the outer board, as XCPCIO has them: the statistics of the contest drawn, and
+    what was submitted listed, what was sent since the board froze not told"""
+    page.wait_for_selector("#outer-board-chart-time svg")
+    assert page.get_attribute("#outer-board", "data-tab") == "stats"
+    assert page.locator("#outer-board-chart-problems svg .uoj-ob-mark-yes").count() >= 1
+    assert page.locator("#outer-board-chart-solved svg .uoj-ob-mark-accent").count() >= 1
+    assert page.locator("#outer-board-chart-time svg .uoj-ob-mark-wait").count() >= 1
+    page.click(".uoj-ob-tab[data-tab=runs]")
+    page.wait_for_selector("#table-outer-board-runs tbody tr[data-username]")
+    verdicts = page.eval_on_selector_all("#table-outer-board-runs .uoj-ob-verdict", "marks => marks.map(mark => mark.className)")
+    assert any("uoj-ob-verdict-wait" in verdict for verdict in verdicts) and any("uoj-ob-verdict-yes" in verdict for verdict in verdicts), verdicts
+    assert page.evaluate("window.location.hash") == "#runs"
+    page.click(".uoj-ob-tab[data-tab=stats]")
+    page.wait_for_selector("#outer-board-chart-time svg")
+
+
 def outer_board_goes_dark(page, seeded):
     """the outer board for a wall: dark, and the row of whoever looks is marked"""
     page.wait_for_selector("#table-outer-board tbody tr")
@@ -846,6 +863,7 @@ def pages(seeded):
         ("outer-board-dark", "student", "/contest/%d/board" % seeded["icpc"], outer_board_goes_dark),
         ("outer-board-final", "visitor", "/contest/%d/board" % seeded["contest"]),
         ("outer-board-vp", "visitor", "/contest/%d/board?vp=%s" % (seeded["contest"], seeded["sitter"].username), outer_board_is_seen_as_a_virtual_participant),
+        ("outer-board-stats", "visitor", "/contest/%d/board#stats" % seeded["icpc"], outer_board_tells_its_statistics),
         ("balloons-settings", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_settings_are_opened),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),
