@@ -325,22 +325,36 @@ body.uoj-ob-dark-page .uoj-ob {
 	font-weight: 400;
 	color: var(--ob-muted);
 }
-/* the first three, as long as they have solved something */
+/* a medal: the rank in the colour of its kind, as the contest chose it */
 .uoj-ob-medal {
 	display: inline-block;
 	min-width: 1.9em;
 	padding: 0.05em 0.3em;
 	border-radius: 999px;
-	color: #3a2a00;
+	font-weight: 700;
+	box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.15);
 }
-.uoj-ob-medal-1 {
-	background-color: #f6c945;
+/* under the table: the kinds of medals, and how many each went to */
+.uoj-ob-medals {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.4rem 1.4rem;
+	margin: 0.8rem 0 0;
+	font-size: 0.95rem;
 }
-.uoj-ob-medal-2 {
-	background-color: #cfd6de;
+.uoj-ob-medal-kind i {
+	display: inline-block;
+	width: 1.1em;
+	height: 1.1em;
+	margin-right: 0.35em;
+	vertical-align: -0.15em;
+	border-radius: 50%;
+	box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.15);
 }
-.uoj-ob-medal-3 {
-	background-color: #e0a36a;
+.uoj-ob-medal-kind small, .uoj-ob-medal-counted {
+	margin-left: 0.4em;
+	color: var(--ob-muted);
 }
 /* the row of whoever looks */
 .uoj-ob-me > td.uoj-ob-name {

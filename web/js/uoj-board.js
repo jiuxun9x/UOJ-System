@@ -79,8 +79,10 @@
 		return html + '</tr>';
 	};
 	var rowHtml = function(row) {
-		// the medals go to the best three of the contestants: who sat the contest virtually takes none
-		var html = '<td class="uoj-ob-rank"><span' + (row.medal ? ' class="uoj-ob-medal uoj-ob-medal-' + row.medal + '"' : '') + '>' + row.rank + '</span></td>';
+		// the medals of the contest, in their colours: who sat the contest virtually takes none
+		var medal = row.medal ? state.medals[row.medal - 1] : null;
+		var html = '<td class="uoj-ob-rank"><span' + (medal ? ' class="uoj-ob-medal uoj-ob-medal-' + row.medal + '" title="' + esc(medal.name) + '"'
+			+ ' style="background-color: ' + esc(medal.color) + '; color: ' + inkOn(medal.color) + '"' : '') + '>' + row.rank + '</span></td>';
 		var name = '<span class="uoj-ob-nick">' + esc(row.nickname !== '' ? row.nickname : row.username) + '</span>'
 			+ (row.nickname !== '' ? '<small>' + esc(row.username) + '</small>' : '');
 		if (row.virtual) {
@@ -237,12 +239,30 @@
 			return !!problem.color;
 		}).length > 0;
 		$('#outer-board-legend-first').text(balloons ? '最先通过（有气球的题目用气球的颜色）' : '最先通过');
+		medalLegend();
 		var frozen = $('#outer-board-progress-frozen');
 		if (state.freeze !== null && state.duration > 0) {
 			frozen.css({left: (100 * state.freeze / state.duration) + '%', width: (100 - 100 * state.freeze / state.duration) + '%'}).show();
 		} else {
 			frozen.hide();
 		}
+	};
+	// what the medals are, and how many each went to
+	var medalLegend = function() {
+		var kinds = state.medals || [];
+		var html = '';
+		$.each(kinds, function(index, kind) {
+			var amount = String(kind.amount);
+			var said = kind.of ? amount + (kind.of === 'all' ? ' 参赛人数' : ' 有效人数') : amount + ' 人';
+			html += '<span class="uoj-ob-medal-kind" data-medal="' + (index + 1) + '"><i style="background-color: ' + esc(kind.color) + '"></i>'
+				+ esc(kind.name) + '<small>' + esc(said) + ' · ' + kind.given + ' 人</small></span>';
+		});
+		if (kinds.length > 0 && $.grep(kinds, function(kind) {
+			return !!kind.of;
+		}).length > 0) {
+			html += '<span class="uoj-ob-medal-counted">参赛人数 ' + state.counted.all + '，有效人数 ' + state.counted.effective + '</span>';
+		}
+		$('#outer-board-medals').html(html).toggle(kinds.length > 0 && state.phase !== 'before');
 	};
 	var tick = function() {
 		var passed = state.ticking || state.phase === 'before' ? (Date.now() - told) / 1000 : 0;

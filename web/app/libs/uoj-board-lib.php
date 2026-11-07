@@ -16,6 +16,8 @@
 //                the problem, where it is known: it stands under what was tried in vain
 //   $waiting     what waits to be judged, see contestFirstSolves(): who solved first is told
 //                only once nothing submitted before waits
+//   $medals      the medals, as contestMedals() says them; null for those of a contest that
+//                says nothing
 // Returns array(
 //   'problems' => position => array('solved' => how many solved it (under the other rules:
 //                 got all of it), 'tries' => how many submissions to it count (under the
@@ -25,12 +27,18 @@
 //                 submissions to what was solved, the percentage that failed, or null where
 //                 nothing was solved or the rule knows no such thing, 'band' => 0 or 1,
 //                 which changes wherever the next row has solved less, 'virtual' => whether it
-//                 is somebody who sat the contest virtually ("*" and the name), 'medal' => 1, 2
-//                 or 3 for the best three of the contestants (who sat it virtually take no medal
-//                 and push nobody out of one), else 0, 'cells' => position => array('kind' =>
-//                 'none', 'first', 'solved', 'part', 'failed' or 'pending', 'says', 'under'))
+//                 is somebody who sat the contest virtually ("*" and the name), 'medal' => which
+//                 of the medals they get, from 1 for the first kind, else 0 (who sat it
+//                 virtually takes none and pushes nobody out of one), 'cells' => position =>
+//                 array('kind' => 'none', 'first', 'solved', 'part', 'failed' or 'pending',
+//                 'says', 'under')),
+//   'medals'   => of each kind of medal: array('name', 'color', 'amount', 'of' (what a percentage
+//                 is of, else null), 'count' => how many it is for, 'given' => how many got it:
+//                 who is level with somebody may get one beyond),
+//   'counted'  => what percentages are of: array('all' => how many contestants are on the
+//                 board, 'effective' => how many of them solved something)
 // )
-function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = array(), $waiting = array()) {
+function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = array(), $waiting = array(), $medals = null) {
 	$icpc = $rule === 'ICPC';
 	$problems = array();
 	for ($pos = 0; $pos < $n_problems; $pos++) {
@@ -104,22 +112,69 @@ function contestOuterBoard($rule, $n_problems, $standings, $score, $last_try = a
 			$band = 1 - $band;
 		}
 		$before = $level;
-		$medal = 0;
+		// what the medals go by: the rank among the contestants alone
+		$among = null;
 		if (!$virtual) {
 			$contestants++;
 			if ($last_contestant === null || $last_contestant !== array($row[0], $row[1])) {
 				$contestant_rank = $contestants;
 				$last_contestant = array($row[0], $row[1]);
 			}
-			$medal = $contestant_rank <= 3 && $level > 0 ? $contestant_rank : 0;
+			$among = $contestant_rank;
 		}
 		$rows[] = array(
 			'key' => $key, 'person' => $row[2], 'rank' => $row[3], 'solved' => $level, 'penalty' => (int)$row[1],
 			'dirt' => $icpc && $solved > 0 ? (int)floor(100 * $wasted / ($solved + $wasted)) : null,
-			'band' => $band, 'virtual' => $virtual, 'medal' => $medal, 'cells' => $cells
+			'band' => $band, 'virtual' => $virtual, 'medal' => 0, 'cells' => $cells, 'among' => $among
 		);
 	}
-	return array('problems' => $problems, 'rows' => $rows);
+	list($rows, $kinds, $counted) = boardGiveMedals($rows, $medals === null ? contestDefaultMedals() : $medals);
+	return array('problems' => $problems, 'rows' => $rows, 'medals' => $kinds, 'counted' => $counted);
+}
+// Gives the rows of a board their medals (see contestMedals()): every kind goes to so many of
+// the contestants after the ones the kinds before went to, by their rank among the contestants;
+// who is level with the last of them gets it too, and who did nothing gets none. The rows have
+// 'among' (the rank among the contestants, null for who sat the contest virtually), which
+// they lose. Returns the rows, the kinds with how many each is for and how many got it, and
+// what the percentages were of.
+function boardGiveMedals($rows, $medals) {
+	// what percentages are of: the contestants, and those of them who solved something
+	$of = array('all' => 0, 'effective' => 0);
+	foreach ($rows as $row) {
+		if ($row['among'] !== null) {
+			$of['all']++;
+			$of['effective'] += $row['solved'] > 0 ? 1 : 0;
+		}
+	}
+	$kinds = array();
+	$up_to = 0;
+	foreach ($medals as $tier) {
+		$base = isset($tier['of']) && $tier['of'] === 'all' ? 'all' : 'effective';
+		$count = (int)medalAmountCount($tier['amount'], $of[$base]);
+		$up_to += $count;
+		$kinds[] = array(
+			'name' => $tier['name'], 'color' => $tier['color'], 'amount' => $tier['amount'], 'of' => substr($tier['amount'], -1) === '%' ? $base : null,
+			'count' => $count, 'given' => 0, 'up_to' => $up_to
+		);
+	}
+	foreach ($rows as &$row) {
+		if ($row['among'] !== null && $row['solved'] > 0) {
+			foreach ($kinds as $index => $kind) {
+				if ($kind['count'] > 0 && $row['among'] <= $kind['up_to']) {
+					$row['medal'] = $index + 1;
+					$kinds[$index]['given']++;
+					break;
+				}
+			}
+		}
+		unset($row['among']);
+	}
+	unset($row);
+	foreach ($kinds as &$kind) {
+		unset($kind['up_to']);
+	}
+	unset($kind);
+	return array($rows, $kinds, $of);
 }
 
 // ---- queries
@@ -159,7 +214,7 @@ function boardVersion($contest) {
 		DB::selectFirst("select count(*), ifnull(sum(has_participated), 0) from contests_registrants where contest_id = $id", MYSQLI_NUM),
 		DB::selectFirst("select count(*), ifnull(sum(score), 0), ifnull(sum(penalty), 0) from contests_submissions where contest_id = $id", MYSQLI_NUM),
 		contestProblemIds($id), $contest['cur_progress'], $contest['start_time_str'], (int)$contest['last_min'], contestFreezeMinutes($contest),
-		contestBoardIsFrozen($contest), balloonsEnabled($contest), (int)floor(UOJTime::$time_now->getTimestamp() / 30)
+		contestBoardIsFrozen($contest), balloonsEnabled($contest), contestMedals($contest), (int)floor(UOJTime::$time_now->getTimestamp() / 30)
 	);
 	return md5(json_encode($facts));
 }
@@ -168,7 +223,7 @@ function boardVersion($contest) {
 function boardTable($contest, $standings, $score, $last_try) {
 	$rule = contestRule($contest);
 	$problem_ids = array_map('intval', contestProblemIds($contest['id']));
-	$board = contestOuterBoard($rule, count($problem_ids), $standings, $score, $last_try, contestWaitingSubmissions($contest));
+	$board = contestOuterBoard($rule, count($problem_ids), $standings, $score, $last_try, contestWaitingSubmissions($contest), contestMedals($contest));
 	$colors = balloonsEnabled($contest) ? balloonColors($contest) : array();
 	$problems = array();
 	foreach ($problem_ids as $pos => $problem_id) {
@@ -192,7 +247,7 @@ function boardTable($contest, $standings, $score, $last_try) {
 			'virtual' => $virtual, 'medal' => $row['medal'], 'cells' => $cells
 		);
 	}
-	return array('problems' => $problems, 'rows' => $rows);
+	return array('problems' => $problems, 'rows' => $rows, 'medals' => $board['medals'], 'counted' => $board['counted']);
 }
 // The outer board of a contest as it is for everybody right now, kept between two times it
 // is asked for as long as nothing happened.
@@ -260,7 +315,7 @@ function boardState($contest, $viewer, $options = array()) {
 	$state = array(
 		'id' => (int)$contest['id'], 'name' => html_entity_decode(strip_tags((string)$contest['name']), ENT_QUOTES, 'UTF-8'), 'rule' => $rule,
 		'duration' => $duration, 'freeze' => contestFreezeOffset($contest), 'frozen' => false, 'ticking' => false,
-		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array(),
+		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array(), 'medals' => array(), 'counted' => array('all' => 0, 'effective' => 0),
 		'viewing' => null, 'virtual' => false, 'virtuals' => array()
 	);
 	$finished = $contest['cur_progress'] == CONTEST_FINISHED;
@@ -309,6 +364,6 @@ function boardState($contest, $viewer, $options = array()) {
 	if ($finished && !$mine) {
 		$state['virtuals'] = boardVirtuals($contest);
 	}
-	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['viewing'], $state['virtual'], $state['virtuals'])));
+	$state['hash'] = md5(json_encode(array($state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['viewing'], $state['virtual'], $state['virtuals'])));
 	return $state;
 }

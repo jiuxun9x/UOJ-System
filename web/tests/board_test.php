@@ -147,7 +147,8 @@ check_same('+2', $once['rows'][0]['cells'][0]['says'], 'a problem solved at the 
 // what was tried in vain says when, where that is known, and nothing where it is not
 $unknown = contestOuterBoard('ICPC', 1, array(array(0, 0, array('ann', 1500, ''), 1)), array('ann' => array(0 => array(0, 0, 1, 2, 0))));
 check_same(array('kind' => 'failed', 'says' => '-2', 'under' => ''), $unknown['rows'][0]['cells'][0], 'an attempt in vain whose time is not known');
-check_same(array('problems' => array(), 'rows' => array()), contestOuterBoard('ICPC', 0, array(), array()), 'a contest without problems and without contestants');
+$nothing = contestOuterBoard('ICPC', 0, array(), array());
+check_same(array(array(), array(), array(0, 0, 0)), array($nothing['problems'], $nothing['rows'], array_column($nothing['medals'], 'given')), 'a contest without problems and without contestants');
 // somebody who sat the contest virtually is a row like any other, but for being first to solve
 // a problem and for medals: they were not there
 $starred = contestOuterBoard('ICPC', 1, array(array(100, 60, array('*ann', 1500, ''), 1)), array('*ann' => array(0 => array(100, 60, 1, 0, 0))));
@@ -183,3 +184,68 @@ check_same(
 	array_map('scoreColor', array(0, 1 / 5, 1 / 3, 1 / 2, 2 / 3, 11 / 12, 1)),
 	'nothing is red, all of it green, and in between from orange to yellow-green'
 );
+
+// ---- medals of the kinds of a contest's own: so many people, or so many percent of the
+// contestants or of who of them solved something, rounded up; each kind after the ones before,
+// down the ranks as on DOMjudge. Who is level with somebody who gets one gets the same one, who
+// did nothing gets none, and who sat the contest virtually gets none and takes nobody's place.
+$ranked = array(array(600, 0, array('*vic', 1500, ''), 1));
+foreach (array(500, 400, 400, 300, 200, 100, 100, 50, 0, 0) as $index => $points) {
+	$ranked[] = array($points, 0, array('p' . $index, 1500, ''), 0);
+}
+$medals_of = function($medals) use ($ranked) {
+	$board = contestOuterBoard('IOI', 1, $ranked, array(), array(), array(), $medals);
+	return array(array_column($board['rows'], 'medal'), array_column($board['medals'], 'count'), array_column($board['medals'], 'given'));
+};
+$tiers = array(
+	array('name' => '金牌', 'color' => '#f6c945', 'amount' => '10%', 'of' => 'effective'),
+	array('name' => '银牌', 'color' => '#cfd6de', 'amount' => '20%', 'of' => 'effective'),
+	array('name' => '铜牌', 'color' => '#e0a36a', 'amount' => '30%', 'of' => 'effective'),
+	array('name' => '优胜奖', 'color' => '#9ec5fe', 'amount' => '2')
+);
+// eight of the ten solved something: a gold for one (0.8 up), silver for two (1.6 up), bronze
+// for three (2.4 up), and two honours; the ones level at sixth both get bronze
+check_same(array(array(0, 1, 2, 2, 3, 3, 3, 3, 4, 0, 0), array(1, 2, 3, 2), array(1, 2, 4, 1)), $medals_of($tiers),
+	'medals by percentages and a number, with who is level sharing one');
+$board = contestOuterBoard('IOI', 1, $ranked, array(), array(), array(), $tiers);
+check_same(array('all' => 10, 'effective' => 8), $board['counted'], 'what the percentages are of: who sat the contest virtually is not counted');
+check_same(array('effective', 'effective', 'effective', null), array_column($board['medals'], 'of'), 'what each percentage is of');
+// half of who solved something is four; half of all of them five
+$half = function($of) {
+	return array(array('name' => '金牌', 'color' => '#f6c945', 'amount' => '50%', 'of' => $of));
+};
+check_same(array(array(0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0), array(4), array(4)), $medals_of($half('effective')), 'a percentage of who solved something');
+check_same(array(array(0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0), array(5), array(5)), $medals_of($half('all')), 'a percentage of all the contestants');
+// the bases mixed: 25% of all of them is three (2.5 up), and 25% of who solved something two
+check_same(array(array(0, 1, 1, 1, 2, 2, 0, 0, 0, 0, 0), array(3, 2), array(3, 2)), $medals_of(array(
+	array('name' => '一等奖', 'color' => '#ff0000', 'amount' => '25%', 'of' => 'all'),
+	array('name' => '二等奖', 'color' => '#00ff00', 'amount' => '25%', 'of' => 'effective')
+)), 'percentages of all the contestants and of who solved something, one after the other');
+// a kind for nobody is passed over; no kinds at all is no medals
+$none_first = array(array('name' => '特等奖', 'color' => '#ff0000', 'amount' => '0'), array('name' => '金牌', 'color' => '#f6c945', 'amount' => '1'));
+check_same(array(array(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0), array(0, 1), array(0, 1)), $medals_of($none_first), 'a kind of medal for nobody');
+check_same(array(array_fill(0, 11, 0), array(), array()), $medals_of(array()), 'no medals');
+
+// what a form says of medals
+check_same(array($tiers, ''), contestMedalsFromText(json_encode($tiers)), 'medals as the form writes them');
+check_same(array(array(array('name' => '金牌', 'color' => '#f6c945', 'amount' => '10%', 'of' => 'all'), array('name' => '银牌', 'color' => '#cfd6de', 'amount' => '20%', 'of' => 'effective'),
+	array('name' => '铜牌', 'color' => '#e0a36a', 'amount' => '3')), ''),
+	contestMedalsFromText('[{"name":"金牌","color":"#f6c945","amount":"10%","of":"all"},{"name":"银牌","color":"#cfd6de","amount":"20%","of":"whatever"},{"name":"铜牌","color":"#e0a36a","amount":"3","of":"all"}]'),
+	'a percentage is of who solved something unless it says all; a number of people is of nobody');
+check_same(array(array(), ''), contestMedalsFromText('[]'), 'no medals, on purpose');
+check_same(array(array(array('name' => '金牌', 'color' => '#abcdef', 'amount' => '12.5%', 'of' => 'effective')), ''),
+	contestMedalsFromText('[{"name":" 金牌 ","color":"#ABCDEF","amount":"12.5 %"}]'), 'what is around and inside them is not taken');
+foreach (array(
+	'' => '奖牌的设置看不懂，请重新填写',
+	'{"name":"金牌"}' => '奖牌的设置看不懂，请重新填写',
+	'[{"name":"","color":"#ffffff","amount":"1"}]' => '第 1 档奖牌的名称不能为空，且不超过 20 个字',
+	'[{"name":"金牌","color":"#ffffff","amount":"1"},{"name":"银牌","color":"red","amount":"1"}]' => '第 2 档奖牌的颜色应写成 #rrggbb',
+	'[{"name":"金牌","color":"#ffffff","amount":"101%"}]' => '第 1 档奖牌的数量应为人数（如 3）或比例（如 10%），比例不超过 100%',
+	'[{"name":"金牌","color":"#ffffff","amount":"-1"}]' => '第 1 档奖牌的数量应为人数（如 3）或比例（如 10%），比例不超过 100%',
+	json_encode(array_fill(0, 11, $tiers[0])) => '奖牌最多分 10 档'
+) as $text => $why) {
+	check_same(array(null, $why), contestMedalsFromText($text), 'medals refused: ' . $text);
+}
+// "10%" of 30 is three, of 31 four: rounded up, and never by a double that is a little over
+check_same(array(3, 3, 4, 1, 7, 0, 3), array(medalAmountCount('3', 10), medalAmountCount('10%', 30), medalAmountCount('10%', 31), medalAmountCount('33.33%', 3),
+	medalAmountCount('100%', 7), medalAmountCount('0%', 5), medalAmountCount('1.5%', 200)), 'how many people an amount is');

@@ -105,6 +105,40 @@
 	</small>
 </div>
 <?php endif ?>
+<div class="form-group" id="group-contest-medals">
+	<label>外榜的奖牌</label>
+	<input type="hidden" name="medals" id="input-contest-medals" value="<?= HTML::escape(json_encode($settings['medals'], JSON_UNESCAPED_UNICODE)) ?>" />
+	<div class="table-responsive" style="max-width:44em">
+		<table class="table table-sm mb-1 uoj-medal-tiers" id="table-contest-medals">
+			<thead>
+				<tr>
+					<th>名称</th>
+					<th style="width:4.5em">颜色</th>
+					<th style="width:6em">数量</th>
+					<th style="width:9em">单位</th>
+					<th style="width:6.5em"></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+	</div>
+	<p class="text-muted small mb-1" id="contest-medals-none" style="display:none">不发奖牌。</p>
+	<div class="form-inline">
+		<button type="button" class="btn btn-sm btn-outline-secondary mr-2 mb-1" id="button-contest-medal-add">添加一档</button>
+		<select class="form-control form-control-sm mr-2 mb-1" id="select-contest-medal-preset" title="换成常用的分法">
+			<option value="">常用的分法…</option>
+			<option value="top3">前三名：金、银、铜各 1 人</option>
+			<option value="icpc">区域赛：金 10%、银 20%、铜 30%（有效人数）</option>
+			<option value="icpc-honor">区域赛加优胜奖：金 10%、银 20%、铜 30%、优胜奖 20%（有效人数）</option>
+			<option value="none">不发奖牌</option>
+		</select>
+	</div>
+	<small class="form-text text-muted">
+		从上到下是第一档、第二档……，种类和颜色自己定。每一档的数量可以是固定人数，也可以是参赛人数或有效人数的百分比，按百分比算出的人数向上取整
+		（参赛人数是外榜上的正式选手数，有效人数是其中至少通过一题、OI 和 IOI 赛制是得分大于 0 的人数）。
+		各档依次往下排：第一档给前若干名，第二档给接下来的若干名……；和拿奖牌的选手名次相同的拿同一档，一题没过（零分）的不拿，赛后虚拟参赛的不拿、也不占名额。奖牌只显示在外榜上。
+	</small>
+</div>
 <div class="form-group">
 	<label>比赛结束后</label>
 	<div class="custom-control custom-checkbox">
@@ -136,5 +170,86 @@ $(document).ready(function() {
 	};
 	$('input[name=rule], input[name=join_mode], #input-contest-start_time, #input-contest-last_min').on('change input', refresh);
 	refresh();
+
+	// The medals: a row for every kind, written back into the field the form sends as they change.
+	var medals = $('#input-contest-medals');
+	var tiers = $('#table-contest-medals tbody');
+	// a tier: name, colour, how many, and what of: 'count' (people), 'all' or 'effective' (percent)
+	var presets = {
+		top3: [['金牌', '#f6c945', '1', 'count'], ['银牌', '#cfd6de', '1', 'count'], ['铜牌', '#e0a36a', '1', 'count']],
+		icpc: [['金牌', '#f6c945', '10', 'effective'], ['银牌', '#cfd6de', '20', 'effective'], ['铜牌', '#e0a36a', '30', 'effective']],
+		'icpc-honor': [['金牌', '#f6c945', '10', 'effective'], ['银牌', '#cfd6de', '20', 'effective'], ['铜牌', '#e0a36a', '30', 'effective'], ['优胜奖', '#9ec5fe', '20', 'effective']],
+		none: []
+	};
+	var write = function() {
+		var list = [];
+		tiers.children('tr').each(function() {
+			var row = $(this);
+			var of = row.find('.uoj-medal-of').val();
+			var tier = {name: row.find('.uoj-medal-name').val(), color: row.find('.uoj-medal-color').val(), amount: $.trim(row.find('.uoj-medal-amount').val()) + (of === 'count' ? '' : '%')};
+			if (of !== 'count') {
+				tier.of = of;
+			}
+			list.push(tier);
+		});
+		medals.val(JSON.stringify(list));
+		$('#contest-medals-none').toggle(list.length === 0);
+		$('#table-contest-medals').toggle(list.length > 0);
+		$('#button-contest-medal-add').prop('disabled', list.length >= 10);
+	};
+	var add = function(name, color, amount, of) {
+		var row = $('<tr />');
+		row.append($('<td />').append($('<input type="text" class="form-control form-control-sm uoj-medal-name" maxlength="20" />').val(name)));
+		row.append($('<td />').append($('<input type="color" class="form-control form-control-sm uoj-medal-color" />').val(color)));
+		row.append($('<td />').append($('<input type="text" class="form-control form-control-sm uoj-medal-amount" inputmode="decimal" />').val(amount)));
+		row.append($('<td />').append($('<select class="form-control form-control-sm uoj-medal-of" />').append(
+			$('<option value="count">人</option>'), $('<option value="all">% 参赛人数</option>'), $('<option value="effective">% 有效人数</option>')
+		).val(of)));
+		row.append($('<td class="text-nowrap" />').append(
+			$('<button type="button" class="btn btn-sm btn-link px-1" title="上移">↑</button>').on('click', function() {
+				row.prev().before(row);
+				write();
+			}),
+			$('<button type="button" class="btn btn-sm btn-link px-1" title="下移">↓</button>').on('click', function() {
+				row.next().after(row);
+				write();
+			}),
+			$('<button type="button" class="btn btn-sm btn-link text-danger px-1" title="删除这一档">×</button>').on('click', function() {
+				row.remove();
+				write();
+			})
+		));
+		tiers.append(row);
+	};
+	var fill = function(list) {
+		tiers.empty();
+		$.each(list, function(index, tier) {
+			add(tier[0], tier[1], tier[2], tier[3]);
+		});
+		write();
+	};
+	var told = [];
+	try {
+		told = $.map(JSON.parse(medals.val()) || [], function(tier) {
+			var amount = String(tier.amount);
+			var percent = amount.charAt(amount.length - 1) === '%';
+			return [[tier.name, tier.color, percent ? amount.slice(0, -1) : amount, percent ? (tier.of === 'all' ? 'all' : 'effective') : 'count']];
+		});
+	} catch (e) {
+		told = presets.top3;
+	}
+	fill(told);
+	tiers.on('input change', 'input, select', write);
+	$('#button-contest-medal-add').on('click', function() {
+		add('', '#9ec5fe', '1', 'count');
+		write();
+		tiers.find('.uoj-medal-name').last().focus();
+	});
+	$('#select-contest-medal-preset').on('change', function() {
+		if (presets[$(this).val()]) {
+			fill(presets[$(this).val()]);
+		}
+		$(this).val('');
+	});
 });
 </script>

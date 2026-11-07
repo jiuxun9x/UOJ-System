@@ -46,7 +46,7 @@
 	}
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 外榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=4') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=5') ?>
 <div class="uoj-ob" id="outer-board" data-url="<?= $here ?>?<?= HTML::escape($asked) ?>" data-here="<?= $here ?>" data-me="<?= Auth::check() ? Auth::id() : '' ?>" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title" id="outer-board-title"><?= HTML::escape($state['name']) ?></h1>
@@ -84,6 +84,7 @@
 		</table>
 	</div>
 	<p class="uoj-ob-empty" id="outer-board-empty" style="display:none"></p>
+	<div class="uoj-ob-medals" id="outer-board-medals" title="奖牌：同名次的拿同一档，一题没过的不拿，虚拟参赛的不拿也不占名额" style="display:none"></div>
 	<div class="uoj-ob-legend" id="outer-board-legend">
 		<span><i class="uoj-ob-first"></i><span id="outer-board-legend-first">最先通过</span></span>
 		<span><i class="uoj-ob-solved"></i>通过</span>
@@ -97,5 +98,5 @@
 <script type="text/javascript">
 window.uojOuterBoard = <?= json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-board.js?v=3') ?>
+<?= HTML::js_src('/js/uoj-board.js?v=4') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>

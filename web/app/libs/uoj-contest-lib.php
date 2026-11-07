@@ -495,7 +495,8 @@ function contestDefaultSettings() {
 		'join_mode' => 'open',
 		'join_password' => '',
 		'reveal_problems' => false,
-		'public_board' => false
+		'public_board' => false,
+		'medals' => contestDefaultMedals()
 	);
 }
 // the settings a contest has: $contest as genMoreContestInfo() leaves it
@@ -512,9 +513,86 @@ function contestSettings($contest) {
 		'join_mode' => $contest['join_mode'],
 		'join_password' => '',
 		'reveal_problems' => !empty($contest['reveal_problems']),
-		'public_board' => contestBoardIsPublic($contest)
+		'public_board' => contestBoardIsPublic($contest),
+		'medals' => contestMedals($contest)
 	);
 }
+// ---- the medals of a contest, on its outer board
+//
+// A contest gives medals of kinds of its own, the best first: each has a name, a colour, and an
+// amount - so many people ("3"), or so many percent ("10%") of the contestants on the board
+// ('of' => 'all') or of those of them who solved something ('of' => 'effective'), rounded up.
+// As on DOMjudge, the kinds follow each other down the ranks: the first goes to the first so
+// many, the second to so many after them, and so on; who is level with somebody who gets a medal
+// gets the same one, who did nothing gets none, and who sat the contest virtually gets none and
+// takes nobody's place. A contest that says nothing gives a gold, a silver and a bronze medal,
+// to its best three.
+function contestDefaultMedals() {
+	return array(
+		array('name' => '金牌', 'color' => '#f6c945', 'amount' => '1'),
+		array('name' => '银牌', 'color' => '#cfd6de', 'amount' => '1'),
+		array('name' => '铜牌', 'color' => '#e0a36a', 'amount' => '1')
+	);
+}
+function contestMedals($contest) {
+	return isset($contest['extra_config']['medals']) && is_array($contest['extra_config']['medals']) ? $contest['extra_config']['medals'] : contestDefaultMedals();
+}
+// The medals a form says, as the JSON the page writes them in (a list of 'name', 'color',
+// 'amount' and, for a percentage, 'of'): array(the medals, '') or array(null, why not). No
+// medals at all is a choice too.
+function contestMedalsFromText($text) {
+	$list = json_decode($text, true);
+	if (!is_array($list) || ($list !== array() && array_keys($list) !== range(0, count($list) - 1))) {
+		return array(null, '奖牌的设置看不懂，请重新填写');
+	}
+	if (count($list) > 10) {
+		return array(null, '奖牌最多分 10 档');
+	}
+	$medals = array();
+	foreach ($list as $index => $medal) {
+		$field = function($name) use ($medal) {
+			return is_array($medal) && isset($medal[$name]) && is_string($medal[$name]) ? trim($medal[$name]) : '';
+		};
+		$which = '第 ' . ($index + 1) . ' 档奖牌';
+		$name = $field('name');
+		if ($name === '' || mb_strlen($name, 'UTF-8') > 20 || preg_match('/[\x00-\x1f\x7f]/', $name)) {
+			return array(null, "{$which}的名称不能为空，且不超过 20 个字");
+		}
+		$color = strtolower($field('color'));
+		if (!preg_match('/^#[0-9a-f]{6}$/D', $color)) {
+			return array(null, "{$which}的颜色应写成 #rrggbb");
+		}
+		$amount = str_replace(' ', '', $field('amount'));
+		if (medalAmountCount($amount, 100) === null) {
+			return array(null, "{$which}的数量应为人数（如 3）或比例（如 10%），比例不超过 100%");
+		}
+		$tier = array('name' => $name, 'color' => $color, 'amount' => $amount);
+		if (substr($amount, -1) === '%') {
+			// a percentage is of the contestants who solved something, unless it says all of them
+			$tier['of'] = $field('of') === 'all' ? 'all' : 'effective';
+		}
+		$medals[] = $tier;
+	}
+	return array($medals, '');
+}
+// How many people the amount of a medal is, of $base people: "3" is three, "10%" is a tenth
+// of them, rounded up (to the hundredth of a percent, which is as fine as it can be written).
+// null if it is no amount.
+function medalAmountCount($amount, $base) {
+	if (preg_match('/^\d{1,4}$/D', $amount)) {
+		return (int)$amount;
+	}
+	if (!preg_match('/^(\d{1,3})(?:\.(\d{1,2}))?%$/D', $amount, $m)) {
+		return null;
+	}
+	// in hundredths of a percent, that no double rounds 10% of 30 up to 4
+	$hundredths = (int)$m[1] * 100 + (isset($m[2]) ? (int)str_pad($m[2], 2, '0') : 0);
+	if ($hundredths > 10000) {
+		return null;
+	}
+	return intdiv($base * $hundredths + 9999, 10000);
+}
+
 // Whether the outer board of a contest of a domain is for everybody, as the outer board of any
 // other contest is (see 'contest.view_board'): its people made it so.
 function contestBoardIsPublic($contest) {
@@ -586,6 +664,13 @@ function contestSettingsFromForm($input, $current, $may_rate, $has_password = fa
 	}
 	$settings['reveal_problems'] = isset($input['reveal_problems']);
 	$settings['public_board'] = isset($input['public_board']);
+	// the medals, where the form has them: one that does not keeps what there is
+	if (isset($input['medals'])) {
+		list($settings['medals'], $why) = contestMedalsFromText(is_string($input['medals']) ? $input['medals'] : '');
+		if ($settings['medals'] === null) {
+			return array(null, $why);
+		}
+	}
 	return array($settings, '');
 }
 // what the settings are in the columns of a contest, as SQL
@@ -602,6 +687,13 @@ function contestSettingsSql($settings, $extra_config) {
 		$extra_config['public_board'] = true;
 	} else {
 		unset($extra_config['public_board']);
+	}
+	// what nobody changed is not written down: a contest that says nothing has the medals of
+	// every contest that says nothing
+	if (isset($settings['medals']) && $settings['medals'] !== contestDefaultMedals()) {
+		$extra_config['medals'] = $settings['medals'];
+	} else {
+		unset($extra_config['medals']);
 	}
 	$set = array(
 		'name' => "'".DB::escape(HTML::pruifier()->purify($settings['name']))."'",
