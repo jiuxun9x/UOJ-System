@@ -5,6 +5,8 @@ import unittest
 
 import uoj
 from fixtures import AB, AB_HACKABLE, ab_problem_files
+from test_phase3 import account
+from test_phase16 import members
 from uoj import conf, db, db_value, docker_exec
 
 # a checker of a+b that went wrong where an answer differs: it says FAIL, as testlib says when a
@@ -156,6 +158,52 @@ class SubmissionFilesFollowTheDataTest(unittest.TestCase):
         self.assertEqual(admin.submit_form("/problem/%d/manage/data" % problem_id, "info", {"submission_requirement": "[]", "extra_config": extra}), "")
         publish(answers_problem(4))
         self.assertEqual(len(requirement()), 4)
+
+
+class DomainContestStaffTest(unittest.TestCase):
+    """The staff of a contest of a domain stayed its staff when they were taken out of the domain:
+    its pages were closed to them, and the code of its contestants was not, by the addresses of
+    their submissions. They are its staff while they are members of the domain now, and taken
+    out of it they are taken off its staff. (A01)"""
+
+    def test_who_is_taken_out_of_a_domain_is_staff_of_its_contests_no_more(self):
+        admin = uoj.admin()
+        teacher = account("p20_a01_teacher")
+        self.assertEqual(admin.change_user("p20_a01_teacher", "grant:teacher"), "")
+        teacher.new_domain("p20-staff")
+        helper, pupil, classmate, outsider = account("p20_a01_helper"), account("p20_a01_pupil"), account("p20_a01_mate"), account("p20_a01_out")
+        for client in (helper, pupil, classmate):
+            self.assertEqual(members(teacher, "p20-staff", "add", username=client.username, role="member"), "")
+        problem_id = teacher.new_problem("p20-staff")
+        self.assertIn("上传成功", teacher.upload_data(problem_id, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(problem_id), "")
+        # what is submitted to it is seen by its submitter and the staff alone
+        db("update problems set extra_config = '{\"view_content_type\": \"SELF\", \"view_all_details_type\": \"SELF\", \"view_details_type\": \"SELF\"}' where id = %d" % problem_id)
+        contest_id = teacher.new_contest("p20 域内比赛工作人员", domain="p20-staff", rule="IOI", problems=str(uoj.pid(problem_id)))
+        self.assertEqual(teacher.contest_commands(contest_id, "managers", "+p20_a01_helper"), "")
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -30 * 60, 60)
+        submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
+        uoj.wait_submission(submission_id)
+        source = "/submission/%d" % submission_id
+        self.assertEqual(helper.get(source).status_code, 200)
+        self.assertIn("scanf", helper.get(source).text)
+        self.assertNotEqual(classmate.get(source).status_code, 200)
+
+        # taken out of the domain, the helper is off the staff of its contests, and reads nothing
+        self.assertEqual(members(teacher, "p20-staff", "remove", username="p20_a01_helper"), "")
+        self.assertEqual(db_value("select count(*) from contests_permissions where contest_id = %d and username = 'p20_a01_helper'" % contest_id), "0")
+        for client in (helper, outsider):
+            page = client.get(source)
+            self.assertNotEqual(page.status_code, 200, client.username)
+            self.assertNotIn("scanf", page.text)
+        # nor does anybody made staff of it before this was so, who is not in the domain
+        db("insert into contests_permissions (username, contest_id, role) values ('p20_a01_out', %d, 'assistant')" % contest_id)
+        self.assertNotEqual(outsider.get(source).status_code, 200)
+        self.assertNotIn("scanf", outsider.get(source).text)
+        # the staff who are members, and the administrators of the site, read it as before
+        self.assertIn("scanf", teacher.get(source).text)
+        self.assertIn("scanf", admin.get(source).text)
 
 
 if __name__ == "__main__":

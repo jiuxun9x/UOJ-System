@@ -193,11 +193,15 @@ function domainSetArchived($domain, $archived, $actor) {
 	return '';
 }
 
-// Whoever is no longer in a domain manages none of its problems: the problems they were given
-// to manage are taken back.
+// Whoever is no longer in a domain manages none of its problems and is staff of none of its
+// contests: the problems they were given to manage, and the contests they were made staff of,
+// are taken back.
 function domainDropProblemManagers($domain, $username) {
 	DB::delete("delete problems_permissions from problems_permissions join problems on problems.id = problems_permissions.problem_id"
 		." where problems_permissions.username = '".DB::escape($username)."' and problems.owner_domain_id = {$domain['id']}");
+	// nor the staff of its contests (A01), which they would be again when they came back
+	DB::delete("delete contests_permissions from contests_permissions join contests on contests.id = contests_permissions.contest_id"
+		." where contests_permissions.username = '".DB::escape($username)."' and contests.domain_id = {$domain['id']}");
 }
 
 // Adds a user to a domain or changes their role; $new_role null removes them.

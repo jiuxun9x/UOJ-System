@@ -776,7 +776,7 @@ function can($user, $ability, $resource = null) {
 			if (!empty($resource['domain_id']) && permissionDomainIsArchived($facts->domain($resource['domain_id']))) {
 				return false;
 			}
-			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) === 'owner')) {
+			if ($is_admin || permissionContestRole($user, $resource) === 'owner') {
 				return true;
 			}
 			return !empty($resource['domain_id']) && can($user, 'domain.teach', $facts->domain($resource['domain_id']));
@@ -789,7 +789,7 @@ function can($user, $ability, $resource = null) {
 			return can($user, 'contest.assist', $resource);
 		// the people behind the scenes of a contest: they see everything and answer questions
 		case 'contest.assist':
-			if ($is_admin || ($name !== null && $facts->contestRole($name, $resource['id']) !== null)) {
+			if ($is_admin || permissionContestRole($user, $resource) !== null) {
 				return true;
 			}
 			return !empty($resource['domain_id']) && can($user, 'domain.assist', $facts->domain($resource['domain_id']));
@@ -953,6 +953,21 @@ function permissionViewTypeAllows($setting, $user, $submission) {
 // the site, the people who teach in its domain, and the people it was given to manage. In a
 // domain these are only the members of the domain: whoever leaves it, or is taken out of it,
 // stops managing its problems.
+// The role somebody has among the staff of a contest ('owner' or 'assistant'), or null, as long as
+// it counts: the staff of a contest of a domain are members of the domain, and whoever was taken
+// out of it, or left it, is staff of its contests no more (A01: they read the code of its
+// contestants by the addresses of their submissions).
+function permissionContestRole($user, $contest) {
+	if ($user == null || $contest == null) {
+		return null;
+	}
+	$facts = permissionFacts();
+	$role = $facts->contestRole($user['username'], $contest['id']);
+	if ($role !== null && !empty($contest['domain_id']) && permissionDomainRole($user, $facts->domain($contest['domain_id'])) === null) {
+		return null;
+	}
+	return $role;
+}
 function permissionLooksAfterProblem($user, $problem) {
 	if ($user == null || $problem == null) {
 		return false;

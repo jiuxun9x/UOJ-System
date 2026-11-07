@@ -564,11 +564,26 @@ $archived_contest = array('domain_id' => 4) + fake_contest(36, CONTEST_FINISHED)
 $facts->contests[36] = $archived_contest;
 $facts->contest_staff['lecturer/36'] = 'owner';
 $facts->contest_staff['helper/36'] = 'assistant';
+$facts->domain_members['helper/4'] = 'member';
 check_ability('contest.manage', $archived_contest, array('lecturer' => false, 'lead' => false, 'root' => false, 'ojadmin' => false), 'a contest of an archived domain');
 check_ability('contest.assist', $archived_contest, array('lecturer' => true, 'helper' => true, 'root' => true, 'pupil' => false), 'a contest of an archived domain');
 check_ability('contest.respond', $archived_contest, array('lecturer' => false, 'helper' => false, 'root' => false), 'a contest of an archived domain');
 check_ability('contest.respond', $domain_contest, array('lecturer' => true, 'tutor' => true, 'root' => true, 'pupil' => false), 'a contest of a domain');
 check_ability('contest.view', $archived_contest, array('pupil' => true, 'alice' => false), 'a contest of an archived domain');
+// The staff of a contest of a domain are its staff while they are members of the domain: whoever
+// was taken out of it, or left it, reads nothing of its contestants any more (A01).
+$facts->contests[37] = array('domain_id' => 1) + fake_contest(37, CONTEST_FINISHED);
+$facts->contest_staff['gone/37'] = 'owner';
+$facts->contest_staff['stays/37'] = 'assistant';
+$facts->domain_members['stays/1'] = 'member';
+$permission_test_users['gone'] = fake_user('gone');
+$permission_test_users['stays'] = fake_user('stays');
+check_ability('contest.assist', $facts->contests[37], array('gone' => false, 'stays' => true, 'root' => true), 'a contest of a domain, to staff who left it');
+check_ability('contest.manage', $facts->contests[37], array('gone' => false), 'a contest of a domain, to an owner who left it');
+$left_behind = array('domain_id' => 1, 'id' => 502) + fake_submission('pupil', 24, 37);
+foreach (array('submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, $left_behind, array('gone' => false, 'stays' => true), 'a submission to a contest of a domain, to its staff');
+}
 // nor is what was submitted there judged again, hacked or deleted
 $archived_submission = array('domain_id' => 4, 'id' => 501) + fake_submission('pupil', 23, 36);
 foreach (array('submission.rejudge', 'submission.hack', 'submission.delete') as $ability) {
