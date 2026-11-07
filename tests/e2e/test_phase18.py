@@ -49,11 +49,13 @@ class InputOnlyTest(unittest.TestCase):
         files = {"data1.in": "1 2\n", "data2.in": "1000 2000\n", "data3.in": "999999999 1\n", "chk.cpp": SUM_CHECKER}
         self.assertIn("上传成功", admin.upload_data(problem_id, files).text)
         data_settings(admin, problem_id, checker="custom", checker_file="chk.cpp")
-        # the tests are found, and handed an empty answer
+        # the tests are found, and handed an empty answer; the data is published with the settings
         self.assertIn("n_tests 3", uploaded(problem_id, "problem.conf"))
         for number in (1, 2, 3):
             self.assertEqual(docker_exec(uoj.WEB, "stat -c %%s /var/uoj_data/upload/%d/data%d.out" % (problem_id, number)).strip(), "0")
-        self.assertEqual(admin.sync(problem_id), "")
+        flash = uoj.text_of(admin.get("/problem/%d/manage/data" % problem_id).text)
+        self.assertNotIn("没有通过检查", flash, flash[:600])
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
         self.assertEqual(uoj.wait_submission(admin.submit(problem_id, AB)).score, 100)
         judgement = uoj.wait_submission(admin.submit(problem_id, AB_SMALL))
         self.assertEqual((judgement.score, judgement.infos), (66, ["Accepted", "Accepted", "Wrong Answer"]), judgement)
@@ -64,7 +66,8 @@ class InputOnlyTest(unittest.TestCase):
         # its own checker: the answers that are not there are empty
         own = admin.new_problem()
         self.assertIn("上传成功", admin.upload_data(own, {"problem.conf": conf, "data1.in": "1 2\n", "data2.in": "3 4\n", "chk.cpp": SUM_CHECKER}).text)
-        self.assertEqual(admin.sync(own), "")
+        said = admin.sync(own)
+        self.assertEqual(said, "", said[-600:])
         self.assertEqual(uoj.wait_submission(admin.submit(own, AB)).score, 100)
         self.assertEqual(uoj.wait_submission(admin.submit(own, AB_WRONG)).score, 0)
         # a way of comparing of the site compares with the answer, and wants one: it says so
