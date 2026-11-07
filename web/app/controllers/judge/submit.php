@@ -187,17 +187,20 @@
 		DB::update("update custom_test_submissions set status_details = '' where id = $id");
 		return true;
 	}
-	// returns whether this call is the one that set the result of the hack
+	// Returns whether this call is the one that set the result of the hack. A judgement that
+	// failed (the result has an error) is no success: the hack says why (result_error).
 	function storeHackResult($id, $hack, $result) {
 		$held = "id = $id and success is null and ".claimIs($hack['judge_claim']);
-		$success = $result['score'] ? 1 : 0;
+		$failed = isset($result['error']);
+		$success = !$failed && $result['score'] ? 1 : 0;
+		$error = $failed ? "'" . DB::escape(mb_substr($result['error'], 0, 100, 'UTF-8')) . "'" : 'null';
 		$esc_details = DB::escape($result['details']);
-		$ok = DB::update("update hacks set success = $success, judge_attempts = 0, details = '$esc_details', ".CLAIM_DROPPED." where $held");
+		$ok = DB::update("update hacks set success = $success, result_error = $error, judge_attempts = 0, details = '$esc_details', ".CLAIM_DROPPED." where $held");
 		if (!$ok) {
 			error_log("judge/submit: failed to store hack details of " . strlen($esc_details) . " bytes: " . DB::error());
 			DB::init();
 			$esc_details = DB::escape("<error>The details of this judgement are too large to be stored.</error>");
-			$ok = DB::update("update hacks set success = $success, judge_attempts = 0, details = '$esc_details', ".CLAIM_DROPPED." where $held");
+			$ok = DB::update("update hacks set success = $success, result_error = $error, judge_attempts = 0, details = '$esc_details', ".CLAIM_DROPPED." where $held");
 		}
 		// a judger sends a result again when it gets no answer: it only counts once
 		return $ok && DB::affected_rows() == 1;
@@ -249,8 +252,15 @@
 		if (!storeHackResult($id, $hack, $result)) {
 			return;
 		}
+		// A judgement that failed went wrong on the side of the problem (its checker, say): the
+		// hack neither succeeded nor failed, nothing is added to the data, and its input is kept
+		// to be judged again once the problem is put right (J03: it was a success).
+		if (isset($result['error'])) {
+			finishJudgement('hack', $id, 'judged', $claim);
+			return;
+		}
 		finishJudgement('hack', $id, 'judged', $claim, $result['score'] ? 1 : 0);
-		unlink(UOJContext::storagePath().$hack['input']);
+		@unlink(UOJContext::storagePath().$hack['input']);
 
 		if ($result['score']) {
 			$problem = queryProblemBrief($hack['problem_id']);

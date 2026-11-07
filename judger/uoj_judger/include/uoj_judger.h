@@ -2040,6 +2040,19 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
     }
 }
 
+// Whether a test of a hack went wrong on the side of the problem: its checker, its interactor,
+// its validator or its standard program did not do what they are there for. Then nothing is
+// known of the hacked program: the judgement failed, and the hack neither succeeded nor failed
+// (J03: a checker that said FAIL, or crashed, made a hack that succeeded).
+inline bool hack_judgement_failed(const PointInfo &po) {
+    for (const char *who : {"Checker ", "Interactor ", "Validator ", "Standard Program "}) {
+        if (po.info.rfind(who, 0) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 PointInfo test_hack_point(const string &name, TestPointConfig tpc) {
     tpc.submit_answer = false;
     tpc.validate_input_before_test = false;
@@ -2048,8 +2061,7 @@ PointInfo test_hack_point(const string &name, TestPointConfig tpc) {
         run_validator(tpc.input_file_name, conf_run_limit("validator", 0, RL_VALIDATOR_DEFAULT),
                       conf_str("validator"));
     if (val_ret.type != runp::RS_AC) {
-        return PointInfo(0, 0, -1, -1, "Validator " + info_str(val_ret.type),
-                         file_preview(tpc.input_file_name), "", "");
+        end_judge_judgement_failed("Validator " + info_str(val_ret.type));
     } else if (!val_ret.succeeded) {
         return PointInfo(0, 0, -1, -1, "Invalid Input", file_preview(tpc.input_file_name), "",
                          val_ret.info);
@@ -2065,8 +2077,7 @@ PointInfo test_hack_point(const string &name, TestPointConfig tpc) {
             tpc.input_file_name, tpc.answer_file_name,
             conf_run_limit("standard", 0, default_std_run_limit), "std", rpc);
         if (std_ret.type != runp::RS_AC) {
-            return PointInfo(0, 0, -1, -1, "Standard Program " + info_str(std_ret.type),
-                             file_preview(tpc.input_file_name), "", "");
+            end_judge_judgement_failed("Standard Program " + info_str(std_ret.type));
         }
         if (conf_has("token")) {
             file_hide_token(tpc.answer_file_name, conf_str("token", ""));
@@ -2082,17 +2093,17 @@ PointInfo test_hack_point(const string &name, TestPointConfig tpc) {
             conf_run_limit("interactor", 0, RL_INTERACTOR_DEFAULT), "std", rpc);
 
         if (rires.ires.type != runp::RS_AC) {
-            return PointInfo(0, 0, -1, -1,
-                             "Interactor " + info_str(rires.ires.type) + " (Standard Program)",
-                             file_preview(real_input_file_name), "", "");
+            end_judge_judgement_failed("Interactor " + info_str(rires.ires.type) + " (Standard Program)");
         }
         if (rires.res.type != runp::RS_AC) {
-            return PointInfo(0, 0, -1, -1, "Standard Program " + info_str(rires.res.type),
-                             file_preview(real_input_file_name), "", "");
+            end_judge_judgement_failed("Standard Program " + info_str(rires.res.type));
         }
     }
 
     PointInfo po = test_point(name, 0, tpc);
+    if (hack_judgement_failed(po)) {
+        end_judge_judgement_failed(po.res.empty() ? po.info : po.info + ": " + po.res);
+    }
     po.scr = po.scr != 100;
     return po;
 }

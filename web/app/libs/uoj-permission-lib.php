@@ -918,6 +918,10 @@ function can($user, $ability, $resource = null) {
 			return permissionIsStaffOf($user, $resource['submission']) || permissionViewTypeAllows('view_details_type', $user, $resource['submission']);
 		case 'hack.view_final_details':
 			return permissionIsStaffOf($user, $resource['submission']);
+		// judging again a hack whose judgement failed, once its problem is put right: who
+		// manages the problem (not in an archived domain, where nothing is judged anew)
+		case 'hack.rejudge':
+			return can($user, 'problem.manage', $facts->problem($resource['problem_id']));
 	}
 
 	// a typo in the name of an ability must not open a door

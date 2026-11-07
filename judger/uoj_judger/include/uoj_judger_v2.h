@@ -1234,9 +1234,18 @@ PointInfo TestPoint::hack_test() {
         uoj_error("PINFEM");  // po.info is empty
         po.info = runp::rstype_str(runp::RS_JGF);
     }
-    if (uoj_errcode.empty()) {
-        po.scr = po.scr != 100;
+    // What went wrong on the side of the problem - its checker, interactor, validator or
+    // standard program - says nothing of the hacked program: the judgement failed, and the hack
+    // neither succeeded nor failed.
+    if (!uoj_errcode.empty()) {
+        end_judge_judgment_failed(po.info);
     }
+    for (const char *who : {"Checker ", "Interactor ", "Validator ", "Standard Program "}) {
+        if (po.info.rfind(who, 0) == 0) {
+            end_judge_judgment_failed(po.info);
+        }
+    }
+    po.scr = po.scr != 100;
     return po;
 }
 

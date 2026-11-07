@@ -36,6 +36,24 @@
 		$delete_form->runAtServer();
 	}
 	
+	// A hack whose judgement failed is judged again by who manages its problem, once the checker
+	// (or what else of the problem went wrong) is put right: its input was kept for that.
+	if ($hack['success'] !== null && $hack['result_error'] !== null && can($myUser, 'hack.rejudge', $hack)
+			&& is_file(UOJContext::storagePath() . $hack['input'])) {
+		$rejudge_form = new UOJForm('rejudge');
+		$rejudge_form->handle = function() {
+			global $hack, $myUser;
+			DB::update("update hacks set success = null, result_error = null, judge_time = null, judger_name = null, judge_attempts = 0, details = '',"
+				." judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$hack['id']} and success is not null and result_error is not null");
+			auditLog('hack.rejudge', 'hack', $hack['id'], array('result_error' => $hack['result_error']), null, $myUser);
+		};
+		$rejudge_form->submit_button_config['class_str'] = 'btn btn-primary';
+		$rejudge_form->submit_button_config['text'] = '重新评测此 Hack';
+		$rejudge_form->submit_button_config['align'] = 'right';
+		$rejudge_form->succ_href = "/hack/{$hack['id']}";
+		$rejudge_form->runAtServer();
+	}
+
 	$hack['submission'] = $submission;
 	$should_show_content = can($myUser, 'hack.view_source', $hack);
 	$should_show_all_details = $hack['success'] !== null && can($myUser, 'hack.view_details', $hack);
@@ -76,6 +94,10 @@
 	<?php echoSubmissionContent($submission, getProblemSubmissionRequirement($problem)) ?>
 <?php endif ?>
 
+<?php if (isset($rejudge_form)): ?>
+	<p class="text-muted text-right mb-1" id="hack-judgement-failed">这次 Hack 评测失败：题目的 checker、交互器、validator 或标准程序出了错（原因见上面的详细信息），不算成功也不算失败。修好之后可以重新评测。</p>
+	<?php $rejudge_form->printHTML() ?>
+<?php endif ?>
 <?php if (isset($delete_form)): ?>
 	<?php $delete_form->printHTML() ?>
 <?php endif ?>

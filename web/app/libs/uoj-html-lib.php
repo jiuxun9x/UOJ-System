@@ -1129,6 +1129,9 @@ function echoHack($hack, $config, $user) {
 			echo '<td><a href="/hack/', $hack['id'], '">Judging</a></td>';
 		} elseif ($hack['success']) {
 			echo '<td><a href="/hack/', $hack['id'], '" class="uoj-status" data-success="1"><strong>Success!</strong></a></td>';
+		} elseif (isset($hack['result_error']) && $hack['result_error'] !== null) {
+			// the judgement failed: on the side of the problem, not of the hack
+			echo '<td><a href="/hack/', $hack['id'], '" class="uoj-status text-warning" data-success="" title="评测失败：题目的 checker、交互器、validator 或标准程序出错，或者评测机没能评测，这次 Hack 不算成功也不算失败"><strong>Judgement Failed</strong></a></td>';
 		} else {
 			echo '<td><a href="/hack/', $hack['id'], '" class="uoj-status" data-success="0"><strong>Failed.</strong></a></td>';
 		}
