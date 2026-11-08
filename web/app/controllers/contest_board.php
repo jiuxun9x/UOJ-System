@@ -50,7 +50,7 @@
 	}
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 外榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=7') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=8') ?>
 <div class="uoj-ob" id="outer-board" data-url="<?= $here ?>?<?= HTML::escape($asked) ?>" data-here="<?= $here ?>" data-me="<?= Auth::check() ? Auth::id() : '' ?>" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title" id="outer-board-title"><?= HTML::escape($state['name']) ?></h1>
@@ -66,10 +66,10 @@
 				<span class="uoj-ob-clock-of" id="outer-board-clock-of"></span>
 			</div>
 			<div class="uoj-ob-tools">
-				<span class="uoj-ob-live" id="outer-board-live" title="榜单自己会更新，不用刷新页面"><i></i><span></span></span>
-				<select class="uoj-ob-select" id="outer-board-vp" title="看某位虚拟参赛者此刻看到的榜单" style="display:none"></select>
-				<button type="button" class="uoj-ob-button" id="outer-board-virtual" title="名字前带 * 的是赛后虚拟参赛的选手，不是正式成绩" style="display:none"></button>
-				<button type="button" class="uoj-ob-button" id="outer-board-scroll" title="榜单很长时自己慢慢往下滚，到底再回到顶上：投在墙上用">自动滚动</button>
+				<span class="uoj-ob-live" id="outer-board-live" title="实时更新"><i></i><span></span></span>
+				<select class="uoj-ob-select" id="outer-board-vp" title="虚拟参赛者的视角" style="display:none"></select>
+				<button type="button" class="uoj-ob-button" id="outer-board-virtual" title="赛后虚拟参赛的选手" style="display:none"></button>
+				<button type="button" class="uoj-ob-button" id="outer-board-scroll" title="自动滚动">自动滚动</button>
 				<button type="button" class="uoj-ob-button" id="outer-board-theme" title="深色 / 浅色">深色</button>
 				<button type="button" class="uoj-ob-button" id="outer-board-full" title="全屏">全屏</button>
 				<a class="uoj-ob-button" href="/contest/<?= $contest['id'] ?>" id="outer-board-back">返回比赛</a>
@@ -86,7 +86,7 @@
 		</div>
 		<div class="uoj-ob-filters uoj-ob-people-filters" id="outer-board-people-filters">
 			<input type="search" class="uoj-ob-search" id="outer-board-search" placeholder="筛选选手" aria-label="筛选选手" />
-			<button type="button" class="uoj-ob-button" id="outer-board-only-followed" title="只显示点了 ☆ 关注的选手">只看关注</button>
+			<button type="button" class="uoj-ob-button" id="outer-board-only-followed" title="只看关注">只看关注</button>
 			<span class="uoj-ob-filters-count" id="outer-board-shown"></span>
 		</div>
 	</div>
@@ -161,5 +161,5 @@
 <script type="text/javascript">
 window.uojOuterBoard = <?= json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-board.js?v=6') ?>
+<?= HTML::js_src('/js/uoj-board.js?v=7') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>

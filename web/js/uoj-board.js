@@ -132,43 +132,43 @@
 			return seconds === null || seconds === undefined ? '–' : minutes(seconds);
 		};
 		var lines = icpc() ? [
-			['submitted', '提交', '提交的次数（不算编译错误和通过之后的提交）', function(problem) {
+			['submitted', '提交', function(problem) {
 				return String(problem.tries);
 			}],
-			['attempted', '尝试', '交过这道题的人数，百分比是占榜上人数的比例', function(problem, stat) {
+			['attempted', '尝试', function(problem, stat) {
 				return stat.people + pct(stat.people, state.rows.length);
 			}],
-			['accepted', '通过', '通过的人数，百分比是占尝试人数的比例', function(problem, stat) {
+			['accepted', '通过', function(problem, stat) {
 				return problem.solved + pct(problem.solved, stat.people);
 			}],
-			['dirt', 'Dirt', '未通过的提交次数，百分比是占已出结果的提交的比例', function(problem, stat) {
+			['dirt', 'Dirt', function(problem, stat) {
 				return stat.rejected + pct(stat.rejected, problem.tries - stat.pending);
 			}],
-			['first', '最早通过', '第一次有人通过的时间', function(problem, stat) {
+			['first', '最早通过', function(problem, stat) {
 				return at(stat.first);
 			}],
-			['last', '最晚通过', '最后一次有人通过的时间', function(problem, stat) {
+			['last', '最晚通过', function(problem, stat) {
 				return at(stat.last);
 			}]
 		] : [
-			['attempted', '尝试', '交过这道题的人数，百分比是占榜上人数的比例', function(problem, stat) {
+			['attempted', '尝试', function(problem, stat) {
 				return stat.people + pct(stat.people, state.rows.length);
 			}],
-			['accepted', '满分', '得满分的人数，百分比是占尝试人数的比例', function(problem, stat) {
+			['accepted', '满分', function(problem, stat) {
 				return problem.solved + pct(problem.solved, stat.people);
 			}],
-			['first', '最早满分', '第一次有人得满分的时间', function(problem, stat) {
+			['first', '最早满分', function(problem, stat) {
 				return at(stat.first);
 			}],
-			['last', '最晚满分', '最后一次有人得满分的时间', function(problem, stat) {
+			['last', '最晚满分', function(problem, stat) {
 				return at(stat.last);
 			}]
 		];
 		var html = '';
 		$.each(lines, function(index, line) {
-			html += '<tr class="uoj-ob-stat" data-stat="' + line[0] + '"><th class="uoj-ob-stat-label" colspan="2" title="' + esc(line[2]) + '">' + esc(line[1]) + '</th>';
+			html += '<tr class="uoj-ob-stat" data-stat="' + line[0] + '"><th class="uoj-ob-stat-label" colspan="2">' + esc(line[1]) + '</th>';
 			$.each(state.problems, function(pos, problem) {
-				html += '<td class="uoj-ob-stat-cell" data-problem="' + esc(problem.letter) + '">' + line[3](problem, state.stats[pos]) + '</td>';
+				html += '<td class="uoj-ob-stat-cell" data-problem="' + esc(problem.letter) + '">' + line[2](problem, state.stats[pos]) + '</td>';
 			});
 			html += '<td class="uoj-ob-stat-rest" colspan="' + (icpc() ? 3 : 2) + '"></td></tr>';
 		});

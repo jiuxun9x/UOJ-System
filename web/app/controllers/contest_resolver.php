@@ -54,7 +54,7 @@
 	$data['duration'] = (int)$contest['last_min'] * 60;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 滚榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=7') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=8') ?>
 <div class="uoj-ob uoj-rs" id="resolver" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title"><?= HTML::escape($data['name']) ?></h1>
@@ -64,10 +64,10 @@
 				<span class="uoj-ob-rule" id="resolver-left"></span>
 			</div>
 			<div class="uoj-ob-tools">
-				<button type="button" class="uoj-ob-button uoj-rs-next" id="resolver-next" title="空格、回车或 → 键">下一步</button>
-				<button type="button" class="uoj-ob-button" id="resolver-back" title="← 键">上一步</button>
-				<button type="button" class="uoj-ob-button" id="resolver-auto" title="每隔一会儿自己走一步">自动</button>
-				<select class="uoj-ob-select" id="resolver-speed" title="自动时每一步隔多久">
+				<button type="button" class="uoj-ob-button uoj-rs-next" id="resolver-next" title="空格 / →">下一步</button>
+				<button type="button" class="uoj-ob-button" id="resolver-back" title="←">上一步</button>
+				<button type="button" class="uoj-ob-button" id="resolver-auto" title="自动">自动</button>
+				<select class="uoj-ob-select" id="resolver-speed" title="速度">
 					<option value="3000">慢</option>
 					<option value="1500" selected="selected">中</option>
 					<option value="700">快</option>
@@ -75,8 +75,8 @@
 				<button type="button" class="uoj-ob-button" id="resolver-restart">从头再来</button>
 				<button type="button" class="uoj-ob-button" id="outer-board-theme" title="深色 / 浅色">深色</button>
 				<button type="button" class="uoj-ob-button" id="outer-board-full" title="全屏">全屏</button>
-				<a class="uoj-ob-button" id="resolver-export-clics" href="/contest/<?= $contest['id'] ?>/resolver?export=clics" title="ICPC Tools 的 Resolver 用的事件流（CCS 2023-06）">导出 CLICS</a>
-				<a class="uoj-ob-button" id="resolver-export-xcpcio" href="/contest/<?= $contest['id'] ?>/resolver?export=xcpcio" title="XCPCIO 的 config.json、team.json、run.json">导出 XCPCIO</a>
+				<a class="uoj-ob-button" id="resolver-export-clics" href="/contest/<?= $contest['id'] ?>/resolver?export=clics" title="ICPC Tools Resolver">导出 CLICS</a>
+				<a class="uoj-ob-button" id="resolver-export-xcpcio" href="/contest/<?= $contest['id'] ?>/resolver?export=xcpcio" title="XCPCIO">导出 XCPCIO</a>
 				<a class="uoj-ob-button" href="/contest/<?= $contest['id'] ?>">返回比赛</a>
 			</div>
 		</div>

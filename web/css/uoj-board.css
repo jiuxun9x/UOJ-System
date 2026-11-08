@@ -720,7 +720,6 @@ a.uoj-ob-person:hover {
 	padding-right: 0.7rem;
 	font-size: 0.85rem;
 	color: var(--ob-muted);
-	cursor: help;
 }
 .uoj-ob-table tfoot tr:first-child > * {
 	border-top: 2px solid var(--ob-line);
