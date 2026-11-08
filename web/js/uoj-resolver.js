@@ -97,8 +97,8 @@
 	var head = function() {
 		var html = '<tr><th class="uoj-ob-rank">排名</th><th class="uoj-ob-name">选手</th>';
 		$.each(data.problems, function(pos, problem) {
-			var balloon = problem.color ? ' style="box-shadow: inset 0 -5px 0 ' + esc(problem.color) + '"' : '';
-			html += '<th class="uoj-ob-problem" data-problem="' + esc(problem.letter) + '"' + balloon + '><span>' + esc(problem.letter) + '</span></th>';
+			var balloon = problem.color ? ' style="background-color: ' + esc(problem.color) + '; color: ' + inkOn(problem.color) + '" data-balloon="' + esc(problem.color) + '"' : '';
+			html += '<th class="uoj-ob-problem' + (problem.color ? ' uoj-ob-balloon' : '') + '" data-problem="' + esc(problem.letter) + '"' + balloon + '><span>' + esc(problem.letter) + '</span></th>';
 		});
 		return html + '<th class="uoj-ob-num">通过</th><th class="uoj-ob-num">罚时</th></tr>';
 	};

@@ -106,9 +106,10 @@
 	var head = function() {
 		var html = '<tr><th class="uoj-ob-rank">排名</th><th class="uoj-ob-name">选手</th>';
 		$.each(state.problems, function(pos, problem) {
-			// where the contest gives balloons, a problem is headed by the colour of its balloon
-			var balloon = problem.color ? ' style="box-shadow: inset 0 -5px 0 ' + esc(problem.color) + '"' : '';
-			html += '<th class="uoj-ob-problem ' + (problem.solved > 0 ? 'uoj-ob-solved-by' : 'uoj-ob-unsolved') + '" data-problem="' + esc(problem.letter) + '"'
+			// where the contest gives balloons, a problem is headed in the colour of its balloon;
+			// else in green when somebody solved it, and in red while nobody has
+			var balloon = problem.color ? ' style="background-color: ' + esc(problem.color) + '; color: ' + inkOn(problem.color) + '" data-balloon="' + esc(problem.color) + '"' : '';
+			html += '<th class="uoj-ob-problem ' + (problem.color ? 'uoj-ob-balloon' : (problem.solved > 0 ? 'uoj-ob-solved-by' : 'uoj-ob-unsolved')) + '" data-problem="' + esc(problem.letter) + '"'
 				+ ' data-solved="' + problem.solved + '" data-tries="' + problem.tries + '"' + balloon + '>'
 				+ '<span>' + esc(problem.letter) + '</span><small>' + problem.solved + '/' + problem.tries + '</small></th>';
 		});

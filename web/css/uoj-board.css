@@ -284,6 +284,10 @@ body.uoj-ob-dark-page .uoj-ob {
 .uoj-ob-table th.uoj-ob-unsolved {
 	background-color: var(--ob-head-no);
 }
+/* in the colour of its balloon (inline); a white or a black one keeps an edge */
+.uoj-ob-table th.uoj-ob-balloon {
+	box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.35);
+}
 .uoj-ob-table td {
 	padding: 0.25rem 0.4rem;
 	border-radius: 0.35rem;

@@ -655,6 +655,17 @@ def outer_board_keeps_itself_up_to_date(page, seeded):
         return [th.hasAttribute('style'), td.hasAttribute('data-balloon')];
     })""")
     assert painted and all(balloon == colour for balloon, colour in painted), painted
+    # and the head of a problem is in the colour of its balloon, where it has one; else green
+    # when it was solved, red while it was not
+    heads = page.evaluate("""Array.from(document.querySelectorAll('#table-outer-board th.uoj-ob-problem')).map(th =>
+        [th.getAttribute('data-balloon'), getComputedStyle(th).backgroundColor, th.className])""")
+    assert any(balloon for balloon, background, classes in heads), heads
+    for balloon, background, classes in heads:
+        if balloon:
+            assert background == "rgb(%d, %d, %d)" % tuple(int(balloon[at:at + 2], 16) for at in (1, 3, 5)), heads
+            assert "uoj-ob-solved-by" not in classes and "uoj-ob-unsolved" not in classes, heads
+        else:
+            assert "uoj-ob-solved-by" in classes or "uoj-ob-unsolved" in classes, heads
 
 
 def outer_board_is_seen_as_a_virtual_participant(page, seeded):

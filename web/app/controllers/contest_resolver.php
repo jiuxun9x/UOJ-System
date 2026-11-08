@@ -54,7 +54,7 @@
 	$data['duration'] = (int)$contest['last_min'] * 60;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 滚榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=8') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=9') ?>
 <div class="uoj-ob uoj-rs" id="resolver" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title"><?= HTML::escape($data['name']) ?></h1>
@@ -93,5 +93,5 @@
 <script type="text/javascript">
 window.uojResolver = <?= json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-resolver.js?v=1') ?>
+<?= HTML::js_src('/js/uoj-resolver.js?v=2') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>
