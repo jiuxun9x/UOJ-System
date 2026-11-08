@@ -1072,7 +1072,8 @@ function runningHomeworksCond() {
 // Whether everybody may take part in a contest, without a password and without being on a list.
 // A contest that says nothing about it is from before there were either, and is for everybody.
 function contestIsForEverybody($contest) {
-	return !isset($contest['join_mode']) || $contest['join_mode'] === 'open';
+	// (a contest that is hidden is not, over or not: it is for who may see it)
+	return (!isset($contest['join_mode']) || $contest['join_mode'] === 'open') && !contestIsHidden($contest);
 }
 
 // the contests that are running, as a condition on the table contests
@@ -1113,7 +1114,7 @@ function visibleSubmissionsCond($user) {
 	// the same rules as 'submission.view'
 	$in_running_contest = "submissions.contest_id in (select id from contests where ".keepingContestsCond().")";
 	// (a contest that is not for everybody keeps what is submitted to it with who may get inside)
-	$in_open_contest = "submissions.contest_id in (select id from contests where join_mode = 'open')";
+	$in_open_contest = "submissions.contest_id in (select id from contests where join_mode = 'open' and is_hidden = 0)";
 	if ($user == null) {
 		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or ($in_open_contest and not $in_running_contest))";
 	}

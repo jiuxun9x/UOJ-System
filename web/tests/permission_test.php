@@ -752,6 +752,15 @@ check_ability('contest.manage', $hidden, array('tester' => false), 'nor manages 
 check_ability('contest.register', $hidden, array('tester' => false, 'alice' => true, 'bob' => false), 'and does not register for it');
 // the code of the contestants is not for its testers
 check_ability('submission.view_source', array('domain_id' => null) + fake_submission('alice', 41, 38), array('tester' => false, 'helper' => true), 'what was submitted to a contest, to its tester');
+// What was submitted to it is for who may go inside it, after it is over too: a contest that is
+// hidden is no contest for everybody, whatever its way of taking part says
+$facts->contests[39] = array('is_hidden' => 1, 'join_mode' => 'open') + fake_contest(39, CONTEST_FINISHED);
+$facts->contest_staff['tester/39'] = 'tester';
+$facts->registered[] = array('alice', 39);
+$hidden_submission = array('domain_id' => null) + fake_submission('alice', 41, 39);
+check_ability('submission.view', $hidden_submission, array('nobody' => false, 'bob' => false, 'alice' => true, 'tester' => true, 'root' => true), 'what was submitted to a hidden contest that is over');
+check_ability('submission.view_source', $hidden_submission, array('nobody' => false, 'bob' => false, 'alice' => true), 'its code');
+check_same(false, contestIsForEverybody($facts->contests[39]), 'a hidden contest is no contest for everybody');
 // shown, it is a contest like any other
 $shown = array('is_hidden' => 0) + $hidden;
 check_ability('contest.view', $shown, array('nobody' => true, 'bob' => true), 'a contest that was hidden');
