@@ -587,6 +587,18 @@ def things_keep_their_distance(page, seeded):
         assert right[2] != left[2] or right[0] - left[1] >= 12, labels
 
 
+def code_box_stays_short(page, seeded):
+    """the box code is written in, with a long program in it: most of a screen at most, and the
+    rest scrolls inside it"""
+    box = "textarea.uoj-code-input"
+    page.wait_for_selector(box)
+    page.fill(box, "".join("int f%d(int x) { return x + %d; }\n" % (n, n) for n in range(300)))
+    page.dispatch_event(box, "input")
+    size = page.eval_on_selector(box, "box => [box.offsetHeight, box.scrollHeight, window.innerHeight]")
+    assert size[0] <= size[2] * 0.6 + 4 and size[1] > size[0] * 2, size
+    page.fill(box, "")
+
+
 def problems_are_ticked(page, seeded):
     """the list of problems, to who manages them: they are ticked, with Shift what lies between,
     and what is to be deleted is listed, and waits for the number of them to be typed"""
@@ -890,7 +902,7 @@ def pages(seeded):
         ("problems-visitor", "visitor", "/problems"),
         ("problem-import", "admin", "/problems/import"),
         ("contests-admin", "admin", "/contests", things_keep_their_distance),
-        ("homework-problem", "student", current + "/problem/%d" % uoj.pid(seeded["problem"])),
+        ("homework-problem", "student", current + "/problem/%d" % uoj.pid(seeded["problem"]), code_box_stays_short),
         ("contest-new", "admin", "/contest/new"),
         ("contest-manage", "admin", "/contest/%d/manage" % seeded["icpc"]),
         ("contest-manage-problems", "admin", "/contest/%d/manage#tab-problems" % seeded["icpc"]),

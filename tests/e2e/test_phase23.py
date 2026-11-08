@@ -91,5 +91,16 @@ class BatchProblemsTest(unittest.TestCase):
         self.assertEqual([int(r[0]) for r in db("select id from problems where owner_domain_id = (select id from domains where slug = '%s')" % slug)], ids[2:])
 
 
+class CodeBoxTest(unittest.TestCase):
+    """The box code is written in grew with what was in it, with a long program as long as the
+    program: it is as long as most of a screen at most, and scrolls inside."""
+
+    def test_the_box_is_bounded(self):
+        page = uoj.Client().get("/css/uoj-domain.css").text
+        self.assertIn(".uoj-code-input", page)
+        self.assertIn("max-height: 60vh", page)
+        self.assertIn("uoj-code-input", uoj.Client().get("/js/uoj.js").text)
+
+
 if __name__ == "__main__":
     unittest.main()

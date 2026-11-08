@@ -52,7 +52,7 @@
 
 		<!-- Custom styles for this template -->
 		<?= HTML::css_link('/css/uoj-theme.css?v=2.3336') ?>
-		<?= HTML::css_link('/css/uoj-domain.css?v=26') ?>
+		<?= HTML::css_link('/css/uoj-domain.css?v=27') ?>
 
 		<!-- jQuery (necessary for Bootstrap\'s JavaScript plugins) -->
 		<?= HTML::js_src('/js/jquery.min.js') ?>
@@ -84,7 +84,7 @@
 		<?= HTML::js_src('/js/color-converter.min.js') ?>
 
 		<!-- uoj -->
-		<?= HTML::js_src('/js/uoj.js?v=2026.11.07.2') ?>
+		<?= HTML::js_src('/js/uoj.js?v=2026.11.08.1') ?>
 
 		<!-- readmore -->
 		<?= HTML::js_src('/js/readmore/readmore.min.js') ?>

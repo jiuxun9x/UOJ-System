@@ -1104,3 +1104,22 @@ td.uoj-batch-cell {
 tr.uoj-batch-picked > td {
 	background-color: rgba(0, 123, 255, 0.08);
 }
+/* the box code is written or pasted into: as long as a screen at most, and what is longer
+   scrolls inside it */
+.uoj-code-input {
+	min-height: 14em;
+	max-height: 60vh;
+	overflow-y: auto;
+	resize: vertical;
+	font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	font-size: 0.875rem;
+	tab-size: 4;
+	-moz-tab-size: 4;
+}
+.uoj-code-box .CodeMirror {
+	height: auto;
+}
+.uoj-code-box .CodeMirror-scroll {
+	min-height: 14em;
+	max-height: 60vh;
+}

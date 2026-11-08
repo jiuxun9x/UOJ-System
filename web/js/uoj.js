@@ -1193,11 +1193,11 @@ $.fn.source_code_form_group = function(name, text, langs_options_html) {
 		var input_upload_type_file = $('<input type="radio" name="' + input_upload_type_name + '" value="file" />');
 		var input_file = $('<input type="file" id="' + input_file_id + '" name="' + input_file_name + '" style="display: none" />');
 		var input_file_path = $('<input class="form-control" type="text" readonly="readonly" />');
-		var input_editor = $('<textarea class="form-control" id="' + input_editor_id + '" name="' + input_editor_name + '"></textarea>');
+		var input_editor = $('<textarea class="form-control uoj-code-input" spellcheck="false" id="' + input_editor_id + '" name="' + input_editor_name + '"></textarea>');
 		var input_use_advanced_editor = $('<input type="checkbox">');
 
 		var div_editor =
-			$('<div id="' + div_editor_id + '" class="col-sm-12"/>')
+			$('<div id="' + div_editor_id + '" class="col-sm-12 uoj-code-box"/>')
 				.append(input_editor)
 				.append($('<div class="checkbox text-right" />')
 					.append($('<label />')
@@ -1373,11 +1373,11 @@ $.fn.text_file_form_group = function(name, text) {
 		var input_upload_type_file = $('<input type="radio" name="' + input_upload_type_name + '" value="file" />');
 		var input_file = $('<input type="file" id="' + input_file_id + '" name="' + input_file_name + '" style="display: none" />');
 		var input_file_path = $('<input class="form-control" type="text" readonly="readonly" />');
-		var input_editor = $('<textarea class="form-control" id="' + input_editor_id + '" name="' + input_editor_name + '"></textarea>');
+		var input_editor = $('<textarea class="form-control uoj-code-input" spellcheck="false" id="' + input_editor_id + '" name="' + input_editor_name + '"></textarea>');
 		var input_use_advanced_editor = $('<input type="checkbox">');
 
 		var div_editor =
-			$('<div id="' + div_editor_id + '" class="col-sm-12"/>')
+			$('<div id="' + div_editor_id + '" class="col-sm-12 uoj-code-box"/>')
 				.append(input_editor)
 				.append($('<div class="checkbox text-right" />')
 					.append($('<label />')
