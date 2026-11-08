@@ -657,7 +657,8 @@ function can($user, $ability, $resource = null) {
 			}
 			foreach ($facts->contestIdsOfProblem($resource['id']) as $contest_id) {
 				$contest = $facts->contest($contest_id);
-				if ($contest != null && can($user, 'contest.view', $contest) && (can($user, 'contest.assist', $contest) || canViewContestProblem($user, $resource, $contest))) {
+				// (its staff, and the testers it invited, read its problems before it begins)
+				if ($contest != null && can($user, 'contest.view', $contest) && (can($user, 'contest.test', $contest) || canViewContestProblem($user, $resource, $contest))) {
 					return true;
 				}
 			}
@@ -814,9 +815,11 @@ function can($user, $ability, $resource = null) {
 				return true;
 			}
 			if ($resource['is_hidden']) {
-				// What somebody submitted while they sat a contest virtually, to a problem of it
-				// that is still hidden, is theirs to see, as the contest shows them its problems.
-				return $name !== null && $resource['submitter'] === $name && $facts->virtualContestOf($resource) !== null;
+				// What somebody submitted to a problem that is still hidden is theirs to see where
+				// they may read the problem: they sat its contest virtually, or test the contest
+				// before it is held, or are of its staff.
+				return $name !== null && $resource['submitter'] === $name
+					&& ($facts->virtualContestOf($resource) !== null || can($user, 'problem.read', $facts->problem($resource['problem_id'])));
 			}
 			// what is submitted in a domain stays in the domain
 			if (!empty($resource['domain_id']) && !can($user, 'domain.view', $facts->domain($resource['domain_id']))) {
@@ -1138,7 +1141,10 @@ function visibleSubmissionsCond($user) {
 		." where contest_virtuals.username = submissions.submitter and contests_problems.problem_id = submissions.problem_id"
 		." and submissions.submit_time >= contest_virtuals.start_time and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)))";
 	$in_my_contest = "submissions.contest_id in (select contest_id from contests_registrants where username = '$esc_username')";
-	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or ((submissions.is_hidden = false or $my_virtual) and (submissions.domain_id is null or $in_my_domain)"
+	// what the user submitted to a hidden problem of a contest they are staff of, or test
+	$my_tested = "(submissions.submitter = '$esc_username' and submissions.problem_id in (select contests_problems.problem_id from contests_problems"
+		." join contests_permissions on contests_permissions.contest_id = contests_problems.contest_id where contests_permissions.username = '$esc_username'))";
+	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or ((submissions.is_hidden = false or $my_virtual or $my_tested) and (submissions.domain_id is null or $in_my_domain)"
 		." and (submissions.contest_id is null or submissions.submitter = '$esc_username' or (not $in_running_contest and ($in_open_contest or $in_my_contest)))"
 		." and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
 }

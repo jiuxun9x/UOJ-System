@@ -752,6 +752,17 @@ check_ability('contest.manage', $hidden, array('tester' => false), 'nor manages 
 check_ability('contest.register', $hidden, array('tester' => false, 'alice' => true, 'bob' => false), 'and does not register for it');
 // the code of the contestants is not for its testers
 check_ability('submission.view_source', array('domain_id' => null) + fake_submission('alice', 41, 38), array('tester' => false, 'helper' => true), 'what was submitted to a contest, to its tester');
+// Its testers read its problems before it begins, hidden ones too, and their files; what they
+// submit to them, outside of it, is theirs to see
+$facts->problems[42] = array('id' => 42, 'is_hidden' => 1, 'extra_config' => '{"view_content_type": "SELF", "view_all_details_type": "SELF", "view_details_type": "SELF"}');
+$facts->contests_of_problems[42] = array(38);
+check_ability('problem.read', $facts->problems[42], array('tester' => true, 'helper' => true, 'alice' => false, 'bob' => false, 'nobody' => false), 'a hidden problem of a hidden contest before it begins');
+check_ability('attachment.view', array('owner_type' => 'problem', 'owner_id' => 42), array('tester' => true, 'alice' => false, 'bob' => false), 'a file of that problem');
+$tested = array('is_hidden' => 1, 'domain_id' => null) + fake_submission('tester', 42);
+foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, $tested, array('tester' => true, 'bob' => false, 'nobody' => false), 'what a tester submitted to a hidden problem of the contest');
+}
+check_ability('submission.view', array('is_hidden' => 1, 'domain_id' => null) + fake_submission('bob', 42), array('bob' => false), 'what somebody who may not read the hidden problem submitted to it');
 // What was submitted to it is for who may go inside it, after it is over too: a contest that is
 // hidden is no contest for everybody, whatever its way of taking part says
 $facts->contests[39] = array('is_hidden' => 1, 'join_mode' => 'open') + fake_contest(39, CONTEST_FINISHED);

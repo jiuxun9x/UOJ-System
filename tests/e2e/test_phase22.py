@@ -7,6 +7,7 @@ import uoj
 from fixtures import AB, ab_problem_files
 from test_phase3 import account
 from test_phase4 import homework_form, homework_row, member_form, new_homework, tick
+from test_phase6 import attach, attachments_of
 from uoj import db, db_value
 
 
@@ -81,6 +82,35 @@ class HomeworkMaintainerLeftTest(unittest.TestCase):
         db("insert into homework_maintainers (homework_id, username) values (%d, 'p22_hw_out')" % homework_id)
         self.assertNotIn(listed, lists(outsider))
         self.assertIn(listed, lists(teacher))
+
+
+class TesterOwnSubmissionTest(unittest.TestCase):
+    """The testers of a hidden contest opened its hidden problems and submitted to them, and were
+    refused what they had submitted - its verdict, its code - and the files of the problems. They
+    read the problems of the contest they test, their files with them, and what they submit to
+    them is theirs to see."""
+
+    def test_a_tester_sees_what_they_submitted_and_the_files_of_the_problems(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        self.assertEqual(attach(admin, "/problem/%d/manage/attachments" % problem_id, [("tables.txt", b"1 2 3\n")]), "")
+        attachment_id = attachments_of("problem", problem_id)["tables.txt"][0]
+        contest_id = admin.new_contest("p22 验题人", starts_in=7200, rule="ICPC", problems=str(problem_id), hidden="on")
+        tester, stranger = account("p22_ts_tester"), account("p22_ts_stranger")
+        self.assertEqual(admin.form("/contest/%d/manage" % contest_id, "add_tester", username="p22_ts_tester", tab="managers"), "")
+
+        submission_id = tester.submit(problem_id, AB, path="/contest/%d/problem/A" % contest_id)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        page = tester.get("/submission/%d" % submission_id)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("scanf", page.text)
+        self.assertIn('href="/submission/%d"' % submission_id, tester.get("/submissions?submitter=p22_ts_tester").text)
+        r = tester.get("/attachment/%d" % attachment_id)
+        self.assertEqual((r.status_code, r.content), (200, b"1 2 3\n"))
+        # nobody else, before it is shown
+        self.assertNotEqual(stranger.get("/submission/%d" % submission_id).status_code, 200)
+        self.assertNotEqual(stranger.get("/attachment/%d" % attachment_id).status_code, 200)
 
 
 if __name__ == "__main__":
