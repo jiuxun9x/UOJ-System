@@ -241,6 +241,23 @@ def seed():
             db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
                % (icpc, minute, submission_id))  # fmt: skip
     uoj.wait_idle()
+    # and one like it that is over, to be resolved: what was submitted in its last hour is not
+    # told on its board. Before it froze the first student solved A and failed B, the second
+    # solved A later, the third failed A; after it, the second solved B, the third A, and the
+    # first B - so the second rises to the top.
+    resolved = admin.new_contest("2026 秋 ICPC 校内选拔 · 决赛", minutes=300, rule="ICPC", freeze_minutes="60", problems="%d %d" % (public_id, second_public))
+    for client in students[:3]:
+        client.register_for_contest(resolved)
+    uoj.move_contest(resolved, -100 * 60, 300)
+    timeline = [(students[0], public_id, AB, 20), (students[0], second_public, AB_WRONG, 50), (students[1], public_id, AB, 30),
+                (students[2], public_id, AB_WRONG, 40), (students[1], second_public, AB, 250), (students[2], public_id, AB, 260),
+                (students[0], second_public, AB, 280)]  # fmt: skip
+    resolved_runs = [(minute, client.submit_in_contest(resolved, problem_id, code)) for client, problem_id, code, minute in timeline]
+    uoj.wait_idle()
+    uoj.move_contest(resolved, -400 * 60, 300)
+    for minute, submission_id in resolved_runs:
+        db("update submissions set submit_time = date_add((select start_time from contests where id = %d), interval %d minute) where id = %d"
+           % (resolved, minute, submission_id))  # fmt: skip
     # the contest gives balloons: two contestants sit somewhere, a colour was chosen, one balloon was brought
     balloons = "/contest/%d/balloons" % icpc
     admin.form(balloons, "settings", balloons="on")
@@ -255,7 +272,8 @@ def seed():
     admin.post("/super-manage/judger", {"submit-judger_adder": "judger_adder", "judger_adder_name": "lab305", "judger_adder_note": "实验楼 305 的机器"})
     return {"announcement": announcement, "teacher": teacher, "student": students[0], "outsider": p3.account("shot_outsider"), "visitor": None,
             "admin": admin, "past": past, "current": current, "training": training, "problem": own_id,
-            "sitter": sitter, "sat": sat, "second_student": students[1], "contest": contest_id, "icpc": icpc, "public": public_id, "second_public": second_public}  # fmt: skip
+            "sitter": sitter, "sat": sat, "second_student": students[1], "third_student": students[2], "contest": contest_id, "icpc": icpc,
+            "resolved": resolved, "public": public_id, "second_public": second_public}  # fmt: skip
 
 
 # ---- what is done on a page before its picture is taken. Each of these also checks that the
@@ -668,6 +686,52 @@ def outer_board_keeps_itself_up_to_date(page, seeded):
             assert "uoj-ob-solved-by" in classes or "uoj-ob-unsolved" in classes, heads
 
 
+def resolver_runs_to_the_end(page, seeded):
+    """the resolver, run by the keys from the board as it froze to the end: the buttons, the
+    exports among them, stand over the stage; the lowest is chosen, a problem flashes before it is
+    told, who rises goes up, the medals are awarded, and the board ends as it really is"""
+    page.wait_for_selector("#table-resolver .uoj-rs-row")
+    bar = page.eval_on_selector("#resolver-bar", "el => el.getBoundingClientRect().bottom")
+    stage = page.eval_on_selector("#resolver-stage", "el => el.getBoundingClientRect().top")
+    assert bar <= stage, (bar, stage)
+    for button in ("#resolver-export-clics", "#resolver-export-xcpcio", "#resolver-next", "#resolver-full"):
+        assert page.is_visible(button), button
+        assert page.eval_on_selector(button, "el => el.getBoundingClientRect().bottom") <= bar, button
+    order = """() => Array.from(document.querySelectorAll('#table-resolver .uoj-rs-row'))
+        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(el => el.getAttribute('data-username'))"""
+    first, second, third = seeded["student"].username, seeded["second_student"].username, seeded["third_student"].username
+    assert page.evaluate(order) == [first, second, third], page.evaluate(order)
+    seen = set()
+    for _ in range(60):
+        if page.get_attribute("#resolver", "data-finished") == "1":
+            break
+        page.keyboard.press("Space")
+        page.wait_for_timeout(150)
+        if page.locator("#table-resolver .uoj-rs-uncover").count():
+            seen.add("flash")
+        if page.get_attribute("#resolver", "data-award"):
+            seen.add("award")
+            assert page.is_visible("#resolver-award .uoj-rs-award-card")
+        if page.locator("#table-resolver .uoj-rs-chosen").count():
+            seen.add("chosen")
+        page.wait_for_timeout(1500)
+    assert page.get_attribute("#resolver", "data-finished") == "1"
+    assert seen == {"flash", "award", "chosen"}, seen
+    page.wait_for_timeout(4500)
+    assert page.evaluate(order) == [second, first, third], page.evaluate(order)
+    assert page.inner_text("#resolver-left") == "全部揭晓"
+    # and back, a step at a time, to where it began
+    steps = int(page.get_attribute("#resolver", "data-steps"))
+    for _ in range(steps):
+        page.keyboard.press("ArrowLeft")
+    assert page.get_attribute("#resolver", "data-steps") == "0"
+    assert page.evaluate(order) == [first, second, third], page.evaluate(order)
+    # the whole screen is the stage alone
+    page.click("#resolver-full")
+    page.wait_for_function("getComputedStyle(document.querySelector('#resolver-bar')).display === 'none'")
+    page.keyboard.press("Escape")
+
+
 def outer_board_is_seen_as_a_virtual_participant(page, seeded):
     """the board as somebody who sits the contest virtually sees it, to a visitor, as Codeforces
     shows the standings of a participant: whose view it is, their row lit up, who sat the contest
@@ -927,6 +991,7 @@ def pages(seeded):
         ("outer-board", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_keeps_itself_up_to_date),
         ("outer-board-dark", "student", "/contest/%d/board" % seeded["icpc"], outer_board_goes_dark),
         ("outer-board-final", "visitor", "/contest/%d/board" % seeded["contest"]),
+        ("resolver", "admin", "/contest/%d/resolver" % seeded["resolved"], resolver_runs_to_the_end),
         ("outer-board-vp", "visitor", "/contest/%d/board?vp=%s" % (seeded["contest"], seeded["sitter"].username), outer_board_is_seen_as_a_virtual_participant),
         ("outer-board-stats", "visitor", "/contest/%d/board#stats" % seeded["icpc"], outer_board_tells_its_statistics),
         ("outer-board-follow", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_follows_and_filters),

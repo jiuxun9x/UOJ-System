@@ -54,44 +54,52 @@
 	$data['duration'] = (int)$contest['last_min'] * 60;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 滚榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=9') ?>
-<div class="uoj-ob uoj-rs" id="resolver" data-contest="/contest/<?= $contest['id'] ?>">
-	<div class="uoj-ob-top">
-		<h1 class="uoj-ob-title"><?= HTML::escape($data['name']) ?></h1>
-		<div class="uoj-ob-bar">
-			<div class="uoj-ob-state">
-				<span class="uoj-ob-pill uoj-ob-pill-frozen" id="resolver-phase">滚榜</span>
-				<span class="uoj-ob-rule" id="resolver-left"></span>
-			</div>
-			<div class="uoj-ob-tools">
-				<button type="button" class="uoj-ob-button uoj-rs-next" id="resolver-next" title="空格 / →">下一步</button>
-				<button type="button" class="uoj-ob-button" id="resolver-back" title="←">上一步</button>
-				<button type="button" class="uoj-ob-button" id="resolver-auto" title="自动">自动</button>
-				<select class="uoj-ob-select" id="resolver-speed" title="速度">
-					<option value="3000">慢</option>
-					<option value="1500" selected="selected">中</option>
-					<option value="700">快</option>
+<?= HTML::css_link('/css/uoj-resolver.css?v=1') ?>
+<div class="uoj-rs" id="resolver" data-contest="/contest/<?= $contest['id'] ?>" style="--rs-problems: <?= count($data['problems']) ?>">
+	<div class="uoj-rs-bar" id="resolver-bar">
+		<div class="uoj-rs-state">
+			<span class="uoj-rs-pill" id="resolver-phase">滚榜</span>
+			<span class="uoj-rs-left" id="resolver-left"></span>
+			<span class="uoj-rs-medals" id="resolver-medals" style="display:none"></span>
+		</div>
+		<div class="uoj-rs-tools">
+			<div class="uoj-rs-group">
+				<button type="button" class="uoj-rs-button" id="resolver-restart" title="R">从头</button>
+				<button type="button" class="uoj-rs-button" id="resolver-back" title="← / Backspace">上一步</button>
+				<button type="button" class="uoj-rs-button uoj-rs-next" id="resolver-next" title="空格 / → / Enter">下一步</button>
+				<button type="button" class="uoj-rs-button" id="resolver-auto" title="A">自动</button>
+				<select class="uoj-rs-select" id="resolver-speed" title="速度">
+					<option value="2400">慢</option>
+					<option value="1200" selected="selected">中</option>
+					<option value="600">快</option>
 				</select>
-				<button type="button" class="uoj-ob-button" id="resolver-restart">从头再来</button>
-				<button type="button" class="uoj-ob-button" id="outer-board-theme" title="深色 / 浅色">深色</button>
-				<button type="button" class="uoj-ob-button" id="outer-board-full" title="全屏">全屏</button>
-				<a class="uoj-ob-button" id="resolver-export-clics" href="/contest/<?= $contest['id'] ?>/resolver?export=clics" title="ICPC Tools Resolver">导出 CLICS</a>
-				<a class="uoj-ob-button" id="resolver-export-xcpcio" href="/contest/<?= $contest['id'] ?>/resolver?export=xcpcio" title="XCPCIO">导出 XCPCIO</a>
-				<a class="uoj-ob-button" href="/contest/<?= $contest['id'] ?>">返回比赛</a>
+			</div>
+			<div class="uoj-rs-group">
+				<a class="uoj-rs-button" id="resolver-export-clics" href="/contest/<?= $contest['id'] ?>/resolver?export=clics" title="ICPC Tools Resolver">导出 CLICS</a>
+				<a class="uoj-rs-button" id="resolver-export-xcpcio" href="/contest/<?= $contest['id'] ?>/resolver?export=xcpcio" title="XCPCIO">导出 XCPCIO</a>
+			</div>
+			<div class="uoj-rs-group">
+				<button type="button" class="uoj-rs-button" id="resolver-full" title="F">全屏</button>
+				<a class="uoj-rs-button" id="resolver-leave" href="/contest/<?= $contest['id'] ?>">返回比赛</a>
 			</div>
 		</div>
 	</div>
-	<div class="uoj-ob-scroll">
-		<table class="uoj-ob-table" id="table-resolver">
-			<thead></thead>
-			<tbody></tbody>
-		</table>
+	<div class="uoj-rs-stage" id="resolver-stage">
+		<div class="uoj-rs-head">
+			<span class="uoj-rs-rank">排名</span>
+			<span class="uoj-rs-content"><span class="uoj-rs-title"><?= HTML::escape($data['name']) ?></span><span class="uoj-rs-count" id="resolver-count"></span></span>
+			<span class="uoj-rs-total">通过</span>
+			<span class="uoj-rs-penalty">罚时</span>
+		</div>
+		<div class="uoj-rs-view" id="resolver-view">
+			<div class="uoj-rs-list" id="table-resolver"></div>
+		</div>
+		<div class="uoj-rs-award" id="resolver-award" style="display:none"></div>
 	</div>
-	<div class="uoj-ob-medals" id="resolver-medals" style="display:none"></div>
 	<noscript><p class="text-center">滚榜需要浏览器打开 JavaScript。</p></noscript>
 </div>
 <script type="text/javascript">
 window.uojResolver = <?= json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-resolver.js?v=2') ?>
+<?= HTML::js_src('/js/uoj-resolver.js?v=3') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>

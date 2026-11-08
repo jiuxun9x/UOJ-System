@@ -4,6 +4,7 @@ written in; the outer board in the colours of the balloons; the resolver."""
 import unittest
 
 import uoj
+from test_phase21 import frozen_contest
 from test_phase3 import account
 from test_phase4 import member_form
 from uoj import db, db_value
@@ -100,6 +101,34 @@ class CodeBoxTest(unittest.TestCase):
         self.assertIn(".uoj-code-input", page)
         self.assertIn("max-height: 60vh", page)
         self.assertIn("uoj-code-input", uoj.Client().get("/js/uoj.js").text)
+
+
+class ResolverPageTest(unittest.TestCase):
+    """The resolver was the outer board with buttons, in the light: a table whose rows jumped, the
+    buttons over it, the exports at their end. It is a black stage as the resolvers of the ICPC
+    Tools and of Hydro have it, with its own stylesheet and script; outside the whole screen the
+    buttons stand over it, the exports with them, and in the whole screen the stage is alone."""
+
+    def test_the_stage_and_the_buttons_over_it(self):
+        admin, pupil, contest_id = frozen_contest("p23 滚榜", "p23_rs_pupil")
+        uoj.move_contest(contest_id, -400 * 60, 300)
+        page = admin.get("/contest/%d/resolver" % contest_id).text
+        for part in ("/css/uoj-resolver.css", "/js/uoj-resolver.js", 'id="resolver-bar"', 'id="resolver-stage"', 'id="table-resolver"',
+                     'id="resolver-full"', 'id="resolver-award"'):  # fmt: skip
+            self.assertIn(part, page)
+        # the buttons, the exports among them, come before the stage
+        bar, stage = page.index('id="resolver-bar"'), page.index('id="resolver-stage"')
+        for button in ('id="resolver-export-clics"', 'id="resolver-export-xcpcio"', 'id="resolver-next"', 'id="resolver-back"', 'id="resolver-auto"'):
+            self.assertTrue(bar < page.index(button) < stage, button)
+        # it is black, always: no light and dark to choose
+        self.assertNotIn('id="outer-board-theme"', page)
+        self.assertNotIn("/css/uoj-board.css", page)
+        # and it still says nothing it need not
+        for sentence in ('id="resolver-note"', "按“下一步”", "只给工作人员下载", "罚时按秒计算"):
+            self.assertNotIn(sentence, page, sentence)
+        script = uoj.Client().get("/js/uoj-resolver.js").text
+        for part in ("uoj-rs-uncover", "uoj-rs-moving", "awardDue", "requestFullscreen"):
+            self.assertIn(part, script)
 
 
 if __name__ == "__main__":
