@@ -93,7 +93,8 @@ EOD;
 	$pag_config['cond'] = $cond;
 	$pag_config['tail'] = "order by id asc";
 	$pag = new Paginator($pag_config);
-	$rows = $pag->get();
+	// (what the paginator gives is gone through once: it is kept, to be gone through twice)
+	$rows = iterator_to_array($pag->get());
 	// who manages some of the problems of the page ticks them, to do something to all at once
 	$batch = false;
 	foreach ($rows as $row) {
