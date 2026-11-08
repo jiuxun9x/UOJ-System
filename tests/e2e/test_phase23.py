@@ -2,6 +2,7 @@
 written in; the outer board in the colours of the balloons; the resolver."""
 
 import unittest
+from urllib.parse import quote
 
 import uoj
 from test_phase21 import frozen_contest
@@ -26,13 +27,15 @@ class BatchProblemsTest(unittest.TestCase):
     def test_the_problems_of_the_site_are_ticked(self):
         admin = uoj.admin()
         ids = [admin.new_problem(title="p23 批量 %d" % n) for n in range(4)]
-        page = admin.get("/problems").text
+        # (the list is long by now: the problems of this test are looked for)
+        listed = "/problems?search=" + quote("p23 批量")
+        page = admin.get(listed).text
         self.assertIn('id="form-problems-batch"', page)
         for problem_id in ids:
             self.assertIn('name="problems[]" value="%d"' % problem_id, page)
         # who manages none of them has nothing to tick, and what they send does nothing
         pupil = account("p23_batch_pupil")
-        self.assertNotIn('id="form-problems-batch"', pupil.get("/problems").text)
+        self.assertNotIn('id="form-problems-batch"', pupil.get(listed).text)
         self.assertNotEqual(batch(pupil, "/problems", "show", ids), "")
         self.assertEqual([hidden(i) for i in ids], [1, 1, 1, 1])
 
