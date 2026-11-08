@@ -1297,6 +1297,86 @@ function problemDelete($problem, $actor) {
 	return '';
 }
 
+// ---- many problems at once
+//
+// What is done to several problems that were ticked in a list of problems: they are made
+// public, hidden or deleted. Only the problems of the list's own place are touched - the site
+// (null) or a domain - and of them only those the actor may manage. Deleting goes as it goes
+// for one problem: what is still used is not deleted, and the others are.
+
+define('UOJ_PROBLEMS_BATCH_MAX', 100);
+
+// the ids a form sent as problems[], as numbers, each once, as many as one may send
+function problemsBatchIds($sent) {
+	$ids = array();
+	foreach (is_array($sent) ? $sent : array() as $id) {
+		if (is_string($id) && validateUInt($id)) {
+			$ids[(int)$id] = (int)$id;
+		}
+	}
+	return array_slice(array_values($ids), 0, UOJ_PROBLEMS_BATCH_MAX);
+}
+// Does $action ('show', 'hide' or 'delete') to the problems $ids of $domain (null: of the
+// site). Returns array(the problems it was done to, as labels; why it was not done to the
+// others, as lines).
+function problemsBatch($action, $ids, $actor, $domain = null) {
+	$done = array();
+	$refused = array();
+	foreach ($ids as $id) {
+		$problem = queryProblemBrief((int)$id);
+		$here = $problem && ($domain === null ? !$problem['owner_domain_id'] : (int)$problem['owner_domain_id'] === (int)$domain['id']);
+		if (!$here || !can($actor, 'problem.manage', $problem)) {
+			$refused[] = ($here ? '#' . problemNumber($problem) : "{$id}") . '：没有这道题，或者你不能管理它';
+			continue;
+		}
+		$label = '#' . problemNumber($problem) . ' ' . problemPlainTitle($problem['title']);
+		if ($action === 'delete') {
+			$err = problemDelete($problem, $actor);
+			if ($err !== '') {
+				$refused[] = "{$label}：{$err}";
+				continue;
+			}
+		} else {
+			$hidden = $action === 'hide' ? 1 : 0;
+			if ((int)$problem['is_hidden'] !== $hidden) {
+				problemSetHidden($problem['id'], $hidden);
+				auditLog('problem.set_hidden', 'problem', $problem['id'], array('is_hidden' => (int)$problem['is_hidden']), array('is_hidden' => $hidden, 'batch' => true), $actor);
+			}
+		}
+		$done[] = $label;
+	}
+	return array($done, $refused);
+}
+// The form of a list of problems that does it; for domainHandleForms(). After it the list
+// says what was done, and to what it was not done.
+function problemsBatchForm($domain = null) {
+	return function() use ($domain) {
+		global $myUser;
+		$action = isset($_POST['action']) && is_string($_POST['action']) ? $_POST['action'] : '';
+		if (!in_array($action, array('show', 'hide', 'delete'), true)) {
+			return '不知道要对这些题目做什么';
+		}
+		$ids = problemsBatchIds(isset($_POST['problems']) ? $_POST['problems'] : null);
+		if (!$ids) {
+			return '请先勾选题目';
+		}
+		if ($action === 'delete') {
+			$typed = isset($_POST['confirm']) && is_string($_POST['confirm']) ? trim($_POST['confirm']) : '';
+			if ($typed !== (string)count($ids)) {
+				return '输入的数目和勾选的题目数不一样，题目没有删除';
+			}
+		}
+		$verb = array('show' => '公开', 'hide' => '隐藏', 'delete' => '删除')[$action];
+		list($done, $refused) = problemsBatch($action, $ids, $myUser, $domain);
+		if (!$done) {
+			return "一道也没有{$verb}：" . join('；', $refused);
+		}
+		domainFlash("已{$verb} " . count($done) . ' 道题' . ($action === 'delete' ? '：' . join('、', $done) : '') . '。'
+			. ($refused ? "没有{$verb}的：" . join('；', $refused) . '。' : ''), $refused ? 'warning' : 'success');
+		return '';
+	};
+}
+
 // ---- the data that is uploaded
 
 // Takes the archive a form sent as the data of a problem and unpacks it into the folder of

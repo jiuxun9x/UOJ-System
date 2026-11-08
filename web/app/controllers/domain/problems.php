@@ -1,8 +1,11 @@
 <?php
+	requirePHPLib('problem');
 	$domain = domainOfPage();
 	$can_teach = can($myUser, 'domain.teach', $domain);
 	
 	$error = domainHandleForms(array(
+		// several problems at once, ticked in the list (see problemsBatchForm())
+		'batch' => problemsBatchForm($domain),
 		'copy' => function() use ($domain, $can_teach) {
 			global $myUser;
 			if (!$can_teach) {
@@ -136,10 +139,26 @@
 <?php if (!$problems): ?>
 <div class="uoj-domain-empty"><?= $search !== '' ? '没有题号、标题或标签里有“' . HTML::escape($search) . '”的题目。' : '这个域还没有' . ($can_teach ? '' : '公开的') . '题目。' ?></div>
 <?php else: ?>
+<?php
+	// who manages some of the problems ticks them, to do something to all at once
+	$batch = false;
+	foreach ($problems as $problem) {
+		if (can($myUser, 'problem.manage', $problem)) {
+			$batch = true;
+			break;
+		}
+	}
+?>
+<?php if ($batch): ?>
+<?php uojIncludeView('problems-batch') ?>
+<?php endif ?>
 <div class="table-responsive">
 	<table class="table table-hover" id="table-domain-problems">
 		<thead>
 			<tr>
+				<?php if ($batch): ?>
+				<th class="uoj-batch-cell"><input type="checkbox" class="uoj-batch-all" aria-label="全选" title="全选" /></th>
+				<?php endif ?>
 				<th style="width:6em">#</th>
 				<th>题目</th>
 				<?php if ($can_teach): ?>
@@ -155,6 +174,13 @@
 			<?php foreach ($problems as $problem): ?>
 			<?php $data_state = $can_teach ? domainProblemDataState($problem['id']) : array('ready', ''); ?>
 			<tr>
+				<?php if ($batch): ?>
+				<td class="uoj-batch-cell">
+					<?php if (can($myUser, 'problem.manage', $problem)): ?>
+					<input type="checkbox" name="problems[]" value="<?= $problem['id'] ?>" form="form-problems-batch" aria-label="选择 #<?= problemNumber($problem) ?>" data-label="#<?= problemNumber($problem) ?> <?= HTML::escape(problemPlainTitle($problem['title'])) ?>" />
+					<?php endif ?>
+				</td>
+				<?php endif ?>
 				<td<?= $problem['accepted_submission_id'] ? ' class="table-success"' : '' ?>>#<?= problemNumber($problem) ?></td>
 				<td>
 					<a href="<?= problemUrl($problem) ?>"><?= $problem['title'] ?></a>

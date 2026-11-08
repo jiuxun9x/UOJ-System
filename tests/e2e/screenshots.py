@@ -587,6 +587,27 @@ def things_keep_their_distance(page, seeded):
         assert right[2] != left[2] or right[0] - left[1] >= 12, labels
 
 
+def problems_are_ticked(page, seeded):
+    """the list of problems, to who manages them: they are ticked, with Shift what lies between,
+    and what is to be deleted is listed, and waits for the number of them to be typed"""
+    things_keep_their_distance(page, seeded)
+    boxes = page.locator('input[name="problems[]"]')
+    assert boxes.count() >= 3, boxes.count()
+    assert page.is_disabled('[data-batch="delete"]')
+    boxes.nth(0).click()
+    boxes.nth(2).click(modifiers=["Shift"])
+    assert page.inner_text("#batch-count") == "已选 3 道", page.inner_text("#batch-count")
+    assert page.eval_on_selector(".uoj-batch-all", "box => box.indeterminate") is True
+    page.click('[data-batch="delete"]')
+    page.wait_for_selector("#batch-confirm", state="visible")
+    assert page.locator("#batch-confirm-list li").count() == 3
+    # without the number, nothing is sent
+    page.click("#button-batch-delete")
+    assert page.eval_on_selector("#input-batch-confirm", "field => field.classList.contains('is-invalid')") is True
+    page.click("#button-batch-cancel")
+    assert not page.is_visible("#batch-confirm")
+
+
 def outer_board_keeps_itself_up_to_date(page, seeded):
     """the outer board of a contest that runs, to somebody who is not logged in: its clock goes
     on, and when something happens in the contest the rows move without the page being loaded
@@ -865,7 +886,7 @@ def pages(seeded):
         ("problem-data-editing", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), conf_is_edited_by_hand),
         ("problem-data-upload", "teacher", d + "/problem/%d/manage/data" % uoj.pid(seeded["problem"]), upload_dialog),
         ("problem-attachments", "teacher", d + "/problem/%d/manage/attachments" % uoj.pid(seeded["problem"])),
-        ("problems", "admin", "/problems", things_keep_their_distance),
+        ("problems", "admin", "/problems", problems_are_ticked),
         ("problems-visitor", "visitor", "/problems"),
         ("problem-import", "admin", "/problems/import"),
         ("contests-admin", "admin", "/contests", things_keep_their_distance),

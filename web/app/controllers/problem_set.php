@@ -2,11 +2,22 @@
 	requirePHPLib('form');
 	requirePHPLib('judger');
 	requirePHPLib('data');
+	requirePHPLib('problem');
+
+	// several problems at once, ticked in the list (see problemsBatchForm())
+	$error = domainHandleForms(array('batch' => problemsBatchForm(null)), UOJContext::requestURI());
 	
 	function echoProblem($problem) {
-		global $myUser;
+		global $myUser, $batch;
 		if (can($myUser, 'problem.view', $problem)) {
 			echo '<tr class="text-center">';
+			if ($batch) {
+				echo '<td class="uoj-batch-cell">';
+				if (can($myUser, 'problem.manage', $problem)) {
+					echo '<input type="checkbox" name="problems[]" value="', $problem['id'], '" form="form-problems-batch" aria-label="选择 #', $problem['id'], '" data-label="#', $problem['id'], ' ', HTML::escape(problemPlainTitle($problem['title'])), '" />';
+				}
+				echo '</td>';
+			}
 			if ($problem['submission_id']) {
 				echo '<td class="table-success">';
 			} else {
@@ -76,7 +87,26 @@ EOD;
 		$cond = '1';
 	}
 	
+	$pag_config = array('page_len' => 100);
+	$pag_config['col_names'] = array('*');
+	$pag_config['table_name'] = "problems left join best_ac_submissions on best_ac_submissions.submitter = '$esc_me' and problems.id = best_ac_submissions.problem_id";
+	$pag_config['cond'] = $cond;
+	$pag_config['tail'] = "order by id asc";
+	$pag = new Paginator($pag_config);
+	$rows = $pag->get();
+	// who manages some of the problems of the page ticks them, to do something to all at once
+	$batch = false;
+	foreach ($rows as $row) {
+		if (can($myUser, 'problem.manage', $row)) {
+			$batch = true;
+			break;
+		}
+	}
+
 	$header = '<tr>';
+	if ($batch) {
+		$header .= '<th class="uoj-batch-cell"><input type="checkbox" class="uoj-batch-all" aria-label="全选" title="全选" /></th>';
+	}
 	$header .= '<th class="text-center" style="width:5em;">ID</th>';
 	$header .= '<th>'.UOJLocale::get('problems::problem').'</th>';
 	if (isset($_COOKIE['show_submit_mode'])) {
@@ -111,17 +141,11 @@ EOD;
 	);
 ?>*/
 
-	$pag_config = array('page_len' => 100);
-	$pag_config['col_names'] = array('*');
-	$pag_config['table_name'] = "problems left join best_ac_submissions on best_ac_submissions.submitter = '$esc_me' and problems.id = best_ac_submissions.problem_id";
-	$pag_config['cond'] = $cond;
-	$pag_config['tail'] = "order by id asc";
-	$pag = new Paginator($pag_config);
-
 	$div_classes = array('table-responsive');
 	$table_classes = array('table', 'table-bordered', 'table-hover', 'table-striped');
 ?>
 <?php echoUOJPageHeader(UOJLocale::get('problems')) ?>
+<?php echoDomainError($error) ?>
 <?php $flash = domainTakeFlash(); ?>
 <?php if ($flash): ?>
 <div class="alert alert-<?= $flash[0] ?>" role="alert" id="problems-flash"><?= HTML::escape($flash[1]) ?></div>
@@ -143,6 +167,9 @@ EOD;
 	<?php endif ?>
 </div>
 <?php echo $pag->pagination(); ?>
+<?php if ($batch): ?>
+<?php uojIncludeView('problems-batch') ?>
+<?php endif ?>
 <?php if ($search !== ''): ?>
 <p class="text-muted mb-2" id="problem-search-note">题号、标题或标签里有“<?= HTML::escape($search) ?>”的题目。<a href="/problems">显示全部</a></p>
 <?php endif ?>
@@ -172,7 +199,7 @@ $('#input-show_submit_mode').click(function() {
 	echo '</thead>';
 	echo '<tbody>';
 	
-	foreach ($pag->get() as $idx => $row) {
+	foreach ($rows as $idx => $row) {
 		echoProblem($row);
 		echo "\n";
 	}

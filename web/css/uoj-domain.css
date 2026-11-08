@@ -1060,3 +1060,47 @@ small, .small {
 .uoj-pdf-no-viewer .uoj-pdf-fallback {
 	display: block;
 }
+/* what is done to the ticked problems of a list */
+.uoj-batch {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.75rem;
+}
+.uoj-batch-count {
+	min-width: 5em;
+	color: #6c757d;
+}
+.uoj-batch-confirm {
+	flex: 1 0 100%;
+	padding: 0.75rem 1rem;
+	border: 1px solid #f5c6cb;
+	border-radius: 0.25rem;
+	background-color: #fff5f5;
+}
+.uoj-batch-confirm ul {
+	max-height: 12em;
+	overflow-y: auto;
+}
+.uoj-batch-confirm-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+.uoj-batch-confirm-row .form-control {
+	width: 6em;
+}
+th.uoj-batch-cell,
+td.uoj-batch-cell {
+	width: 2.5em;
+	text-align: center;
+	vertical-align: middle;
+}
+.uoj-batch-cell input {
+	cursor: pointer;
+}
+tr.uoj-batch-picked > td {
+	background-color: rgba(0, 123, 255, 0.08);
+}
