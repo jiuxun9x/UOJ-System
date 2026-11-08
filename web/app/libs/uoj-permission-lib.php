@@ -1129,7 +1129,9 @@ function visibleSubmissionsCond($user) {
 	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";
 	$assists_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'ta').")";
 	// a homework keeps what is submitted to it to itself until it is over
-	$maintains_homework = "submissions.homework_id in (select homework_id from homework_maintainers where username = '$esc_username')";
+	// (who looks after a homework does while a member of its domain, as 'homework.view_scores' has it)
+	$maintains_homework = "submissions.homework_id in (select homework_maintainers.homework_id from homework_maintainers join homeworks on homeworks.id = homework_maintainers.homework_id"
+		." where homework_maintainers.username = '$esc_username' and homeworks.domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
 	$in_open_homework = "submissions.homework_id in (select id from homeworks where end_at > '".UOJTime::$time_now_str."')";
 	// what the user submitted while they sat a contest virtually, to a problem of it that is hidden
 	$my_virtual = "(submissions.submitter = '$esc_username' and submissions.contest_id is null and exists (select 1 from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"

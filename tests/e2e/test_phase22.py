@@ -6,7 +6,8 @@ import unittest
 import uoj
 from fixtures import AB, ab_problem_files
 from test_phase3 import account
-from uoj import db_value
+from test_phase4 import homework_form, homework_row, member_form, new_homework, tick
+from uoj import db, db_value
 
 
 class HiddenContestOverTest(unittest.TestCase):
@@ -36,6 +37,50 @@ class HiddenContestOverTest(unittest.TestCase):
         # shown, it is a contest like any other
         self.assertEqual(admin.contest_settings(contest_id), "")
         self.assertEqual(stranger.get(page).status_code, 200)
+
+
+class HomeworkMaintainerLeftTest(unittest.TestCase):
+    """Who was asked to look after a homework and was taken out of its domain was shown what was
+    submitted to it in the lists of submissions still, and looked after it again when they came
+    back. They look after it while they are members of the domain, and taken out of it they look
+    after it no more."""
+
+    def test_who_is_taken_out_of_a_domain_looks_after_its_homework_no_more(self):
+        admin = uoj.admin()
+        teacher, keeper, pupil, outsider = account("p22_hw_teacher"), account("p22_hw_keeper"), account("p22_hw_pupil"), account("p22_hw_out")
+        self.assertEqual(admin.change_user("p22_hw_teacher", "grant:teacher"), "")
+        slug = "p22-hw"
+        teacher.new_domain(slug)
+        for client in (keeper, pupil):
+            self.assertEqual(member_form(teacher, slug, "add", username=client.username, role="member"), "")
+        self.assertEqual(teacher.new_problem_form(slug), "")
+        problem_id = int(db_value("select max(id) from problems where owner_domain_id = (select id from domains where slug = '%s')" % slug))
+        self.assertIn("上传成功", teacher.upload_data(problem_id, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(problem_id), "")
+        homework_id = new_homework(teacher, slug, title="p22 维护者离开")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(uoj.pid(problem_id)), score="100"), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "publish"), "")
+        uoj.wait_until("the homework is published", lambda: tick() and homework_row(homework_id, "status")[0] == "published", timeout=300)
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_maintainer", username="p22_hw_keeper"), "")
+        self.assertEqual(pupil.form("/d/%s/homework/%d" % (slug, homework_id), "claim"), "")
+        submission_id = pupil.submit(problem_id, AB, path="/d/%s/homework/%d/problem/%d" % (slug, homework_id, uoj.pid(problem_id)))
+        uoj.wait_submission(submission_id)
+        listed = 'href="/submission/%d"' % submission_id
+        lists = lambda client: client.get("/submissions?problem_id=%d" % problem_id).text
+        self.assertIn(listed, lists(keeper))
+
+        # taken out of the domain, they look after it no more: not in the lists either
+        self.assertEqual(member_form(teacher, slug, "remove", username="p22_hw_keeper"), "")
+        self.assertEqual(db("select username from homework_maintainers where homework_id = %d" % homework_id), [])
+        self.assertNotIn(listed, lists(keeper))
+        # and back in the domain, they are a member like any other
+        self.assertEqual(member_form(teacher, slug, "add", username="p22_hw_keeper", role="member"), "")
+        self.assertNotIn(listed, lists(keeper))
+        self.assertEqual(keeper.get("/d/%s/homework/%d/manage" % (slug, homework_id)).status_code, 403)
+        # nor does anybody asked before this was so, who is not in the domain
+        db("insert into homework_maintainers (homework_id, username) values (%d, 'p22_hw_out')" % homework_id)
+        self.assertNotIn(listed, lists(outsider))
+        self.assertIn(listed, lists(teacher))
 
 
 if __name__ == "__main__":
