@@ -47,6 +47,14 @@
 			}
 			$download_name = "$id.zip";
 			break;
+		case 'answers':
+			// the inputs and the standard program of a job of making answers, while it is being done
+			if (!validateUInt($_GET['id']) || !DB::selectFirst("select id from problem_answer_jobs where id = {$_GET['id']} and status = 'running'")) {
+				become404Page();
+			}
+			$file_name = dataAnswerJobArchive($_GET['id']);
+			$download_name = "answers.zip";
+			break;
 		case 'judger':
 			$file_name = UOJContext::storagePath()."/judge_client.zip";
 			$download_name = "judge_client.zip";

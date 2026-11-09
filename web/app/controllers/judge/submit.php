@@ -34,7 +34,7 @@
 	define('CLAIM_DROPPED', 'judge_claim = null, judge_worker = null, judge_lease_until = null');
 	// the tables of what is given out, under the kinds the judgers name them by
 	function claimTables() {
-		return array('submission' => 'submissions', 'custom_test' => 'custom_test_submissions', 'hack' => 'hacks', 'prepare' => 'problem_data_versions');
+		return array('submission' => 'submissions', 'custom_test' => 'custom_test_submissions', 'hack' => 'hacks', 'prepare' => 'problem_data_versions', 'answers' => 'problem_answer_jobs');
 	}
 	function renewLease($claim) {
 		foreach (claimTables() as $table) {
@@ -407,6 +407,14 @@
 			finishJudgement('hack', $id, $memory === null ? 'reclaimed' : 'memory', $claim);
 		}
 	}
+	// a job of making answers that was not done goes back to the queue, a few times
+	function releaseAnswerJob($job) {
+		if ($job['attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
+			dataFinishAnswerJob($job, false, '评测机多次没有做完：标准程序可能太慢，或者评测机出了问题');
+		} else {
+			DB::update("update problem_answer_jobs set status = 'pending', judger_name = null, attempts = attempts + 1, ".CLAIM_DROPPED." where id = {$job['id']} and ".claimIs($job['judge_claim'])." and status = 'running'");
+		}
+	}
 	function releaseVersion($version_row) {
 		if ($version_row['attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
 			dataFailVersion($version_row, 'the judgers stopped responding while building the programs of the problem');
@@ -431,6 +439,9 @@
 		}
 		foreach (DB::selectAll("select * from problem_data_versions where status = 'preparing' and $lost") as $version_row) {
 			releaseVersion($version_row);
+		}
+		foreach (DB::selectAll("select * from problem_answer_jobs where status = 'running' and $lost") as $job) {
+			releaseAnswerJob($job);
 		}
 	}
 	
@@ -487,6 +498,24 @@
 			} else {
 				$message = isset($_POST['message']) && is_string($_POST['message']) ? $_POST['message'] : '';
 				dataFailVersion($version_row, uojTextEncode(substr($message, 0, 20000)));
+			}
+		}
+	}
+	// What the standard program wrote on the inputs of a job, or why it could not: the judger
+	// says which tests failed, and how, which is said here in words
+	if (isset($_POST['answers_result']) && $claim !== null) {
+		if (!validateUInt($_POST['id'])) {
+			die("Wow! hacker! T_T....");
+		}
+		$job = DB::selectFirst("select * from problem_answer_jobs where id = {$_POST['id']} and status = 'running' and judge_claim = '$claim'");
+		if ($job != null) {
+			if (isset($_POST['retry']) && $_POST['retry'] === '1') {
+				// not the program's doing: another judger tries
+				releaseAnswerJob($job);
+			} elseif (isset($_POST['ok']) && $_POST['ok'] === '1' && isset($_FILES['answers']) && is_string($_FILES['answers']['tmp_name']) && is_uploaded_file($_FILES['answers']['tmp_name'])) {
+				dataFinishAnswerJob($job, true, '', $_FILES['answers']['tmp_name']);
+			} else {
+				dataFinishAnswerJob($job, false, answerJobFailure($job, isset($_POST['message']) && is_string($_POST['message']) ? $_POST['message'] : ''));
 			}
 		}
 	}
@@ -585,6 +614,41 @@
 				$hack = null;
 			}
 		}
+	}
+	// Why the standard program made no answers, in words: the judger says it as JSON, the
+	// compiler's complaint ({"compile": text}) or the tests it failed on ({"failed": [{"test":
+	// place in the job, "verdict": ..., "exit_code": ...}]}), or else as text.
+	function answerJobFailure($job, $message) {
+		$said = json_decode($message, true);
+		if (!is_array($said)) {
+			return '标准程序没有生成答案：' . uojTextEncode(mb_substr($message, 0, 2000, 'UTF-8'));
+		}
+		if (isset($said['compile']) && is_string($said['compile'])) {
+			return "标准程序编译失败：\n" . uojTextEncode(mb_substr($said['compile'], 0, 4000, 'UTF-8'));
+		}
+		$verdicts = array('Runtime Error' => '运行错误', 'Memory Limit Exceeded' => '超出内存限制', 'Time Limit Exceeded' => '超时',
+			'Output Limit Exceeded' => '输出超出限制', 'Dangerous Syscalls' => '危险系统调用', 'Judgement Failed' => '评测失败');
+		$tests = json_decode($job['tests'], true);
+		$lines = array();
+		foreach (isset($said['failed']) && is_array($said['failed']) ? array_slice($said['failed'], 0, 20) : array() as $failed) {
+			$at = isset($failed['test']) && is_int($failed['test']) ? $failed['test'] : 0;
+			$name = isset($tests[$at - 1]) ? $tests[$at - 1][0] : "#$at";
+			$verdict = isset($failed['verdict']) && is_string($failed['verdict']) && isset($verdicts[$failed['verdict']]) ? $verdicts[$failed['verdict']] : '出错';
+			$code = isset($failed['exit_code']) && is_int($failed['exit_code']) && $failed['exit_code'] != 0 && $verdict === '运行错误' ? "（返回值 {$failed['exit_code']}）" : '';
+			$lines[] = "$name：$verdict$code";
+		}
+		$count = isset($said['failed']) && is_array($said['failed']) ? count($said['failed']) : 0;
+		return "标准程序在 $count 个测试点上出错，一个答案也没有写入：\n" . join("\n", $lines) . ($count > 20 ? "\n……" : '');
+	}
+	function findAnswerJobToRun() {
+		$job = DB::selectFirst("select * from problem_answer_jobs where status = 'pending' order by id limit 1");
+		if ($job) {
+			DB::update("update problem_answer_jobs set status = 'running', claimed_at = now(), ".claimedBy()." where id = {$job['id']} and status = 'pending'");
+			if (DB::affected_rows() != 1) {
+				$job = null;
+			}
+		}
+		return $job;
 	}
 	function findVersionToPrepare() {
 		$version_row = DB::selectFirst("select * from problem_data_versions where status = 'pending' order by id limit 1");
@@ -698,6 +762,22 @@
 			'problem_data_prepare' => json_decode($version_row['prepare'], true)
 		));
 	}
+	$job = findAnswerJobToRun();
+	if ($job) {
+		$limits = json_decode($job['limits'], true);
+		answerWith(array(
+			'answers' => array(
+				'id' => (int)$job['id'],
+				'tests' => count(json_decode($job['tests'], true)),
+				'program' => $limits['program'],
+				'sha256' => $job['sha256'],
+				'time_limit' => (int)$limits['time'],
+				'memory_limit' => (int)$limits['memory'],
+				'output_limit' => (int)$limits['output']
+			),
+			'problem_id' => (int)$job['problem_id']
+		));
+	}
 	
 	// ---- waiting for work
 	//
@@ -717,6 +797,7 @@
 	function somethingToJudge() {
 		global $skip_problems;
 		return DB::selectCount("select exists(select 1 from problem_data_versions where status = 'pending')
+			or exists(select 1 from problem_answer_jobs where status = 'pending')
 			or exists(select 1 from submissions where status in ('Waiting', 'Waiting Rejudge', 'Judged, Waiting')$skip_problems)
 			or exists(select 1 from custom_test_submissions where judge_time is null$skip_problems)
 			or exists(select 1 from hacks where judge_time is null$skip_problems)") == 1;

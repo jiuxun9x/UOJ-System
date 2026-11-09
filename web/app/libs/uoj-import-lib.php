@@ -1434,8 +1434,9 @@ function importReadPolygon($dir, $root, $own) {
 				? "包里没有测试数据（{$input_pattern}）：这是只有生成器的包，请在 Polygon 上下载 Standard 格式的包（里面有生成好的数据）再导入"
 				: "有 {$missing} 个测试点的输入文件包里没有，导入了其余的；完整的数据在 Polygon 的 Standard 包里";
 		}
-		if ($no_answer > 0) {
-			$notes[] = "有 {$no_answer} 个测试点没有答案文件" . (isset($settings['checker']) && $settings['checker'] === 'custom' ? '：评测时交给校验器的答案是空的' : '：用内置的比较方式时数据检查不会通过，请补上答案文件');
+		// (where the main solution came with them, the answers are made with it: see importCreate())
+		if ($no_answer > 0 && !isset($settings['std_file'])) {
+			$notes[] = "有 {$no_answer} 个测试点没有答案文件，包里也没有标准程序（main 解）" . (isset($settings['checker']) && $settings['checker'] === 'custom' ? '：评测时交给校验器的答案是空的' : '：上传标准程序后可以在“数据与评测”里用它生成答案');
 		}
 		$package['cases'] = $cases ? $cases : null;
 
@@ -1643,6 +1644,9 @@ function importCreate($package, $actor, $domain, $public) {
 		$written++;
 	};
 	$is_case = array();
+	// how many tests came without an answer: they are given an empty one, which the standard
+	// program fills in where the package has one
+	$no_answers = 0;
 	if ($package['cases'] !== null && !$package['native']) {
 		foreach ($package['cases'] as $index => $case) {
 			$put($package['data'][$case[0]], ($index + 1) . '.in');
@@ -1652,6 +1656,7 @@ function importCreate($package, $actor, $domain, $public) {
 				$is_case[$case[1]] = true;
 			} else {
 				file_put_contents("$upload_dir/" . ($index + 1) . '.out', '');
+				$no_answers++;
 			}
 		}
 	}
@@ -1662,6 +1667,7 @@ function importCreate($package, $actor, $domain, $public) {
 			$put($package['data'][$sample[1]], 'sample' . ($index + 1) . '.out');
 		} else {
 			file_put_contents("$upload_dir/sample" . ($index + 1) . '.out', '');
+			$no_answers++;
 		}
 	}
 	foreach ($package['data'] as $name => $path) {
@@ -1719,8 +1725,20 @@ function importCreate($package, $actor, $domain, $public) {
 		}
 	}
 	if ($written > 0 && problemUploadedTestCount($problem) > 0) {
-		list($begun, $note) = problemSync($problem, $actor);
-		$notes[] = $note;
+		// Tests without answers, and the standard program with them (as Polygon makes its answers
+		// with its main solution): a judger makes the answers, and the data is synced then.
+		$answering = false;
+		if ($no_answers > 0 && !$package['native'] && isset($settings['std_file']) && $settings['std_file'] !== '') {
+			$err = dataStartAnswerJob(queryProblemBrief($id), $actor);
+			$answering = $err === '';
+			$notes[] = $answering
+				? "有 {$no_answers} 个测试点没有答案：已交给评测机用标准程序 {$settings['std_file']} 生成，生成后自动同步数据，结果在“数据与评测”页"
+				: "有 {$no_answers} 个测试点没有答案，没能用标准程序生成：{$err}";
+		}
+		if (!$answering) {
+			list($begun, $note) = problemSync($problem, $actor);
+			$notes[] = $note;
+		}
 	} elseif ($written == 0) {
 		$notes[] = '没有测试数据：在“数据与评测”页上传后才能评测';
 	}

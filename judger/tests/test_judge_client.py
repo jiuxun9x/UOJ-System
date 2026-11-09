@@ -1214,6 +1214,109 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
         self.assertEqual(report["message"], "chk: compile error\nexpected ';'")
 
 
+class AnswerJobTest(JudgeClientTestCase):
+    """the answers of a problem that are made by its standard program: all of them, or on which
+    tests it failed, and nothing else"""
+
+    INPUTS = ["1 2\n", "10 20\n", "7 7\n"]
+
+    def job(self, program="std.cpp"):
+        import io
+        import zipfile
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zf:
+            zf.writestr(program, "int main() {}\n")
+            for number, text in enumerate(self.INPUTS, 1):
+                zf.writestr("input/%d" % number, text)
+        archive = buffer.getvalue()
+
+        def download(uri, filename):
+            self.assertEqual(uri, "/answers/9")
+            with open(filename, "wb") as f:
+                f.write(archive)
+            return len(archive), hashlib.sha256(archive).hexdigest()
+
+        self.jc.submission = {
+            "answers": {"id": 9, "tests": len(self.INPUTS), "program": program, "sha256": hashlib.sha256(archive).hexdigest(),
+                        "time_limit": 5, "memory_limit": 256, "output_limit": 64},
+            "problem_id": 4, "claim": "c" * 32,
+        }  # fmt: skip
+        return download
+
+    @staticmethod
+    def sums(failing=()):
+        """a standard program that adds the two numbers, and fails on the tests said"""
+
+        def run(work_dir, program_type, input_file, output_file, limits, scratch_dir):
+            number = int(os.path.basename(input_file))
+            if number in failing:
+                return 4, 0
+            with open(input_file) as f:
+                a, b = map(int, f.read().split())
+            with open(output_file, "w") as f:
+                f.write("%d\n" % (a + b))
+            return 0, 0
+
+        return run
+
+    def test_the_answers_are_sent_back(self):
+        import io
+        import zipfile
+
+        with mock.patch.object(self.jc, "uoj_download", side_effect=self.job()), mock.patch.object(self.jc, "run_compiler") as compiler, \
+                mock.patch.object(self.jc, "run_standard_program", side_effect=self.sums()):  # fmt: skip
+            report, files = self.jc.make_answers()
+        self.assertEqual(report, {"answers_result": "1", "id": 9, "claim": "c" * 32, "ok": "1"})
+        self.assertEqual(compiler.call_args[0][3][-1], "std")
+        with zipfile.ZipFile(io.BytesIO(files["answers"][1])) as zf:
+            self.assertEqual({name: zf.read(name) for name in zf.namelist()}, {"1": b"3\n", "2": b"30\n", "3": b"14\n"})
+
+    def test_a_failure_says_where_and_sends_nothing(self):
+        with mock.patch.object(self.jc, "uoj_download", side_effect=self.job()), mock.patch.object(self.jc, "run_compiler"), \
+                mock.patch.object(self.jc, "run_standard_program", side_effect=self.sums(failing=(2,))):  # fmt: skip
+            report, files = self.jc.make_answers()
+        self.assertIsNone(files)
+        self.assertEqual(report["ok"], "0")
+        self.assertEqual(json.loads(report["message"]), {"failed": [{"test": 2, "verdict": "Time Limit Exceeded", "exit_code": 0}]})
+
+    def test_a_program_that_does_not_compile(self):
+        error = self.jc.PrepareError("std: compile error\nexpected ';'")
+        with mock.patch.object(self.jc, "uoj_download", side_effect=self.job()), mock.patch.object(self.jc, "run_compiler", side_effect=error):
+            report, files = self.jc.make_answers()
+        self.assertIsNone(files)
+        self.assertEqual(json.loads(report["message"]), {"compile": "std: compile error\nexpected ';'"})
+
+    def test_what_is_not_the_program_s_doing_is_tried_again(self):
+        download = self.job()
+
+        def broken(uri, filename):
+            size, sha256 = download(uri, filename)
+            return size, "0" * 64
+
+        with mock.patch.object(self.jc, "uoj_download", side_effect=broken), mock.patch.object(self.jc, "print_judge_client_status"):
+            report, files = self.jc.make_answers()
+        self.assertIsNone(files)
+        self.assertEqual(report.get("retry"), "1")
+        self.assertNotIn("ok", report)
+
+    def test_a_job_it_does_not_know_is_refused(self):
+        self.job()
+        self.jc.submission["answers"]["program"] = "../std.cpp"
+        with mock.patch.object(self.jc, "uoj_download") as download:
+            report, files = self.jc.make_answers()
+        download.assert_not_called()
+        self.assertEqual(report["ok"], "0")
+
+    def test_the_answers_go_with_the_report(self):
+        self.jc.submission = {"answers": {"id": 9}, "claim": "c" * 32}
+        files = {"answers": ("answers.zip", b"PK", "application/zip")}
+        with mock.patch.object(self.jc, "uoj_interact", return_value="Nothing to judge") as interact:
+            self.jc.send_and_fetch(report={"answers_result": "1", "id": 9, "claim": "c" * 32, "ok": "1"}, report_files=files)
+        self.assertEqual(interact.call_args[0][1], files)
+        self.assertEqual(interact.call_args[0][0]["answers_result"], "1")
+
+
 class CleanUpFolderTest(JudgeClientTestCase):
     def test_folder_that_nobody_may_look_into_is_removed(self):
         os.makedirs(self.work_path("passes", "nextpass.in"))

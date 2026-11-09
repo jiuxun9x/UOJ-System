@@ -1277,6 +1277,10 @@ function problemDelete($problem, $actor) {
 	while ($row = DB::fetch($result, MYSQLI_ASSOC)) {
 		$unlink($row['input']);
 	}
+	foreach (DB::selectAll("select id from problem_answer_jobs where problem_id = $id") as $row) {
+		@unlink(dataAnswerJobArchive($row['id']));
+	}
+	DB::delete("delete from problem_answer_jobs where problem_id = $id");
 	$solvers = DB::selectAll("select submitter from best_ac_submissions where problem_id = $id");
 	DB::delete("delete from submission_judgements where problem_id = $id");
 	foreach (array('submissions', 'custom_test_submissions', 'hacks', 'best_ac_submissions', 'problems_tags', 'problems_permissions', 'problem_data_versions') as $table) {

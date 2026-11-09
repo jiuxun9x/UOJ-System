@@ -378,8 +378,15 @@ check_same(array('check.cpp', 'ab.cpp', 'sum.h'), array_values(array_intersect(a
 check_same(true, strpos($read['statement_md'], "## 题目描述\n\nCompute \$a+b\$.") === 0 && strpos($read['statement_md'], "```input1\n1 2\n```") !== false, 'the statement from its sections');
 check_same(array('pic.png'), array_keys($read['attachments']), 'the pictures of the statement');
 check_same(array('zh_cn'), array_keys($read['pdf_statements']), 'the PDF statement');
-check_same(true, (bool)preg_grep('/1 个测试点没有答案文件：评测时交给校验器的答案是空的/', $read['notes']), 'what is said about the test without an answer');
+// the answer the package does not have is made with its main solution (see importCreate()): nothing is said of it here
+check_same(false, (bool)preg_grep('/没有答案文件/', $read['notes']), 'a test without an answer, and the main solution to make it with');
 check_same(true, (bool)preg_grep('/没有导入：数据生成器/', $read['notes']), 'what is said about what was left behind');
+// without a main solution it stays without an answer, and that is said
+file_put_contents("$polygon/pkg/problem.xml", str_replace('tag="main"', 'tag="rejected"', $polygon_files['problem.xml']));
+$no_main = importReadPolygon($polygon, 'pkg', array_keys($polygon_files));
+check_same(array(false, true), array(isset($no_main['settings']['std_file']), (bool)preg_grep('/1 个测试点没有答案文件，包里也没有标准程序（main 解）：评测时交给校验器的答案是空的/', $no_main['notes'])),
+	'a test without an answer, and no main solution');
+file_put_contents("$polygon/pkg/problem.xml", $polygon_files['problem.xml']);
 // a package without its tests, as the packages of Polygon with generators only are
 foreach (array('tests/01', 'tests/01.a', 'tests/02', 'tests/02.a', 'tests/03') as $name) {
 	unlink("$polygon/pkg/$name");

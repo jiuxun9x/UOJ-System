@@ -116,6 +116,19 @@
 		unlink($zip_name);
 		die();
 	}
+	// ---- the answers the standard program makes (see dataStartAnswerJob())
+	if (isset($_GET['answers_state'])) {
+		header('Content-Type: application/json; charset=utf-8');
+		$job = dataLastAnswerJob($problem['id']);
+		die(json_encode($job ? array('id' => (int)$job['id'], 'status' => $job['status'], 'message' => (string)$job['message']) : null, JSON_UNESCAPED_UNICODE));
+	}
+	if (isset($_POST['form']) && $_POST['form'] === 'make_answers') {
+		crsf_defend();
+		$all = isset($_POST['all']) && $_POST['all'] === '1';
+		$err = dataStartAnswerJob($problem, $myUser, $all);
+		domainFlash($err === '' ? ($all ? '已交给评测机用标准程序重新生成全部答案' : '已交给评测机用标准程序生成缺少的答案') . '，生成后自动同步数据。' : '没有生成答案：' . $err, $err === '' ? 'success' : 'danger');
+		redirectTo($data_page . '#data-answers');
+	}
 	if (isset($_POST['form']) && in_array($_POST['form'], array('upload_files', 'delete_file', 'rename_file'), true)) {
 		crsf_defend();
 		$posted = function($name) {
@@ -748,7 +761,7 @@ EOD
 <?php
 	$data_versions = DB::selectAll("select version, status, sha256, size, created_at, created_by, reason, message, judger_name from problem_data_versions where problem_id = {$problem['id']} order by version desc limit 20");
 	$data_version_status_names = array('pending' => '等待评测机', 'preparing' => '评测机校验中', 'ready' => '已发布', 'failed' => '未发布');
-	$data_version_reason_names = array('sync' => '同步数据', 'hackable' => '切换 hack', 'hack' => 'hack 成功', 'clear' => '清空数据', 'legacy' => '已有数据');
+	$data_version_reason_names = array('sync' => '同步数据', 'hackable' => '切换 hack', 'hack' => 'hack 成功', 'clear' => '清空数据', 'legacy' => '已有数据', 'answers' => '生成答案');
 ?>
 <?php if ($data_versions && in_array($data_versions[0]['status'], array('pending', 'preparing'))): ?>
 <div class="alert alert-info top-buffer-sm" role="alert">
@@ -792,6 +805,77 @@ EOD
 		<small class="text-muted d-block mt-1">上传文件 → 在评测设置里选好 → 保存并同步数据：这里没有红字，数据就会发布。这里只检查文件是否齐全；校验器等程序能否编译，由评测机在同步时告诉你，结果在页面最上方和下面的“数据版本”里。</small>
 	</div>
 </div>
+<?php
+	// the answers the standard program makes: what there is to make, and what became of the last job
+	list($answer_plan, $answer_plan_error) = dataAnswerPlan($problem);
+	list($answer_plan_all, $answer_plan_all_error) = dataAnswerPlan($problem, true);
+	$answer_job = dataLastAnswerJob($problem['id']);
+	$answer_job_running = $answer_job && in_array($answer_job['status'], array('pending', 'running'), true);
+	$answer_job_names = array('pending' => '等待评测机', 'running' => '评测机正在运行标准程序', 'done' => '已完成', 'failed' => '没有成功');
+?>
+<?php if ($answer_plan || $answer_plan_all || $answer_job): ?>
+<div class="card mb-3 text-left" id="data-answers" data-status="<?= $answer_job ? $answer_job['status'] : '' ?>">
+	<div class="card-body py-2">
+		<div class="d-flex flex-wrap align-items-center" style="gap:0.5rem 1rem">
+			<strong>用标准程序生成答案</strong>
+			<?php if ($answer_plan): ?>
+			<span class="text-danger" id="answers-missing">有 <?= $answer_plan['missing'] ?> 个测试点没有答案</span>
+			<?php elseif ($answer_plan_all): ?>
+			<span class="text-success" id="answers-missing">每个测试点都有答案</span>
+			<?php endif ?>
+			<span class="ml-auto"></span>
+			<?php if ($answer_plan_all): ?>
+			<form method="post" class="d-inline" id="form-make-answers">
+				<?= HTML::hiddenToken() ?>
+				<input type="hidden" name="form" value="make_answers" />
+				<?php if ($answer_plan): ?>
+				<button type="submit" class="btn btn-primary btn-sm" id="button-make-answers"<?= $answer_job_running ? ' disabled="disabled"' : '' ?>>生成缺少的答案</button>
+				<?php endif ?>
+				<button type="submit" class="btn btn-outline-secondary btn-sm" name="all" value="1" id="button-make-all-answers"<?= $answer_job_running ? ' disabled="disabled"' : '' ?> onclick="return confirm('用标准程序重新生成全部 <?= count($answer_plan_all['tests']) ?> 个答案？已有的答案会被覆盖。');">全部重新生成</button>
+			</form>
+			<?php endif ?>
+		</div>
+		<?php if ($answer_job): ?>
+		<div class="mt-1" id="answers-job">
+			<span class="badge badge-<?= array('pending' => 'secondary', 'running' => 'info', 'done' => 'success', 'failed' => 'danger')[$answer_job['status']] ?>" id="answers-job-status"><?= $answer_job_names[$answer_job['status']] ?></span>
+			<small class="text-muted ml-1"><?= HTML::escape($answer_job['created_at']) ?> · <?= HTML::escape($answer_job['created_by']) ?> · <?= count(json_decode($answer_job['tests'], true)) ?> 个测试点</small>
+			<?php if ((string)$answer_job['message'] !== ''): ?>
+			<pre class="mb-0 mt-1 <?= $answer_job['status'] === 'failed' ? 'text-danger' : 'text-muted' ?>" id="answers-job-message"><?= HTML::escape($answer_job['message']) ?></pre>
+			<?php endif ?>
+		</div>
+		<?php endif ?>
+		<small class="text-muted d-block mt-1">
+			<?php if (!$answer_plan_all): ?>
+			<?= HTML::escape($answer_plan_all_error) ?>。
+			<?php endif ?>
+			评测机编译评测设置里选的标准程序，在每个测试点的输入上运行（时限是题目时限的两倍、至少 5 秒），输出就是答案；
+			有一个测试点出错就一个也不写入。生成之后自动同步数据。Polygon 的题目包导入时缺答案会自动这样生成。
+		</small>
+	</div>
+</div>
+<?php if ($answer_job_running): ?>
+<script type="text/javascript">
+// while the judger works, what it came to is shown when it comes (the page is not loaded anew:
+// a form that is being filled in stays as it is)
+(function() {
+	var look = function() {
+		$.getJSON('<?= $data_page ?>?answers_state=1', function(job) {
+			if (job && job.status !== 'pending' && job.status !== 'running') {
+				$('#data-answers').attr('data-status', job.status);
+				$('#answers-job-status').attr('class', 'badge badge-' + (job.status === 'done' ? 'success' : 'danger')).text(job.status === 'done' ? '已完成' : '没有成功');
+				$('#answers-job-message').remove();
+				$('<pre class="mb-0 mt-1" id="answers-job-message" />').toggleClass('text-danger', job.status === 'failed').text(job.message).appendTo('#answers-job');
+				$('<a class="small ml-2" id="answers-job-reload" />').attr('href', location.pathname).text('刷新页面').insertAfter('#answers-job-status');
+				return;
+			}
+			setTimeout(look, 3000);
+		});
+	};
+	setTimeout(look, 3000);
+})();
+</script>
+<?php endif ?>
+<?php endif ?>
 <?php
 	// The form that says how the problem is judged. A problem with a judger of its own says
 	// that in a problem.conf somebody wrote, which no form knows how to write.

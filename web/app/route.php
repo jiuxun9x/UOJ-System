@@ -136,4 +136,5 @@ Route::post('/judge/download/submission/{id}/{rand_str_id}', '/judge/download.ph
 Route::post('/judge/download/tmp/{rand_str_id}', '/judge/download.php?type=tmp');
 Route::post('/judge/download/problem/{id}', '/judge/download.php?type=problem');
 Route::post('/judge/download/problem/{id}/{version}', '/judge/download.php?type=problem');
+Route::post('/judge/download/answers/{id}', '/judge/download.php?type=answers');
 Route::post('/judge/download/judger', '/judge/download.php?type=judger');

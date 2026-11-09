@@ -875,6 +875,246 @@
 	// Adds the data of a successful hack as an extra test and syncs the problem. The accepted
 	// submissions are judged again once the new data is published. Returns '' or the reason why
 	// this could not be done.
+	// ---- the answers the standard program makes
+	//
+	// Where the tests of a problem come without answers - a package of Polygon has its inputs and
+	// its main solution, and Polygon makes the answers by running that - a judger runs the
+	// standard program of the problem on the inputs and sends back what it wrote, which is then
+	// the answers. The web server runs nothing itself (see above). It is all or nothing: where
+	// the program fails on one test, no answer is written, and the job says on which and why.
+	// Only an ordinary problem is answered so: its program reads the input and writes the answer,
+	// once, with no interactor and no passes.
+
+	define('UOJ_ANSWER_JOB_MAX_TESTS', 1000);
+
+	function dataAnswerJobArchive($job_id) {
+		return "/var/uoj_data/answers/" . (int)$job_id . ".zip";
+	}
+	// the job of a problem that is not over yet, if any
+	function dataRunningAnswerJob($problem_id) {
+		return DB::selectFirst("select * from problem_answer_jobs where problem_id = " . (int)$problem_id . " and status in ('pending', 'running') order by id desc limit 1");
+	}
+	function dataLastAnswerJob($problem_id) {
+		return DB::selectFirst("select * from problem_answer_jobs where problem_id = " . (int)$problem_id . " order by id desc limit 1");
+	}
+	// Which answers of a problem its standard program would make, as its uploaded data stands:
+	// array(the plan, why there is none or ''). The plan says the source of the program, the
+	// tests (array(input, answer) of those whose answer is not there, or of all with $all), how
+	// many have no answer, and the limits the program runs under.
+	function dataAnswerPlan($problem, $all = false) {
+		requirePHPLib('problem');
+		requirePHPLib('upload');
+		$upload_dir = "/var/uoj_data/upload/" . (int)$problem['id'];
+		$conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : -1;
+		if (!is_array($conf)) {
+			return array(null, '还没有评测设置（problem.conf）');
+		}
+		$on = function($key) use ($conf) {
+			return isset($conf[$key]) && $conf[$key] == 'on';
+		};
+		if (!$on('use_builtin_judger') || $on('submit_answer') || $on('interaction_mode') || $on('polygon_runtwice') || $on('domjudge_multipass')
+			|| (isset($conf['multi_pass']) && (int)$conf['multi_pass'] > 1)) {
+			return array(null, '只有普通的题（程序读输入、写输出，运行一次）能用标准程序生成答案');
+		}
+		if ($on('with_implementer')) {
+			return array(null, '和实现器一起编译的标准程序不能用来生成答案');
+		}
+		// the standard program: the file problem.conf names, or one called so
+		$source = isset($conf['std_source']) ? (string)$conf['std_source'] : '';
+		if ($source === '') {
+			foreach (problemUploadedNames($upload_dir) as $name) {
+				if (preg_match('/^std[0-9]*\./', $name) && dataProgramSourceError($name) === '') {
+					$source = $name;
+					break;
+				}
+			}
+		}
+		if ($source === '' || dataProgramSourceError($source) !== '' || !is_file("$upload_dir/$source")) {
+			return array(null, '没有标准程序：先在评测设置里选好标准程序');
+		}
+		$tests = array();
+		$missing = 0;
+		$add = function($input, $answer) use (&$tests, &$missing, $upload_dir, $all) {
+			if (!is_file("$upload_dir/$input")) {
+				return;
+			}
+			$absent = !is_file("$upload_dir/$answer") || filesize("$upload_dir/$answer") == 0;
+			$missing += $absent ? 1 : 0;
+			if ($absent || $all) {
+				$tests[] = array($input, $answer);
+			}
+		};
+		$n_tests = getUOJConfVal($conf, 'n_tests', '10');
+		$n_ex_tests = getUOJConfVal($conf, 'n_ex_tests', '0');
+		if (!validateUInt($n_tests) || !validateUInt($n_ex_tests)) {
+			return array(null, 'problem.conf 里的测试点个数不对');
+		}
+		for ($num = 1; $num <= $n_tests; $num++) {
+			$add(getUOJProblemInputFileName($conf, $num), getUOJProblemOutputFileName($conf, $num));
+		}
+		for ($num = 1; $num <= $n_ex_tests; $num++) {
+			$add(getUOJProblemExtraInputFileName($conf, $num), getUOJProblemExtraOutputFileName($conf, $num));
+		}
+		if (!$tests) {
+			return array(null, $all ? '没有测试点的输入文件' : '每个测试点都有答案了');
+		}
+		if (count($tests) > UOJ_ANSWER_JOB_MAX_TESTS) {
+			return array(null, '测试点太多（超过 ' . UOJ_ANSWER_JOB_MAX_TESTS . ' 个）');
+		}
+		$time = (float)getUOJConfVal($conf, 'time_limit', '1');
+		$memory = (int)getUOJConfVal($conf, 'memory_limit', '256');
+		$output = (int)getUOJConfVal($conf, 'output_limit', '64');
+		return array(array(
+			'source' => $source,
+			'tests' => $tests,
+			'missing' => $missing,
+			// the program is given more time than a submission: it is to make the answers, not to be judged
+			'limits' => array('time' => (int)min(60, max(5, ceil(2 * $time))), 'memory' => max(64, min(4096, $memory)), 'output' => max(1, min(1024, $output)))
+		), '');
+	}
+	// Has a judger make the answers the plan says. Returns '' or why not.
+	function dataStartAnswerJob($problem, $actor, $all = false) {
+		global $uojMainJudgerWorkPath;
+		$id = (int)$problem['id'];
+		if (dataRunningAnswerJob($id)) {
+			return '上一次生成答案还没有结束';
+		}
+		list($plan, $err) = dataAnswerPlan($problem, $all);
+		if ($err !== '') {
+			return $err;
+		}
+		$upload_dir = "/var/uoj_data/upload/$id";
+		if (!is_dir('/var/uoj_data/answers') && !@mkdir('/var/uoj_data/answers', 0755, true)) {
+			return '无法创建生成答案用的文件夹';
+		}
+		// what the program is run on: the inputs as the judgers have them, which the files are
+		// made into when the data is synced (see problemFormatters())
+		$extra_config = json_decode($problem['extra_config'], true);
+		$extra_config = is_array($extra_config) ? $extra_config : array();
+		$file = tempnam('/var/uoj_data/answers', 'job_');
+		$zip = new ZipArchive();
+		if ($file === false || $zip->open($file, ZipArchive::OVERWRITE) !== true) {
+			return '无法打包测试点的输入';
+		}
+		$temps = array();
+		$tests = array();
+		foreach ($plan['tests'] as $index => $test) {
+			$src = "$upload_dir/{$test[0]}";
+			if (isset($extra_config['dont_use_formatter'])) {
+				$input = $src;
+			} else {
+				$input = tempnam(sys_get_temp_dir(), 'uoj_input_');
+				$temps[] = $input;
+				exec("$uojMainJudgerWorkPath/run/formatter" . (isset($extra_config['remove_cr']) ? ' --remove-cr' : '') . " <" . escapeshellarg($src) . " >" . escapeshellarg($input), $output, $ret);
+				if ($ret) {
+					$input = $src;
+				}
+			}
+			$zip->addFile($input, 'input/' . ($index + 1));
+			// the input is the answer's while it is what it was when the program ran on it
+			$tests[] = array($test[0], $test[1], hash_file('sha256', $src));
+		}
+		$program = 'std' . dataProgramSourceSuffix($plan['source']);
+		$zip->addFile("$upload_dir/{$plan['source']}", $program);
+		$closed = $zip->close();
+		foreach ($temps as $temp) {
+			@unlink($temp);
+		}
+		if (!$closed) {
+			@unlink($file);
+			return '无法打包测试点的输入';
+		}
+		$limits = $plan['limits'] + array('program' => $program, 'source' => $plan['source']);
+		DB::insert("insert into problem_answer_jobs (problem_id, status, overwrite, tests, limits, sha256, created_at, created_by) values ($id, 'pending', " . ($all ? 1 : 0)
+			. ", '" . DB::escape(json_encode($tests, JSON_UNESCAPED_UNICODE)) . "', '" . DB::escape(json_encode($limits, JSON_UNESCAPED_UNICODE)) . "', '" . hash_file('sha256', $file) . "', now(), '" . DB::escape($actor ? $actor['username'] : 'root') . "')");
+		$job_id = DB::insert_id();
+		rename($file, dataAnswerJobArchive($job_id));
+		chmod(dataAnswerJobArchive($job_id), 0644);
+		auditLog('problem.make_answers', 'problem', $id, null, array('job' => (int)$job_id, 'tests' => count($tests), 'all' => $all, 'std' => $plan['source']), $actor);
+		return '';
+	}
+	// What became of a job: failed, with why; or done, with the zip the judger sent of what the
+	// program wrote, named after the place of each test in the job. The answers are written only
+	// where the inputs are still what the program ran on (and, where only missing answers were to
+	// be made, where nobody gave an answer meanwhile); then the data is synced.
+	function dataFinishAnswerJob($job, $ok, $message, $zip_file = null) {
+		$id = (int)$job['problem_id'];
+		$fail = function($why) use ($job) {
+			DB::update("update problem_answer_jobs set status = 'failed', message = '" . DB::escape($why) . "', finished_at = now(), judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$job['id']} and status in ('pending', 'running')");
+			@unlink(dataAnswerJobArchive($job['id']));
+		};
+		if (!$ok) {
+			$fail($message);
+			return;
+		}
+		$tests = json_decode($job['tests'], true);
+		$limits = json_decode($job['limits'], true);
+		$zip = new ZipArchive();
+		if (!is_array($tests) || $zip_file === null || $zip->open($zip_file) !== true) {
+			$fail('评测机交回的答案打不开');
+			return;
+		}
+		$upload_dir = "/var/uoj_data/upload/$id";
+		$lock = fopen("/var/uoj_data/upload/$id.lock", 'c');
+		if ($lock === false || !flock($lock, LOCK_EX)) {
+			$zip->close();
+			$fail('无法锁定题目数据');
+			return;
+		}
+		$written = 0;
+		$kept = 0;
+		try {
+			$answers = array();
+			foreach ($tests as $index => $test) {
+				$stat = $zip->statName((string)($index + 1));
+				if ($stat === false || $stat['size'] > (int)$limits['output'] * 1048576) {
+					$fail('评测机交回的答案不全');
+					return;
+				}
+				if (!is_file("$upload_dir/{$test[0]}") || hash_file('sha256', "$upload_dir/{$test[0]}") !== $test[2]) {
+					$fail("生成期间 {$test[0]} 改动过了，没有写入答案：请重新生成");
+					return;
+				}
+				$answers[$index] = $stat['index'];
+			}
+			foreach ($tests as $index => $test) {
+				$target = "$upload_dir/{$test[1]}";
+				if (!$job['overwrite'] && is_file($target) && filesize($target) > 0) {
+					// somebody gave this answer meanwhile: theirs is kept
+					$kept++;
+					continue;
+				}
+				$temp = "$upload_dir/.answer_" . getmypid() . "_$index";
+				$in = $zip->getStream($zip->getNameIndex($answers[$index]));
+				$out = $in ? fopen($temp, 'w') : false;
+				if (!$in || !$out || stream_copy_to_stream($in, $out) === false || !fclose($out) || !rename($temp, $target)) {
+					@unlink($temp);
+					$fail("无法写入 {$test[1]}");
+					return;
+				}
+				fclose($in);
+				$written++;
+			}
+		} finally {
+			$zip->close();
+			flock($lock, LOCK_UN);
+			fclose($lock);
+		}
+		$said = "生成了 $written 个答案" . ($kept ? "，$kept 个在生成期间有人上传了，保留上传的" : '');
+		DB::update("update problem_answer_jobs set status = 'done', message = '" . DB::escape($said) . "', finished_at = now(), judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$job['id']} and status = 'running'");
+		@unlink(dataAnswerJobArchive($job['id']));
+		$problem = queryProblemBrief($id);
+		$creator = queryUser($job['created_by']);
+		auditLog('problem.answers_made', 'problem', $id, null, array('job' => (int)$job['id'], 'written' => $written), $creator);
+		// the answers are used once the data is synced with them
+		if ($problem && $written > 0) {
+			$err = dataSyncProblemData($problem, $creator, array('reason' => 'answers'));
+			if ($err !== '') {
+				DB::update("update problem_answer_jobs set message = '" . DB::escape($said . '；同步数据没有成功：' . trim(html_entity_decode(strip_tags($err)))) . "' where id = {$job['id']}");
+			}
+		}
+	}
+
 	function dataAddExtraTest($problem, $input_file_name, $output_file_name, $hack_id) {
 		$id = $problem['id'];
 

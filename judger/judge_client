@@ -18,6 +18,7 @@ import tempfile
 import traceback
 import uuid
 import time
+import zipfile
 from contextlib import closing
 
 import requests
@@ -218,6 +219,8 @@ def note_timing(**fields):
 
 def task_identity(task):
     """what a task is, as the timing of it names it"""
+    if "answers" in task:
+        return {"kind": "answers", "id": task["answers"].get("id"), "problem_id": task.get("problem_id")}
     if "prepare" in task:
         return {"kind": "prepare", "id": task["prepare"].get("id"), "problem_id": task.get("problem_id")}
     if "is_hack" in task:
@@ -1133,6 +1136,122 @@ def prepare():
     return report
 
 
+# ---- answers made by the standard program of a problem
+#
+# A package of Polygon comes with the inputs of its tests and its main solution, and Polygon
+# makes the answers with it. The web server runs nothing of a problem itself: it hands a judger
+# the inputs and the standard program, the judger builds the program and runs it on every input,
+# in the sandbox that runs submissions, and hands back what it wrote - or, where it failed on a
+# test, on which and how, and nothing else.
+
+ANSWER_PROGRAM_ENDINGS = {".cpp": "default", ".c": "default", ".pas": "default", ".py": "python3"}
+
+
+def run_standard_program(work_dir, program_type, input_file, output_file, limits, scratch_dir):
+    """run the standard program in work_dir on one input: (verdict, exit code)"""
+    main_path = os.path.abspath(uoj_judger_path())
+    result_file = os.path.join(scratch_dir, "answer_result.txt")
+    for name in (result_file, os.path.join(scratch_dir, "uoj_overloaded")):
+        if os.path.exists(name):
+            os.unlink(name)
+    subprocess.call(
+        [
+            main_path + "/run/run_program",
+            "--res=" + result_file,
+            "--in=" + input_file,
+            "--out=" + output_file,
+            "--err=/dev/null",
+            "--tl=%d" % limits["time_limit"],
+            "--ml=%d" % limits["memory_limit"],
+            "--sl=%d" % limits["memory_limit"],
+            "--ol=%d" % limits["output_limit"],
+            "--type=" + program_type,
+            "--work-path=" + work_dir,
+            "std",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=scratch_dir,
+    )
+    if os.path.exists(os.path.join(scratch_dir, "uoj_overloaded")):
+        raise Exception("this judger was too busy to run the standard program")
+    with open(result_file, "r") as f:
+        verdict, _, _, exit_code = [int(x) for x in f.readline().split()]
+    if verdict == 0 and exit_code != 0:
+        verdict = 2
+    return verdict, exit_code
+
+
+def make_answers():
+    """run the standard program of a problem on the inputs of a job: the report on it, and the
+    zip of the answers to send with it, or None"""
+    job = submission["answers"]
+    report = {"answers_result": "1", "id": job["id"], "claim": claim_of_task()}
+    program = job.get("program", "")
+    program_type = ANSWER_PROGRAM_ENDINGS.get(os.path.splitext(program)[1])
+    tests = job.get("tests")
+    if not re.fullmatch(r"std\.(cpp|c|pas|py)", program) or program_type is None or not isinstance(tests, int) or tests < 1:
+        report.update({"ok": "0", "message": "the job is not one this judger knows how to do"})
+        return report, None
+    limits = {}
+    for key, low, high in (("time_limit", 1, 60), ("memory_limit", 16, 4096), ("output_limit", 1, 1024)):
+        value = job.get(key)
+        limits[key] = min(high, max(low, value)) if isinstance(value, int) and not isinstance(value, bool) else low
+    folder = tempfile.mkdtemp(prefix="uoj_answers_")
+    try:
+        archive = os.path.join(folder, "job.zip")
+        _, sha256 = uoj_download("/answers/%d" % job["id"], archive)
+        if sha256 != job.get("sha256"):
+            raise Exception("the inputs of answer job #%d did not come whole" % job["id"])
+        work_dir = os.path.join(folder, "work")
+        inputs = os.path.join(folder, "input")
+        outputs = os.path.join(folder, "output")
+        for path in (work_dir, inputs, outputs):
+            os.mkdir(path)
+        # only the files the job is made of are taken out, under names of this judger's own
+        with zipfile.ZipFile(archive) as zf:
+            with zf.open(program) as src, open(os.path.join(work_dir, program), "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            for number in range(1, tests + 1):
+                with zf.open("input/%d" % number) as src, open(os.path.join(inputs, str(number)), "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        os.chmod(folder, 0o755)
+        for path in (work_dir, inputs, outputs):
+            os.chmod(path, 0o777)
+        main_path = os.path.abspath(uoj_judger_path())
+        try:
+            run_compiler(folder, work_dir, 30, [main_path + "/run/compile", "std"], "std")
+        except PrepareError as e:
+            report.update({"ok": "0", "message": json.dumps({"compile": str(e)}, ensure_ascii=False)})
+            return report, None
+        failed = []
+        for number in range(1, tests + 1):
+            output_file = os.path.join(outputs, str(number))
+            verdict, exit_code = run_standard_program(work_dir, program_type, os.path.join(inputs, str(number)), output_file, limits, folder)
+            if verdict != 0:
+                name = COMPILER_VERDICTS[verdict] if 0 <= verdict < len(COMPILER_VERDICTS) else "Judgement Failed"
+                failed.append({"test": number, "verdict": name, "exit_code": exit_code})
+        if failed:
+            report.update({"ok": "0", "message": json.dumps({"failed": failed}, ensure_ascii=False)})
+            return report, None
+        answers = os.path.join(folder, "answers.zip")
+        with zipfile.ZipFile(answers, "w", zipfile.ZIP_DEFLATED) as zf:
+            for number in range(1, tests + 1):
+                zf.write(os.path.join(outputs, str(number)), str(number))
+        report["ok"] = "1"
+        # what is sent is read before the folder goes
+        with open(answers, "rb") as f:
+            return report, {"answers": ("answers.zip", f.read(), "application/zip")}
+    except Exception:
+        # not the program's doing: another judger tries
+        print_judge_client_status()
+        traceback.print_exc()
+        report.update({"retry": "1"})
+        return report, None
+    finally:
+        remove_tree(folder)
+
+
 # ---- the memory of the judger
 #
 # A judger in a container with a memory limit (judger/workers.sh gives every judger one) judges
@@ -1527,7 +1646,7 @@ def long_poll_seconds():
 GIVE_UP_AFTER = {4: 5, 5: 30}
 
 
-def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
+def send_and_fetch(result=None, fetch_new=True, report=None, wait=0, report_files=None):
     global submission, work_has_come
 
     """send judgement result, and fetch new submission to judge; wait: seconds the web server may
@@ -1552,6 +1671,8 @@ def send_and_fetch(result=None, fetch_new=True, report=None, wait=0):
 
     if report is not None:
         data.update(report)
+        if report_files:
+            files = report_files
 
     if result is not None:
         data["submit"] = True
@@ -1668,6 +1789,10 @@ def judger_loop():
 
         if "prepare" in submission:
             ok = send_and_fetch(fetch_new=fetch_new, report=run_task(prepare))
+            continue
+        if "answers" in submission:
+            report, files = run_task(make_answers)
+            ok = send_and_fetch(fetch_new=fetch_new, report=report, report_files=files)
             continue
 
         try:
