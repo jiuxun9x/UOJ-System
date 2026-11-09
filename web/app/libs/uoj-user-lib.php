@@ -68,6 +68,7 @@ function usernameColumns() {
 		'approved_judger_fingerprints' => array('approved_by'),
 		'attachments' => array('uploaded_by'),
 		'problem_data_versions' => array('created_by'),
+		'problem_answer_jobs' => array('created_by'),
 		'problems' => array('imported_by'),
 		'problems_permissions' => array('username'),
 		'submissions' => array('submitter'),

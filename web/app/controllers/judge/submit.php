@@ -634,8 +634,9 @@
 			$at = isset($failed['test']) && is_int($failed['test']) ? $failed['test'] : 0;
 			$name = isset($tests[$at - 1]) ? $tests[$at - 1][0] : "#$at";
 			$verdict = isset($failed['verdict']) && is_string($failed['verdict']) && isset($verdicts[$failed['verdict']]) ? $verdicts[$failed['verdict']] : '出错';
-			$code = isset($failed['exit_code']) && is_int($failed['exit_code']) && $failed['exit_code'] != 0 && $verdict === '运行错误' ? "（返回值 {$failed['exit_code']}）" : '';
-			$lines[] = "$name：$verdict$code";
+			// (a program that was killed has no value it returned)
+			$code = isset($failed['exit_code']) && is_int($failed['exit_code']) && $failed['exit_code'] > 0 && $verdict === '运行错误' ? "（返回值 {$failed['exit_code']}）" : '';
+			$lines[] = "{$name}：{$verdict}{$code}";
 		}
 		$count = isset($said['failed']) && is_array($said['failed']) ? count($said['failed']) : 0;
 		return "标准程序在 $count 个测试点上出错，一个答案也没有写入：\n" . join("\n", $lines) . ($count > 20 ? "\n……" : '');
