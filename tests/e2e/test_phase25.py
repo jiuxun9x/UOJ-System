@@ -174,6 +174,54 @@ class SiteProblemsTest(unittest.TestCase):
         self.assertIn("暂时保持隐藏", uoj.text_of(teacher.get(manage).text))
 
 
+class HomeworkInOneGoTest(unittest.TestCase):
+    """Setting a homework took three pages: its settings, which made a draft; its problems; and
+    publishing it. The page that sets it names its problems too, and publishes it with one press."""
+
+    def test_a_homework_is_set_and_published_in_one_go(self):
+        slug, teacher, (ann,), own = classroom("p25_onego", ("ann",))
+        did = int(db_value("select id from domains where slug = '%s'" % slug))
+        public = uoj.admin().create_problem(ab_problem_files())
+        new = "/d/%s/homework/new" % slug
+        page = teacher.get(new).text
+        for part in ('id="input-new-homework-problems"', 'data-scope="%s+site"' % slug, 'id="button-create-publish-homework"', 'id="button-save-homework"'):
+            self.assertIn(part, page)
+        newest = lambda: int(db_value("select ifnull(max(id), 0) from homeworks where domain_id = %d" % did))
+
+        # ---- to be published it has problems: nothing is kept of one without
+        said = teacher.form(new, "save", after="publish", **homework_settings(title="p25 一步"))
+        self.assertIn("要发布的作业得有题目", said)
+        self.assertEqual(newest(), 0)
+
+        # ---- with its problems, one of the domain and one of the site, it is published at once
+        settings = homework_settings(title="p25 一步", begin_at=uoj.web_time(-60), allow_late=None, penalty_since="")
+        self.assertEqual(teacher.form(new, "save", after="publish", problem_id="%d s%d" % (uoj.pid(own), public), score="50", **settings), "")
+        homework_id = newest()
+        uoj.wait_until("the homework is published", lambda: tick() and homework_row(homework_id, "status")[0] == "published", timeout=300)
+        copy_id = int(db_value("select id from problems where owner_domain_id = %d and source_problem_id = %d" % (did, public)))
+        self.assertEqual(db("select problem_id, score, required from homework_problems where homework_id = %d order by position" % homework_id),
+                         [[str(own), "50", "1"], [str(copy_id), "50", "1"]])  # fmt: skip
+        # and is a homework like any other: claimed, and solved through it
+        here = "/d/%s/homework/%d" % (slug, homework_id)
+        self.assertEqual(ann.form(here, "claim"), "")
+        self.assertEqual(uoj.wait_submission(ann.submit(copy_id, AB, path="%s/problem/%d" % (here, uoj.pid(copy_id)))).score, 100)
+        self.assertRegex(ann.get(here).text, r'id="my-official-score">50 ')
+
+        # ---- kept as a draft, with its problems, to be looked at first
+        self.assertEqual(teacher.form(new, "save", after="draft", problem_id=str(uoj.pid(own)), score="30", **homework_settings(title="p25 草稿")), "")
+        draft = newest()
+        self.assertEqual(homework_row(draft, "status")[0], "draft")
+        self.assertEqual(db("select problem_id, score from homework_problems where homework_id = %d" % draft), [[str(own), "30"]])
+        # one of its problems that is not there: the draft is kept, and says which
+        self.assertEqual(teacher.form(new, "save", after="publish", problem_id="%d 99999" % uoj.pid(own), **homework_settings(title="p25 缺题")), "")
+        missing = newest()
+        self.assertEqual(homework_row(missing, "status")[0], "draft")
+        self.assertIn("题目没有加全：题目 #99999", uoj.text_of(teacher.get("/d/%s/homework/%d/manage?tab=problems" % (slug, missing)).text))
+        # and, as before, one without problems is a draft to be filled
+        self.assertEqual(teacher.form(new, "save", **homework_settings(title="p25 空草稿")), "")
+        self.assertEqual(homework_row(newest(), "status")[0], "draft")
+
+
 class MemberFormTest(unittest.TestCase):
     """A form of the members that sent no text for a role (role[]=...) was no page at all, but an
     error of the server."""

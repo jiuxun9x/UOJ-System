@@ -41,12 +41,52 @@
 					$input[$key] = str_replace('T', ' ', $input[$key]);
 				}
 			}
+			// A new homework is set in one go: its problems are named with it, and it is
+			// published at once where that was asked. What can not be judged of that before
+			// anything is kept, is: a homework that is to be published has problems.
+			$named = !$homework && isset($_POST['problem_id']) && is_string($_POST['problem_id']) ? trim($_POST['problem_id']) : '';
+			$publish = !$homework && isset($_POST['after']) && $_POST['after'] === 'publish';
+			if ($publish && !domainProblemTokens($named)) {
+				return '要发布的作业得有题目：在“题目”里选好，或者先保存为草稿';
+			}
 			list($id, $err) = homeworkSave($domain, $homework, $input, $myUser);
 			if ($err !== '') {
 				return $err;
 			}
-			domainFlash($homework ? '设置已保存。' : '作业已创建，现在是草稿。接下来添加题目，然后发布。');
-			redirectTo(domainUrl($domain, "/homework/$id/manage") . ($homework ? '' : '?tab=problems'));
+			if ($homework) {
+				domainFlash('设置已保存。');
+				redirectTo(domainUrl($domain, "/homework/$id/manage"));
+			}
+			$created = queryHomework($id);
+			$manage = domainUrl($domain, "/homework/$id/manage");
+			if ($named === '') {
+				domainFlash('作业已创建，现在是草稿。接下来添加题目，然后发布。');
+				redirectTo("$manage?tab=problems");
+			}
+			// from here on the homework is kept, as a draft: what goes wrong is said on its page
+			$score = isset($_POST['score']) && validateUInt($_POST['score']) ? (int)$_POST['score'] : 100;
+			$err = domainAddNamedProblems($domain, $named, $myUser, function($problem) use ($created, $score) {
+				global $myUser;
+				return homeworkAddProblem($created, $problem, $score, true, $myUser);
+			});
+			$copied = domainTakeFlash();
+			$copied = $copied ? $copied[1] : '';
+			if ($err !== '') {
+				domainFlash("作业已存为草稿，但题目没有加全：{$err}。{$copied}", 'warning');
+				redirectTo("$manage?tab=problems");
+			}
+			if (!$publish) {
+				domainFlash("作业已创建，现在是草稿：检查题目和分值后发布。{$copied}");
+				redirectTo("$manage?tab=problems");
+			}
+			$err = homeworkRequestPublish($created, $myUser);
+			if ($err !== '') {
+				domainFlash("作业已存为草稿，还没有发布：{$err}。{$copied}", 'warning');
+				redirectTo("$manage?tab=problems");
+			}
+			$created = queryHomework($id);
+			domainFlash(($created['status'] === 'published' ? '作业已发布。' : ($created['status'] === 'publishing' ? '作业正在发布：评测机准备好题目的数据后自动变为“已发布”。' : '作业还没有发布：' . $created['publish_error'] . '。')) . $copied, $created['status'] === 'draft' ? 'warning' : 'success');
+			redirectTo($created['status'] === 'draft' ? "$manage?tab=problems" : $manage);
 		}
 	);
 	if ($homework) {
@@ -312,9 +352,34 @@
 			<?php if ($homework && !empty($homework['problems_revealed_at'])): ?><span id="homework-problems-revealed">这次作业的题目已于 <?= $homework['problems_revealed_at'] ?> 公开。</span><?php endif ?>
 		</small>
 	</div>
-	<button type="submit" class="btn btn-primary" id="button-save-homework"><?= $homework ? '保存' : '创建' ?></button>
 	<?php if (!$homework): ?>
+	<?php // a new homework names its problems here, and is published with one press ?>
+	<div class="card mb-3" id="card-new-homework-problems">
+		<div class="card-header">题目</div>
+		<div class="card-body">
+			<div class="form-row">
+				<div class="form-group col-md-9 mb-2">
+					<label for="input-new-homework-problems">题目</label>
+					<input type="text" class="form-control uoj-problem-picker" id="input-new-homework-problems" name="problem_id" placeholder="题号或标题的一部分，可以选好几道" data-scope="<?= $domain['slug'] ?>+site" data-multiple="" value="<?= isset($_POST['problem_id']) && is_string($_POST['problem_id']) ? HTML::escape($_POST['problem_id']) : '' ?>" />
+				</div>
+				<div class="form-group col-md-3 mb-2">
+					<label for="input-new-homework-score">每题分值</label>
+					<input type="number" class="form-control" id="input-new-homework-score" name="score" min="1" max="10000" value="<?= isset($_POST['score']) && validateUInt($_POST['score']) ? (int)$_POST['score'] : 100 ?>" />
+				</div>
+			</div>
+			<small class="form-text text-muted mt-0">
+				按选的顺序编为 A、B、C……列表里先是本域的题，后面是主站的题：选了主站的题会自动复制一份到本域（已有副本就用副本）。
+				每道题的分值、是否选做，创建之后在草稿里可以分别改；也可以先不选题，存为草稿再加。
+			</small>
+		</div>
+	</div>
+	<?php // (Enter in a field presses the first button: that one keeps a draft) ?>
+	<button type="submit" class="btn btn-outline-primary" name="after" value="draft" id="button-save-homework">保存为草稿</button>
+	<button type="submit" class="btn btn-success" name="after" value="publish" id="button-create-publish-homework">创建并发布</button>
 	<a class="btn btn-link" href="<?= domainUrl($domain, '/homeworks') ?>">取消</a>
+	<small class="form-text text-muted">发布后学生就能看到这个作业并认领，题目列表不能再改（开始之前可以撤回）。</small>
+	<?php else: ?>
+	<button type="submit" class="btn btn-primary" id="button-save-homework">保存</button>
 	<?php endif ?>
 </form>
 <?php if ($homework && $homework['settle_state'] === 'settled'): ?>
