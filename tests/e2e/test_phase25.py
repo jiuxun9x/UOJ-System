@@ -2,6 +2,7 @@
 of the site are put into a homework, a training or a contest of a domain as they are, a homework
 is set in one go, and the pages of a domain are pages of the site."""
 
+import time
 import unittest
 
 import uoj
@@ -83,7 +84,9 @@ class HomeworkBoardTest(unittest.TestCase):
         self.assertEqual(scores_of(teacher, slug, homework_id)["p25_board_cat"]["Nickname"], "'=1+1")
 
         # ---- and at its new end it is settled anew, with what was submitted since
-        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-30), homework_id))
+        # (the end is put just behind now: what ann submitted a moment ago is before it)
+        time.sleep(3)
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-1), homework_id))
         uoj.wait_until("the homework is settled again", lambda: tick() and homework_row(homework_id, "settle_state")[0] == "settled")
         self.assertRegex(ann.get(page).text, r'正式成绩</div>\s*<div[^>]*id="my-official-score">100 ')
         self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d and status = 'official'" % homework_id), "2")
