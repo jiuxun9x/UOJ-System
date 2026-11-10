@@ -348,12 +348,37 @@ function homeworkSnapshotScores($snapshot_id) {
 	}
 	return $scores;
 }
-// the official scores of a homework, null as long as it has not been settled
-function homeworkOfficialScores($homework) {
-	if ($homework['current_official_snapshot_id'] === null) {
+// The snapshot that holds the official scores of a homework, or null: it has them once it is
+// settled. A homework whose end was moved on is open again, and what it was settled with
+// before is a snapshot like the others until the new end has come.
+function homeworkOfficialSnapshotId($homework) {
+	if ($homework['settle_state'] !== 'settled' || $homework['current_official_snapshot_id'] === null) {
 		return null;
 	}
-	return homeworkSnapshotScores($homework['current_official_snapshot_id']);
+	return (int)$homework['current_official_snapshot_id'];
+}
+// the official scores of a homework, null as long as it has not been settled
+function homeworkOfficialScores($homework) {
+	$snapshot_id = homeworkOfficialSnapshotId($homework);
+	return $snapshot_id === null ? null : homeworkSnapshotScores($snapshot_id);
+}
+// The places of the people of a board, by their totals, the highest first: who has as much as
+// another has the same place, and the next after them the place they would have without.
+// $totals: username => total, in the order of the board. Returns username => place.
+function homeworkRanks($totals) {
+	$ranks = array();
+	$place = 0;
+	$last = null;
+	$index = 0;
+	foreach ($totals as $username => $total) {
+		$index++;
+		if ($last === null || abs($total - $last) > 0.004) {
+			$place = $index;
+			$last = $total;
+		}
+		$ranks[$username] = $place;
+	}
+	return $ranks;
 }
 // Where two sets of scores differ: rows of username, problem id, the score before and after.
 function homeworkScoreDifferences($before, $after) {

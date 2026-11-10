@@ -21,13 +21,15 @@
 		}
 	}
 	$view = isset($_GET['view']) && in_array($_GET['view'], array('live', 'correction')) ? $_GET['view'] : 'official';
-	if ($snapshot === null && $view === 'official' && $homework['current_official_snapshot_id'] !== null) {
-		$snapshot = queryHomeworkSnapshot($homework['current_official_snapshot_id']);
+	// (a homework that is open again has no official scores until it is settled anew)
+	$official_id = homeworkOfficialSnapshotId($homework);
+	if ($snapshot === null && $view === 'official' && $official_id !== null) {
+		$snapshot = queryHomeworkSnapshot($official_id);
 	}
 	if ($snapshot !== null) {
 		$scores = homeworkSnapshotScores($snapshot['id']);
 		$usernames = array_keys($scores);
-		$what = "第 {$snapshot['version']} 份快照" . ($snapshot['id'] == $homework['current_official_snapshot_id'] ? '（正式成绩）' : '');
+		$what = "第 {$snapshot['version']} 份快照" . ((int)$snapshot['id'] === $official_id ? '（正式成绩）' : '');
 	} else {
 		$scores = $view === 'correction' ? homeworkCorrectionScores($homework) : homeworkLiveScores($homework);
 		$usernames = homeworkParticipants($homework);
@@ -40,6 +42,8 @@
 	uksort($totals, function($a, $b) use ($totals) {
 		return $totals[$a] != $totals[$b] ? ($totals[$a] < $totals[$b] ? 1 : -1) : strcmp($a, $b);
 	});
+	// who has as much as another has the same place
+	$ranks = homeworkRanks($totals);
 	
 	// who the students are, for the people who may know
 	$identities = array();
@@ -59,10 +63,8 @@
 		}
 		$header[] = 'Total';
 		$rows[] = $header;
-		$rank = 0;
 		foreach ($totals as $username => $total) {
-			$rank++;
-			$row = array($rank, $username, isset($nicknames[$username]) ? $nicknames[$username] : '', isset($identities[$username]) ? $identities[$username]['student_id'] : '', isset($identities[$username]) ? $identities[$username]['real_name'] : '', 'yes');
+			$row = array($ranks[$username], $username, isset($nicknames[$username]) ? $nicknames[$username] : '', isset($identities[$username]) ? $identities[$username]['student_id'] : '', isset($identities[$username]) ? $identities[$username]['real_name'] : '', 'yes');
 			foreach ($problems as $problem) {
 				$row[] = isset($scores[$username][$problem['problem_id']]) ? homeworkTrimNumber($scores[$username][$problem['problem_id']]['score']) : '0';
 			}
@@ -93,15 +95,15 @@
 	}
 	
 	$here = homeworkUrl($domain, $homework, '/scoreboard');
-	$query = $snapshot !== null && $snapshot['id'] != $homework['current_official_snapshot_id'] ? "snapshot={$snapshot['id']}&" : ($snapshot === null && $view !== 'official' ? "view=$view&" : ($snapshot === null ? 'view=live&' : ''));
+	$query = $snapshot !== null && (int)$snapshot['id'] !== $official_id ? "snapshot={$snapshot['id']}&" : ($snapshot === null && $view !== 'official' ? "view=$view&" : ($snapshot === null ? 'view=live&' : ''));
 ?>
 <?php echoDomainPageHeader($domain, 'homeworks', $homework['title'] . ' - 成绩表') ?>
 <div class="d-flex flex-wrap align-items-center mb-3">
 	<h3 class="mr-auto mb-2"><a href="<?= homeworkUrl($domain, $homework) ?>"><?= HTML::escape($homework['title']) ?></a> <small class="text-muted">成绩表</small></h3>
 	<div class="mb-2">
 		<div class="btn-group btn-group-sm mr-2">
-			<a class="btn btn-outline-secondary<?= $snapshot !== null || ($view === 'official' && $homework['current_official_snapshot_id'] === null) ? ' active' : '' ?>" href="<?= $here ?>"><?= $homework['current_official_snapshot_id'] !== null ? '正式成绩' : '当前成绩' ?></a>
-			<?php if ($homework['current_official_snapshot_id'] !== null): ?>
+			<a class="btn btn-outline-secondary<?= $snapshot !== null || ($view === 'official' && $official_id === null) ? ' active' : '' ?>" href="<?= $here ?>"><?= $official_id !== null ? '正式成绩' : '当前成绩' ?></a>
+			<?php if ($official_id !== null): ?>
 			<a class="btn btn-outline-secondary<?= $snapshot === null && $view === 'live' ? ' active' : '' ?>" href="<?= $here ?>?view=live">按现在重算</a>
 			<?php endif ?>
 			<a class="btn btn-outline-secondary<?= $snapshot === null && $view === 'correction' ? ' active' : '' ?>" href="<?= $here ?>?view=correction">订正进度</a>
@@ -141,11 +143,9 @@
 			</tr>
 		</thead>
 		<tbody>
-			<?php $rank = 0; ?>
 			<?php foreach ($totals as $username => $total): ?>
-			<?php $rank++; ?>
-			<tr data-username="<?= $username ?>">
-				<td><?= $rank ?></td>
+			<tr data-username="<?= $username ?>" data-rank="<?= $ranks[$username] ?>">
+				<td><?= $ranks[$username] ?></td>
 				<td class="uoj-scoreboard-name"><?= getUserLink($username) ?></td>
 				<?php if ($identities): ?>
 				<td><?= isset($identities[$username]) ? HTML::escape($identities[$username]['student_id']) : '' ?></td>

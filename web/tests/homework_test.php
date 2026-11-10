@@ -351,3 +351,14 @@ check_same(array(true, false), array(strpos($told('IOI', 60, null), '可以得�
 check_same(1, count(array_filter(virtualRules('ICPC', 300, 3600), function($line) {
 	return $line[0] === '!';
 })), 'one line is to be noticed');
+
+// ---- the places on a board: who has as much as another has the same place
+check_same(array('ann' => 1, 'bob' => 2, 'cat' => 2, 'dan' => 4), homeworkRanks(array('ann' => 100, 'bob' => 60.0, 'cat' => 60, 'dan' => 0)), 'two who are level share a place, and the next is two places on');
+check_same(array(), homeworkRanks(array()), 'a board with nobody on it');
+check_same(array('ann' => 1, 'bob' => 1), homeworkRanks(array('ann' => 0, 'bob' => 0)), 'everybody with nothing is first');
+
+// ---- the official scores are those of a homework that is settled
+$settled = array('settle_state' => 'settled', 'current_official_snapshot_id' => '7');
+check_same(7, homeworkOfficialSnapshotId($settled), 'a homework that is settled has official scores');
+check_same(null, homeworkOfficialSnapshotId(array('settle_state' => 'open') + $settled), 'one whose end was moved on is open again, and has none until it is settled anew');
+check_same(null, homeworkOfficialSnapshotId(array('settle_state' => 'open', 'current_official_snapshot_id' => null)), 'one that was never settled has none');
