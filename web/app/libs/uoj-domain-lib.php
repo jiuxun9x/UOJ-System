@@ -65,7 +65,7 @@ function domainMemberChangeRefusedReason($actor_role, $is_site_manager, $target_
 	if ($target_role === 'owner') {
 		return '所有者只能通过转让来变更';
 	}
-	if ($new_role !== null && !isset(domainMemberRoles()[$new_role])) {
+	if ($new_role !== null && (!is_string($new_role) || !isset(domainMemberRoles()[$new_role]))) {
 		return '无效的角色';
 	}
 	if ($is_site_manager || $actor_role === 'owner') {

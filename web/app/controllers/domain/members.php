@@ -7,8 +7,12 @@
 	$can_leave = $my_role !== null && $my_role !== 'owner' && $domain['archived_at'] === null
 		&& DB::selectFirst("select 1 from domain_members where domain_id = {$domain['id']} and username = '".DB::escape($myUser['username'])."' and added_by = ''") != null;
 	
+	// the role a form sends: a text, whatever was sent (role[]=... is no role)
+	$posted_role = function($default) {
+		return isset($_POST['role']) ? (is_string($_POST['role']) ? $_POST['role'] : '') : $default;
+	};
 	$error = domainHandleForms(array(
-		'add' => function() use ($domain, $can_manage) {
+		'add' => function() use ($domain, $can_manage, $posted_role) {
 			global $myUser;
 			if (!$can_manage) {
 				return '没有权限';
@@ -20,13 +24,13 @@
 			if (permissionDomainRole($target, $domain) !== null) {
 				return "{$target['username']} 已经是成员";
 			}
-			$err = domainSetMember($domain, $target, isset($_POST['role']) ? $_POST['role'] : 'member', $myUser);
+			$err = domainSetMember($domain, $target, $posted_role('member'), $myUser);
 			if ($err === '') {
 				domainFlash("已添加 {$target['username']}。");
 			}
 			return $err;
 		},
-		'role' => function() use ($domain, $can_manage) {
+		'role' => function() use ($domain, $can_manage, $posted_role) {
 			global $myUser;
 			if (!$can_manage) {
 				return '没有权限';
@@ -35,7 +39,7 @@
 			if (!$target || permissionDomainRole($target, $domain) === null) {
 				return '该用户不是成员';
 			}
-			$err = domainSetMember($domain, $target, isset($_POST['role']) ? $_POST['role'] : '', $myUser);
+			$err = domainSetMember($domain, $target, $posted_role(''), $myUser);
 			if ($err === '') {
 				domainFlash("已修改 {$target['username']} 的角色。");
 			}
@@ -73,7 +77,7 @@
 			if (!$can_manage) {
 				return '没有权限';
 			}
-			DB::delete("delete from domain_pending_members where domain_id = {$domain['id']} and id = ".(int)$_POST['id']);
+			DB::delete("delete from domain_pending_members where domain_id = {$domain['id']} and id = ".(isset($_POST['id']) && validateUInt($_POST['id']) ? (int)$_POST['id'] : 0));
 			return '';
 		},
 		'invite' => function() use ($domain, $can_manage) {
@@ -102,7 +106,7 @@
 			if (!$can_manage) {
 				return '没有权限';
 			}
-			domainRevokeInvite($domain, isset($_POST['id']) ? $_POST['id'] : 0, $myUser);
+			domainRevokeInvite($domain, isset($_POST['id']) && validateUInt($_POST['id']) ? $_POST['id'] : 0, $myUser);
 			domainFlash('邀请已撤销。');
 			return '';
 		},

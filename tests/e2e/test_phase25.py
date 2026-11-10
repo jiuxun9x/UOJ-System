@@ -98,5 +98,21 @@ class HomeworkBoardTest(unittest.TestCase):
         self.assertEqual(homework_row(homework_id, "status")[0], "draft")
 
 
+class MemberFormTest(unittest.TestCase):
+    """A form of the members that sent no text for a role (role[]=...) was no page at all, but an
+    error of the server."""
+
+    def test_a_role_is_a_text(self):
+        slug, teacher, _, _ = classroom("p25_door")
+        other = account("p25_door_other")
+        r = teacher.post("/d/%s/members" % slug, {"form": "add", "username": "p25_door_other", "role[]": "member"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("无效的角色", r.text)
+        self.assertIsNone(role_in(slug, other.username))
+        # and what is no number names no invitation and nobody who waits
+        for form in ("unpend", "revoke"):
+            self.assertEqual(teacher.post("/d/%s/members" % slug, {"form": form, "id[]": "1"}).status_code, 302)
+
+
 if __name__ == "__main__":
     unittest.main()
