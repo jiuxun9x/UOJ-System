@@ -116,11 +116,11 @@
 	<?php endif ?>
 </div>
 <div class="table-responsive">
-	<table class="table table-hover" id="table-training-problems">
+	<table class="table table-bordered table-hover table-striped uoj-list-table" id="table-training-problems">
 		<thead>
 			<tr>
 				<th style="width:3em">#</th>
-				<th>题目</th>
+				<th class="uoj-list-main">题目</th>
 				<th style="width:8em">我的成绩</th>
 			</tr>
 		</thead>
@@ -129,7 +129,7 @@
 			<?php $score = isset($mine[(int)$problem['problem_id']]) ? $mine[(int)$problem['problem_id']] : null; ?>
 			<tr data-problem="<?= $problem['problem_id'] ?>">
 				<td><?= $index + 1 ?></td>
-				<td>
+				<td class="uoj-list-main">
 					<a href="<?= trainingProblemUrl($domain, $problem) ?>"><?= $problem['title'] ?></a>
 					<?php if (!$problem['required']): ?><span class="badge badge-light border">选做</span><?php endif ?>
 					<?php if ($problem['is_hidden'] && $can_manage): ?>

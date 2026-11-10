@@ -111,11 +111,11 @@
 		</div>
 		<?php else: ?>
 		<div class="table-responsive">
-			<table class="table table-hover" id="table-homework-problems">
+			<table class="table table-bordered table-hover table-striped uoj-list-table" id="table-homework-problems">
 				<thead>
 					<tr>
 						<th style="width:3em">#</th>
-						<th>题目</th>
+						<th class="uoj-list-main">题目</th>
 						<th style="width:5em">分值</th>
 						<?php if ($is_participant): ?>
 						<th style="width:8em"><?= $official !== null ? '正式成绩' : '当前得分' ?></th>
@@ -130,7 +130,7 @@
 					<?php $row = isset($mine[$problem['problem_id']]) ? $mine[$problem['problem_id']] : null; ?>
 					<tr>
 						<td><?= chr(ord('A') + $index % 26) ?></td>
-						<td>
+						<td class="uoj-list-main">
 							<a href="<?= homeworkUrl($domain, $homework, '/problem/' . problemNumber($problem)) ?>"><?= $problem['title'] ?></a>
 							<?php if (!$problem['required']): ?><span class="badge badge-light border">选做</span><?php endif ?>
 						</td>

@@ -53,8 +53,8 @@
 			<tr>
 				<th class="uoj-list-main">比赛名称</th>
 				<th style="width:11em">开始时间</th>
-				<th style="width:6em">时长</th>
-				<th style="width:6em">赛制</th>
+				<th style="width:6em" class="d-none d-md-table-cell">时长</th>
+				<th style="width:6em" class="d-none d-md-table-cell">赛制</th>
 				<th style="width:6em">报名人数</th>
 			</tr>
 		</thead>
@@ -77,8 +77,8 @@
 					<?php endif ?>
 				</td>
 				<td><small><?= $contest['start_time_str'] ?></small></td>
-				<td><?= round($contest['last_min'] / 60, 1) ?> 小时</td>
-				<td><?= isset($rule_names[$rule]) ? $rule_names[$rule] : HTML::escape($rule) ?></td>
+				<td class="d-none d-md-table-cell"><?= round($contest['last_min'] / 60, 1) ?> 小时</td>
+				<td class="d-none d-md-table-cell"><?= isset($rule_names[$rule]) ? $rule_names[$rule] : HTML::escape($rule) ?></td>
 				<td><a href="/contest/<?= $contest['id'] ?>/registrants"><span class="glyphicon glyphicon-user"></span> &times;<?= $contest['player_num'] ?></a></td>
 			</tr>
 			<?php endforeach ?>

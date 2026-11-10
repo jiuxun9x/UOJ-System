@@ -52,7 +52,7 @@
 
 		<!-- Custom styles for this template -->
 		<?= HTML::css_link('/css/uoj-theme.css?v=2.3336') ?>
-		<?= HTML::css_link('/css/uoj-domain.css?v=28') ?>
+		<?= HTML::css_link('/css/uoj-domain.css?v=29') ?>
 
 		<!-- jQuery (necessary for Bootstrap\'s JavaScript plugins) -->
 		<?= HTML::js_src('/js/jquery.min.js') ?>

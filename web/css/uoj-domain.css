@@ -1233,3 +1233,24 @@ tr.uoj-batch-picked > td {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+
+/* what makes and copies the problems of a domain stands over their list, with no box round it */
+.uoj-problem-tools {
+	margin-bottom: 1rem;
+	padding-bottom: 1rem;
+	border-bottom: 1px solid #dee2e6;
+}
+/* on a phone a list keeps the room for what its rows are about: the other columns are as
+   narrow as what is in them, and the list is pushed sideways when that is not enough */
+@media (max-width: 575.98px) {
+	.uoj-list-table th {
+		width: auto !important;
+	}
+	.uoj-list-table .uoj-list-main {
+		min-width: 9em;
+	}
+	.uoj-list-table th,
+	.uoj-list-table td {
+		padding: 0.5rem;
+	}
+}

@@ -85,41 +85,37 @@
 <?php echoDomainError($error) ?>
 
 <?php if ($can_teach): ?>
-<div class="card mb-3">
-	<div class="card-body">
-		<?php // one row: the way to a new problem, then where a copy comes from, what is copied, and the button that copies it ?>
-		<form method="post" class="uoj-copy-row" id="form-copy-problem">
-			<?= HTML::hiddenToken() ?>
-			<input type="hidden" name="form" value="copy" />
-			<a class="btn btn-primary" id="button-new-domain-problem" href="<?= domainUrl($domain, '/problem/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建题目</a>
-			<a class="btn btn-light border" id="button-import-domain-problems" href="<?= domainUrl($domain, '/problems/import') ?>" title="填好的模板，或 Hydro 格式的题目包"><span class="glyphicon glyphicon-import"></span> 导入</a>
-			<span class="uoj-copy-divider"></span>
-			<?php if ($copy_sources): ?>
-			<select class="form-control" id="select-copy-source" title="从哪里复制" aria-label="从哪里复制">
-				<option value="site">从主站复制</option>
-				<?php foreach ($copy_sources as $other): ?>
-				<option value="<?= $other['slug'] ?>">从 <?= HTML::escape($other['name']) ?> 复制</option>
-				<?php endforeach ?>
-			</select>
-			<?php else: ?>
-			<label class="mb-0" for="input-copy-problem-id-search">从主站复制</label>
-			<?php endif ?>
-			<input type="text" class="form-control uoj-problem-picker" id="input-copy-problem-id" name="problem_id" required="required" placeholder="题号或标题的一部分，可以选好几道" data-scope="site" data-multiple="" />
-			<button type="submit" class="btn btn-outline-primary">复制到本域</button>
-		</form>
+<div class="uoj-problem-tools" id="domain-problem-tools">
+	<?php // one row: the way to a new problem, then where a copy comes from, what is copied, and the button that copies it ?>
+	<form method="post" class="uoj-copy-row" id="form-copy-problem">
+		<?= HTML::hiddenToken() ?>
+		<input type="hidden" name="form" value="copy" />
+		<a class="btn btn-primary" id="button-new-domain-problem" href="<?= domainUrl($domain, '/problem/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建题目</a>
+		<a class="btn btn-light border" id="button-import-domain-problems" href="<?= domainUrl($domain, '/problems/import') ?>" title="填好的模板，或 Hydro 格式的题目包"><span class="glyphicon glyphicon-import"></span> 导入</a>
+		<span class="uoj-copy-divider"></span>
 		<?php if ($copy_sources): ?>
-		<script type="text/javascript">
-		// a problem of another domain is sent as "the address name of the domain # its number"
-		$('#select-copy-source').on('change', function() {
-			var from = $(this).val();
-			$('#input-copy-problem-id').trigger('uoj-picker-scope', [from, from === 'site' ? '' : from + '#']);
-		});
-		</script>
+		<select class="form-control" id="select-copy-source" title="从哪里复制" aria-label="从哪里复制">
+			<option value="site">从主站复制</option>
+			<?php foreach ($copy_sources as $other): ?>
+			<option value="<?= $other['slug'] ?>">从 <?= HTML::escape($other['name']) ?> 复制</option>
+			<?php endforeach ?>
+		</select>
+		<?php else: ?>
+		<label class="mb-0" for="input-copy-problem-id-search">从主站复制</label>
 		<?php endif ?>
-	</div>
-	<div class="card-footer text-muted small">
-		本域的题目有自己的编号，从 1 开始，和主站的题号互不相干。复制得到的是一道独立的题目，题面、数据和配置都可以单独修改，和原题互不影响。布置作业、建训练和比赛时可以直接选主站的题，那时会自动复制，不用先到这里来。你任教的另一个域里的题也可以复制<?= $copy_sources ? '：先在左边选那个域' : '' ?>，或者直接写成“域的地址名#题号”，例如 <code>cs101#3</code>。
-	</div>
+		<input type="text" class="form-control uoj-problem-picker" id="input-copy-problem-id" name="problem_id" required="required" placeholder="题号或标题的一部分，可以选好几道" data-scope="site" data-multiple="" />
+		<button type="submit" class="btn btn-outline-primary">复制到本域</button>
+	</form>
+	<?php if ($copy_sources): ?>
+	<script type="text/javascript">
+	// a problem of another domain is sent as "the address name of the domain # its number"
+	$('#select-copy-source').on('change', function() {
+		var from = $(this).val();
+		$('#input-copy-problem-id').trigger('uoj-picker-scope', [from, from === 'site' ? '' : from + '#']);
+	});
+	</script>
+	<?php endif ?>
+	<p class="text-muted small mb-0 mt-2">复制得到的是本域自己的题，可以单独修改。布置作业、建训练和比赛时可以直接选主站的题，不用先在这里复制。另一个域的题<?= $copy_sources ? '先在左边选那个域，或' : '' ?>写成“域的地址名#题号”，例如 <code>cs101#3</code>。</p>
 </div>
 <?php endif ?>
 

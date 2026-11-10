@@ -51,9 +51,9 @@
 		<thead>
 			<tr>
 				<th class="uoj-list-main">作业</th>
-				<th style="width:10em">开始时间</th>
+				<th style="width:10em" class="d-none d-md-table-cell">开始时间</th>
 				<th style="width:10em">截止时间</th>
-				<th style="width:8em">题目</th>
+				<th style="width:8em" class="d-none d-md-table-cell">题目</th>
 				<th style="width:11em"><?= $my_role === 'member' ? '我的成绩' : '参加人数' ?></th>
 			</tr>
 		</thead>
@@ -79,14 +79,14 @@
 					<div class="text-danger small">发布失败：<?= HTML::escape($homework['publish_error']) ?></div>
 					<?php endif ?>
 				</td>
-				<td><small><?= substr($homework['begin_at'], 0, 16) ?></small></td>
+				<td class="d-none d-md-table-cell"><small><?= substr($homework['begin_at'], 0, 16) ?></small></td>
 				<td>
 					<small><?= substr($homework['end_at'], 0, 16) ?></small>
 					<?php if ($homework['penalty_since'] !== null && $homework['penalty_since'] !== $homework['end_at']): ?>
 					<small class="text-muted d-block" title="在这之后提交算迟交，按比例计分"><?= substr($homework['penalty_since'], 5, 11) ?> 起算迟交</small>
 					<?php endif ?>
 				</td>
-				<td><small><?= count($points) ?> 题，共 <?= array_sum($points) ?> 分</small></td>
+				<td class="d-none d-md-table-cell"><small><?= count($points) ?> 题，共 <?= array_sum($points) ?> 分</small></td>
 				<td>
 					<?php if ($mine !== null && array_sum($points) > 0): ?>
 					<div class="uoj-score-bar" title="<?= homeworkTrimNumber($mine) ?> / <?= array_sum($points) ?>">
