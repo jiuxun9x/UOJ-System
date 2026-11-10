@@ -63,3 +63,9 @@ check_same(array('contest:12:ann' => 20), authContestScopes('ann', '12'), 'the s
 check_same($scopes, authLoginScopes('Ann', '10.0.0.7'), 'the scopes of a login with the name written otherwise');
 check_same($scopes, authLoginScopes('ANN', '10.0.0.7'), 'the scopes of a login with the name in capitals');
 check_same(array('contest:12:ann' => 20), authContestScopes('Ann', '12'), 'the scope of the password of a contest, with the name written otherwise');
+
+// ---- what is exported for a spreadsheet: a cell that a user wrote is no formula
+require_once __DIR__ . '/../app/libs/uoj-utility-lib.php';
+check_same(array(1, 'ann', "'=HYPERLINK(\"http://evil\")", "'+cmd|' /C calc'!A0", "'@SUM(1)", "'-2+3", '-1', '+1', '0.5', '', 'CS26010001', null, 30.5),
+	csvSafeRow(array(1, 'ann', '=HYPERLINK("http://evil")', "+cmd|' /C calc'!A0", '@SUM(1)', '-2+3', '-1', '+1', '0.5', '', 'CS26010001', null, 30.5)),
+	'a cell that begins like a formula is written as text; numbers stay numbers');

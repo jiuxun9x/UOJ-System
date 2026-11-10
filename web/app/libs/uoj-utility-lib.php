@@ -206,6 +206,19 @@ function sendSystemMsg($username, $title, $content) {
 	DB::insert("insert into user_system_msg (receiver, title, content, send_time) values ('$username', '$title', '$content', now())");
 }
 
+// A row of a CSV file that a spreadsheet opens: a cell that begins with =, +, - or @ is a
+// formula to it, and what a user called themselves would be run on the machine of whoever
+// opens the file. Such a cell is written with an apostrophe in front, which a spreadsheet
+// shows as the text it is. A number stays a number.
+function csvSafeRow($row) {
+	foreach ($row as $key => $cell) {
+		if (is_string($cell) && $cell !== '' && strpos("=+-@\t\r", $cell[0]) !== false && !is_numeric($cell)) {
+			$row[$key] = "'" . $cell;
+		}
+	}
+	return $row;
+}
+
 // Records who did what to the audit log. $before and $after are what changed, as far as it is
 // worth keeping. The actor is the user who is logged in, unless one is given; without a user
 // it is the system itself, as when a successful hack changes the data of a problem.

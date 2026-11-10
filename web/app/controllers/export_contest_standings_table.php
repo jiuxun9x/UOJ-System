@@ -30,7 +30,8 @@ function array2csv(array &$array) {
 	fputcsv($df, array_keys(reset($array)));
 
 	foreach ($array as $row) {
-		fputcsv($df, $row);
+		// (a nickname is whatever its user typed: see csvSafeRow())
+		fputcsv($df, csvSafeRow($row));
 	}
 
 	fclose($df);

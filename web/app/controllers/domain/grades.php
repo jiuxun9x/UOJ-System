@@ -43,7 +43,7 @@
 		echo "\xEF\xBB\xBF";
 		$out = fopen('php://output', 'w');
 		foreach ($lines as $line) {
-			fputcsv($out, $line);
+			fputcsv($out, csvSafeRow($line));
 		}
 		die();
 	}
