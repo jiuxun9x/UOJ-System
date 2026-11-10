@@ -49,12 +49,11 @@
 	}
 ?>
 <?php echoDomainPageHeader($domain, 'grades', '成绩') ?>
-<div class="d-flex flex-wrap align-items-center mb-2">
-	<p class="text-muted mr-auto mb-2">
-		每名学生在每次作业里的成绩。已结算的作业显示正式成绩并计入合计；还没结算的显示到目前为止的成绩，用斜体，不计入合计。
-	</p>
-	<a class="btn btn-outline-primary btn-sm mb-2" href="<?= domainUrl($domain, '/grades') ?>?export=1" id="link-export-grades">导出 CSV</a>
+<div class="uoj-page-head">
+	<h4>成绩</h4>
+	<a class="btn btn-outline-primary" href="<?= domainUrl($domain, '/grades') ?>?export=1" id="link-export-grades"><span class="glyphicon glyphicon-download-alt"></span> 导出 CSV</a>
 </div>
+<p class="text-muted">每名学生在每次作业里的成绩。已结算的作业显示正式成绩并计入合计；还没结算的显示到目前为止的成绩，用斜体，不计入合计。</p>
 <?php if (!$grades['homeworks']): ?>
 <div class="uoj-domain-empty">还没有已经开始的作业。</div>
 <?php elseif (!$students): ?>

@@ -189,6 +189,9 @@
 </div>
 <?php endif ?>
 
+<div class="uoj-page-head">
+	<h4>成员 <small class="text-muted">(<?= count($members) ?>)</small></h4>
+</div>
 <?php if ($can_manage): ?>
 <div class="card mb-3">
 	<div class="card-body">
@@ -209,7 +212,7 @@
 <?php endif ?>
 
 <div class="table-responsive">
-	<table class="table table-bordered table-hover uoj-domain-members uoj-roster" id="table-members">
+	<table class="table table-bordered table-hover table-striped uoj-domain-members uoj-roster" id="table-members">
 		<thead>
 			<tr>
 				<th style="width:3em">#</th>

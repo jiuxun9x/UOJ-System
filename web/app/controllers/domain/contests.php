@@ -17,36 +17,57 @@
 		CONTEST_FINISHED => array('已结束', 'badge-secondary')
 	);
 ?>
+<?php
+	// as the contests of the site are listed: what runs or is to come, the soonest first, and what is over
+	$lists = array('current' => array(), 'ended' => array());
+	foreach ($contests as $contest) {
+		genMoreContestInfo($contest);
+		$lists[$contest['cur_progress'] <= CONTEST_IN_PROGRESS ? 'current' : 'ended'][] = $contest;
+	}
+	$lists['current'] = array_reverse($lists['current']);
+	$list_names = array('current' => '正在进行或即将到来的比赛', 'ended' => '已结束的比赛');
+	$rule_names = array('OI' => 'OI', 'IOI' => 'IOI', 'ICPC' => 'ICPC');
+?>
 <?php echoDomainPageHeader($domain, 'contests', '比赛') ?>
-<?php if ($can_teach): ?>
-<div class="card mb-3">
-	<div class="card-body d-flex flex-wrap align-items-center">
-		<a class="btn btn-primary mr-3" id="button-new-domain-contest" href="<?= domainUrl($domain, '/contest/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建比赛</a>
-		<small class="text-muted">域内的比赛只有成员能看到和报名，不计入全站 Rating，用的是本域的题目。</small>
-	</div>
-</div>
-<?php endif ?>
-
 <?php if (!$contests): ?>
+<div class="uoj-page-head">
+	<h4>比赛</h4>
+	<?php if ($can_teach): ?>
+	<a class="btn btn-primary" id="button-new-domain-contest" href="<?= domainUrl($domain, '/contest/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建比赛</a>
+	<?php endif ?>
+</div>
 <div class="uoj-domain-empty">这个域还没有比赛。</div>
-<?php else: ?>
+<?php endif ?>
+<?php $first = true; ?>
+<?php foreach ($lists as $list => $rows): ?>
+<?php if ($rows): ?>
+<div class="uoj-page-head<?= $first ? '' : ' mt-4' ?>">
+	<h4><?= $list_names[$list] ?></h4>
+	<?php if ($first && $can_teach): ?>
+	<a class="btn btn-primary" id="button-new-domain-contest" href="<?= domainUrl($domain, '/contest/new') ?>"><span class="glyphicon glyphicon-plus"></span> 新建比赛</a>
+	<?php endif ?>
+</div>
 <div class="table-responsive">
-	<table class="table table-hover" id="table-domain-contests">
+	<table class="table table-bordered table-hover table-striped uoj-list-table"<?= $first ? ' id="table-domain-contests"' : '' ?>>
 		<thead>
 			<tr>
-				<th>比赛</th>
+				<th class="uoj-list-main">比赛名称</th>
 				<th style="width:11em">开始时间</th>
 				<th style="width:6em">时长</th>
+				<th style="width:6em">赛制</th>
 				<th style="width:6em">报名人数</th>
-				<th style="width:7em">状态</th>
 			</tr>
 		</thead>
 		<tbody>
-			<?php foreach ($contests as $contest): ?>
-			<?php genMoreContestInfo($contest); ?>
+			<?php foreach ($rows as $contest): ?>
+			<?php $rule = contestRule($contest); ?>
 			<tr>
-				<td>
+				<td class="uoj-list-main">
 					<a href="/contest/<?= $contest['id'] ?>"><?= $contest['name'] ?></a>
+					<sup><span class="badge <?= $progress_names[$contest['cur_progress']][1] ?>"><?= $progress_names[$contest['cur_progress']][0] ?></span></sup>
+					<?php if (contestIsHidden($contest)): ?>
+					<sup><span class="badge badge-dark">隐藏</span></sup>
+					<?php endif ?>
 					<?php if ($contest['cur_progress'] == CONTEST_NOT_STARTED && Auth::check() && !can($myUser, 'contest.assist', $contest)): ?>
 					<?php if (hasRegistered($myUser, $contest)): ?>
 					<span class="badge badge-success">已报名</span>
@@ -57,12 +78,14 @@
 				</td>
 				<td><small><?= $contest['start_time_str'] ?></small></td>
 				<td><?= round($contest['last_min'] / 60, 1) ?> 小时</td>
-				<td><a href="/contest/<?= $contest['id'] ?>/registrants"><?= $contest['player_num'] ?></a></td>
-				<td><span class="badge <?= $progress_names[$contest['cur_progress']][1] ?>"><?= $progress_names[$contest['cur_progress']][0] ?></span></td>
+				<td><?= isset($rule_names[$rule]) ? $rule_names[$rule] : HTML::escape($rule) ?></td>
+				<td><a href="/contest/<?= $contest['id'] ?>/registrants"><span class="glyphicon glyphicon-user"></span> &times;<?= $contest['player_num'] ?></a></td>
 			</tr>
 			<?php endforeach ?>
 		</tbody>
 	</table>
 </div>
+<?php $first = false; ?>
 <?php endif ?>
+<?php endforeach ?>
 <?php echoUOJPageFooter() ?>

@@ -118,7 +118,7 @@
 		<?php endif ?>
 	</div>
 	<div class="card-footer text-muted small">
-		本域的题目有自己的编号，从 1 开始，和主站的题号互不相干。作业、训练和比赛只能用本域的题目：要用主站的题，先在这里复制。复制得到的是一道独立的题目，题面、数据和配置都可以单独修改，和原题互不影响。输入题号或标题的一部分，从列出的题目里选。你任教的另一个域里的题也可以复制<?= $copy_sources ? '：先在左边选那个域' : '' ?>，或者直接写成“域的地址名#题号”，例如 <code>cs101#3</code>。
+		本域的题目有自己的编号，从 1 开始，和主站的题号互不相干。复制得到的是一道独立的题目，题面、数据和配置都可以单独修改，和原题互不影响。布置作业、建训练和比赛时可以直接选主站的题，那时会自动复制，不用先到这里来。你任教的另一个域里的题也可以复制<?= $copy_sources ? '：先在左边选那个域' : '' ?>，或者直接写成“域的地址名#题号”，例如 <code>cs101#3</code>。
 	</div>
 </div>
 <?php endif ?>
@@ -153,14 +153,14 @@
 <?php uojIncludeView('problems-batch') ?>
 <?php endif ?>
 <div class="table-responsive">
-	<table class="table table-hover" id="table-domain-problems">
+	<table class="table table-bordered table-hover table-striped uoj-list-table" id="table-domain-problems">
 		<thead>
 			<tr>
 				<?php if ($batch): ?>
 				<th class="uoj-batch-cell"><input type="checkbox" class="uoj-batch-all" aria-label="全选" title="全选" /></th>
 				<?php endif ?>
-				<th style="width:6em">#</th>
-				<th>题目</th>
+				<th style="width:5em">ID</th>
+				<th class="uoj-list-main">题目</th>
 				<?php if ($can_teach): ?>
 				<th style="width:9em">来源</th>
 				<?php endif ?>
@@ -182,11 +182,11 @@
 				</td>
 				<?php endif ?>
 				<td<?= $problem['accepted_submission_id'] ? ' class="table-success"' : '' ?>>#<?= problemNumber($problem) ?></td>
-				<td>
-					<a href="<?= problemUrl($problem) ?>"><?= $problem['title'] ?></a>
+				<td class="uoj-list-main">
 					<?php if ($problem['is_hidden']): ?>
-					<span class="badge badge-secondary">隐藏</span>
+					<span class="text-danger">[隐藏]</span>
 					<?php endif ?>
+					<a href="<?= problemUrl($problem) ?>"><?= $problem['title'] ?></a>
 					<?php foreach (isset($tags_of[(int)$problem['id']]) ? $tags_of[(int)$problem['id']] : array() as $tag): ?>
 					<a class="badge badge-pill badge-light border uoj-domain-problem-tag" href="<?= domainUrl($domain, '/problems') ?>?q=<?= rawurlencode($tag) ?>"><?= HTML::escape($tag) ?></a>
 					<?php endforeach ?>
@@ -205,9 +205,9 @@
 					<?php endif ?>
 				</td>
 				<?php endif ?>
-				<td class="text-center"><?= $problem['ac_num'] ?> / <?= $problem['submit_num'] ?></td>
+				<td><?= $problem['ac_num'] ?> / <?= $problem['submit_num'] ?></td>
 				<?php if ($can_teach): ?>
-				<td class="text-right"><a class="btn btn-outline-secondary btn-sm" href="<?= problemUrl($problem, '/manage/statement') ?>">管理</a></td>
+				<td><a class="btn btn-outline-secondary btn-sm" href="<?= problemUrl($problem, '/manage/statement') ?>">管理</a></td>
 				<?php endif ?>
 			</tr>
 			<?php endforeach ?>

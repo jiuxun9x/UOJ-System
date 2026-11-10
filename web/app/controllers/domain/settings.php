@@ -70,7 +70,7 @@
 
 <h3 class="uoj-domain-section-title"><?= $domain['archived_at'] === null ? '归档' : '恢复' ?></h3>
 <?php if ($domain['archived_at'] === null): ?>
-<p class="text-muted">归档后这个域变为只读，并从列表里消失；里面的提交和成绩都会保留，可以随时恢复。</p>
+<p class="text-muted">归档后这个域变为只读，在域的列表里排到最后；里面的提交和成绩都会保留，可以随时恢复。</p>
 <?php else: ?>
 <p class="text-muted">这个域于 <?= $domain['archived_at'] ?> 归档。恢复后可以继续使用。</p>
 <?php endif ?>

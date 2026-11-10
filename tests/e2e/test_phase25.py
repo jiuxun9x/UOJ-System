@@ -222,6 +222,50 @@ class HomeworkInOneGoTest(unittest.TestCase):
         self.assertEqual(homework_row(newest(), "status")[0], "draft")
 
 
+class DomainPagesTest(unittest.TestCase):
+    """The pages of a domain had the bar of the site at their top, the name of the domain under
+    it, a row of tabs under that, and lists that looked like nothing else on the site. Inside a
+    domain the bar of the site is the domain's, as on Hydro, and its lists are laid out as the
+    lists of the site are."""
+
+    def test_the_bar_of_the_site_is_the_domain_s(self):
+        slug, teacher, (ann,), own = classroom("p25_pages", ("ann",))
+        homework_id = published_homework(teacher, slug, own, title="p25 页面作业")
+        contest_id = teacher.new_contest("p25 页面比赛", domain=slug, problems=str(uoj.pid(own)))
+        bar = 'id="domain-nav" data-domain="%s"' % slug
+        links = lambda page: {name for name in ("homeworks", "trainings", "problems", "contests", "members", "announcements", "grades", "settings")
+                              if 'class="nav-link" href="/d/%s/%s"' % (slug, name) in page}  # fmt: skip
+
+        # ---- every page of the domain has it, and no tabs under it
+        for path in ("", "/homeworks", "/trainings", "/problems", "/contests", "/members", "/announcements", "/homework/%d" % homework_id):
+            page = ann.get("/d/%s%s" % (slug, path)).text
+            self.assertIn(bar, page, path)
+            self.assertNotIn("uoj-domain-tabs", page, path)
+            self.assertEqual(links(page), {"homeworks", "trainings", "problems", "contests", "members", "announcements"}, path)
+        # who teaches is led to the grades and the settings as well
+        self.assertEqual(links(teacher.get("/d/%s" % slug).text) - links(ann.get("/d/%s" % slug).text), {"grades", "settings"})
+        # the page one is on is lit up
+        self.assertIn('<li class="nav-item active"><a class="nav-link" href="/d/%s/homeworks">' % slug, ann.get("/d/%s/homework/%d" % (slug, homework_id)).text)
+        self.assertIn('<li class="nav-item active"><a class="nav-link" href="/d/%s/problems">' % slug, teacher.get("/d/%s/problem/%d" % (slug, uoj.pid(own))).text)
+
+        # ---- a contest of the domain, and what was submitted to its homework, are pages of it too
+        for client, path in ((teacher, "/contest/%d" % contest_id), (teacher, "/contest/%d/manage" % contest_id), (teacher, "/submissions?homework_id=%d" % homework_id)):
+            self.assertIn(bar, client.get(path).text, path)
+        # the pages of the site are the site's
+        for path in ("/problems", "/contests", "/domains"):
+            self.assertNotIn('id="domain-nav"', ann.get(path).text, path)
+
+        # ---- its lists are tables as the site's are, and the front page lists what runs
+        front = ann.get("/d/%s" % slug).text
+        for part in ('id="table-overview-homeworks"', 'id="table-overview-contests"', "p25 页面作业", "p25 页面比赛", 'id="card-announcements"'):
+            self.assertIn(part, front)
+        self.assertIn('id="card-domain-shortcuts"', teacher.get("/d/%s" % slug).text)
+        self.assertNotIn('id="card-domain-shortcuts"', front)
+        for path, table in (("/homeworks", "table-homeworks-current"), ("/contests", "table-domain-contests"), ("/problems", "table-domain-problems"), ("/members", "table-members")):
+            self.assertRegex(teacher.get("/d/%s%s" % (slug, path)).text, r'<table class="table table-bordered table-hover table-striped [^"]*" id="%s"' % table)
+        self.assertIn('id="table-my-domains"', ann.get("/domains").text)
+
+
 class MemberFormTest(unittest.TestCase):
     """A form of the members that sent no text for a role (role[]=...) was no page at all, but an
     error of the server."""

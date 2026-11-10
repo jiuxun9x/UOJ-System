@@ -46,6 +46,9 @@
 ?>
 <?php echoDomainPageHeader($domain, 'announcements', '公告') ?>
 <?php echoDomainError($error) ?>
+<div class="uoj-page-head">
+	<h4>公告</h4>
+</div>
 
 <?php if ($can_teach): ?>
 <div class="card mb-4" id="card-announcement-form">
