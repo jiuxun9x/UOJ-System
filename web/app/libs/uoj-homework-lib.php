@@ -691,6 +691,10 @@ function homeworkRequestPublish($homework, $actor) {
 	if (!homeworkProblems($homework)) {
 		return '作业里还没有题目';
 	}
+	// (a copy of a homework has the times of the homework it was copied from)
+	if (homeworkNow() >= strtotime($homework['end_at'])) {
+		return '截止时间已经过了：发布出去就立刻截止，谁也交不了。请先在“设置”里改好时间';
+	}
 	DB::update("update homeworks set status = 'publishing', publish_error = null, publish_requested_by = '".DB::escape($actor['username'])."', updated_at = now() where id = {$homework['id']} and status = 'draft'");
 	auditLog('homework.publish', 'homework', $homework['id'], null, null, $actor);
 	homeworkAdvance($homework['id']);

@@ -87,6 +87,16 @@ class HomeworkBoardTest(unittest.TestCase):
         self.assertRegex(ann.get(page).text, r'正式成绩</div>\s*<div[^>]*id="my-official-score">100 ')
         self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d and status = 'official'" % homework_id), "2")
 
+    def test_a_homework_that_is_over_already_is_not_published(self):
+        slug, teacher, _, problem_id = classroom("p25_late")
+        homework_id = new_homework(teacher, slug, title="p25 过期")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id=str(uoj.pid(problem_id)), score="100"), "")
+        # (as a copy of a homework of last term is)
+        db("update homeworks set begin_at = '%s', penalty_since = null, end_at = '%s' where id = %d" % (uoj.web_time(-9 * 86400), uoj.web_time(-86400), homework_id))
+        said = homework_form(teacher, slug, homework_id, "publish")
+        self.assertIn("截止时间已经过了", said)
+        self.assertEqual(homework_row(homework_id, "status")[0], "draft")
+
 
 if __name__ == "__main__":
     unittest.main()
