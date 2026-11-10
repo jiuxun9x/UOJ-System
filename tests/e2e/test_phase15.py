@@ -417,7 +417,8 @@ class KernelTimeTest(unittest.TestCase):
 class VirtualHiddenProblemTest(unittest.TestCase):
     """Somebody who sat a contest virtually, whose problems are still hidden, could not see what
     they submitted in it: it was kept as a submission to a hidden problem, for nobody but the
-    staff."""
+    staff. (Since phase 26 it is a submission of the contest, under a star, for everybody who may
+    see the contest.)"""
 
     def test_what_is_submitted_virtually_to_a_hidden_problem_is_its_submitters_to_see(self):
         admin = uoj.admin()
@@ -432,13 +433,15 @@ class VirtualHiddenProblemTest(unittest.TestCase):
         self.assertEqual((r.status_code, r.headers["Location"]), (302, here))
         own = sitter.submit(problem_id, AB, path=here + "/problem/A")
         uoj.wait_submission(own)
-        self.assertEqual(db_value("select is_hidden from submissions where id = %d" % own), "1")
+        # (since phase 26 it is a submission of the contest, whoever may see the contest sees it)
+        self.assertEqual(db("select practice_contest_id, is_virtual, is_hidden from submissions where id = %d" % own), [[str(contest_id), "1", "0"]])
         self.assertIn('href="/submission/%d"' % own, sitter.get(here + "/submissions").text)
         self.assertIn('href="/submission/%d"' % own, sitter.get("/submissions", params={"submitter": sitter.username}).text)
         self.assertEqual(sitter.get("/submission/%d" % own).status_code, 200)
-        # and nobody else's, as any submission to a hidden problem
-        self.assertEqual(other.get("/submission/%d" % own).status_code, 403)
-        self.assertNotIn('href="/submission/%d"' % own, other.get("/submissions", params={"submitter": sitter.username}).text)
+        self.assertNotIn("uoj-result-kept", sitter.get("/submission/%d" % own).text)
+        # and everybody else's who may see the contest, who is not told how it did while it is sat
+        self.assertIn("uoj-result-kept", other.get("/submission/%d" % own).text)
+        self.assertIn('href="/submission/%d"' % own, other.get("/submissions", params={"submitter": sitter.username}).text)
 
 
 def solved_on_profile(viewer, username, problem_id):

@@ -406,8 +406,18 @@ function passedMark($says = '通过') {
 function echoSubmission($submission, $config, $user) {
 	$problem = queryProblemBrief($submission['problem_id']);
 	$submitterLink = getUserLink($submission['submitter']);
+	$practice_contest_id = isset($submission['practice_contest_id']) ? $submission['practice_contest_id'] : null;
+	// what was submitted by somebody who sat the contest virtually is theirs as their row on its
+	// board is: under a star; what was submitted to practise once it was over says so
+	if (!empty($submission['is_virtual'])) {
+		$submitterLink = '<span class="uoj-unofficial-star" title="非官方：赛后虚拟参赛">*</span>' . $submitterLink;
+	} elseif ($practice_contest_id) {
+		$submitterLink .= ' <span class="badge badge-light border uoj-after-contest">赛后</span>';
+	}
+	// how it did, where that is told (see 'submission.view_result')
+	$told = can($user, 'submission.view_result', $submission);
 	
-	if ($submission['score'] == null) {
+	if ($submission['score'] == null || !$told) {
 		$used_time_str = "/";
 		$used_memory_str = "/";
 	} else {
@@ -418,7 +428,8 @@ function echoSubmission($submission, $config, $user) {
 	$status = explode(', ', $submission['status'])[0];
 	// The contest a row is shown as a submission of: the one it was made in, or - 'as_in_contest' -
 	// the one its submitter sits virtually, whose submissions are submissions to its problems.
-	$in_contest = isset($config['as_in_contest']) ? (int)$config['as_in_contest'] : (isset($submission['contest_id']) ? $submission['contest_id'] : null);
+	// What was submitted through a contest to practise is shown as a submission of the contest.
+	$in_contest = isset($config['as_in_contest']) ? (int)$config['as_in_contest'] : (!empty($submission['contest_id']) ? $submission['contest_id'] : $practice_contest_id);
 	
 	$show_status_details = Auth::check() && $submission['submitter'] === Auth::id() && $status !== 'Judged';
 	
@@ -439,7 +450,9 @@ function echoSubmission($submission, $config, $user) {
 	}
 	if (!isset($config['result_hidden'])) {
 		echo '<td>';
-		if ($status == 'Judged') {
+		if (!$told) {
+			echo '<a href="/submission/', $submission['id'], '" class="text-muted uoj-result-kept">已隐藏</a>';
+		} elseif ($status == 'Judged') {
 			if ($submission['score'] == null) {
 				// what went wrong before any test ran: CE for a program that does not compile
 				if (verdictShort($submission['result_error']) !== $submission['result_error']) {
@@ -537,8 +550,8 @@ function echoSubmissionsList($cond, $tail, $config, $user) {
 	// What a row reads, whether its column is shown or not: who submitted it (the details of its
 	// status are for them), to what (whose rules say what is shown), its numbers and its times.
 	$col_names = array();
-	foreach (array('status_details', 'status', 'result_error', 'score', 'id', 'submitter', 'problem_id', 'contest_id', 'homework_id',
-			'used_time', 'used_memory', 'language', 'tot_size', 'submit_time', 'judge_time') as $column) {
+	foreach (array('status_details', 'status', 'result_error', 'score', 'id', 'submitter', 'problem_id', 'contest_id', 'homework_id', 'domain_id',
+			'practice_contest_id', 'is_virtual', 'used_time', 'used_memory', 'language', 'tot_size', 'submit_time', 'judge_time') as $column) {
 		$col_names[] = "submissions.$column";
 	}
 	

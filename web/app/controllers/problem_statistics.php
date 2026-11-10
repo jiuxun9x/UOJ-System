@@ -17,6 +17,11 @@
 		}
 	}
 
+	// who sits virtually a contest with the problem is told no more of it than its contestants were
+	if (Auth::check() && !can($myUser, 'problem.manage', $problem) && permissionFacts()->sitsVirtuallyWithProblem(Auth::id(), $problem['id'])) {
+		becomeMsgPage('<h1 id="statistics-after-virtual">虚拟参赛结束后才能看这道题的统计</h1>');
+	}
+
 	function scoreDistributionData($problem) {
 		global $myUser;
 		$data = array();

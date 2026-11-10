@@ -40,6 +40,19 @@ class FakePermissionFacts {
 	public function virtualContestOf($submission) {
 		return isset($submission['id'], $this->virtual_submissions[$submission['id']]) ? $this->virtual_submissions[$submission['id']] : null;
 	}
+	// who sits which contest virtually right now: username => array(contest id => its problems)
+	public $running_virtuals = array();
+	public function runningVirtualsOf($username) {
+		return isset($this->running_virtuals[$username]) ? $this->running_virtuals[$username] : array();
+	}
+	public function sitsVirtuallyWithProblem($username, $problem_id) {
+		foreach ($this->runningVirtualsOf($username) as $problem_ids) {
+			if (in_array((int)$problem_id, $problem_ids, true)) {
+				return true;
+			}
+		}
+		return false;
+	}
 	public function homework($homework_id) {
 		return $homework_id ? $this->homeworks[$homework_id] : null;
 	}
@@ -226,10 +239,12 @@ foreach (array('submission.view_details', 'submission.view_test_details') as $ab
 }
 check_ability('submission.hack', $restricted, array('nobody' => false, 'alice' => true, 'bob' => true, 'helper' => false), 'hacking needs the source');
 
-// ---- submissions of a contest that is running: closed to everybody but the owner and the staff
+// ---- submissions of a contest that is running: listed for everybody who may see the contest, and
+// how they did and their code closed to everybody but the owner and the staff
 $facts->problems_in_running_contests = array(1);
 $running = fake_submission('alice', 1, 10);
-foreach (array('submission.view', 'submission.view_source') as $ability) {
+check_ability('submission.view', $running, array('nobody' => true, 'root' => true, 'teacher' => true, 'owner' => true, 'helper' => true, 'alice' => true, 'bob' => true), 'during the contest');
+foreach (array('submission.view_result', 'submission.view_source') as $ability) {
 	check_ability($ability, $running, array('nobody' => false, 'root' => true, 'ojadmin' => true, 'teacher' => false, 'owner' => true, 'setter' => true, 'helper' => true, 'alice' => true, 'bob' => false), 'during the contest');
 }
 // how it did on the single tests is told to nobody but the staff while the contest runs, under any rule
@@ -270,7 +285,8 @@ $facts->contests[14] = array('freeze_minutes' => 60, 'last_min' => 300) + fake_c
 $facts->contests[15] = array('freeze_minutes' => 60, 'last_min' => 300) + fake_contest(15, CONTEST_FINISHED, array('contest_type' => 'ICPC'));
 $facts->contests[16] = array('freeze_minutes' => 60, 'last_min' => 300) + fake_contest(16, CONTEST_PENDING_FINAL_TEST, array('contest_type' => 'OI'));
 $kept = fake_submission('alice', 1, 14);
-foreach (array('submission.view', 'submission.view_source', 'submission.view_details') as $ability) {
+check_ability('submission.view', $kept, array('nobody' => true, 'bob' => true, 'alice' => true), 'a frozen contest that is over and not published: listed');
+foreach (array('submission.view_result', 'submission.view_source', 'submission.view_details') as $ability) {
 	check_ability($ability, $kept, array('nobody' => false, 'bob' => false, 'alice' => true, 'setter' => true, 'root' => true), 'a frozen contest that is over and not published');
 	check_ability($ability, fake_submission('alice', 1, 15), array('nobody' => true, 'bob' => true, 'alice' => true), 'a frozen contest whose results are published');
 	check_ability($ability, fake_submission('alice', 1, 16), array('nobody' => true, 'bob' => true, 'alice' => true), 'only the ICPC rule freezes a board');
@@ -710,6 +726,11 @@ foreach (array('submission.view', 'submission.view_source', 'submission.view_det
 	check_ability($ability, fake_submission('setter', 41, 30), array('nobody' => true, 'alice' => true, 'bob' => true), 'what was submitted in a contest for everybody');
 	check_ability($ability, fake_submission('setter', 41), array('nobody' => true, 'alice' => true, 'bob' => true), 'what was submitted to the problem outside of the contests');
 }
+// and so does what was submitted through it to practise, once it was over
+$practised = array('practice_contest_id' => 32) + fake_submission('setter', 41);
+check_ability('submission.view', $practised, array('nobody' => false, 'alice' => false, 'bob' => false, 'setter' => true, 'helper' => true, 'root' => true), 'what was submitted through a contest with a password to practise');
+check_ability('submission.view_source', $practised, array('alice' => false, 'helper' => true), 'what was submitted through a contest with a password to practise');
+check_ability('submission.view', array('practice_contest_id' => 30) + fake_submission('setter', 41), array('nobody' => true, 'bob' => true), 'what was submitted through a contest for everybody to practise');
 // who registered for it sees what the others submitted as well
 $facts->registered[] = array('bob', 32);
 check_ability('submission.view_source', fake_submission('setter', 41, 32), array('bob' => true, 'alice' => false), 'what was submitted in a contest with a password, to another who took part');
@@ -776,6 +797,22 @@ check_same(false, contestIsForEverybody($facts->contests[39]), 'a hidden contest
 $shown = array('is_hidden' => 0) + $hidden;
 check_ability('contest.view', $shown, array('nobody' => true, 'bob' => true), 'a contest that was hidden');
 check_ability('contest.view_board', $shown, array('nobody' => true), 'its outer board');
+
+// ---- a virtual participation: who sits a contest virtually is told nothing of how anybody else
+// did on its problems, and nobody else is told how they did until they are through
+$facts->running_virtuals['bob'] = array(30 => array(41));
+$sat = array('practice_contest_id' => 30, 'is_virtual' => 1) + fake_submission('bob', 41);
+check_ability('submission.view', $sat, array('nobody' => true, 'alice' => true, 'bob' => true), 'what was submitted in a virtual participation that runs');
+foreach (array('submission.view_result', 'submission.view_source', 'submission.view_details') as $ability) {
+	check_ability($ability, $sat, array('nobody' => false, 'alice' => false, 'bob' => true, 'root' => true), 'what was submitted in a virtual participation that runs');
+	foreach (array(fake_submission('setter', 41, 30), fake_submission('setter', 41), array('practice_contest_id' => 30) + fake_submission('alice', 41)) as $other) {
+		check_ability($ability, $other, array('bob' => false, 'alice' => true, 'setter' => true), 'what somebody else submitted to a problem of a contest bob sits virtually');
+	}
+}
+check_ability('submission.view_result', fake_submission('setter', 1), array('bob' => true), 'a problem that is not of the contest bob sits virtually');
+$facts->running_virtuals = array();
+check_ability('submission.view_result', $sat, array('nobody' => true, 'alice' => true), 'what was submitted in a virtual participation that is over');
+check_ability('submission.view_result', fake_submission('setter', 41, 30), array('bob' => true), 'once bob is through');
 
 // ---- an ability that does not exist is refused
 check_same(false, @can($permission_test_users['root'], 'problem.mange', $facts->problems[1]), 'a misspelled ability');

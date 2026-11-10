@@ -41,6 +41,10 @@
 	if ($q_language != null) {
 		$conds[] = sprintf("language = '%s'", DB::escape($q_language));
 	}
+	// looked for by their scores, the submissions whose results one is not told would be told
+	if ($q_min_score !== null || $q_max_score !== null) {
+		$conds[] = '(' . toldResultsCond($myUser) . ')';
+	}
 	
 	if ($conds) {
 		$cond = join(' and ', $conds);

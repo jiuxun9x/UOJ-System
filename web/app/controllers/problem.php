@@ -98,6 +98,10 @@
 			become404Page();
 		}
 	}
+	// Somebody who submits through a contest that is over practises on its problems: what they
+	// submit is listed with the contest, and counts on no board. So does what somebody submits
+	// while they sit it virtually, marked as theirs.
+	$practice_contest = $contest != null && !$is_in_contest && $contest['cur_progress'] > CONTEST_IN_PROGRESS ? $contest : null;
 	// what somebody who takes part submits through the homework is submitted to the homework
 	$homework_participation = $homework && Auth::check() ? homeworkParticipation($homework['id'], Auth::id()) : null;
 	$is_in_homework = $homework_participation && $homework_participation['status'] === 'active';
@@ -144,7 +148,7 @@
 	}
 	
 	function handleUpload($zip_file_name, $content, $tot_size) {
-		global $problem, $contest, $myUser, $is_in_contest, $homework, $is_in_homework;
+		global $problem, $contest, $myUser, $is_in_contest, $homework, $is_in_homework, $practice_contest, $running_virtual;
 		
 		$content['config'][] = array('problem_id', $problem['id']);
 		if ($is_in_contest && contestJudgesSamplesOnly($contest, $problem['id'])) {
@@ -173,7 +177,7 @@
 		$domain_id = 'null';
 		if ($problem['owner_domain_id']) {
 			$domain_id = (int)$problem['owner_domain_id'];
-		} elseif ($is_in_contest && $contest['domain_id']) {
+		} elseif (($is_in_contest || $practice_contest) && $contest['domain_id']) {
 			$domain_id = (int)$contest['domain_id'];
 		}
 		// The time of a submission is read off the clock that decides whether a contest or a
@@ -181,6 +185,10 @@
 		$submit_time = UOJTime::$time_now_str;
 		if ($is_in_contest) {
 			DB::query("insert into submissions (problem_id, contest_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, {$contest['id']}, $domain_id, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
+		} elseif ($practice_contest) {
+			// who sees it is decided by the contest, as for what was submitted in it
+			$is_virtual = $running_virtual ? 1 : 0;
+			DB::query("insert into submissions (problem_id, domain_id, practice_contest_id, is_virtual, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, {$contest['id']}, $is_virtual, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
 		} elseif ($is_in_homework) {
 			// who sees it is decided by the homework, not by whether the problem is hidden
 			DB::query("insert into submissions (problem_id, domain_id, homework_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, {$homework['id']}, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
@@ -215,12 +223,13 @@
 	}
 	
 	// Where somebody is taken after submitting: to the list of what they submitted, in the
-	// contest, the homework or the domain they submitted in.
-	if ($is_in_contest) {
-		$after_submitting = "/contest/{$contest['id']}/submissions";
-	} elseif ($running_virtual) {
-		// as in the contest: its list of what one submitted, which is theirs while they sit it
-		$after_submitting = "/contest/{$contest['id']}/submissions";
+	// contest, the homework or the domain they submitted in. In a contest that is their own
+	// submissions in it, whether it runs or is over, whatever the list showed them last.
+	if ($is_in_contest || $practice_contest) {
+		$after_submitting = "/contest/{$contest['id']}/submissions?mine=1";
+	} elseif ($contest != null && Auth::check()) {
+		// who sets the contest, or tests it, before it is over: what they submit is of no contest
+		$after_submitting = '/submissions?problem_id=' . $problem['id'] . '&submitter=' . Auth::id();
 	} elseif ($homework) {
 		$after_submitting = '/submissions?homework_id=' . $homework['id'] . (Auth::check() ? '&submitter=' . Auth::id() : '');
 	} elseif ($domain && Auth::check()) {

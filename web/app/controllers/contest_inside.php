@@ -489,37 +489,50 @@ EOD;
 	}
 	
 	function echoMySubmissions() {
-		global $contest, $myUser, $my_virtual;
+		global $contest, $myUser, $my_virtual, $virtual_elapsed;
+		$id = (int)$contest['id'];
+		// What was submitted in the contest, and through it once it was over: to practise, or by
+		// somebody who sat it virtually. Who sits it virtually now is shown what its contestants
+		// had submitted by the same moment of it, as its board shows them that moment.
+		$of_contest = "(submissions.contest_id = $id or submissions.practice_contest_id = $id)";
 		if ($my_virtual) {
-			// what one submitted in the participation, listed as the contest lists submissions
-			echoSubmissionsList(virtualSubmissionsCond($contest, $my_virtual), 'order by id desc',
-				array('judge_time_hidden' => '', 'inside' => '', 'as_in_contest' => $contest['id']), $myUser);
-			return;
+			$mine = virtualSubmissionsCond($contest, $my_virtual);
+			$until = date('Y-m-d H:i:s', $contest['start_time']->getTimestamp() + $virtual_elapsed);
+			$everybody = "($mine) or (submissions.contest_id = $id and submissions.submit_time < '$until')";
+		} else {
+			$mine = $myUser != null ? "submissions.submitter = '".DB::escape($myUser['username'])."' and $of_contest" : '1 = 0';
+			$everybody = $of_contest;
 		}
 
 		// Whose submissions: one's own, or everybody's. The people who run the contest have
 		// none of their own and are there to look at everybody's, so that is what they are
 		// shown unless they say otherwise; everybody else is shown their own unless they ask.
+		// Who has just submitted is shown their own (?mine), whatever they asked for before.
 		$choice = Cookie::get('show_all_submissions');
-		$show_all = $choice === null ? can($myUser, 'contest.assist', $contest) : $choice !== '0';
-		$show_all_submissions_status = $show_all ? 'checked="checked" ' : '';
-		$show_all_submissions = UOJLocale::get('contests::show all submissions');
-		echo <<<EOD
+		if ($myUser == null) {
+			$show_all = true;
+		} elseif (isset($_GET['mine'])) {
+			$show_all = false;
+		} else {
+			$show_all = $choice === null ? can($myUser, 'contest.assist', $contest) : $choice !== '0';
+		}
+		if ($myUser != null) {
+			$show_all_submissions_status = $show_all ? 'checked="checked" ' : '';
+			$show_all_submissions = UOJLocale::get('contests::show all submissions');
+			echo <<<EOD
 			<div class="checkbox text-right">
 				<label for="input-show_all_submissions"><input type="checkbox" id="input-show_all_submissions" $show_all_submissions_status/> $show_all_submissions</label>
 			</div>
 			<script type="text/javascript">
 				$('#input-show_all_submissions').click(function() {
 					$.cookie('show_all_submissions', this.checked ? '' : '0');
-					location.reload();
+					location.href = location.pathname;
 				});
 			</script>
 EOD;
-		if ($show_all) {
-			echoSubmissionsList("contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => '', 'inside' => ''), $myUser);
-		} else {
-			echoSubmissionsList("submitter = '{$myUser['username']}' and contest_id = {$contest['id']}", 'order by id desc', array('judge_time_hidden' => '', 'inside' => ''), $myUser);
 		}
+		$config = array('judge_time_hidden' => '', 'inside' => '') + ($my_virtual ? array('as_in_contest' => $id) : array());
+		echoSubmissionsList($show_all ? $everybody : $mine, 'order by id desc', $config, $myUser);
 	}
 	
 	function echoStandings() {

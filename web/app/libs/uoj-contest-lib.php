@@ -983,6 +983,7 @@ function contestDelete($contest, $actor) {
 	DB::delete("delete from contests where id = $id");
 	// what was submitted to it is what was submitted to its problems
 	DB::update("update submissions set contest_id = null where contest_id = $id");
+	DB::update("update submissions set practice_contest_id = null, is_virtual = 0 where practice_contest_id = $id");
 	DB::update("update hacks set contest_id = null where contest_id = $id");
 	foreach (array('contests_registrants', 'contests_permissions', 'contests_problems', 'contests_submissions', 'contests_notice', 'contests_asks', 'contest_allowed_users', 'contest_virtuals', 'contest_balloons', 'contest_balloon_colors', 'contest_ips') as $table) {
 		DB::delete("delete from $table where contest_id = $id");

@@ -105,6 +105,39 @@ class UOJPermissionFacts {
 		return $row ? (int)$row['contest_id'] : null;
 	}
 
+	private $virtual_now = array();
+	// The contests a user sits virtually right now, with their problems: array(id of the contest =>
+	// ids of its problems). While they sit one they are told nothing of how anybody else did on
+	// its problems, as a contestant is told nothing while the contest runs.
+	public function runningVirtualsOf($username) {
+		if (!array_key_exists($username, $this->virtual_now)) {
+			$now = DB::escape(UOJTime::$time_now_str);
+			$running = array();
+			foreach (DB::selectAll("select contest_virtuals.contest_id, contests_problems.problem_id from contest_virtuals"
+					." left join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
+					." where contest_virtuals.username = '".DB::escape($username)."' and contest_virtuals.start_time <= '$now'"
+					." and '$now' < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)", MYSQLI_ASSOC) as $row) {
+				if (!isset($running[(int)$row['contest_id']])) {
+					$running[(int)$row['contest_id']] = array();
+				}
+				if ($row['problem_id'] !== null) {
+					$running[(int)$row['contest_id']][] = (int)$row['problem_id'];
+				}
+			}
+			$this->virtual_now[$username] = $running;
+		}
+		return $this->virtual_now[$username];
+	}
+	// whether a user sits virtually, right now, a contest that has a problem among its problems
+	public function sitsVirtuallyWithProblem($username, $problem_id) {
+		foreach ($this->runningVirtualsOf($username) as $problem_ids) {
+			if (in_array((int)$problem_id, $problem_ids, true)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// the moment the rules about contests and homework are applied to: the clock of the web server
 	public function now() {
 		return UOJTime::$time_now->getTimestamp();
@@ -832,25 +865,48 @@ function can($user, $ability, $resource = null) {
 					return $name !== null && $resource['submitter'] === $name;
 				}
 			}
-			// What is submitted in a contest is nobody else's business while the contest runs,
-			// and where its board froze until its results are published.
-			$contest = $facts->contest($resource['contest_id']);
-			if ($contest != null && contestKeepsResults($contest)) {
-				return $name !== null && $resource['submitter'] === $name;
-			}
-			// A contest that is not for everybody keeps what was submitted to it with the people
-			// who may get inside it, as it keeps its problems and its board: after it is over too.
-			if ($contest != null && !contestIsForEverybody($contest) && !can($user, 'contest.enter', $contest)) {
-				return $name !== null && $resource['submitter'] === $name;
+			// What is submitted in a contest is listed for everybody who may see the contest, while
+			// it runs as well: how it did is not told until the contest tells it (see
+			// 'submission.view_result'). A contest that is not for everybody keeps what was
+			// submitted to it with the people who may get inside it, as it keeps its problems and
+			// its board: after it is over too; and so it keeps what was submitted through it to
+			// practise, once it was over, or by somebody who sat it virtually.
+			foreach (array('contest_id', 'practice_contest_id') as $column) {
+				$contest = $facts->contest(isset($resource[$column]) ? $resource[$column] : null);
+				if ($contest != null && !contestIsForEverybody($contest) && !can($user, 'contest.enter', $contest)) {
+					return $name !== null && $resource['submitter'] === $name;
+				}
 			}
 			return true;
+		// How a submission did: its result, its score, its time and its memory. Whoever may see a
+		// submission is told, but while a contest runs, and where its board froze until its
+		// results are published, nobody is told how anybody else did in it; somebody who sits a
+		// contest virtually is told nothing of how anybody else did on its problems, and what they
+		// submit in it is not told to anybody else until they are through. (Whoever sees a
+		// submission is not asked again: the lists leave out what one may not see.)
+		case 'submission.view_result':
+			if (permissionIsStaffOf($user, $resource)) {
+				return true;
+			}
+			if ($name !== null && $resource['submitter'] === $name) {
+				return true;
+			}
+			$contest = $facts->contest($resource['contest_id']);
+			if ($contest != null && contestKeepsResults($contest)) {
+				return false;
+			}
+			if (!empty($resource['is_virtual']) && !empty($resource['practice_contest_id'])
+				&& isset($facts->runningVirtualsOf($resource['submitter'])[(int)$resource['practice_contest_id']])) {
+				return false;
+			}
+			return $name === null || !$facts->sitsVirtuallyWithProblem($name, $resource['problem_id']);
 		case 'submission.rejudge':
 			return can($user, 'problem.manage', $facts->problem($resource['problem_id']));
 		case 'submission.view_source':
 			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
-			if (!can($user, 'submission.view', $resource)) {
+			if (!can($user, 'submission.view', $resource) || !can($user, 'submission.view_result', $resource)) {
 				return false;
 			}
 			if ($name !== null && $resource['submitter'] === $name) {
@@ -864,7 +920,7 @@ function can($user, $ability, $resource = null) {
 			if (permissionIsStaffOf($user, $resource)) {
 				return true;
 			}
-			if (!can($user, 'submission.view', $resource)) {
+			if (!can($user, 'submission.view', $resource) || !can($user, 'submission.view_result', $resource)) {
 				return false;
 			}
 			$contest = $facts->contest($resource['contest_id']);
@@ -879,6 +935,9 @@ function can($user, $ability, $resource = null) {
 		case 'submission.view_test_details':
 			if (permissionIsStaffOf($user, $resource)) {
 				return true;
+			}
+			if (!can($user, 'submission.view_result', $resource)) {
+				return false;
 			}
 			$contest = $facts->contest($resource['contest_id']);
 			if ($contest != null && $contest['cur_progress'] == CONTEST_IN_PROGRESS) {
@@ -1033,8 +1092,14 @@ function permissionIsStaffOf($user, $submission) {
 			return true;
 		}
 	}
-	$contest = $facts->contest($submission['contest_id']);
-	return $contest != null && can($user, 'contest.assist', $contest);
+	// the staff of the contest it was submitted in, or through to practise
+	foreach (array('contest_id', 'practice_contest_id') as $column) {
+		$contest = $facts->contest(isset($submission[$column]) ? $submission[$column] : null);
+		if ($contest != null && can($user, 'contest.assist', $contest)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // While a contest runs, the submissions to its problems are closed: nobody but their owners
@@ -1114,20 +1179,23 @@ function visibleSubmissionsCond($user) {
 	if (can($user, 'submission.view_all')) {
 		return '1';
 	}
-	// the same rules as 'submission.view'
-	$in_running_contest = "submissions.contest_id in (select id from contests where ".keepingContestsCond().")";
+	// the same rules as 'submission.view': what is submitted in a contest, or through it to
+	// practise, is listed for who may see the contest, while it runs as well
 	// (a contest that is not for everybody keeps what is submitted to it with who may get inside)
-	$in_open_contest = "submissions.contest_id in (select id from contests where join_mode = 'open' and is_hidden = 0)";
+	$open_contests = "select id from contests where join_mode = 'open' and is_hidden = 0";
+	$in_open_contest = "(submissions.contest_id is null or submissions.contest_id in ($open_contests))";
+	$through_open_contest = "(submissions.practice_contest_id is null or submissions.practice_contest_id in ($open_contests))";
 	if ($user == null) {
-		return "submissions.is_hidden = false and submissions.domain_id is null and (submissions.contest_id is null or ($in_open_contest and not $in_running_contest))";
+		return "submissions.is_hidden = false and submissions.domain_id is null and $in_open_contest and $through_open_contest";
 	}
 	$esc_username = DB::escape($user['username']);
 	$manages_problem = "submissions.problem_id in (".managedProblemIdsSql($esc_username).")";
 	// (the staff of a contest of a domain are its staff while they are members of the domain; who
 	// was invited to test a contest is none of its staff)
-	$assists_contest = "submissions.contest_id in (select contests_permissions.contest_id from contests_permissions join contests on contests.id = contests_permissions.contest_id"
+	$assisted_contests = "select contests_permissions.contest_id from contests_permissions join contests on contests.id = contests_permissions.contest_id"
 		." where contests_permissions.username = '$esc_username' and contests_permissions.role in ('owner', 'assistant')"
-		." and (contests.domain_id is null or contests.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")))";
+		." and (contests.domain_id is null or contests.domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
+	$assists_contest = "(submissions.contest_id in ($assisted_contests) or submissions.practice_contest_id in ($assisted_contests))";
 	// the domains of the user, and the ones where they see everything
 	$in_my_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'member').")";
 	$assists_domain = "submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'ta').")";
@@ -1140,13 +1208,38 @@ function visibleSubmissionsCond($user) {
 	$my_virtual = "(submissions.submitter = '$esc_username' and submissions.contest_id is null and exists (select 1 from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
 		." where contest_virtuals.username = submissions.submitter and contests_problems.problem_id = submissions.problem_id"
 		." and submissions.submit_time >= contest_virtuals.start_time and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)))";
-	$in_my_contest = "submissions.contest_id in (select contest_id from contests_registrants where username = '$esc_username')";
+	$my_contests = "select contest_id from contests_registrants where username = '$esc_username'";
 	// what the user submitted to a hidden problem of a contest they are staff of, or test
 	$my_tested = "(submissions.submitter = '$esc_username' and submissions.problem_id in (select contests_problems.problem_id from contests_problems"
 		." join contests_permissions on contests_permissions.contest_id = contests_problems.contest_id where contests_permissions.username = '$esc_username'))";
 	return "$manages_problem or $assists_contest or $assists_domain or $maintains_homework or ((submissions.is_hidden = false or $my_virtual or $my_tested) and (submissions.domain_id is null or $in_my_domain)"
-		." and (submissions.contest_id is null or submissions.submitter = '$esc_username' or (not $in_running_contest and ($in_open_contest or $in_my_contest)))"
+		." and (submissions.submitter = '$esc_username' or ($in_open_contest or submissions.contest_id in ($my_contests)) and ($through_open_contest or submissions.practice_contest_id in ($my_contests)))"
 		." and (submissions.homework_id is null or not $in_open_homework or submissions.submitter = '$esc_username'))";
+}
+// The condition that keeps out of a list of submissions the ones whose results a user is not told,
+// as 'submission.view_result' has it: for a list that is looked for by its scores, which would tell
+// them. What the user may not see at all is left out by visibleSubmissionsCond().
+function toldResultsCond($user) {
+	if (can($user, 'submission.view_all')) {
+		return '1';
+	}
+	$kept = "submissions.contest_id is not null and submissions.contest_id in (select id from contests where ".keepingContestsCond().")";
+	$now = DB::escape(UOJTime::$time_now_str);
+	$running_virtuals = "contest_virtuals.start_time <= '$now' and '$now' < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)";
+	// what somebody submits while they sit a contest virtually, until they are through
+	$sat_now = "submissions.is_virtual = 1 and exists (select 1 from contest_virtuals where contest_virtuals.username = submissions.submitter"
+		." and contest_virtuals.contest_id = submissions.practice_contest_id and $running_virtuals)";
+	if ($user == null) {
+		return "not ($kept) and not ($sat_now)";
+	}
+	$esc_username = DB::escape($user['username']);
+	// what anybody else submitted to the problems of a contest the user sits virtually
+	$i_sit = "submissions.problem_id in (select contests_problems.problem_id from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
+		." where contest_virtuals.username = '$esc_username' and $running_virtuals)";
+	$staff = "submissions.problem_id in (".managedProblemIdsSql($esc_username).")"
+		." or submissions.contest_id in (select contest_id from contests_permissions where username = '$esc_username' and role in ('owner', 'assistant'))"
+		." or submissions.domain_id in (".domainIdsOfUserSql($esc_username, 'ta').")";
+	return "submissions.submitter = '$esc_username' or $staff or (not ($kept) and not ($sat_now) and not ($i_sit))";
 }
 // a query for the ids of the domains in which a user has at least a role
 function domainIdsOfUserSql($esc_username, $role) {
