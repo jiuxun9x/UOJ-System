@@ -111,7 +111,7 @@ function trainingDelete($training, $actor) {
 function trainingAddProblem($training, $problem, $required, $actor) {
 	// like a homework, a training is made of the problems of its domain
 	if (!$problem || $problem['owner_domain_id'] != $training['domain_id']) {
-		return '本域没有这个题号。训练只能用本域的题目：主站的题目请先在“题目”页复制到本域';
+		return '本域没有这个题号';
 	}
 	$position = 1 + (int)DB::selectFirst("select ifnull(max(position), 0) from training_problems where training_id = {$training['id']}", MYSQLI_NUM)[0];
 	if (!DB::insert("insert into training_problems (training_id, problem_id, position, required) values ({$training['id']}, {$problem['id']}, $position, ".($required ? 1 : 0).")")) {

@@ -19,14 +19,14 @@
 			if ($err !== '') {
 				return $err;
 			}
-			list($problems, $err) = contestProblemsByNumbers(array('domain_id' => $domain ? $domain['id'] : null), $problem_numbers, $myUser);
+			list($problems, $err, $notes) = contestProblemsByNumbers(array('domain_id' => $domain ? $domain['id'] : null), $problem_numbers, $myUser);
 			if ($err !== '') {
 				return $err;
 			}
 			$contest_id = contestCreateWithSettings($checked, $problems, $myUser, $domain);
 			// the files that were sent along: one that is refused does not undo the contest
 			list($added, $refused) = attachmentsAddUploaded('contest', $contest_id, 'attachments', $myUser);
-			domainFlash('比赛已创建。' . ($problems ? '' : '还没有试题，可以在“试题”页里添加。') . ($refused ? '有附件没有添加：' . join('；', $refused) : ''), $refused ? 'warning' : 'success');
+			domainFlash('比赛已创建。' . ($problems ? '' : '还没有试题，可以在“试题”页里添加。') . ($notes ? join('；', $notes) . '。' : '') . ($refused ? '有附件没有添加：' . join('；', $refused) : ''), $refused ? 'warning' : 'success');
 			redirectTo("/contest/$contest_id/manage" . ($refused ? '#tab-attachments' : ($problems ? '' : '#tab-problems')));
 		}
 	));
@@ -54,10 +54,10 @@
 	<?php uojIncludeView('contest-settings-form', array('settings' => $settings, 'may_rate' => $may_rate, 'in_domain' => $domain !== null, 'has_password' => false)) ?>
 	<div class="form-group">
 		<label for="input-contest-problems">试题</label>
-		<input type="text" class="form-control uoj-problem-picker" id="input-contest-problems" name="problems" placeholder="题号或标题的一部分" data-scope="<?= $domain ? $domain['slug'] : 'site' ?>" data-purpose="manage" data-multiple="" value="<?= HTML::escape($problem_numbers) ?>" />
+		<input type="text" class="form-control uoj-problem-picker" id="input-contest-problems" name="problems" placeholder="题号或标题的一部分" data-scope="<?= $domain ? $domain['slug'] . '+site' : 'site' ?>" data-purpose="manage" data-multiple="" value="<?= HTML::escape($problem_numbers) ?>" />
 		<small class="form-text text-muted">
 			输入题号或标题的一部分，从列出的题目里选；列出的是你管理的<?= $domain ? '本域' : '' ?>题目。按选的顺序编为 A、B、C……可以先留空，创建之后在“试题”页里添加、调整顺序。
-			<?php if ($domain): ?>要用主站的题目，先在 <a href="<?= domainUrl($domain, '/problems') ?>">题目</a> 页把它复制到本域。<?php endif ?>
+			<?php if ($domain): ?>列表里后面带“主站”的是主站的题：选了会自动复制一份到本域（已有副本就用副本）。<?php endif ?>
 		</small>
 	</div>
 	<div class="form-group">

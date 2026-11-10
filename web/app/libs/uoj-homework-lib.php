@@ -515,7 +515,7 @@ function homeworkAddProblem($homework, $problem, $score, $required, $actor) {
 	// A homework is made of the problems of its domain. A problem of the site is copied into
 	// the domain first, and is a problem of the domain from then on, with a number there.
 	if (!$problem || $problem['owner_domain_id'] != $homework['domain_id']) {
-		return '本域没有这个题号。作业只能用本域的题目：主站的题目请先在“题目”页复制到本域';
+		return '本域没有这个题号';
 	}
 	if ($score < 1 || $score > 10000) {
 		return '分值应在 1 到 10000 之间';

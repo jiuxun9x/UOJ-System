@@ -113,28 +113,47 @@ function contestProblemIds($contest_id) {
 	}
 	return $ids;
 }
-// The problems that numbers name to the people who run a contest: array(the problems, '') or
-// array(null, why not). $numbers is what was typed: numbers with blanks or commas between.
+// The problems that numbers name to the people who run a contest: array(the problems, '',
+// what is to be said of them as lines) or array(null, why not, the lines so far). $numbers is
+// what was typed: numbers with blanks or commas between. In a contest of a domain "s12" is the
+// problem 12 of the site: it is copied into the domain, unless the domain has a copy of it
+// already (see domainProblemOfToken()).
 function contestProblemsByNumbers($contest, $numbers, $actor) {
 	$problems = array();
+	$notes = array();
+	$domain = !empty($contest['domain_id']) ? queryDomain($contest['domain_id']) : null;
 	foreach (preg_split('/[\s,，;；、]+/u', trim($numbers), -1, PREG_SPLIT_NO_EMPTY) as $number) {
 		$number = ltrim($number, '#');
-		$problem = contestProblemByNumber($contest, $number);
+		if ($domain && !validateUInt($number)) {
+			$tokens = domainProblemTokens($number);
+			if (!$tokens) {
+				return array(null, "“{$number}”不是题号", $notes);
+			}
+			list($problem, $note, $err) = domainProblemOfToken($domain, $tokens[0], $actor);
+			if ($err !== '') {
+				return array(null, $err, $notes);
+			}
+			if ($note !== '') {
+				$notes[] = $note;
+			}
+		} else {
+			$problem = contestProblemByNumber($contest, $number);
+		}
 		if (!$problem) {
-			return array(null, !empty($contest['domain_id']) ? "本域没有题号为 $number 的题。主站的题目要先在域的“题目”页复制到本域" : "没有题号为 $number 的题");
+			return array(null, $domain ? "本域没有题号为 {$number} 的题。要用主站的题，从列表里选带“主站”字样的，或者写成 s{$number}" : "没有题号为 {$number} 的题", $notes);
 		}
 		if (!can($actor, 'problem.manage', $problem)) {
-			return array(null, "你不是题目 #$number 的管理者，不能把它加入比赛");
+			return array(null, "你不是题目 #{$number} 的管理者，不能把它加入比赛", $notes);
 		}
 		if (isset($problems[(int)$problem['id']])) {
-			return array(null, "题号 $number 写了两次");
+			return array(null, "题号 {$number} 写了两次", $notes);
 		}
 		$problems[(int)$problem['id']] = $problem;
 	}
 	if (count($problems) > 26) {
-		return array(null, '一场比赛最多 26 道题');
+		return array(null, '一场比赛最多 26 道题', $notes);
 	}
-	return array(array_values($problems), '');
+	return array(array_values($problems), '', $notes);
 }
 // each of these returns '' or why it was refused
 function contestAddProblem($contest, $problem, $actor) {

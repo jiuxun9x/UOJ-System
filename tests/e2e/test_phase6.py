@@ -1461,14 +1461,14 @@ class ProblemPickerTest(unittest.TestCase):
         two, fix, guess = (numbers[title] for title in ("p6 两数之和", "p6 修复一个错误", "p6 蒙眼猜数字 <1>"))
         picker = lambda field, scope: r'class="[^"]*uoj-problem-picker[^"]*"[^>]*name="%s"[^>]*data-scope="%s"' % (field, scope)
         # every form that takes problems has the field that picks them, looking in the right place
-        self.assertRegex(teacher.get("/d/%s/contest/new" % slug).text, picker("problems", slug))
+        self.assertRegex(teacher.get("/d/%s/contest/new" % slug).text, picker("problems", re.escape(slug + "+site")))
         self.assertRegex(self.admin.get("/contest/new").text, picker("problems", "site"))
         self.assertRegex(teacher.get("/d/%s/problems" % slug).text, picker("problem_id", "site"))
 
         # a homework takes several at once, each with the score that was given
         homework_id = p4.new_homework(teacher, slug, title="p6 选题作业")
         manage = "/d/%s/homework/%d/manage" % (slug, homework_id)
-        self.assertRegex(teacher.get(manage + "?tab=problems").text, picker("problem_id", slug))
+        self.assertRegex(teacher.get(manage + "?tab=problems").text, picker("problem_id", re.escape(slug + "+site")))
         self.assertEqual(teacher.form(manage, "add_problem", problem_id="%d %d" % (fix, two), score="40"), "")
         in_homework = db(
             "select problems.domain_pid, homework_problems.score from homework_problems, problems"
@@ -1478,13 +1478,13 @@ class ProblemPickerTest(unittest.TestCase):
         # one that is not there is named, and the ones before it stay
         self.assertIn("题目 #99999", teacher.form(manage, "add_problem", problem_id="%d 99999" % guess, score="20"))
         self.assertEqual(db_value("select count(*) from homework_problems where homework_id = %d" % homework_id), "3")
-        self.assertIn("本域没有这个题号", teacher.form(manage, "add_problem", problem_id="", score="20"))
+        self.assertIn("请填写题目", teacher.form(manage, "add_problem", problem_id="", score="20"))
 
         # a training likewise
         self.assertEqual(teacher.form("/d/%s/training/new" % slug, "save", title="p6 选题训练", description_md="", status="draft"), "")
         training_id = int(db_value("select max(id) from trainings where domain_id = %d" % self.did))
         manage = "/d/%s/training/%d/manage" % (slug, training_id)
-        self.assertRegex(teacher.get(manage).text, picker("problem_id", slug))
+        self.assertRegex(teacher.get(manage).text, picker("problem_id", re.escape(slug + "+site")))
         self.assertEqual(teacher.form(manage, "add_problem", problem_id="%d,%d" % (guess, fix)), "")
         in_training = db(
             "select problems.domain_pid from training_problems, problems"
@@ -1494,7 +1494,7 @@ class ProblemPickerTest(unittest.TestCase):
 
         # and a contest, as it did before
         contest_id = teacher.new_contest("p6 选题比赛", domain=slug, problems="%d %d" % (two, guess))
-        self.assertRegex(teacher.get("/contest/%d/manage" % contest_id).text, picker("number", slug))
+        self.assertRegex(teacher.get("/contest/%d/manage" % contest_id).text, picker("number", re.escape(slug + "+site")))
         self.assertEqual(teacher.form("/contest/%d/manage" % contest_id, "add_problem", number=str(fix), tab="problems"), "")
         in_contest = db(
             "select problems.domain_pid from contests_problems, problems"

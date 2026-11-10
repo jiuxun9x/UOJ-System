@@ -8,7 +8,8 @@
 	$scope = isset($_GET['scope']) && is_string($_GET['scope']) ? $_GET['scope'] : 'site';
 	$purpose = isset($_GET['purpose']) && $_GET['purpose'] === 'manage' ? 'manage' : 'read';
 	if (isset($_GET['numbers']) && is_string($_GET['numbers'])) {
-		$problems = problemPickByNumbers($myUser, $scope, $purpose, preg_split('/[^0-9]+/', $_GET['numbers'], -1, PREG_SPLIT_NO_EMPTY));
+		// (a number of the site, where the site is looked in behind a domain, is written s12)
+		$problems = problemPickByNumbers($myUser, $scope, $purpose, preg_split('/[^0-9sS]+/', $_GET['numbers'], -1, PREG_SPLIT_NO_EMPTY));
 	} else {
 		$problems = problemPick($myUser, $scope, $purpose, isset($_GET['q']) && is_string($_GET['q']) ? $_GET['q'] : '');
 	}

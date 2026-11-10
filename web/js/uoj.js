@@ -723,7 +723,10 @@ $(document).ready(function() {
 // and the problems that are chosen stand in the field as tags. The field itself goes on
 // holding their numbers, as when they are typed, so the form is sent the way it always was;
 // what is typed and not chosen is sent with them.
-//   data-scope      'site', or the address name of the domain whose problems are meant
+//   data-scope      'site', or the address name of the domain whose problems are meant, or
+//                   that name and "+site" for the problems of the domain and, behind them,
+//                   the problems of the site, which are sent as "s12" and copied into the
+//                   domain when the form is taken
 //   data-purpose    'manage' to be shown the problems one may put into a contest
 //   data-multiple   several problems, in the order they were chosen
 //   data-prefix     what a number is sent with in front of it
@@ -762,9 +765,14 @@ $.fn.uoj_problem_picker = function() {
 		var scope = function() {
 			return field.attr('data-scope') || 'site';
 		};
-		var isChosen = function(number) {
+		// what a problem is sent as, and known by among the chosen: its number, or what the
+		// answer says (a problem of the site behind a domain is "s12")
+		var keyOf = function(problem) {
+			return problem.key !== undefined ? String(problem.key) : String(problem.number);
+		};
+		var isChosen = function(key) {
 			for (var i = 0; i < chosen.length; i++) {
-				if (chosen[i].number == number) {
+				if (keyOf(chosen[i]) === String(key)) {
 					return i;
 				}
 			}
@@ -776,7 +784,7 @@ $.fn.uoj_problem_picker = function() {
 			var parts = [];
 			if (multiple || typed === '') {
 				for (var i = 0; i < chosen.length; i++) {
-					parts.push(prefix + chosen[i].number);
+					parts.push(prefix + keyOf(chosen[i]));
 				}
 			}
 			if (typed !== '') {
@@ -787,12 +795,12 @@ $.fn.uoj_problem_picker = function() {
 		var showChosen = function() {
 			box.children('.uoj-picker-chip').remove();
 			$.each(chosen, function(i, problem) {
-				var chip = $('<span class="uoj-picker-chip"></span>').attr('data-number', problem.number);
-				chip.append($('<span class="uoj-picker-number"></span>').text(problem.number));
+				var chip = $('<span class="uoj-picker-chip"></span>').attr('data-number', problem.number).attr('data-key', keyOf(problem));
+				chip.append($('<span class="uoj-picker-number"></span>').text((problem.from ? problem.from + ' ' : '') + problem.number));
 				chip.append($('<span class="uoj-picker-title"></span>').text(problem.title));
 				chip.append($('<a href="#" class="uoj-picker-remove" title="去掉">&times;</a>').click(function(e) {
 					e.preventDefault();
-					chosen.splice(isChosen(problem.number), 1);
+					chosen.splice(isChosen(keyOf(problem)), 1);
 					showChosen();
 					input.focus();
 				}));
@@ -805,7 +813,7 @@ $.fn.uoj_problem_picker = function() {
 			active = -1;
 		};
 		var choose = function(problem) {
-			var at = isChosen(problem.number);
+			var at = isChosen(keyOf(problem));
 			if (at >= 0) {
 				chosen.splice(at, 1);
 			} else if (multiple) {
@@ -824,9 +832,16 @@ $.fn.uoj_problem_picker = function() {
 				menu.append($('<span class="dropdown-item-text text-muted small"></span>').text($.trim(input.val()) === '' ? '这里还没有可以选的题目' : '没有找到这样的题目'));
 			}
 			$.each(found, function(i, problem) {
-				var item = $('<a href="#" class="dropdown-item"></a>').attr('data-number', problem.number);
-				item.append($('<span class="uoj-picker-number"></span>').text('#' + problem.number));
+				var item = $('<a href="#" class="dropdown-item"></a>').attr('data-number', problem.number).attr('data-key', keyOf(problem));
+				// where the problems of the site are offered behind those of a domain, they begin under a line
+				if (problem.from && (i === 0 || !found[i - 1].from)) {
+					menu.append($('<h6 class="dropdown-header uoj-picker-from"></h6>').text(problem.from + '的题目，选了会自动复制到本域'));
+				}
+				item.append($('<span class="uoj-picker-number"></span>').text((problem.from ? problem.from + ' ' : '') + '#' + problem.number));
 				item.append($('<span></span>').text(problem.title));
+				if (problem.copy) {
+					item.append(' ').append($('<span class="badge badge-light border"></span>').text('本域已有 #' + problem.copy));
+				}
 				if (problem.hidden) {
 					item.append(' <span class="badge badge-secondary">隐藏</span>');
 				}
@@ -834,7 +849,7 @@ $.fn.uoj_problem_picker = function() {
 				$.each(problem.tags || [], function(j, tag) {
 					item.append(' ').append($('<span class="badge badge-pill badge-light border uoj-picker-tag"></span>').text(tag));
 				});
-				if (isChosen(problem.number) >= 0) {
+				if (isChosen(keyOf(problem)) >= 0) {
 					item.append(' <span class="glyphicon glyphicon-ok text-success"></span>');
 				}
 				if (i === active) {
@@ -931,19 +946,21 @@ $.fn.uoj_problem_picker = function() {
 
 		// the numbers the field came with are the problems that are chosen
 		var numbers = $.trim(field.val());
-		if (numbers !== '' && /^[0-9#\s,，;；、]+$/.test(numbers)) {
+		if (numbers !== '' && /^[0-9sS#\s,，;；、]+$/.test(numbers)) {
 			$.getJSON(uojHome + '/problems/pick', {scope: scope(), purpose: field.attr('data-purpose') || '', numbers: numbers}, function(answer) {
 				var known = {};
 				$.each(answer.problems || [], function(i, problem) {
-					known[problem.number] = problem;
+					known[keyOf(problem)] = problem;
 				});
 				var left = [];
-				$.each(numbers.split(/[^0-9]+/), function(i, number) {
+				$.each(numbers.split(/[^0-9sS]+/), function(i, number) {
 					if (number === '') {
 						return;
 					}
-					if (known[parseInt(number, 10)] && isChosen(parseInt(number, 10)) < 0 && (multiple || !chosen.length)) {
-						chosen.push(known[parseInt(number, 10)]);
+					// "012" is the problem 12, and "S12" the problem s12
+					var key = number.replace(/^([sS]?)0*(?=[0-9])/, function(all, site) { return site ? 's' : ''; });
+					if (known[key] && isChosen(key) < 0 && (multiple || !chosen.length)) {
+						chosen.push(known[key]);
 					} else {
 						left.push(number);
 					}

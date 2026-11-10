@@ -1523,6 +1523,22 @@ function problemPickScope($actor, $scope, $purpose) {
 // The problems that answer what somebody typed, the best answers first: rows of number,
 // title and hidden. Null when the user may not look there.
 function problemPick($actor, $scope, $purpose, $query, $limit = 20) {
+	// "the domain, and the site behind it": the problems of the domain, then the problems of
+	// the site that can be copied into it, each said to be of the site and with what it is
+	// sent as (see domainProblemTokens())
+	if (is_string($scope) && substr($scope, -5) === '+site') {
+		$domain = queryDomainBySlug(substr($scope, 0, -5));
+		$own = problemPick($actor, substr($scope, 0, -5), $purpose, $query, $limit);
+		if ($own === null || !$domain) {
+			return null;
+		}
+		$site = problemPick($actor, 'site', 'read', $query, $limit);
+		foreach ($site === null ? array() : $site as $row) {
+			$copy = domainCopyOfProblem($domain, $row['number']);
+			$own[] = array('key' => 's' . $row['number'], 'from' => '主站') + $row + ($copy ? array('copy' => problemNumber($copy)) : array());
+		}
+		return $own;
+	}
 	$where = problemPickScope($actor, $scope, $purpose);
 	if ($where === null) {
 		return null;
@@ -1576,6 +1592,17 @@ function problemPick($actor, $scope, $purpose, $query, $limit = 20) {
 // the problems with these numbers, in the order of the numbers; one that is not there, or
 // not to be seen, is left out
 function problemPickByNumbers($actor, $scope, $purpose, $numbers) {
+	// (a domain with the site behind it: what begins with "s" is a number of the site)
+	if (is_string($scope) && substr($scope, -5) === '+site') {
+		$rows = array();
+		foreach (domainProblemTokens(join(' ', $numbers)) as $token) {
+			$found = problemPickByNumbers($actor, $token[0] === 'site' ? 'site' : substr($scope, 0, -5), $token[0] === 'site' ? 'read' : $purpose, array((string)$token[1]));
+			if ($found) {
+				$rows[] = ($token[0] === 'site' ? array('key' => 's' . $token[1], 'from' => '主站') : array()) + $found[0];
+			}
+		}
+		return $rows;
+	}
 	$where = problemPickScope($actor, $scope, $purpose);
 	if ($where === null) {
 		return null;

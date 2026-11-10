@@ -45,7 +45,7 @@
 		// ---- its problems
 		'add_problem' => function() use ($contest, $posted, $done) {
 			global $myUser;
-			list($problems, $err) = contestProblemsByNumbers($contest, $posted('number'), $myUser);
+			list($problems, $err, $notes) = contestProblemsByNumbers($contest, $posted('number'), $myUser);
 			if ($err !== '') {
 				return $err;
 			}
@@ -58,7 +58,7 @@
 					return '题目 #' . problemNumber($problem) . '：' . $err;
 				}
 			}
-			$done('problems', '已添加 ' . count($problems) . ' 道题。');
+			$done('problems', '已添加 ' . count($problems) . ' 道题。' . ($notes ? join('；', $notes) . '。' : ''));
 		},
 		'remove_problem' => function() use ($contest, $posted, $done) {
 			global $myUser;
@@ -343,12 +343,12 @@
 			<input type="hidden" name="tab" value="problems" />
 			<label class="mr-2 mb-2" for="input-contest-problem-number">添加试题</label>
 			<?php $contest_domain = $contest['domain_id'] ? queryDomain($contest['domain_id']) : null; ?>
-			<input type="text" class="form-control mr-2 mb-2 uoj-problem-picker" id="input-contest-problem-number" name="number" required="required" placeholder="题号或标题的一部分" data-scope="<?= $contest_domain ? $contest_domain['slug'] : 'site' ?>" data-purpose="manage" data-multiple="" style="width:16em" />
+			<input type="text" class="form-control mr-2 mb-2 uoj-problem-picker" id="input-contest-problem-number" name="number" required="required" placeholder="题号或标题的一部分" data-scope="<?= $contest_domain ? $contest_domain['slug'] . '+site' : 'site' ?>" data-purpose="manage" data-multiple="" style="width:16em" />
 			<button type="submit" class="btn btn-primary mb-2">添加</button>
 		</form>
 		<small class="form-text text-muted">
 			输入题号或标题的一部分，从列出的题目里选，可以一次选几道；列出的是你管理的<?= $contest['domain_id'] ? '本域' : '' ?>题目。题目按表里的顺序编为 A、B、C……
-			<?php if ($contest['domain_id']): ?>这是域内的比赛，用的是本域的题目：主站的题目要先在域的“题目”页复制到本域。<?php endif ?>
+			<?php if ($contest['domain_id']): ?>这是域内的比赛，用的是本域的题目：列表里后面带“主站”的是主站的题，选了会自动复制一份到本域（已有副本就用副本）。<?php endif ?>
 			<?php if ($rule === 'OI'): ?>OI 赛制下比赛中只用样例评测，结束后再用全部数据重测；个别题目可以在这里改成比赛中就用全部数据评测。<?php endif ?>
 			比赛用的题目通常是隐藏的：比赛开始后选手能在比赛里看到它们；公布成绩之后要让所有人都能做，到题目的管理页把它设为公开。
 		</small>

@@ -606,6 +606,111 @@ function domainRefreshCopyStatement($problem, $actor) {
 	return '';
 }
 
+// ---- naming problems where something of a domain is made of them
+//
+// A homework, a training and a contest of a domain are made of the problems of the domain. In
+// the forms that put problems into them a problem of the domain is named by its number there,
+// "12", and a problem of the site by "s12": that one is copied into the domain then and there,
+// unless the domain has a copy of it already, which is used. So a problem of the site is put
+// into a homework in one step, and what the homework is made of is still a problem of the
+// domain's own, which nobody else changes under it.
+
+// What a form named: rows of array('domain' or 'site', the number), each once, in their order.
+// What is neither is left out.
+function domainProblemTokens($text) {
+	$tokens = array();
+	if (!is_string($text)) {
+		return $tokens;
+	}
+	foreach (preg_split('/[\s,，;；、]+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) as $word) {
+		if (preg_match('/^#?(s|主站)?#?([0-9]{1,9})$/iuD', $word, $matches) && count($tokens) < 100) {
+			$tokens[($matches[1] === '' ? 'd' : 's') . (int)$matches[2]] = array($matches[1] === '' ? 'domain' : 'site', (int)$matches[2]);
+		}
+	}
+	return array_values($tokens);
+}
+// the copy a domain has of a problem, the newest if it has several, or null
+function domainCopyOfProblem($domain, $source_id) {
+	return DB::selectFirst("select * from problems where owner_domain_id = {$domain['id']} and source_problem_id = ".(int)$source_id." and domain_pid is not null order by id desc limit 1", MYSQLI_ASSOC);
+}
+// The problem of a domain that a token names: array(the problem, what is to be said of it or
+// '', '') or array(null, '', why not). A problem of the site is copied into the domain here.
+function domainProblemOfToken($domain, $token, $actor) {
+	list($where, $number) = $token;
+	if ($where === 'domain') {
+		$problem = queryDomainProblem($domain['id'], $number);
+		return $problem ? array($problem, '', '') : array(null, '', "本域没有题号为 {$number} 的题。要用主站的题，从列表里选带“主站”字样的，或者写成 s{$number}");
+	}
+	$source = queryProblemBrief($number);
+	if (!$source || $source['owner_domain_id'] || !can($actor, 'problem.copy', $source)) {
+		return array(null, '', "主站没有题号为 {$number} 的题，或者你不能复制它");
+	}
+	$copy = domainCopyOfProblem($domain, $source['id']);
+	if ($copy) {
+		return array($copy, "主站 #{$number} 在本域已经有副本 #" . problemNumber($copy) . '，用的是它', '');
+	}
+	if (!can($actor, 'domain.teach', $domain)) {
+		return array(null, '', "主站 #{$number} 还没有复制到本域：只有本域的教师可以复制");
+	}
+	list($id, $err) = domainCopyProblem($source, $domain, $actor);
+	if ($err !== '') {
+		return array(null, '', $err);
+	}
+	$copy = queryProblemBrief($id);
+	return array($copy, "主站 #{$number} 已复制为本域 #" . problemNumber($copy), '');
+}
+// The problems a form named: array(the problems, what is to be said of them as lines, '') or
+// array(null, the lines so far, why not).
+function domainProblemsOfTokens($domain, $text, $actor) {
+	$tokens = domainProblemTokens($text);
+	if (!$tokens) {
+		return array(null, array(), '请填写题目：本域的题号，或者从列表里选');
+	}
+	$problems = array();
+	$notes = array();
+	foreach ($tokens as $token) {
+		list($problem, $note, $err) = domainProblemOfToken($domain, $token, $actor);
+		if ($err !== '') {
+			return array(null, $notes, $err);
+		}
+		if ($note !== '') {
+			$notes[] = $note;
+		}
+		$problems[(int)$problem['id']] = $problem;
+	}
+	return array(array_values($problems), $notes, '');
+}
+
+// What a form that adds problems to something of a domain does with what it was sent: every
+// problem that is named is handed to $add (which returns '' or why not), one after the other,
+// so that the ones before one that is refused stay. Returns '' or why it stopped; what is to
+// be said of the problems that were copied is left for the next page.
+function domainAddNamedProblems($domain, $text, $actor, $add) {
+	$tokens = domainProblemTokens($text);
+	if (!$tokens) {
+		return '请填写题目：本域的题号，或者从列表里选';
+	}
+	$notes = array();
+	$err = '';
+	foreach ($tokens as $token) {
+		list($problem, $note, $err) = domainProblemOfToken($domain, $token, $actor);
+		if ($err === '') {
+			$err = $add($problem);
+		}
+		if ($err !== '') {
+			$err = count($tokens) > 1 ? '题目 ' . ($token[0] === 'site' ? '主站 ' : '') . "#{$token[1]}：{$err}" : $err;
+			break;
+		}
+		if ($note !== '') {
+			$notes[] = $note;
+		}
+	}
+	if ($notes) {
+		domainFlash(join('；', $notes) . '。', 'info');
+	}
+	return $err;
+}
+
 // whether the data of a problem can be judged with: its newest version is published
 function domainProblemDataState($problem_id) {
 	$row = DB::selectFirst("select status, message from problem_data_versions where problem_id = ".(int)$problem_id." order by version desc limit 1");
