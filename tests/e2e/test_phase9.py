@@ -280,7 +280,7 @@ class VirtualInContestTest(unittest.TestCase):
         r = sitter.post(here + "/problem/A", {
             "submit-answer": "answer", "answer_answer_upload_type": "editor", "answer_answer_editor": AB_WRONG, "answer_answer_language": "C++17",
         })  # fmt: skip
-        self.assertEqual((r.status_code, r.headers["Location"]), (302, here + "/submissions"))
+        self.assertEqual((r.status_code, r.headers["Location"]), (302, here + "/submissions?mine=1"))
         wrong = int(db_value("select max(id) from submissions where submitter = '%s' and problem_id = %d" % (name(sitter), first)))
         own = sitter.submit(first, AB, path=here + "/problem/A")
         for submission_id in (wrong, own):

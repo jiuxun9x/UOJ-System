@@ -189,7 +189,9 @@ class DomainContestStaffTest(unittest.TestCase):
         self.assertEqual(helper.get(source).status_code, 200)
         self.assertIn("scanf", helper.get(source).text)
         self.assertIn(listed, helper.get("/submissions?problem_id=%d" % problem_id).text)
-        self.assertNotEqual(classmate.get(source).status_code, 200)
+        # (a classmate sees that it was submitted, since phase 26, and nothing of it)
+        self.assertNotIn("scanf", classmate.get(source).text)
+        self.assertIn("uoj-result-kept", classmate.get(source).text)
 
         # taken out of the domain, the helper is off the staff of its contests, and reads nothing
         self.assertEqual(members(teacher, "p20-staff", "remove", username="p20_a01_helper"), "")

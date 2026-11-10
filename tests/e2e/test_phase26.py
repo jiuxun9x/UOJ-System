@@ -35,12 +35,9 @@ def row_of(page, submission_id):
 
 
 def everybody(client, contest_id):
-    """the submissions of a contest, everybody's, as the box above the list asks for them"""
-    client.http.cookies.set("show_all_submissions", "")
-    try:
-        return client.get("/contest/%d/submissions" % contest_id).text
-    finally:
-        client.http.cookies.set("show_all_submissions", "0")
+    """the submissions of a contest, everybody's, as the box above the list asks for them (the
+    clients are shared by the tests: what the box says is sent with this request alone)"""
+    return client.get("/contest/%d/submissions" % contest_id, cookies={"show_all_submissions": ""}).text
 
 
 def readable_problem():
@@ -69,9 +66,7 @@ class RunningContestTest(unittest.TestCase):
         self.assertIsNotNone(row_of(mine, submission_id))
         self.assertNotIn(KEPT, row_of(mine, submission_id))
         # (even who asked for everybody's before)
-        ann.http.cookies.set("show_all_submissions", "")
-        self.assertIn('id="input-show_all_submissions" />', ann.get(where).text)
-        ann.http.cookies.set("show_all_submissions", "0")
+        self.assertIn('id="input-show_all_submissions" />', ann.get(where, cookies={"show_all_submissions": ""}).text)
 
         # ---- the others: on the list of the contest and of the site, and its page, told nothing
         for page in (everybody(bob, contest_id), bob.get("/submissions?problem_id=%d" % problem_id).text, uoj.Client().get("/submissions?problem_id=%d" % problem_id).text):

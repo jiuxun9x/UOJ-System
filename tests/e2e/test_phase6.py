@@ -490,7 +490,7 @@ class ContestFeedbackTest(unittest.TestCase):
             uoj.move_contest(contest_id, -60, 600)
             here = "/contest/%d" % contest_id
             # after submitting, the list of what one submitted in the contest
-            self.assertEqual(submit_and_follow(pupil, "%s/problem/%d" % (here, self.problem_id), AB_WRONG), here + "/submissions")
+            self.assertEqual(submit_and_follow(pupil, "%s/problem/%d" % (here, self.problem_id), AB_WRONG), here + "/submissions?mine=1")
             wrong = last_submission(pupil.username)
             broken = pupil.submit_in_contest(contest_id, self.problem_id, AB_COMPILE_ERROR)
             for submission_id in (wrong, broken):
@@ -648,10 +648,10 @@ class IcpcTest(unittest.TestCase):
         # the staff can look at what the contestants see
         rows, page = board(admin, contest_id, "?frozen=1")
         self.assertEqual(rows["p6_icpc_cat"], (3, 0, 0, {"A": "pending"}))
-        # nobody sees what the others submitted
+        # nobody is told how the others did (since phase 26 they see that they submitted)
         for client in (ann, outsider):
-            self.assertEqual(client.get("/submission/%d" % cat_first).status_code, 403)
-            self.assertNotIn('href="/submission/%d"' % cat_first, client.get("/submissions?problem_id=%d" % first).text)
+            self.assertIn("uoj-result-kept", client.get("/submission/%d" % cat_first).text)
+            self.assertIn('href="/submission/%d" class="text-muted uoj-result-kept"' % cat_first, client.get("/submissions?problem_id=%d" % first).text)
 
         # ---- the contest is over, and the board stays frozen until the results are published
         uoj.move_contest(contest_id, -400 * 60, 300)
@@ -664,7 +664,7 @@ class IcpcTest(unittest.TestCase):
             rows, page = board(client, contest_id)
             self.assertEqual(rows["p6_icpc_cat"], (3, 0, 0, {"A": "pending"}), client.username)
             self.assertEqual(rows["p6_icpc_bob"], (1, 1, 30 * 60, {"A": "solved", "B": "pending"}))
-            self.assertEqual(client.get("/submission/%d" % cat_first).status_code, 403)
+            self.assertIn("uoj-result-kept", client.get("/submission/%d" % cat_first).text)
         self.assertIn("比赛尚未结束", ann.get("%s/problem/%d/statistics" % (here, first)).text)
         # her own submissions are hers to look into now
         self.assertIn("Test #", ann.get("/submission/%d" % ann_wrong).text)

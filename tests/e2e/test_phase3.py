@@ -243,23 +243,27 @@ class ClosedContestTest(unittest.TestCase):
         in_contest = alice.submit_in_contest(contest_id, problem_id, AB + "// p3-contest-source\n")
         self.assertEqual(db_value("select contest_id from submissions where id = %d" % in_contest), str(contest_id))
 
-        # ---- what was submitted in the contest is shown to its owner and the staff only
+        # ---- what was submitted in the contest is read by its owner and the staff only; since
+        # phase 26 it is listed for everybody else, who is not told how it did
         for client in (alice, admin, assistant):
             self.assertTrue(self.source_is_shown(client, in_contest, "p3-contest-source"), client.username)
         for client in (bob, carol, visitor):
-            self.assertEqual(client.get("/submission/%d" % in_contest).status_code, 403, client.username)
+            self.assertFalse(self.source_is_shown(client, in_contest, "p3-contest-source"), client.username)
+            self.assertIn("uoj-result-kept", client.get("/submission/%d" % in_contest).text, client.username)
 
         link = 'href="/submission/%d"' % in_contest
         for client in (alice, admin, assistant):
             self.assertIn(link, client.get("/submissions?problem_id=%d" % problem_id).text, client.username)
         for client in (bob, carol, visitor):
             listing = client.get("/submissions?problem_id=%d" % problem_id).text
-            self.assertNotIn(link, listing, client.username)
+            self.assertIn(link, listing, client.username)
+            self.assertIn('href="/submission/%d" class="text-muted uoj-result-kept"' % in_contest, listing, client.username)
             self.assertIn('href="/submission/%d"' % earlier, listing, client.username)
-        # another participant who asks for all the submissions of the contest gets their own
+        # another participant who asks for all the submissions of the contest gets everybody's,
+        # told nothing of the others'
         listing = bob.get("/contest/%d/submissions" % contest_id, cookies={"show_all_submissions": ""})
         self.assertEqual(listing.status_code, 200)
-        self.assertNotIn(link, listing.text)
+        self.assertIn('href="/submission/%d" class="text-muted uoj-result-kept"' % in_contest, listing.text)
 
         # ---- what was submitted to the problem before is still listed, but its source is closed
         for client in (bob, alice, visitor):
