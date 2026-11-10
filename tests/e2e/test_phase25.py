@@ -66,7 +66,8 @@ class HomeworkBoardTest(unittest.TestCase):
         uoj.wait_submission(ann.submit(problem_id, AB, path=here))
         mine = ann.get(page).text
         self.assertRegex(mine, r'当前得分</div>\s*<div[^>]*id="my-official-score">100 ')
-        self.assertNotIn("正式成绩", uoj.text_of(mine))
+        # (nothing of scores that were settled: no corrections beside official ones)
+        self.assertNotIn('id="my-correction-score"', mine)
         scores = scores_of(teacher, slug, homework_id)
         self.assertEqual({name: row["Total"] for name, row in scores.items()}, {"p25_board_ann": "100", "p25_board_bob": "100", "p25_board_cat": "0"})
         self.assertIn("按当前提交实时计算", teacher.get(page + "/scoreboard").text)
@@ -96,6 +97,81 @@ class HomeworkBoardTest(unittest.TestCase):
         said = homework_form(teacher, slug, homework_id, "publish")
         self.assertIn("截止时间已经过了", said)
         self.assertEqual(homework_row(homework_id, "status")[0], "draft")
+
+
+class SiteProblemsTest(unittest.TestCase):
+    """A homework, a training and a contest of a domain are made of the problems of the domain: a
+    problem of the site had to be copied on the page of the problems first, and its copy looked
+    for afterwards. It is named where the problems are picked, and copied then and there."""
+
+    def test_a_problem_of_the_site_is_put_in_as_it_is(self):
+        slug, teacher, (ann,), own = classroom("p25_site", ("ann",))
+        did = int(db_value("select id from domains where slug = '%s'" % slug))
+        public = uoj.admin().create_problem(ab_problem_files())
+        copies = lambda: db("select id, domain_pid from problems where owner_domain_id = %d and source_problem_id = %d order by id" % (did, public))
+
+        # ---- where problems are picked, the problems of the site stand behind those of the domain
+        found = teacher.get("/problems/pick", params={"scope": slug + "+site", "q": ""}).json()["problems"]
+        self.assertEqual([row.get("key") for row in found if "from" not in row], [None])
+        offered = teacher.get("/problems/pick", params={"scope": slug + "+site", "q": "#%d" % public}).json()["problems"]
+        self.assertIn({"key": "s%d" % public, "from": "主站", "number": public}, [{k: row.get(k) for k in ("key", "from", "number")} for row in offered])
+
+        # ---- a homework: it is copied into the domain, and its copy is what the homework has
+        homework_id = new_homework(teacher, slug, title="p25 主站题")
+        manage = "/d/%s/homework/%d/manage" % (slug, homework_id)
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_problem", problem_id="s%d %d" % (public, uoj.pid(own)), score="50"), "")
+        self.assertEqual(len(copies()), 1)
+        copy_id, copy_number = (int(x) for x in copies()[0])
+        self.assertIn("主站 #%d 已复制为本域 #%d" % (public, copy_number), uoj.text_of(teacher.get(manage + "?tab=problems").text))
+        self.assertEqual(db("select problem_id from homework_problems where homework_id = %d order by position" % homework_id), [[str(copy_id)], [str(own)]])
+        self.assertEqual(uoj.wait_data_version(copy_id), "")
+        # one the site does not have, or that is not to be seen, is refused
+        self.assertIn("主站没有题号为 99999999 的题", homework_form(teacher, slug, homework_id, "add_problem", problem_id="s99999999", score="10"))
+
+        # ---- a contest of the domain: the copy the domain has is used, and no other is made
+        contest_id = teacher.new_contest("p25 域内赛", domain=slug, problems="s%d" % public)
+        self.assertEqual(db("select problem_id from contests_problems where contest_id = %d" % contest_id), [[str(copy_id)]])
+        self.assertEqual(len(copies()), 1)
+        offered = teacher.get("/problems/pick", params={"scope": slug + "+site", "q": "#%d" % public}).json()["problems"]
+        self.assertEqual([row.get("copy") for row in offered if row.get("key") == "s%d" % public], [copy_number])
+        # who does not teach in the domain copies nothing into it
+        other = uoj.admin().create_problem(ab_problem_files())
+        ann.post("/d/%s/contest/new" % slug, {"form": "create", "name": "x", "problems": "s%d" % other})
+        self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d and source_problem_id = %d" % (did, other)), "0")
+
+    def test_a_training_that_is_published_shows_its_problems(self):
+        slug, teacher, (ann,), own = classroom("p25_train", ("ann",))
+        did = int(db_value("select id from domains where slug = '%s'" % slug))
+        public = uoj.admin().create_problem(ab_problem_files())
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % own), "1")
+        self.assertEqual(teacher.form("/d/%s/training/new" % slug, "save", title="p25 训练", description_md="", status="draft"), "")
+        training_id = int(db_value("select max(id) from trainings where domain_id = %d" % did))
+        manage = "/d/%s/training/%d/manage" % (slug, training_id)
+        self.assertEqual(teacher.form(manage, "add_problem", problem_id=str(uoj.pid(own))), "")
+        # a draft shows nothing
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % own), "1")
+        self.assertEqual(ann.get("/d/%s/problem/%d" % (slug, uoj.pid(own))).status_code, 404)
+
+        # published, its hidden problems are the domain's to see
+        self.assertEqual(teacher.form(manage, "save", title="p25 训练", description_md="", status="published"), "")
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % own), "0")
+        self.assertIn("1 道题已对本域成员公开", uoj.text_of(teacher.get(manage).text))
+        self.assertEqual(ann.get("/d/%s/problem/%d" % (slug, uoj.pid(own))).status_code, 200)
+        # and so is what is added to it afterwards: a problem of the site, copied as it is added
+        self.assertEqual(teacher.form(manage, "add_problem", problem_id="s%d" % public), "")
+        copy = db("select id, domain_pid, is_hidden from problems where owner_domain_id = %d and source_problem_id = %d" % (did, public))
+        self.assertEqual([row[2] for row in copy], ["0"])
+        self.assertEqual(ann.get("/d/%s/problem/%s" % (slug, copy[0][1])).status_code, 200)
+
+        # what a homework that runs holds hidden stays hidden, and the page says so
+        self.assertEqual(teacher.new_problem_form(slug, title="p25 作业里的题"), "")
+        held = int(db_value("select max(id) from problems where owner_domain_id = %d" % did))
+        self.assertIn("上传成功", teacher.upload_data(held, ab_problem_files()).text)
+        self.assertEqual(teacher.sync(held), "")
+        published_homework(teacher, slug, held, title="p25 占着题的作业")
+        self.assertEqual(teacher.form(manage, "add_problem", problem_id=str(uoj.pid(held))), "")
+        self.assertEqual(db_value("select is_hidden from problems where id = %d" % held), "1")
+        self.assertIn("暂时保持隐藏", uoj.text_of(teacher.get(manage).text))
 
 
 class MemberFormTest(unittest.TestCase):

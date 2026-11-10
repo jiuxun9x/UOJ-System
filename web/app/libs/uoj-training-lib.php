@@ -129,6 +129,34 @@ function trainingRemoveProblem($training, $problem_id, $actor) {
 	auditLog('training.remove_problem', 'training', $training['id'], array('problem_id' => (int)$problem_id), null, $actor);
 	return '';
 }
+// A training that is published is to be worked through: its problems that are hidden are shown
+// to the people of the domain, so that nobody has to go and show them one by one. What is still
+// in a homework or a contest that is not over stays hidden until that is. Returns
+// array(the ids that were shown, the ids that wait); nothing for a draft.
+function trainingRevealProblems($training, $actor) {
+	$training = queryTraining($training['id']);
+	if (!$training || $training['status'] !== 'published') {
+		return array(array(), array());
+	}
+	$ids = array();
+	foreach (trainingProblems($training) as $row) {
+		$ids[] = (int)$row['problem_id'];
+	}
+	list($shown, $waiting) = problemsReveal($ids);
+	if ($shown) {
+		auditLog('training.reveal_problems', 'training', $training['id'], null, array('problems' => $shown, 'waiting' => $waiting), $actor);
+	}
+	return array($shown, $waiting);
+}
+// what a page says of it, or ''
+function trainingRevealNote($revealed) {
+	list($shown, $waiting) = $revealed;
+	$note = $shown ? '训练里原来隐藏的 ' . count($shown) . ' 道题已对本域成员公开。' : '';
+	if ($waiting) {
+		$note .= '有 ' . count($waiting) . ' 道题还在没结束的作业或比赛里，暂时保持隐藏，学生现在打不开。';
+	}
+	return $note;
+}
 // moves a problem one place in the order, up or down
 function trainingMoveProblem($training, $problem_id, $down = false) {
 	$ids = array();

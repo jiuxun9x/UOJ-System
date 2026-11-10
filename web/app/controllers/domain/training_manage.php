@@ -31,7 +31,9 @@
 			if ($err !== '') {
 				return $err;
 			}
-			domainFlash($training ? '设置已保存。' : '训练已创建，现在是草稿。添加题目后把状态改为“已发布”，学生就能看到。');
+			// (published, its hidden problems are shown: see trainingRevealProblems())
+			$note = trainingRevealNote(trainingRevealProblems(array('id' => $id), $myUser));
+			domainFlash(($training ? '设置已保存。' : '训练已创建。在下面添加题目' . ($settings['status'] === 'published' ? '。' : '，然后把状态改为“已发布”，学生就能看到。')) . $note);
 			redirectTo(domainUrl($domain, "/training/$id/manage"));
 		}
 	);
@@ -41,10 +43,17 @@
 				global $myUser;
 				// the numbers that are typed or picked are the numbers the problems have in the
 				// domain, or "s12" for a problem of the site, which is copied into the domain
-				return domainAddNamedProblems($domain, isset($_POST['problem_id']) ? $_POST['problem_id'] : '', $myUser, function($problem) use ($training) {
+				$err = domainAddNamedProblems($domain, isset($_POST['problem_id']) ? $_POST['problem_id'] : '', $myUser, function($problem) use ($training) {
 					global $myUser;
 					return trainingAddProblem($training, $problem, !isset($_POST['optional']), $myUser);
 				});
+				// what is added to a training that is published is shown with it
+				$note = trainingRevealNote(trainingRevealProblems($training, $myUser));
+				if ($note !== '') {
+					$said = domainTakeFlash();
+					domainFlash(($said ? $said[1] : '') . $note, 'info');
+				}
+				return $err;
 			},
 			'update_problem' => function() use ($training, $posted_problem_id) {
 				global $myUser;
