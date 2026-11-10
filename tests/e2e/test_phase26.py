@@ -84,8 +84,9 @@ class RunningContestTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(KEPT, page.text)
         self.assertNotIn("p26-ann-source", page.text)
-        # nor are they told by looking for what scored full marks
+        # nor are they told by looking for what scored full marks, or at what passed fastest
         self.assertIsNone(row_of(bob.get("/submissions?problem_id=%d&min_score=100" % problem_id).text, submission_id))
+        self.assertIsNone(row_of(bob.get("/problem/%d/statistics" % problem_id).text, submission_id))
         self.assertIsNotNone(row_of(ann.get("/submissions?problem_id=%d&min_score=100" % problem_id).text, submission_id))
         # the staff are told everything, as before
         self.assertNotIn(KEPT, row_of(everybody(admin, contest_id), submission_id))
@@ -97,6 +98,7 @@ class RunningContestTest(unittest.TestCase):
         self.assertNotIn(KEPT, row)
         self.assertIn('class="uoj-verdict text-success"', row)
         self.assertIn("p26-ann-source", bob.get("/submission/%d" % submission_id).text)
+        self.assertIsNotNone(row_of(bob.get("/problem/%d/statistics" % problem_id).text, submission_id))
 
     def test_a_board_that_froze_tells_nothing_until_its_results_are_published(self):
         admin, problem_id = uoj.admin(), readable_problem()
