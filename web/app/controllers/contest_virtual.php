@@ -67,6 +67,7 @@
 	// how the last time went, for somebody who sat it before
 	$result = $phase === 'ended' ? virtualResult($contest, $myUser['username']) : null;
 ?>
+<?php contestUseDomainNav($contest) ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 虚拟参赛') ?>
 <?php echoContestDomainLink($contest) ?>
 <div class="text-left" id="virtual-page">

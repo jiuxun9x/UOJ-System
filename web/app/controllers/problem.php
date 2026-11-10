@@ -306,6 +306,7 @@ EOD
 <?php if (!$is_in_homework): ?><span class="text-muted">你没有参加这个作业，在这里提交不计入作业成绩。</span><?php endif ?></p>
 <?php endif ?>
 <?php else: ?>
+<?php if ($contest) { contestUseDomainNav($contest); } ?>
 <?php echoUOJPageHeader(HTML::stripTags($problem['title']) . ' - ' . UOJLocale::get('problems::problem')) ?>
 <?php if (Auth::check() && !$contest): ?>
 <?php foreach (DB::selectAll("select homeworks.*, copies.domain_pid as copy_number from homework_problems, problems as copies, homeworks, homework_participants where copies.id = homework_problems.problem_id and copies.source_problem_id = {$problem['id']} and homeworks.id = homework_problems.homework_id and ".runningHomeworksCond()." and homework_participants.homework_id = homeworks.id and homework_participants.username = '".DB::escape(Auth::id())."' and homework_participants.status = 'active'") as $my_homework): ?>

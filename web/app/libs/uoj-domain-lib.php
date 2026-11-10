@@ -257,12 +257,27 @@ function domainOfPage() {
 	global $myUser;
 	$domain = isset($_GET['slug']) ? queryDomainBySlug($_GET['slug']) : null;
 	if ($domain && can($myUser, 'domain.view', $domain)) {
+		// (a page of the problems of a domain is a page of its problems)
+		domainNavUse($domain, strpos(UOJContext::requestPath(), '/problem') !== false ? 'problems' : null);
 		return $domain;
 	}
 	if ($myUser == null) {
 		redirectToLogin();
 	}
 	become404Page();
+}
+
+// Says that the page that is being made is a page of a domain: the bar at its top is the
+// domain's then (views/domain-nav.php), with $tab lit up in it. A page of a contest of a domain,
+// or of what was submitted to its homework, is such a page as well, wherever its address is.
+function domainNavUse($domain, $tab = null) {
+	global $myUser;
+	if ($domain && can($myUser, 'domain.view', $domain)) {
+		$GLOBALS['uojNavDomain'] = $domain;
+		if ($tab !== null || !isset($GLOBALS['uojNavTab'])) {
+			$GLOBALS['uojNavTab'] = $tab;
+		}
+	}
 }
 
 // a message for the next page the user sees
@@ -304,7 +319,7 @@ function domainTabs($domain, $user) {
 		'overview' => array('概览', domainUrl($domain)),
 		'homeworks' => array('作业', domainUrl($domain, '/homeworks')),
 		'trainings' => array('训练', domainUrl($domain, '/trainings')),
-		'problems' => array('题目', domainUrl($domain, '/problems')),
+		'problems' => array('题库', domainUrl($domain, '/problems')),
 		'contests' => array('比赛', domainUrl($domain, '/contests')),
 		'members' => array('成员', domainUrl($domain, '/members')),
 		'announcements' => array('公告', domainUrl($domain, '/announcements'))
@@ -317,6 +332,7 @@ function domainTabs($domain, $user) {
 }
 
 function echoDomainPageHeader($domain, $tab, $title) {
+	domainNavUse($domain, $tab);
 	echoUOJPageHeader(HTML::escape($title) . ' - ' . HTML::escape($domain['name']));
 	uojIncludeView('domain-header', array('domain' => $domain, 'tab' => $tab));
 }
@@ -722,9 +738,17 @@ function domainProblemDataState($problem_id) {
 
 // ---- contests
 
-// on the pages of a contest of a domain: the way back to the domain
+// The pages of a contest of a domain are pages of the domain: the bar at their top is the
+// domain's, with its contests lit up. Called before the head of the page is made.
+function contestUseDomainNav($contest) {
+	if (!empty($contest['domain_id'])) {
+		domainNavUse(queryDomain($contest['domain_id']), 'contests');
+	}
+}
+// on the pages of a contest of a domain: the way back to the domain, where the bar at the top
+// is not the domain's already
 function echoContestDomainLink($contest) {
-	if (empty($contest['domain_id'])) {
+	if (empty($contest['domain_id']) || isset($GLOBALS['uojNavDomain'])) {
 		return;
 	}
 	$domain = queryDomain($contest['domain_id']);

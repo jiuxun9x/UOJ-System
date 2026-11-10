@@ -53,6 +53,7 @@
 	
 	$register_form->runAtServer();
 ?>
+<?php contestUseDomainNav($contest) ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 报名') ?>
 <?php echoContestDomainLink($contest) ?>
 <?php if ($is_running): ?>

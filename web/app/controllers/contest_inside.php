@@ -708,6 +708,7 @@ EOD;
 	
 	$page_header = HTML::stripTags($contest['name']) . ' - ';
 ?>
+<?php contestUseDomainNav($contest) ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - ' . $tabs_info[$cur_tab]['name'] . ' - ' . UOJLocale::get('contests::contest')) ?>
 <?php echoContestDomainLink($contest) ?>
 <?php echoContestHiddenNotice($contest, can($myUser, 'contest.manage', $contest)) ?>

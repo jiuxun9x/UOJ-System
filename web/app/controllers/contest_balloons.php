@@ -169,6 +169,7 @@
 	$settings_open = !$enabled || ($error !== '' && isset($_POST['form']) && in_array($_POST['form'], array('settings', 'colors', 'colors_bulk'), true));
 	$bulk_text = $error !== '' && isset($_POST['form']) && $_POST['form'] === 'colors_bulk' && isset($_POST['bulk']) && is_string($_POST['bulk']) ? $_POST['bulk'] : balloonBulkText($problems);
 ?>
+<?php contestUseDomainNav($contest) ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 气球') ?>
 <?php echoContestDomainLink($contest) ?>
 <div class="d-flex flex-wrap align-items-center mb-3">

@@ -51,6 +51,7 @@
 		}
 	}
 ?>
+<?php contestUseDomainNav($contest) ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - ' . UOJLocale::get('contests::contest registrants')) ?>
 
 <h1 class="text-center"><?= $contest['name'] ?></h1>

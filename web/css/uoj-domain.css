@@ -1123,3 +1123,113 @@ tr.uoj-batch-picked > td {
 	min-height: 14em;
 	max-height: 60vh;
 }
+
+/* ---- the pages of a domain are pages of the site: the bar at the top is the domain's
+   (views/domain-nav.php), and what is under it is laid out as the lists of the site are */
+.uoj-domain-nav .uoj-domain-brand {
+	max-width: 15em;
+	overflow: hidden;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.uoj-domain-nav .nav-item.active > .nav-link {
+	color: #007bff;
+	font-weight: 500;
+}
+.uoj-domain-nav .uoj-domain-role {
+	margin-right: 0.5rem;
+	padding: 0.5rem 0;
+}
+.uoj-domain-nav .uoj-domain-role .badge:empty {
+	display: none;
+}
+/* the head of a page, or of a list on it: what it is, and to its right what is made there */
+.uoj-page-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 1rem;
+	margin-bottom: 0.85rem;
+}
+.uoj-page-head > h3,
+.uoj-page-head > h4 {
+	margin: 0 auto 0 0;
+	font-weight: 500;
+}
+.uoj-page-head > h4 {
+	font-size: 1.35rem;
+}
+/* a list as the site lists its contests and problems: lines all round, every other row
+   shaded, everything in the middle but what the row is about */
+.uoj-list-table {
+	margin-bottom: 0;
+}
+.uoj-list-table th,
+.uoj-list-table td {
+	text-align: center;
+	vertical-align: middle;
+}
+.uoj-list-table th.uoj-list-main,
+.uoj-list-table td.uoj-list-main {
+	text-align: left;
+}
+.uoj-list-table sup .badge {
+	font-weight: normal;
+}
+/* how far somebody has got: a bar, and the numbers beside it */
+.uoj-score-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+.uoj-score-bar .progress {
+	flex: 1 1 auto;
+	height: 0.55rem;
+	min-width: 3rem;
+}
+.uoj-score-bar small {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+/* what stands beside the page */
+.uoj-side .card {
+	margin-bottom: 1rem;
+}
+.uoj-side .list-group-item {
+	padding: 0.6rem 1rem;
+}
+/* the headings inside a page are headings of the site, with room above them */
+.uoj-domain-section-title {
+	margin: 2rem 0 0.85rem;
+	padding-bottom: 0;
+	border-bottom: 0;
+	font-size: 1.35rem;
+}
+.uoj-domain-section-title.mt-0 {
+	margin-top: 0;
+}
+.uoj-domain-empty {
+	margin-bottom: 1.5rem;
+	padding: 2.25rem 1rem;
+}
+.uoj-roster th,
+.uoj-roster td {
+	text-align: center;
+	vertical-align: middle;
+}
+@media (max-width: 991.98px) {
+	.uoj-domain-nav .uoj-domain-role {
+		padding: 0.25rem 0;
+	}
+	.uoj-side {
+		margin-top: 1.5rem;
+	}
+}
+/* what a domain is about, in the list of the domains: one line of it */
+.uoj-domain-line {
+	max-width: 48em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

@@ -242,6 +242,7 @@
 	$attachments = attachmentsOf('contest', $contest['id']);
 	$has_begun = $contest['cur_progress'] > CONTEST_NOT_STARTED;
 ?>
+<?php contestUseDomainNav($contest) ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 比赛管理') ?>
 <?php echoContestDomainLink($contest) ?>
 <h1 class="page-header" align="center"><?= $contest['name'] ?> 管理</h1>

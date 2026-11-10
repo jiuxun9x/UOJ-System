@@ -48,6 +48,14 @@
 		$cond = '1';
 	}
 ?>
+<?php
+	// what was submitted to a homework or a training of a domain is a page of the domain
+	if ($q_homework) {
+		domainNavUse($q_homework_domain, 'homeworks');
+	} elseif ($q_training) {
+		domainNavUse($q_training_domain, 'trainings');
+	}
+?>
 <?php echoUOJPageHeader(UOJLocale::get('submissions')) ?>
 <?php if ($q_homework): ?>
 <p class="uoj-domain-back" id="submissions-of-homework"><a href="<?= homeworkUrl($q_homework_domain, $q_homework) ?>"><span class="glyphicon glyphicon-chevron-left"></span> 作业：<?= HTML::escape($q_homework['title']) ?></a>

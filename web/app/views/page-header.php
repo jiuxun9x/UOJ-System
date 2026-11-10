@@ -52,7 +52,7 @@
 
 		<!-- Custom styles for this template -->
 		<?= HTML::css_link('/css/uoj-theme.css?v=2.3336') ?>
-		<?= HTML::css_link('/css/uoj-domain.css?v=27') ?>
+		<?= HTML::css_link('/css/uoj-domain.css?v=28') ?>
 
 		<!-- jQuery (necessary for Bootstrap\'s JavaScript plugins) -->
 		<?= HTML::js_src('/js/jquery.min.js') ?>
@@ -271,7 +271,8 @@
 				<h1 class="d-block d-sm-none"><?= $PageMainTitleOnSmall ?></h1>
 			</div>
 
-			<?php uojIncludeView($PageNav) ?>
+			<?php // inside a domain the bar is the domain's (see domainNavUse()) ?>
+			<?php uojIncludeView($PageNav === 'main-nav' && isset($GLOBALS['uojNavDomain']) ? 'domain-nav' : $PageNav) ?>
 			<?php // the administrators are told on every page as long as something is wrong ?>
 			<?php $open_alerts = Auth::check() && isSiteAdmin(Auth::user()) ? troubleAlerts() : array(); ?>
 			<?php if ($open_alerts): ?>
