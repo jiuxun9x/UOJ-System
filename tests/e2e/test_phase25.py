@@ -267,6 +267,14 @@ class DomainPagesTest(unittest.TestCase):
         for path, table in (("/homeworks", "table-homeworks-current"), ("/contests", "table-domain-contests"), ("/problems", "table-domain-problems"), ("/members", "table-members")):
             self.assertRegex(teacher.get("/d/%s%s" % (slug, path)).text, r'<table class="table table-bordered table-hover table-striped [^"]*" id="%s"' % table)
         self.assertIn('id="table-my-domains"', ann.get("/domains").text)
+        # the problems of a homework are listed as they are, for who takes part in it
+        self.assertEqual(ann.form("/d/%s/homework/%d" % (slug, homework_id), "claim"), "")
+        self.assertRegex(ann.get("/d/%s/homework/%d" % (slug, homework_id)).text, r'<table class="table table-bordered table-hover table-striped [^"]*" id="table-homework-problems"')
+        # what makes and copies problems stands over their list, for who teaches
+        self.assertIn('id="domain-problem-tools"', teacher.get("/d/%s/problems" % slug).text)
+        self.assertNotIn('id="domain-problem-tools"', ann.get("/d/%s/problems" % slug).text)
+        # and on a phone a list keeps the room for what its rows are about
+        self.assertRegex(uoj.Client().get("/css/uoj-domain.css").text, r"@media \(max-width: 575\.98px\) \{\s*\.uoj-list-table th \{\s*width: auto !important;")
 
 
 class MemberFormTest(unittest.TestCase):
