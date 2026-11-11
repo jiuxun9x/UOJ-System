@@ -192,146 +192,139 @@ bool is_illegal_keyword(const std::string &name) {
     return name == "__asm" || name == "__asm__" || name == "asm";
 }
 
-bool has_illegal_keywords_in_file(const std::string &src) {
-    std::ifstream fin(src);
+static std::string read_source(const std::string &src) {
+    std::ifstream fin(src, std::ios::binary);
     if (!fin) {
         throw fail_to_read_src_error();
     }
+    std::ostringstream text;
+    text << fin.rdbuf();
+    if (fin.bad()) {
+        throw fail_to_read_src_error();
+    }
+    return text.str();
+}
 
-    const int L = 1 << 15;
-    char buf[L];
-    std::string key;
+static bool is_word_char(char c) {
+    return isalnum((unsigned char)c) || c == '_';
+}
 
-    while (!fin.eof()) {
-        fin.read(buf, L);
-        int cnt = fin.gcount();
-        for (char *p = buf; p != buf + cnt; p++) {
-            char c = *p;
-            if (isalnum(c) || c == '_') {
-                if (key.size() < 20) {
-                    key += c;
-                } else {
-                    if (is_illegal_keyword(key)) {
-                        return true;
-                    }
-                    key.erase(key.begin());
-                    key += c;
-                }
-            } else {
-                if (is_illegal_keyword(key)) {
-                    return true;
-                }
-                key.clear();
+// The code of a source of C, C++ or Java: what is written in its comments, and in its string and
+// character literals, is blanked, and is no code. (Whatever was in a comment or a string - the
+// word asm, "class Fake" - was taken for code.) A line that ends in a backslash goes on in the
+// next, as the compiler has it. An apostrophe after a digit is a separator of digits (1'000'000)
+// and no character literal, which would blank the code up to the next one; a raw string of C++
+// (R"x(...)x") and a text block of Java ("""...""") end where they end.
+std::string code_of_source(const std::string &raw) {
+    std::string text;
+    text.reserve(raw.size());
+    for (size_t i = 0; i < raw.size(); i++) {
+        if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == '\n') {
+            i++;
+        } else if (raw[i] == '\\' && i + 2 < raw.size() && raw[i + 1] == '\r' && raw[i + 2] == '\n') {
+            i += 2;
+        } else {
+            text += raw[i];
+        }
+    }
+
+    std::string out;
+    out.reserve(text.size());
+    size_t n = text.size();
+    size_t i = 0;
+    // a literal that runs to its quote, past the escapes in it
+    auto skip_quoted = [&](char quote) {
+        i++;
+        while (i < n && text[i] != quote) {
+            if (text[i] == '\\') {
+                i++;
+            }
+            i++;
+        }
+        i++;
+    };
+    while (i < n) {
+        char c = text[i];
+        if (c == '/' && i + 1 < n && text[i + 1] == '/') {
+            while (i < n && text[i] != '\n') {
+                i++;
+            }
+            continue;
+        }
+        if (c == '/' && i + 1 < n && text[i + 1] == '*') {
+            size_t end = text.find("*/", i + 2);
+            i = end == std::string::npos ? n : end + 2;
+            out += ' ';
+            continue;
+        }
+        if (c == '"' && text.compare(i, 3, "\"\"\"") == 0) {
+            size_t end = i + 3;
+            while ((end = text.find("\"\"\"", end)) != std::string::npos && text[end - 1] == '\\') {
+                end++;
+            }
+            i = end == std::string::npos ? n : end + 3;
+            out += ' ';
+            continue;
+        }
+        if (c == '"' && i > 0 && text[i - 1] == 'R') {
+            // R"delimiter( ... )delimiter", after R, LR, uR, UR or u8R as a word of its own
+            size_t r = i - 1;
+            size_t word = r;
+            while (word > 0 && is_word_char(text[word - 1])) {
+                word--;
+            }
+            std::string prefix = text.substr(word, r - word);
+            size_t open = text.find('(', i + 1);
+            if ((prefix.empty() || prefix == "L" || prefix == "u" || prefix == "U" || prefix == "u8")
+                && open != std::string::npos && open - i - 1 <= 16) {
+                std::string closing = ")" + text.substr(i + 1, open - i - 1) + "\"";
+                size_t end = text.find(closing, open + 1);
+                i = end == std::string::npos ? n : end + closing.size();
+                out += ' ';
+                continue;
             }
         }
-        if (fin.bad()) {
-            throw fail_to_read_src_error();
+        if (c == '"') {
+            skip_quoted('"');
+            out += ' ';
+            continue;
+        }
+        if (c == '\'') {
+            // a character literal follows no word, or one of the prefixes L, u, U, u8 of its own
+            size_t word = i;
+            while (word > 0 && is_word_char(text[word - 1])) {
+                word--;
+            }
+            std::string before = text.substr(word, i - word);
+            if (before.empty() || before == "L" || before == "u" || before == "U" || before == "u8") {
+                skip_quoted('\'');
+                out += ' ';
+                continue;
+            }
+        }
+        out += c;
+        i++;
+    }
+    return out;
+}
+
+bool has_illegal_keywords_in_file(const std::string &src) {
+    std::string code = code_of_source(read_source(src));
+    for (size_t p = 0, np = 0; p < code.size(); p = np) {
+        while (np < code.size() && is_word_char(code[np])) {
+            np++;
+        }
+        if (np == p) {
+            np++;
+        } else if (is_illegal_keyword(code.substr(p, np - p))) {
+            return true;
         }
     }
     return false;
 }
 
 std::string get_java_main_class(const std::string &src) {
-    std::ifstream fin(src);
-    if (!fin) {
-        throw fail_to_read_src_error();
-    }
-
-    const int L = 1 << 15;
-    char buf[L];
-    std::string s;
-
-    int mode = 0;
-
-    while (!fin.eof()) {
-        fin.read(buf, L);
-        int cnt = fin.gcount();
-        for (char *p = buf; p != buf + cnt; p++) {
-            s += *p;
-            switch (mode) {
-                case 0:
-                    switch (*p) {
-                        case '/':
-                            mode = 1;
-                            break;
-                        case '\'':
-                            mode = 5;
-                            break;
-                        case '\"':
-                            mode = 6;
-                            break;
-                    }
-                    break;
-                case 1:
-                    switch (*p) {
-                        case '/':
-                            mode = 2;
-                            s.pop_back();
-                            s.pop_back();
-                            break;
-                        case '*':
-                            mode = 3;
-                            s.pop_back();
-                            s.pop_back();
-                            break;
-                    }
-                    break;
-                case 2:
-                    s.pop_back();
-                    switch (*p) {
-                        case '\n':
-                            s += '\n';
-                            mode = 0;
-                            break;
-                    }
-                    break;
-                case 3:
-                    s.pop_back();
-                    switch (*p) {
-                        case '*':
-                            mode = 4;
-                            break;
-                    }
-                    break;
-                case 4:
-                    s.pop_back();
-                    switch (*p) {
-                        case '/':
-                            s += ' ';
-                            mode = 0;
-                            break;
-                    }
-                    break;
-                case 5:
-                    switch (*p) {
-                        case '\'':
-                            mode = 0;
-                            break;
-                        case '\\':
-                            mode = 7;
-                            break;
-                    }
-                case 6:
-                    switch (*p) {
-                        case '\"':
-                            mode = 0;
-                            break;
-                        case '\\':
-                            mode = 8;
-                            break;
-                    }
-                case 7:
-                    mode = 5;
-                    break;
-                case 8:
-                    mode = 6;
-                    break;
-            }
-        }
-        if (fin.bad()) {
-            throw fail_to_read_src_error();
-        }
-    }
+    std::string s = code_of_source(read_source(src));
 
     bool valid[256];
     std::fill(valid, valid + 256, false);
