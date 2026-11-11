@@ -511,5 +511,42 @@ class StandingsFileTest(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
 
+class ArchivedDomainTest(unittest.TestCase):
+    """An archived domain is read only: its contests were still registered for, and left, and sat
+    virtually, and its homework and contests still showed their problems by themselves; while its
+    teachers no more saw the drafts of its trainings, nor its hidden problems in its list - which
+    the people given a problem to manage never saw there either."""
+
+    def test_nothing_changes_and_everything_is_read(self):
+        slug, teacher, (ann, bob), problem_id = classroom("p27_archive", ("ann", "bob"))
+        contest_id = teacher.new_contest("p27 归档比赛", domain=slug, problems=str(uoj.pid(problem_id)))
+        ann.register_for_contest(contest_id)
+        homework_id = published_homework(teacher, slug, problem_id, title="p27 归档作业", reveal_problems="on")
+        self.assertEqual(teacher.form("/d/%s/training/new" % slug, "save", title="p27 草稿训练", description_md="", status="draft"), "")
+        training_id = int(db_value("select max(id) from trainings where domain_id = (select id from domains where slug = '%s')" % slug))
+        db("insert into problems_permissions (problem_id, username) values (%d, '%s')" % (problem_id, bob.username))
+        db("update problems set is_hidden = 1 where id = %d" % problem_id)
+        self.assertEqual(teacher.form("/d/%s/settings" % slug, "archive"), "")
+
+        # ---- nobody takes part in its contest any more, nor leaves it
+        self.assertNotEqual(bob.submit_form("/contest/%d/register" % contest_id, "register"), "")
+        bob.submit_form("/contest/%d/registrants" % contest_id, "unregister")
+        ann.submit_form("/contest/%d/registrants" % contest_id, "unregister")
+        self.assertEqual(db("select username from contests_registrants where contest_id = %d" % contest_id), [[ann.username]])
+        # ---- and its homework shows nothing by itself when it ends
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+        tick()
+        uoj.docker_exec(uoj.WEB, "php /opt/uoj/web/app/cli.php site:tick")
+        self.assertEqual(int(db_value("select is_hidden from problems where id = %d" % problem_id)), 1)
+        self.assertIsNone(db_value("select problems_revealed_at from homeworks where id = %d and problems_revealed_at is not null" % homework_id))
+
+        # ---- what is there is read: the draft by its teacher, the hidden problem in the list
+        self.assertEqual(teacher.get("/d/%s/training/%d" % (slug, training_id)).status_code, 200)
+        listed = 'href="/d/%s/problem/%d"' % (slug, uoj.pid(problem_id))
+        self.assertIn(listed, teacher.get("/d/%s/problems" % slug).text)
+        self.assertIn(listed, bob.get("/d/%s/problems" % slug).text)
+        self.assertNotIn(listed, ann.get("/d/%s/problems" % slug).text)
+
+
 if __name__ == "__main__":
     unittest.main()

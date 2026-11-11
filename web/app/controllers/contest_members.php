@@ -19,7 +19,8 @@
 	if ($contest['cur_progress'] == CONTEST_NOT_STARTED) {
 		$iHasRegistered = $myUser != null && hasRegistered($myUser, $contest);
 	
-		if ($iHasRegistered) {
+		// (a contest of a domain that is archived is taken part in no more, or out of)
+		if ($iHasRegistered && !contestOfArchivedDomain($contest)) {
 			$unregister_form = new UOJForm('unregister');
 			$unregister_form->handle = function() {
 				global $myUser, $contest;
@@ -33,7 +34,7 @@
 			$unregister_form->runAtServer();
 		}
 		
-		if ($has_contest_permission) {
+		if ($has_contest_permission && !contestOfArchivedDomain($contest)) {
 			$pre_rating_form = new UOJForm('pre_rating');
 			$pre_rating_form->handle = function() {
 				global $contest;

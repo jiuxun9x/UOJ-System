@@ -58,7 +58,7 @@
 	// A contest that gives balloons is told by its contestants where they sit, if they want
 	// to tell: whoever brings a balloon has to find them. The people who run the contest can
 	// write the seats down as well, and theirs is the same field.
-	$may_say_seat = balloonsEnabled($contest) && $contest['cur_progress'] <= CONTEST_IN_PROGRESS && $myUser != null && hasRegistered($myUser, $contest);
+	$may_say_seat = balloonsEnabled($contest) && $contest['cur_progress'] <= CONTEST_IN_PROGRESS && $myUser != null && hasRegistered($myUser, $contest) && !contestOfArchivedDomain($contest);
 	$my_seat_error = domainHandleForms(array(
 		'my_seat' => function() use ($contest, $may_say_seat) {
 			global $myUser;

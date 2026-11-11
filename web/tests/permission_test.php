@@ -691,6 +691,8 @@ check_ability('training.view_progress', $published_training, $strangers + array(
 $archived_training = array('id' => 3, 'domain_id' => 4, 'status' => 'published');
 check_ability('training.view', $archived_training, array('pupil' => true, 'lecturer' => true, 'alice' => false), 'a training of an archived domain');
 check_ability('training.manage', $archived_training, array('lead' => false, 'lecturer' => false), 'a training of an archived domain');
+// a draft of an archived domain is read by who teaches there, who changes it no more
+check_ability('training.view', array('status' => 'draft') + $archived_training, array('lecturer' => true, 'pupil' => false, 'alice' => false), 'a draft of a training of an archived domain');
 
 // ---- who may take part in a contest: everybody, the people on a list, whoever knows a password
 $open_contest = array('join_mode' => 'open') + fake_contest(30, CONTEST_FINISHED);

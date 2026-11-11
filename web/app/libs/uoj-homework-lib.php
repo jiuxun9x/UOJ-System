@@ -639,8 +639,10 @@ function homeworkTouch($homework) {
 
 // whether a homework has problems to show now
 function homeworkRevealIsDue($homework) {
+	// (nothing of a domain that is archived changes, of itself either)
 	return !empty($homework['reveal_problems']) && $homework['problems_revealed_at'] === null
-		&& $homework['status'] === 'published' && homeworkNow() >= strtotime($homework['end_at']);
+		&& $homework['status'] === 'published' && homeworkNow() >= strtotime($homework['end_at'])
+		&& !permissionDomainIsArchived(permissionFacts()->domain($homework['domain_id']));
 }
 // Shows the problems of a homework that has ended and was told to show them: to the members
 // of its domain, which is where its problems are. It is done with the homework when none of

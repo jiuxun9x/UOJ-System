@@ -67,8 +67,16 @@
 	$esc_username = Auth::check() ? DB::escape(Auth::id()) : '';
 	// what is typed into the search field is looked for in the numbers, the titles and the tags
 	$search = isset($_GET['q']) && is_string($_GET['q']) ? trim(mb_substr($_GET['q'], 0, 50, 'UTF-8')) : '';
-	$n_problems = DB::selectCount("select count(*) from problems where problems.owner_domain_id = {$domain['id']}".($can_teach ? '' : ' and problems.is_hidden = 0'));
-	$problems = DB::selectAll("select problems.*, best_ac_submissions.submission_id as accepted_submission_id from problems left join best_ac_submissions on best_ac_submissions.problem_id = problems.id and best_ac_submissions.submitter = '$esc_username' where problems.owner_domain_id = {$domain['id']}".($can_teach ? '' : ' and problems.is_hidden = 0').($search === '' ? '' : ' and '.problemSearchCond($search, 'domain_pid'))." order by problems.domain_pid, problems.id");
+	// The problems that are hidden are listed for whoever may read them: the people who teach
+	// there, in an archived domain as well, where they change them no more; and whoever was
+	// given one to manage. (Teaching was asked for, which an archived domain has nobody do, and
+	// managing a problem was not looked at.)
+	$shown = '';
+	if (!permissionDomainRoleAtLeast($myUser, $domain, 'teacher')) {
+		$shown = ' and (problems.is_hidden = 0' . (Auth::check() ? ' or problems.id in (' . managedProblemIdsSql($esc_username) . ')' : '') . ')';
+	}
+	$n_problems = DB::selectCount("select count(*) from problems where problems.owner_domain_id = {$domain['id']}$shown");
+	$problems = DB::selectAll("select problems.*, best_ac_submissions.submission_id as accepted_submission_id from problems left join best_ac_submissions on best_ac_submissions.problem_id = problems.id and best_ac_submissions.submitter = '$esc_username' where problems.owner_domain_id = {$domain['id']}$shown".($search === '' ? '' : ' and '.problemSearchCond($search, 'domain_pid'))." order by problems.domain_pid, problems.id");
 	// the tags of the problems that are listed: array(id of the problem => its tags)
 	$tags_of = array();
 	if ($problems) {

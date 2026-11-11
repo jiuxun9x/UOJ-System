@@ -847,8 +847,9 @@ function problemsReveal($problem_ids, $but_contest = null, $but_homework = null)
 }
 // whether a contest has problems to show now: $contest as genMoreContestInfo() leaves it
 function contestRevealIsDue($contest) {
+	// (nothing of a domain that is archived changes, of itself either)
 	return !empty($contest['reveal_problems']) && $contest['problems_revealed_at'] === null && !contestIsHidden($contest)
-		&& $contest['cur_progress'] > CONTEST_IN_PROGRESS && !contestKeepsResults($contest);
+		&& $contest['cur_progress'] > CONTEST_IN_PROGRESS && !contestKeepsResults($contest) && !contestOfArchivedDomain($contest);
 }
 // Shows the problems of a contest that is over and was told to show them. It is done with
 // the contest when none of its problems waits for something else any more.

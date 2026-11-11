@@ -611,8 +611,10 @@ function can($user, $ability, $resource = null) {
 			return can($user, 'domain.teach', $facts->domain($resource['domain_id']));
 		// a draft is for the people who write it
 		case 'training.view':
+			// (a draft is read by the people who teach, in an archived domain as well, where
+			// they change it no more)
 			$domain = $facts->domain($resource['domain_id']);
-			return can($user, 'domain.teach', $domain) || ($resource['status'] === 'published' && can($user, 'domain.view', $domain));
+			return permissionDomainRoleAtLeast($user, $domain, 'teacher') || ($resource['status'] === 'published' && can($user, 'domain.view', $domain));
 		// what every member has done of it
 		case 'training.view_progress':
 			return can($user, 'domain.assist', $facts->domain($resource['domain_id']));
@@ -757,12 +759,12 @@ function can($user, $ability, $resource = null) {
 		// Registering before it begins. Whoever needs a password is asked for it by the page.
 		case 'contest.register':
 			return $name !== null && can($user, 'contest.view', $resource) && !can($user, 'contest.test', $resource)
-				&& !$facts->hasRegistered($name, $resource['id']);
+				&& !$facts->hasRegistered($name, $resource['id']) && !contestOfArchivedDomain($resource);
 		// Sitting a contest that is over, alone and against the clock. There are final results
 		// to be measured against once the contest is finished, and not before.
 		case 'contest.virtual':
 			return $name !== null && isset($resource['cur_progress']) && $resource['cur_progress'] == CONTEST_FINISHED
-				&& can($user, 'contest.enter', $resource);
+				&& can($user, 'contest.enter', $resource) && !contestOfArchivedDomain($resource);
 		// Reading what a contest has for the people inside it: its problems and the files
 		// that come with it. The staff at any time; the contestants who registered while it
 		// runs; and when it is over whoever may get inside.
@@ -1065,6 +1067,10 @@ function permissionLooksAfterProblem($user, $problem) {
 // whether a domain is archived: read only, for everybody, until it is brought back
 function permissionDomainIsArchived($domain) {
 	return $domain != null && $domain['archived_at'] !== null;
+}
+// whether a contest belongs to a domain that is archived: nobody takes part in it any more
+function contestOfArchivedDomain($contest) {
+	return !empty($contest['domain_id']) && permissionDomainIsArchived(permissionFacts()->domain($contest['domain_id']));
 }
 // whether a problem belongs to a domain that is archived
 function permissionProblemIsArchived($problem) {
