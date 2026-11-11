@@ -1968,6 +1968,19 @@ inline bool judge_side_failed(const PointInfo &po) {
     return false;
 }
 
+// What a point says of why, wherever it says it: a point of passes says it in its blocks.
+inline string point_said(const PointInfo &po) {
+    if (!po.res.empty()) {
+        return po.res;
+    }
+    for (auto it = po.li.rbegin(); it != po.li.rend(); ++it) {
+        if (it->title == "res" && !it->content.empty()) {
+            return it->content;
+        }
+    }
+    return "";
+}
+
 PointInfo test_point_as_it_is(const string &name, const int &num, TestPointConfig tpc);
 
 // A test of the program. Where a program of the problem went wrong itself on it, the judgement
@@ -1977,7 +1990,8 @@ PointInfo test_point_as_it_is(const string &name, const int &num, TestPointConfi
 PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = TestPointConfig()) {
     PointInfo po = test_point_as_it_is(name, num, tpc);
     if (judge_side_failed(po)) {
-        end_judge_judgement_failed("Test #" + vtos(num) + ": " + (po.res.empty() ? po.info : po.info + ": " + po.res));
+        string said = point_said(po);
+        end_judge_judgement_failed("Test #" + vtos(num) + ": " + (said.empty() ? po.info : po.info + ": " + said));
     }
     return po;
 }
@@ -2138,7 +2152,8 @@ PointInfo test_hack_point(const string &name, TestPointConfig tpc) {
 
     PointInfo po = test_point(name, 0, tpc);
     if (hack_judgement_failed(po)) {
-        end_judge_judgement_failed(po.res.empty() ? po.info : po.info + ": " + po.res);
+        string said = point_said(po);
+        end_judge_judgement_failed(said.empty() ? po.info : po.info + ": " + said);
     }
     po.scr = po.scr != 100;
     return po;
