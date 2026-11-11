@@ -179,14 +179,15 @@ function virtualPeople($contest, $limit = 2000) {
 }
 // What the contestants of a contest had submitted $elapsed seconds into it, in the shape
 // queryContestData() gives a contest that runs: the board made of it is the board of that
-// moment. Under the ICPC rule the failed attempts are on it as they were made.
-function virtualOfficialData($contest, $elapsed) {
+// moment. Under the ICPC rule the failed attempts are on it as they were made. With $waiting,
+// what still waits to be judged is on it as well, as on the board of a contest that runs.
+function virtualOfficialData($contest, $elapsed, $waiting = false) {
 	$data = queryContestData(array('cur_progress' => CONTEST_IN_PROGRESS) + $contest);
 	$until = $contest['start_time']->getTimestamp() + $elapsed;
 	$rows = array();
 	foreach ($data['data'] as $row) {
 		// (a contest that is over has nothing that still waits to be judged)
-		if ($row[4] !== null && strtotime($row[1]) <= $until) {
+		if (($waiting || $row[4] !== null) && strtotime($row[1]) <= $until) {
 			$rows[] = $row;
 		}
 	}
@@ -231,12 +232,13 @@ function virtualAddUnofficial($contest, &$standings, &$score, $elapsed, $freeze_
 }
 // The board of a contest for somebody who sits it virtually and is $elapsed seconds into
 // it: the contest as it stood then, with the people who sat it virtually when $unofficial.
-// Once the board of the contest froze, it is frozen for them as well ($frozen says so).
-// Returns array($standings, $score, $contest_data, $frozen).
-function virtualBoard($contest, $elapsed, $unofficial) {
+// Once the board of the contest froze, it is frozen for them as well ($frozen says so). It is
+// also the board of a moment that passed, of a contest that runs ($waiting: what still waits
+// to be judged is on it). Returns array($standings, $score, $contest_data, $frozen).
+function virtualBoard($contest, $elapsed, $unofficial, $waiting = false) {
 	$freeze = contestFreezeOffset($contest);
 	$frozen = $freeze !== null && $elapsed >= $freeze;
-	$contest_data = virtualOfficialData($contest, $elapsed);
+	$contest_data = virtualOfficialData($contest, $elapsed, $waiting);
 	calcStandings($contest, $contest_data, $score, $standings, false, $frozen ? $freeze : null);
 	if ($unofficial) {
 		virtualAddUnofficial($contest, $standings, $score, $elapsed, $frozen ? $freeze : null);

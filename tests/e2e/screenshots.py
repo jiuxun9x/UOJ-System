@@ -686,6 +686,43 @@ def outer_board_keeps_itself_up_to_date(page, seeded):
             assert "uoj-ob-solved-by" in classes or "uoj-ob-unsolved" in classes, heads
 
 
+def outer_board_goes_back_in_time(page, seeded):
+    """the outer board of a contest that runs, frozen: taken back on its time bar to a moment
+    before it froze, played on from there, and back to where the contest is; the picture is of
+    the moment"""
+    moment = "document.querySelector('#outer-board').getAttribute('data-moment')"
+    page.wait_for_selector("#table-outer-board tbody tr")
+    assert page.get_attribute("#outer-board", "data-frozen") == "1"
+    assert not page.is_visible("#outer-board-latest")
+    bar = page.locator("#outer-board-timebar").bounding_box()
+    tenth = (bar["x"] + bar["width"] * 0.1, bar["y"] + bar["height"] / 2)
+    page.mouse.click(*tenth)
+    # thirty minutes into the five hours: what the board told then, before it froze
+    page.wait_for_function("%s !== ''" % moment)
+    assert 1700 <= int(page.evaluate(moment)) <= 1900, page.evaluate(moment)
+    assert page.get_attribute("#outer-board", "data-frozen") == "0"
+    assert page.inner_text("#outer-board-phase") == "回看"
+    assert page.inner_text("#outer-board-clock-label") == "回看"
+    assert page.is_visible("#outer-board-latest")
+    # played on: the clock goes on faster than the contest, and so does the board
+    shown = page.inner_text("#outer-board-clock")
+    page.select_option("#outer-board-speed", "300")
+    page.click("#outer-board-play")
+    assert page.inner_text("#outer-board-play") == "暂停"
+    page.wait_for_function("%s !== null && parseInt(%s, 10) > 2100" % (moment, moment), timeout=20000)
+    assert page.inner_text("#outer-board-clock") != shown
+    page.click("#outer-board-play")
+    assert page.inner_text("#outer-board-play") == "回放"
+    # back to where the contest is: the board as it is, frozen
+    page.click("#outer-board-latest")
+    page.wait_for_function("%s === ''" % moment)
+    assert page.get_attribute("#outer-board", "data-frozen") == "1"
+    assert not page.is_visible("#outer-board-latest")
+    page.mouse.click(*tenth)
+    page.wait_for_function("%s !== ''" % moment)
+    page.wait_for_function("document.querySelectorAll('#table-outer-board .uoj-ob-up, #table-outer-board .uoj-ob-flash').length === 0", timeout=10000)
+
+
 def resolver_runs_to_the_end(page, seeded):
     """the resolver, run by the keys from the board as it froze to the end: the buttons, the
     exports among them, stand over the stage; the lowest is chosen, a problem flashes before it is
@@ -995,6 +1032,7 @@ def pages(seeded):
         ("outer-board-vp", "visitor", "/contest/%d/board?vp=%s" % (seeded["contest"], seeded["sitter"].username), outer_board_is_seen_as_a_virtual_participant),
         ("outer-board-stats", "visitor", "/contest/%d/board#stats" % seeded["icpc"], outer_board_tells_its_statistics),
         ("outer-board-follow", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_follows_and_filters),
+        ("outer-board-moment", "visitor", "/contest/%d/board" % seeded["icpc"], outer_board_goes_back_in_time),
         ("balloons-settings", "admin", "/contest/%d/balloons" % seeded["icpc"], balloon_settings_are_opened),
         ("grades", "teacher", d + "/grades"),
         ("problem-statement", "student", d + "/problem/%d" % uoj.pid(seeded["problem"]), statement_is_read_as_it_was_written),

@@ -125,6 +125,10 @@ body.uoj-ob-dark-page .uoj-ob {
 .uoj-ob-pill-final {
 	background-color: #34435a;
 }
+/* a moment that passed, looked at on the time bar */
+.uoj-ob-pill-moment {
+	background-color: #7357c4;
+}
 .uoj-ob-pill-frozen {
 	background-color: #3d63c9;
 }
@@ -209,7 +213,32 @@ body.uoj-ob-dark-page .uoj-ob {
 	font-weight: 700;
 	color: var(--ob-muted);
 }
-/* how far the contest has come, and from where its board is frozen */
+/* the time bar: how far the contest has come, and from where its board is frozen; a moment
+   that passed is chosen on it, and played on from there */
+.uoj-ob-timeline {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+.uoj-ob-timeline .uoj-ob-button, .uoj-ob-timeline .uoj-ob-select {
+	flex: 0 0 auto;
+	margin: 0;
+}
+.uoj-ob-play {
+	min-width: 4.2em;
+}
+.uoj-ob-timebar {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 6rem;
+	padding: 0.45rem 0;
+	cursor: pointer;
+	touch-action: none;
+	outline: none;
+}
+.uoj-ob-timebar[aria-disabled="true"] {
+	cursor: default;
+}
 .uoj-ob-progress {
 	position: relative;
 	height: 0.45rem;
@@ -217,7 +246,50 @@ body.uoj-ob-dark-page .uoj-ob {
 	border-radius: 999px;
 	background-color: var(--ob-line);
 }
-.uoj-ob-progress-done, .uoj-ob-progress-frozen {
+.uoj-ob-progress-done, .uoj-ob-progress-frozen, .uoj-ob-progress-ahead {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+}
+.uoj-ob-progress-done {
+	left: 0;
+	width: 0;
+	border-radius: 999px;
+	background-color: var(--ob-accent);
+	opacity: 0.9;
+}
+/* from the moment looked at to where the contest is */
+.uoj-ob-progress-ahead {
+	width: 0;
+	background-color: var(--ob-accent);
+	opacity: 0.3;
+}
+.uoj-ob-progress-knob {
+	position: absolute;
+	top: 50%;
+	left: 0;
+	width: 0.95rem;
+	height: 0.95rem;
+	border: 2px solid var(--ob-bg);
+	border-radius: 50%;
+	background-color: var(--ob-accent);
+	box-shadow: 0 0 0 1px var(--ob-accent);
+	transform: translate(-50%, -50%);
+}
+.uoj-ob-timebar:focus-visible .uoj-ob-progress-knob, .uoj-ob-timebar:hover .uoj-ob-progress-knob {
+	box-shadow: 0 0 0 4px rgba(47, 111, 237, 0.3);
+}
+.uoj-ob-timebar[aria-disabled="true"] .uoj-ob-progress-knob {
+	display: none;
+}
+/* it goes on with the clock - once it stands where the contest is, not on its way there */
+.uoj-ob-progress-going .uoj-ob-progress-done {
+	transition: width 1s linear;
+}
+.uoj-ob-progress-going .uoj-ob-progress-knob {
+	transition: left 1s linear;
+}
+.uoj-ob-progress-frozen {
 	position: absolute;
 	top: 0;
 	bottom: 0;
@@ -806,6 +878,13 @@ a.uoj-ob-person:hover {
 	}
 	.uoj-ob-clock strong {
 		font-size: 1.9rem;
+	}
+	.uoj-ob-timeline {
+		flex-wrap: wrap;
+	}
+	.uoj-ob-timebar {
+		flex-basis: 100%;
+		order: -1;
 	}
 	.uoj-ob-table {
 		font-size: 0.9rem;

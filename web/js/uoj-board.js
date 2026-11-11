@@ -286,7 +286,8 @@
 			.text(state.phase === 'before' ? '比赛尚未开始' : '还没有选手');
 		table.toggle(state.phase !== 'before');
 		$('#outer-board-legend').toggle(state.phase !== 'before');
-		root.attr({'data-phase': state.phase, 'data-frozen': state.frozen ? 1 : 0, 'data-hash': state.hash, 'data-rule': state.rule});
+		root.attr({'data-phase': state.phase, 'data-frozen': state.frozen ? 1 : 0, 'data-hash': state.hash, 'data-rule': state.rule,
+			'data-moment': state.moment === null || state.moment === undefined ? '' : state.moment});
 	};
 
 	// ---- what stands over the table
@@ -295,7 +296,11 @@
 			before: '未开始', running: state.frozen ? '已封榜' : '进行中', waiting: state.frozen ? '已结束 · 封榜中' : '已结束 · 等待公布成绩',
 			final: '最终榜单', replay: !state.ticking ? 'VP 视角 · 已结束' : (state.frozen ? '回放 · 已封榜' : '回放')
 		}[state.phase];
-		$('#outer-board-phase').text(phase).attr('class', 'uoj-ob-pill uoj-ob-pill-' + state.phase + (state.frozen ? ' uoj-ob-pill-frozen' : ''));
+		if (state.moment !== null && state.moment !== undefined) {
+			phase = '回看' + (state.frozen ? ' · 已封榜' : '');
+		}
+		$('#outer-board-phase').text(phase).attr('class', 'uoj-ob-pill uoj-ob-pill-' + (state.moment !== null && state.moment !== undefined ? 'moment' : state.phase)
+			+ (state.frozen ? ' uoj-ob-pill-frozen' : ''));
 		var viewing = state.viewing;
 		// Codeforces heads the board of a participant with whose it is: so does this one
 		var line = $('#outer-board-viewing');
@@ -342,19 +347,18 @@
 		$('#outer-board-medals').html(html).toggle(kinds.length > 0 && state.phase !== 'before');
 	};
 	var tick = function() {
-		var passed = state.ticking || state.phase === 'before' ? (Date.now() - told) / 1000 : 0;
 		if (state.phase === 'before') {
 			$('#outer-board-clock-label').text('距离开始');
-			$('#outer-board-clock').text(clock((state.starts_in || 0) - passed));
+			$('#outer-board-clock').text(clock((state.starts_in || 0) - (Date.now() - told) / 1000));
 			$('#outer-board-clock-of').text('');
-			$('#outer-board-progress-done').css('width', '0%');
+			drawBar(0);
 			return;
 		}
-		var elapsed = Math.min(state.duration, state.elapsed + passed);
-		$('#outer-board-clock-label').text(state.phase === 'replay' && state.ticking ? '回放时间' : (state.ticking ? '当前时间' : '比赛时间'));
+		var elapsed = shownAt();
+		$('#outer-board-clock-label').text(away() ? '回看' : (state.phase === 'replay' && state.ticking ? '回放时间' : (state.ticking ? '当前时间' : '比赛时间')));
 		$('#outer-board-clock').text(clock(elapsed));
 		$('#outer-board-clock-of').text('/ ' + clock(state.duration));
-		$('#outer-board-progress-done').css('width', (state.duration > 0 ? 100 * elapsed / state.duration : 100) + '%');
+		drawBar(elapsed);
 	};
 	var live = function(ok) {
 		var now = new Date();
@@ -670,9 +674,13 @@
 		}
 		panels();
 		// what was submitted is asked for as soon as somebody wants to see it
-		if (wantsRuns() && !state.runs && before !== tab && timer !== null) {
-			clearTimeout(timer);
-			ask();
+		if (wantsRuns() && !state.runs && before !== tab) {
+			if (away()) {
+				askMoment();
+			} else if (timer !== null) {
+				clearTimeout(timer);
+				ask();
+			}
 		}
 	};
 	$('#outer-board-tabs').on('click', '.uoj-ob-tab', function() {
@@ -852,11 +860,17 @@
 		}
 		return state.phase === 'waiting' ? 10000 : 60000;
 	};
+	// (while a moment that passed is looked at, the board as it is is not asked for)
 	var later = function() {
 		clearTimeout(timer);
-		timer = setTimeout(ask, every());
+		if (!away()) {
+			timer = setTimeout(ask, every());
+		}
 	};
 	var ask = function() {
+		if (away()) {
+			return;
+		}
 		// nobody looks at a page that is behind another: it asks again when it is looked at
 		if (document.hidden) {
 			later();
@@ -864,11 +878,16 @@
 		}
 		$.ajax({url: url + (wantsRuns() ? '&runs=1' : ''), data: {have: state.hash}, dataType: 'json', cache: false, timeout: 10000}).done(function(next) {
 			failures = 0;
+			if (away()) {
+				return;
+			}
 			told = Date.now();
 			if (next.same) {
 				state.elapsed = next.elapsed;
 				state.ticking = next.ticking;
 				state.starts_in = next.starts_in;
+				state.latest = next.latest;
+				state.latest_ticking = next.latest_ticking;
 			} else {
 				state = next;
 				draw(true);
@@ -888,6 +907,215 @@
 			ask();
 		}
 	});
+
+	// ---- the time bar: the board at a moment that has passed, chosen on the bar (by the pointer
+	// or the keys) or played on from one at some times the speed of the contest; the end of the
+	// bar is the board as it is
+	var timebar = $('#outer-board-timebar');
+	var chosen = state.moment !== null && state.moment !== undefined ? state.moment : null;
+	var playing = null;
+	var dragging = false;
+	var asked = null;
+	var going = false;
+	var rate = parseInt(keep('speed'), 10) || 60;
+	if ($('#outer-board-speed option[value="' + rate + '"]').length) {
+		$('#outer-board-speed').val(String(rate));
+	} else {
+		rate = 60;
+	}
+	// how far the bar goes: where the board as it is stands now
+	var latest = function() {
+		var passed = state.latest_ticking ? (Date.now() - told) / 1000 : 0;
+		return Math.min(state.duration, (state.latest || 0) + passed);
+	};
+	// whether a moment that passed is looked at, chosen or played
+	var away = function() {
+		return chosen !== null || playing !== null || dragging;
+	};
+	// the moment shown: where the playing has got to, the one chosen, or where the contest is
+	var shownAt = function() {
+		if (playing !== null) {
+			return Math.min(latest(), playing.from + (Date.now() - playing.since) / 1000 * rate);
+		}
+		return chosen !== null ? Math.min(chosen, latest()) : latest();
+	};
+	var percent = function(seconds) {
+		return (state.duration > 0 ? Math.max(0, Math.min(100, 100 * seconds / state.duration)) : 0) + '%';
+	};
+	var drawBar = function(at) {
+		var closed = state.phase === 'before' || state.duration <= 0;
+		timebar.attr('aria-disabled', closed ? 'true' : 'false');
+		$('#outer-board-play, #outer-board-speed').toggle(!closed);
+		// (it keeps its place when it is not there: the bar is not narrowed under the pointer)
+		$('#outer-board-latest').css('visibility', !closed && away() ? 'visible' : 'hidden').toggle(!closed);
+		var end = closed ? 0 : latest();
+		$('#outer-board-progress-done').css('width', percent(at));
+		$('#outer-board-progress-ahead').css({left: percent(at), width: percent(end - at)});
+		$('#outer-board-progress-knob').css('left', percent(at));
+		timebar.attr({'aria-valuemax': state.duration, 'aria-valuenow': Math.floor(at), 'aria-valuetext': clock(at)})
+			.toggleClass('uoj-ob-progress-going', going && !away());
+	};
+	var playButton = function() {
+		$('#outer-board-play').text(playing !== null ? '暂停' : '回放').attr('aria-pressed', playing !== null ? 'true' : 'false')
+			.toggleClass('uoj-ob-button-on', playing !== null);
+	};
+	// back to the board as it is
+	var back = function() {
+		chosen = null;
+		playing = null;
+		dragging = false;
+		playButton();
+		tick();
+		if (state.moment !== null && state.moment !== undefined) {
+			clearTimeout(timer);
+			ask();
+		} else {
+			later();
+		}
+	};
+	// The board of the moment shown, asked for one at a time: while the bar is dragged, or the
+	// contest played, of where it has got to by the time the last one came.
+	var askMoment = function() {
+		if (asked !== null || !away()) {
+			return;
+		}
+		var at = Math.floor(shownAt());
+		if (at >= Math.floor(latest())) {
+			if (!dragging) {
+				back();
+			}
+			return;
+		}
+		if (playing === null && state.moment === at && (state.runs || !wantsRuns())) {
+			return;
+		}
+		asked = at;
+		clearTimeout(timer);
+		$.ajax({url: url + '&at=' + at + (wantsRuns() ? '&runs=1' : ''), dataType: 'json', cache: false, timeout: 10000}).done(function(next) {
+			failures = 0;
+			if (!away()) {
+				return;
+			}
+			told = Date.now();
+			state = next;
+			draw(playing !== null);
+			words();
+			panels();
+			tick();
+			live(true);
+		}).fail(function() {
+			failures++;
+			live(false);
+		}).always(function() {
+			asked = null;
+			if (!away()) {
+				return;
+			}
+			if (state.moment === null || state.moment === undefined) {
+				// the board as it is came: the moment was where the contest is
+				if (!dragging) {
+					back();
+				}
+			} else if (playing !== null) {
+				setTimeout(askMoment, failures > 0 ? 3000 : 700);
+			} else if (Math.floor(shownAt()) !== state.moment) {
+				askMoment();
+			}
+		});
+	};
+	// a moment chosen: the end of the bar is the board as it is
+	var settle = function() {
+		if (chosen === null || chosen >= latest() - 1) {
+			back();
+			return;
+		}
+		chosen = Math.floor(chosen);
+		tick();
+		askMoment();
+	};
+	var atPointer = function(e) {
+		var box = timebar[0].getBoundingClientRect();
+		return box.width > 0 ? Math.max(0, Math.min(latest(), (e.clientX - box.left) / box.width * state.duration)) : 0;
+	};
+	timebar.on('pointerdown', function(e) {
+		var pointer = e.originalEvent;
+		if (state.phase === 'before' || state.duration <= 0 || pointer.button !== 0) {
+			return;
+		}
+		e.preventDefault();
+		timebar.trigger('focus');
+		if (this.setPointerCapture) {
+			this.setPointerCapture(pointer.pointerId);
+		}
+		dragging = true;
+		playing = null;
+		playButton();
+		chosen = atPointer(pointer);
+		tick();
+		askMoment();
+	}).on('pointermove', function(e) {
+		if (dragging) {
+			chosen = atPointer(e.originalEvent);
+			tick();
+			askMoment();
+		}
+	}).on('pointerup pointercancel', function(e) {
+		if (dragging) {
+			if (e.type === 'pointerup') {
+				chosen = atPointer(e.originalEvent);
+			}
+			dragging = false;
+			settle();
+		}
+	}).on('keydown', function(e) {
+		if (state.phase === 'before' || state.duration <= 0) {
+			return;
+		}
+		var at = shownAt();
+		var step = e.shiftKey ? 600 : 60;
+		var to = {37: at - step, 40: at - step, 39: at + step, 38: at + step, 34: at - 600, 33: at + 600, 36: 0, 35: latest()}[e.which];
+		if (to === undefined) {
+			return;
+		}
+		e.preventDefault();
+		playing = null;
+		playButton();
+		chosen = Math.max(0, Math.min(latest(), to));
+		settle();
+	});
+	$('#outer-board-play').on('click', function() {
+		if (playing !== null) {
+			// it stops where it has got to
+			chosen = shownAt();
+			playing = null;
+			playButton();
+			settle();
+			return;
+		}
+		// from the moment looked at; from the beginning when it is the board as it is
+		var from = chosen !== null ? chosen : 0;
+		if (from >= latest() - 1) {
+			from = 0;
+		}
+		chosen = null;
+		playing = {from: from, since: Date.now()};
+		playButton();
+		tick();
+		askMoment();
+	});
+	$('#outer-board-speed').on('change', function() {
+		if (playing !== null) {
+			playing = {from: shownAt(), since: Date.now()};
+		}
+		rate = parseInt($(this).val(), 10) || 60;
+		keep('speed', String(rate));
+	});
+	$('#outer-board-latest').on('click', back);
+	setInterval(function() {
+		if (playing !== null) {
+			tick();
+		}
+	}, 200);
 
 	// ---- how it is looked at: dark for a wall, the whole screen, scrolling by itself
 	$('#outer-board-vp').on('change', function() {
@@ -963,14 +1191,20 @@
 	showTab(window.location.hash.replace('#', ''));
 	tick();
 	live(true);
+	playButton();
 	// the bar stands where the contest is, and moves on from there
 	setTimeout(function() {
-		$('#outer-board-progress').addClass('uoj-ob-progress-going');
+		going = true;
+		tick();
 	}, 50);
 	setInterval(tick, 1000);
 	// a page opened on what was submitted asks for it at once
 	if (wantsRuns() && !state.runs) {
-		ask();
+		if (away()) {
+			askMoment();
+		} else {
+			ask();
+		}
 	} else {
 		later();
 	}

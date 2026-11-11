@@ -32,6 +32,10 @@
 	if (isset($_GET['runs']) && $_GET['runs'] === '1') {
 		$options['runs'] = true;
 	}
+	// a moment that passed, chosen on the time bar: so many seconds into the contest
+	if (isset($_GET['at']) && is_string($_GET['at']) && strlen($_GET['at']) <= 7 && validateUInt($_GET['at'])) {
+		$options['at'] = (int)$_GET['at'];
+	}
 	$state = boardState($contest, $myUser, $options);
 	$here = "/contest/{$contest['id']}/board";
 	// (what the page asks for again is what it was asked for)
@@ -44,14 +48,15 @@
 		header('Cache-Control: no-store');
 		if (isset($_GET['have']) && $_GET['have'] === $state['hash']) {
 			die(json_encode(array('same' => true, 'hash' => $state['hash'], 'phase' => $state['phase'], 'elapsed' => $state['elapsed'],
-				'ticking' => $state['ticking'], 'frozen' => $state['frozen'], 'starts_in' => $state['starts_in'])));
+				'ticking' => $state['ticking'], 'frozen' => $state['frozen'], 'starts_in' => $state['starts_in'],
+				'latest' => $state['latest'], 'latest_ticking' => $state['latest_ticking'])));
 		}
 		die(json_encode($state));
 	}
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 外榜', array('ShowPageHeader' => false)) ?>
 <?= HTML::css_link('/fonts/roboto/roboto.css?v=1') ?>
-<?= HTML::css_link('/css/uoj-board.css?v=10') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=11') ?>
 <div class="uoj-ob" id="outer-board" data-url="<?= $here ?>?<?= HTML::escape($asked) ?>" data-here="<?= $here ?>" data-me="<?= Auth::check() ? Auth::id() : '' ?>" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title" id="outer-board-title"><?= HTML::escape($state['name']) ?></h1>
@@ -76,9 +81,24 @@
 				<a class="uoj-ob-button" href="/contest/<?= $contest['id'] ?>" id="outer-board-back">返回比赛</a>
 			</div>
 		</div>
-		<div class="uoj-ob-progress" id="outer-board-progress" title="比赛进度">
-			<div class="uoj-ob-progress-frozen" id="outer-board-progress-frozen"></div>
-			<div class="uoj-ob-progress-done" id="outer-board-progress-done"></div>
+		<div class="uoj-ob-timeline" id="outer-board-timeline">
+			<button type="button" class="uoj-ob-button uoj-ob-play" id="outer-board-play" aria-pressed="false">回放</button>
+			<select class="uoj-ob-select uoj-ob-speed" id="outer-board-speed" title="回放速度">
+				<option value="10">10×</option>
+				<option value="30">30×</option>
+				<option value="60" selected="selected">60×</option>
+				<option value="120">120×</option>
+				<option value="300">300×</option>
+			</select>
+			<div class="uoj-ob-timebar" id="outer-board-timebar" role="slider" tabindex="0" aria-label="比赛时间" aria-valuemin="0">
+				<div class="uoj-ob-progress" id="outer-board-progress">
+					<div class="uoj-ob-progress-frozen" id="outer-board-progress-frozen"></div>
+					<div class="uoj-ob-progress-ahead" id="outer-board-progress-ahead"></div>
+					<div class="uoj-ob-progress-done" id="outer-board-progress-done"></div>
+				</div>
+				<span class="uoj-ob-progress-knob" id="outer-board-progress-knob"></span>
+			</div>
+			<button type="button" class="uoj-ob-button" id="outer-board-latest" style="visibility:hidden">回到最新</button>
 		</div>
 		<div class="uoj-ob-tabs" id="outer-board-tabs" role="tablist">
 			<button type="button" class="uoj-ob-tab" role="tab" data-tab="board">榜单</button>
@@ -162,5 +182,5 @@
 <script type="text/javascript">
 window.uojOuterBoard = <?= json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<?= HTML::js_src('/js/uoj-board.js?v=8') ?>
+<?= HTML::js_src('/js/uoj-board.js?v=9') ?>
 <?php echoUOJPageFooter(array('ShowPageFooter' => false)) ?>

@@ -430,6 +430,11 @@ function boardVirtuals($contest) {
 //              to see it as one of them does ('vp'), the way Codeforces shows the standings of
 //              a participant. A participation that is over is seen at its end, not frozen.
 //   'elapsed'  seconds into the contest that the board is of; 'ticking' whether they go on
+//   'moment'   where a moment that passed was asked for ('at'), that moment: the board as it
+//              stood then for whoever looked (frozen from the freeze on while the results are
+//              not published, as it was), still; else null
+//   'latest'   seconds into the contest the board as it is stands at, which no moment asked for
+//              goes beyond; 'latest_ticking' whether they go on
 //   'frozen'   whether it is the board as it froze
 //   'viewing'  in a replay, whose view it is: 'key', 'username', 'nickname', 'start_time',
 //              'running', 'mine' (whether it is the viewer's own); else null
@@ -441,7 +446,8 @@ function boardVirtuals($contest) {
 //              submitted, as boardRuns() tells it
 // $options: 'vp' => whose view is asked for (a username), 'virtual' => false for the board of a
 // contest that is over without the people who sat it virtually, 'runs' => true for the
-// submissions as well.
+// submissions as well, 'at' => the moment that passed the board is asked of, in seconds into
+// the contest (the time bar of the page).
 function boardState($contest, $viewer, $options = array()) {
 	$now = UOJTime::$time_now->getTimestamp();
 	$start = $contest['start_time']->getTimestamp();
@@ -451,8 +457,13 @@ function boardState($contest, $viewer, $options = array()) {
 		'id' => (int)$contest['id'], 'name' => html_entity_decode(strip_tags((string)$contest['name']), ENT_QUOTES, 'UTF-8'), 'rule' => $rule,
 		'duration' => $duration, 'freeze' => contestFreezeOffset($contest), 'frozen' => false, 'ticking' => false,
 		'elapsed' => 0, 'starts_in' => null, 'problems' => array(), 'rows' => array(), 'medals' => array(), 'counted' => array('all' => 0, 'effective' => 0), 'stats' => array(),
-		'viewing' => null, 'virtual' => false, 'virtuals' => array()
+		'viewing' => null, 'virtual' => false, 'virtuals' => array(), 'moment' => null, 'latest' => 0, 'latest_ticking' => false
 	);
+	// a moment asked for is one that passed: one to come, or the one the board is at, is not
+	$moment = function($latest) use ($options) {
+		return isset($options['at']) && (int)$options['at'] >= 0 && (int)$options['at'] < $latest ? (int)$options['at'] : null;
+	};
+	$at = null;
 	$finished = $contest['cur_progress'] == CONTEST_FINISHED;
 	$mine = $finished && $viewer != null && can($viewer, 'contest.virtual', $contest) ? runningVirtual($contest['id'], $viewer) : null;
 	// whose view it is: the viewer's own while they sit the contest (they see nothing but the
@@ -473,8 +484,10 @@ function boardState($contest, $viewer, $options = array()) {
 		$state['elapsed'] = virtualElapsed($viewed, $now);
 		$state['ticking'] = $running;
 		$state['virtual'] = true;
-		list($standings, $score, $contest_data, $state['frozen']) = virtualBoard($running ? $contest : array('freeze_minutes' => 0) + $contest, $state['elapsed'], true);
-		$state = boardTable($contest, $standings, $score, boardLastTries($contest, boardLastTriesUntil($contest, $state['frozen'], $state['elapsed']))) + $state;
+		$at = $moment($state['elapsed']);
+		$of = $at !== null ? $at : $state['elapsed'];
+		list($standings, $score, $contest_data, $state['frozen']) = virtualBoard($running ? $contest : array('freeze_minutes' => 0) + $contest, $of, true);
+		$state = boardTable($contest, $standings, $score, boardLastTries($contest, boardLastTriesUntil($contest, $state['frozen'], $of))) + $state;
 		$person = queryUser($viewed['username']);
 		$state['viewing'] = array(
 			'key' => '*' . $viewed['username'], 'username' => $viewed['username'], 'nickname' => $person && $person['nickname'] !== null ? (string)$person['nickname'] : '',
@@ -485,7 +498,16 @@ function boardState($contest, $viewer, $options = array()) {
 		$state['elapsed'] = max(0, min($duration, $now - $start));
 		$state['ticking'] = $state['phase'] === 'running';
 		$state['frozen'] = contestBoardIsFrozen($contest);
-		if ($finished && (!isset($options['virtual']) || $options['virtual']) && virtualPeople($contest, 1)) {
+		$at = $moment($state['elapsed']);
+		$with_virtual = $finished && (!isset($options['virtual']) || $options['virtual']) && virtualPeople($contest, 1);
+		if ($at !== null) {
+			// as it stood then for whoever looked: frozen from the freeze on while the results
+			// are not published; once they are, as it turned out (with who sat it virtually at
+			// the same moment of theirs, as on the board of its end)
+			$state['virtual'] = (bool)$with_virtual;
+			list($standings, $score, $contest_data, $state['frozen']) = virtualBoard($finished ? array('freeze_minutes' => 0) + $contest : $contest, $at, $state['virtual'], !$finished);
+			$state = boardTable($contest, $standings, $score, boardLastTries($contest, boardLastTriesUntil($contest, $state['frozen'], $at))) + $state;
+		} elseif ($with_virtual) {
 			// the contest is over: everybody who sat it virtually, as they stood at the end of
 			// their participation (or stand now, while it runs), under a star
 			$state['virtual'] = true;
@@ -495,6 +517,13 @@ function boardState($contest, $viewer, $options = array()) {
 		} else {
 			$state = boardTableNow($contest) + $state;
 		}
+	}
+	$state['latest'] = $state['elapsed'];
+	$state['latest_ticking'] = $state['ticking'];
+	if ($at !== null) {
+		$state['moment'] = $at;
+		$state['elapsed'] = $at;
+		$state['ticking'] = false;
 	}
 	if ($finished && !$mine) {
 		$state['virtuals'] = boardVirtuals($contest);
@@ -507,8 +536,8 @@ function boardState($contest, $viewer, $options = array()) {
 				$people[] = $row['username'];
 			}
 		}
-		$state['runs'] = $state['phase'] === 'before' ? array() : boardRuns($contest, $people, $state['frozen'], $state['phase'] === 'replay' ? $state['elapsed'] : null);
+		$state['runs'] = $state['phase'] === 'before' ? array() : boardRuns($contest, $people, $state['frozen'], $state['phase'] === 'replay' || $at !== null ? $state['elapsed'] : null);
 	}
-	$state['hash'] = md5(json_encode(array(isset($state['runs']) ? $state['runs'] : null,$state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['stats'], $state['viewing'], $state['virtual'], $state['virtuals'])));
+	$state['hash'] = md5(json_encode(array(isset($state['runs']) ? $state['runs'] : null,$state['phase'], $state['frozen'], $state['duration'], $state['freeze'], $state['problems'], $state['rows'], $state['medals'], $state['stats'], $state['viewing'], $state['virtual'], $state['virtuals'], $state['moment'])));
 	return $state;
 }
