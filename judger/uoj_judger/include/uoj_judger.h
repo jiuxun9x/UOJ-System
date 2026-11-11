@@ -1473,6 +1473,11 @@ RunSimpleInteractionResult run_interaction_to(
         // (interactor_time_limit) too small. Waiting for the program uses none of it.
         ires.type = runp::RS_JGF;
         ires.info = "Interactor Time Limit Exceeded: " + iret.extra;
+    } else if (ires.type == runp::RS_TLE && res.type == runp::RS_AC) {
+        // The program was done, and gone, and the interactor went on until the time was up: it
+        // waited for nothing of the program's, and went wrong itself.
+        ires.type = runp::RS_JGF;
+        ires.info = "Interactor Time Limit Exceeded after the program had finished";
     } else if (ires.type == runp::RS_TLE) {
         // the time went by while the interactor waited for the program: the program was slow
         ires.type = runp::RS_AC;

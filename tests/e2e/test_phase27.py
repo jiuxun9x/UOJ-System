@@ -421,6 +421,10 @@ class HomeworkRacesTest(unittest.TestCase):
         self.assertEqual(db_value("select status from homework_participants where homework_id = %d and username = '%s'" % (homework_id, ann.username)), "removed")
 
 
+# reads the answer, and then sleeps on: what it waits for is nothing of the program's
+SLEEPING_INTERACTOR = DOUBLE_INTERACTOR.replace("#include <iostream>", "#include <iostream>\n#include <chrono>\n#include <thread>").replace(
+    'quitf(_ok, "fine");', 'std::this_thread::sleep_for(std::chrono::seconds(30));\n    quitf(_ok, "fine");'
+)
 # a checker that goes wrong on a sum of 3
 FAILING_ON_3 = r"""
 #include "testlib.h"
@@ -441,7 +445,8 @@ int main(int argc, char **argv) {
 class JudgeSideFailureTest(unittest.TestCase):
     """A checker, an interactor or a validator that went wrong itself gave the program it judged a
     zero on that test, and a total that was a score like any other. The judgement fails now, as a
-    whole, and says why."""
+    whole, and says why. And an interactor that went on until the time was up, after the program
+    was done and gone, gave the program a time limit exceeded."""
 
     def test_a_checker_that_fails_fails_the_judgement(self):
         problem_id = uoj.admin().create_problem(checker_problem_files(FAILING_ON_3))
@@ -449,6 +454,16 @@ class JudgeSideFailureTest(unittest.TestCase):
         self.assertEqual((j.score, j.error), (None, "Judgment Failed"), j)
         self.assertIn("Test #1", j.details)
         self.assertIn("p27: this checker can not judge 3", j.details)
+
+    def test_an_interactor_that_goes_on_after_the_program_is_to_blame(self):
+        files = interactive_problem_files()
+        files["interactor.cpp"] = SLEEPING_INTERACTOR
+        # (it sleeps as a program that may start others may: an interactor of its own kind)
+        files["problem.conf"] += "interactor_run_type allow_proc\n"
+        problem_id = uoj.admin().create_problem(files)
+        j = uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE))
+        self.assertEqual((j.score, j.error), (None, "Judgment Failed"), j)
+        self.assertIn("Interactor Time Limit Exceeded after the program had finished", j.details)
 
 
 if __name__ == "__main__":
