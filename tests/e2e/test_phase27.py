@@ -1,10 +1,13 @@
 """Phase 27: what a review of the whole site found, put right one by one."""
 
+import json
+import re
 import time
 import unittest
 
 import uoj
-from fixtures import ab_problem_files
+from fixtures import AB, ab_problem_files
+from test_phase3 import account
 from test_phase25 import classroom
 from uoj import db, db_value
 
@@ -80,6 +83,33 @@ class ContestStatisticsTest(unittest.TestCase):
             page = visitor.get(path)
             self.assertEqual(page.status_code, 404, path)
             self.assertNotIn("p27 隐藏的题", page.text, path)
+
+
+def full_marks_counted(client, problem_id):
+    """how many submissions of full marks the chart of the statistics of a problem counts"""
+    page = client.get("/problem/%d/statistics" % problem_id).text
+    bars = json.loads(re.search(r"data: (\[.*?\]),", page).group(1))
+    return sum(int(bar["count"]) for bar in bars if float(bar["score"]) == 100)
+
+
+class StatisticsChartTest(unittest.TestCase):
+    """The chart of the statistics of a problem counted every score, but those of a contest that
+    ran: who could not get inside a contest for a list, or with a password, could not see what was
+    submitted in it, and was shown how many scored what there."""
+
+    def test_the_chart_counts_what_one_may_see(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p27 统计图", rule="ICPC", problems=str(problem_id), join_mode="password", join_password="p27 sesame")
+        pupil, stranger = account("p27_chart_pupil"), account("p27_chart_stranger")
+        self.assertEqual(pupil.submit_form("/contest/%d/register" % contest_id, "register", {"join_password": "p27 sesame"}), "")
+        uoj.move_contest(contest_id, -60, 60)
+        self.assertEqual(uoj.wait_submission(pupil.submit_in_contest(contest_id, problem_id, AB)).score, 100)
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(full_marks_counted(pupil, problem_id), 1)
+        self.assertEqual(full_marks_counted(admin, problem_id), 1)
+        for client in (stranger, uoj.Client()):
+            self.assertEqual(full_marks_counted(client, problem_id), 0)
 
 
 if __name__ == "__main__":
