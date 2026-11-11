@@ -141,13 +141,15 @@ var rating_data = [[
 			continue;
 		}
 		// (a contest published before the audit log was kept is taken to be published at its end)
-		$published = DB::selectFirst("select min(created_at) from audit_logs where action = 'contest.publish_results' and resource_type = 'contest' and resource_id = '{$contest['id']}'", MYSQLI_NUM)[0];
+		// (two published in one second are in the order of their entries in the log)
+		list($published, $entry) = DB::selectFirst("select min(created_at), min(id) from audit_logs where action = 'contest.publish_results' and resource_type = 'contest' and resource_id = '{$contest['id']}'", MYSQLI_NUM);
 		$row['contest'] = $contest;
 		$row['order'] = $published !== null ? strtotime($published) : $contest['end_time']->getTimestamp();
+		$row['entry'] = (int)$entry;
 		$rated[] = $row;
 	}
 	usort($rated, function($a, $b) {
-		return $a['order'] != $b['order'] ? $a['order'] - $b['order'] : $a['contest_id'] - $b['contest_id'];
+		return [$a['order'], $a['entry'], $a['contest_id']] <=> [$b['order'], $b['entry'], $b['contest_id']];
 	});
 	$is_first_row = true;
 	$last_rating = 1500;
