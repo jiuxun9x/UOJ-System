@@ -612,5 +612,25 @@ class DeleteAndAddTest(unittest.TestCase):
         self.assertIn("这道题已经不存在了", said[0])
 
 
+class ArchivePathsTest(unittest.TestCase):
+    """An archive with the file a/b and the file a in it was refused, after a/b had been written:
+    the data was changed by an upload that was said to have changed nothing."""
+
+    def test_an_archive_whose_paths_collide_writes_nothing(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        self.assertIn("上传成功", admin.upload_data(problem_id, {"extra/notes.txt": "old\n", "input1.txt": "1 2\n"}).text)
+        files = lambda: uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/extra/notes.txt" % problem_id)
+        self.assertEqual(files(), "old\n")
+        said = uoj.text_of(admin.upload_data(problem_id, {"extra/notes.txt": "new\n", "extra": "a file\n"}).text)
+        self.assertIn("既是文件又是文件夹", said)
+        self.assertEqual(files(), "old\n")
+        # and with what is there: a file where the data has a folder
+        said = uoj.text_of(admin.upload_data(problem_id, {"extra": "a file\n", "input2.txt": "3 4\n"}).text)
+        self.assertIn("是一个文件夹", said)
+        self.assertEqual(files(), "old\n")
+        self.assertEqual(uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/input2.txt" % problem_id), "1000 2000\n")
+
+
 if __name__ == "__main__":
     unittest.main()

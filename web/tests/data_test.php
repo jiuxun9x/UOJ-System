@@ -334,6 +334,10 @@ $entry = function($name, $size = 10, $compressed = 5, $is_link = false) {
 };
 check_same('', uploadEntriesError(array($entry('problem.conf'), $entry('input1.txt'), $entry('output1.txt')), $limits), 'an archive within the limits');
 check_same('', uploadEntriesError(array($entry('a'), $entry('b'), $entry('c'), $entry('__MACOSX/._a'), $entry('.DS_Store')), $limits), 'junk does not count');
+// a file that is the folder of another can not be written with it: one of them stayed, refused
+check_same(true, uploadEntriesError(array($entry('a/b'), $entry('a')), $limits) !== '', 'a file and a folder of the same name');
+check_same(true, uploadEntriesError(array($entry('x/A'), $entry('x/a/b')), $limits) !== '', 'a file and a folder of the same name but for the case');
+check_same('', uploadEntriesError(array($entry('a/b'), $entry('ab')), $limits), 'names that only begin alike');
 $refused = array(
 	'too many files' => array($entry('a'), $entry('b'), $entry('c'), $entry('d')),
 	'a file that is too big' => array($entry('a', 601)),

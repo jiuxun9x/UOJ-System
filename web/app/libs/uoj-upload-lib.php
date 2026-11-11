@@ -123,6 +123,18 @@ function uploadEntriesError($entries, $limits, $existing_bytes = 0, $existing_co
 	if (count(array_unique(array_map('strtolower', $targets))) != count($targets)) {
 		return '压缩包里有解压后会互相覆盖的文件（名字只差大小写，或者重复）';
 	}
+	// A file whose name is the folder of another, as a and a/b: once one is written the other
+	// can not be, and what was written before it stayed while the archive was refused.
+	$lower = array_flip(array_map('strtolower', $targets));
+	foreach ($targets as $target) {
+		$parts = explode('/', $target);
+		for ($k = 1; $k < count($parts); $k++) {
+			$folder = join('/', array_slice($parts, 0, $k));
+			if (isset($lower[strtolower($folder)])) {
+				return "压缩包里的 $folder 既是文件又是文件夹，不能解压";
+			}
+		}
+	}
 	$total = 0;
 	$replaced = 0;
 	$added = 0;
@@ -193,6 +205,24 @@ function uploadUnpack($zip_path, $dir, $limits) {
 		}
 	}
 	$err = uploadEntriesError($entries, $limits, $existing_bytes, $existing_count, $existing_sizes);
+	// and so with what is there: a file of the archive where the data has a folder, or a folder
+	// where it has a file
+	foreach ($err === '' ? uploadTargets($names) : array() as $target) {
+		if (is_dir("$dir/$target") && !is_link("$dir/$target")) {
+			$err = "压缩包里的 $target 在题目的数据里是一个文件夹，不能解压";
+			break;
+		}
+		$parts = explode('/', $target);
+		for ($k = 1; $k < count($parts) && $err === ''; $k++) {
+			$folder = join('/', array_slice($parts, 0, $k));
+			if (file_exists("$dir/$folder") && !is_dir("$dir/$folder")) {
+				$err = "压缩包里的 $target 要放进文件夹 $folder，但题目的数据里 $folder 是一个文件，不能解压";
+			}
+		}
+		if ($err !== '') {
+			break;
+		}
+	}
 	if ($err !== '') {
 		$zip->close();
 		return array(0, $err);
