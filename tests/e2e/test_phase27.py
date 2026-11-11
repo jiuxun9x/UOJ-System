@@ -6,7 +6,7 @@ import time
 import unittest
 
 import uoj
-from fixtures import AB, ab_problem_files
+from fixtures import AB, AB_HACKABLE, ab_problem_files
 from test_phase3 import account
 from test_phase25 import classroom
 from uoj import db, db_value
@@ -233,6 +233,36 @@ class ReclaimAndHeartbeatTest(unittest.TestCase):
             result = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
             uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(result)})
             self.assertEqual(db("select status, score from submissions where id = %d" % submission_id)[0], ["Judged", "100"])
+
+
+class HackKeptUntilAddedTest(unittest.TestCase):
+    """The input of a hack that succeeded was thrown away before its test was added to the data:
+    where adding it failed - no data from the judger, a problem.conf that was broken - the hack
+    was a success that changed nothing, and could not be judged again. The input is kept until
+    the test is added, and the hack is judged again from it."""
+
+    def test_a_hack_whose_test_was_not_added_is_judged_again(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files(), hackable=True)
+        submission_id = admin.submit(problem_id, AB_HACKABLE % 7)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        kept = lambda hack_id: uoj.php("echo is_file(UOJContext::storagePath() . queryHack(%d)['input']) ? 'kept' : 'gone';" % hack_id)
+        with uoj.judgers_paused():
+            hack_id = admin.hack(submission_id, b"7 1\n")
+            task = uoj.fake_fetch()
+            self.assertEqual(task["hack"]["id"], hack_id)
+            # it succeeded, and the judger sent nothing to add
+            success = {"score": 1, "time": 0, "memory": 0, "details": "<tests></tests>"}
+            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": hack_id, "is_hack": "1", "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(success)})
+            self.assertEqual(db_value("select success from hacks where id = %d" % hack_id), "1")
+            self.assertEqual(kept(hack_id), "kept")
+            self.assertIn("重新评测此 Hack", admin.get("/hack/%d" % hack_id).text)
+            self.assertEqual(admin.submit_form("/hack/%d" % hack_id, "rejudge"), "")
+        # judged again, its test is added, and its input goes
+        self.assertTrue(uoj.wait_hack(hack_id))
+        self.assertEqual(uoj.wait_data_version(problem_id), "")
+        self.assertIn("n_ex_tests 2", uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/problem.conf" % problem_id))
+        self.assertEqual(kept(hack_id), "gone")
 
 
 if __name__ == "__main__":

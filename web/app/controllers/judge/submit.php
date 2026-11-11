@@ -261,8 +261,10 @@
 			return;
 		}
 		finishJudgement('hack', $id, 'judged', $claim, $result['score'] ? 1 : 0);
-		@unlink(UOJContext::storagePath().$hack['input']);
 
+		// The input of a hack that succeeded is kept until its test is added to the data: where
+		// that fails, the hack is judged again from it, once the data is put right (see hack.php).
+		$err = '';
 		if ($result['score']) {
 			$problem = queryProblemBrief($hack['problem_id']);
 			if (validateUploadedFile('hack_input') && validateUploadedFile('std_output')) {
@@ -274,6 +276,9 @@
 				error_log("hack #$id succeeded but its extra test was not added: $err");
 				notifyHackNotApplied($problem, $id, $err);
 			}
+		}
+		if ($err === '') {
+			@unlink(UOJContext::storagePath().$hack['input']);
 		}
 	}
 	

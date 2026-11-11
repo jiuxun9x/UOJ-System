@@ -39,14 +39,16 @@
 	}
 	
 	// A hack whose judgement failed is judged again by who manages its problem, once the checker
-	// (or what else of the problem went wrong) is put right: its input was kept for that.
-	if ($hack['success'] !== null && $hack['result_error'] !== null && can($myUser, 'hack.rejudge', $hack)
+	// (or what else of the problem went wrong) is put right: its input was kept for that. So is
+	// a hack that succeeded and whose test could not be added to the data: its input is kept
+	// until it is, and judged again it is added.
+	if ($hack['success'] !== null && ($hack['result_error'] !== null || $hack['success'] == 1) && can($myUser, 'hack.rejudge', $hack)
 			&& is_file(UOJContext::storagePath() . $hack['input'])) {
 		$rejudge_form = new UOJForm('rejudge');
 		$rejudge_form->handle = function() {
 			global $hack, $myUser;
 			DB::update("update hacks set success = null, result_error = null, judge_time = null, judger_name = null, judge_attempts = 0, details = '',"
-				." judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$hack['id']} and success is not null and result_error is not null");
+				." judge_claim = null, judge_worker = null, judge_lease_until = null where id = {$hack['id']} and success is not null and (result_error is not null or success = 1)");
 			auditLog('hack.rejudge', 'hack', $hack['id'], array('result_error' => $hack['result_error']), null, $myUser);
 		};
 		$rejudge_form->submit_button_config['class_str'] = 'btn btn-primary';
