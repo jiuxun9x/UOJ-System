@@ -171,5 +171,41 @@ class PublishOnceTest(unittest.TestCase):
         self.assertEqual(int(db_value("select count(*) from audit_logs where action = 'contest.publish_results' and resource_id = '%d'" % contest_id)), 1)
 
 
+class TwoTestsTest(unittest.TestCase):
+    """The result of the first of the two tests of a submission of an OI contest was stored under
+    its claim, and the submission was then set to wait for the second without one: a rejudge asked
+    for between the two statements was overwritten, and the second test judged on a first test that
+    had been thrown away, which left it Judged without a score. Both are one statement now, under
+    the claim; what comes after a rejudge stores nothing and switches nothing."""
+
+    def test_the_first_result_and_the_wait_for_the_second_are_one(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p27 两段评测", rule="OI", problems=str(problem_id))
+        pupil = account("p27_two_tests")
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 600)
+        sample = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+        with uoj.judgers_paused():
+            submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
+            task = uoj.fake_fetch()
+            self.assertEqual(task["id"], submission_id)
+            # a rejudge before the result comes: the result is of nothing any more
+            self.assertEqual(admin.submit_form("/problem/%d/manage/data" % problem_id, "rejudge"), "")
+            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(sample)})
+            status, content = db("select status, content from submissions where id = %d" % submission_id)[0]
+            self.assertEqual(status, "Waiting Rejudge")
+            self.assertNotIn("first_test_config", json.loads(content))
+            # judged anew, the first result switches it to the second test at once
+            task = uoj.fake_fetch()
+            self.assertEqual(task["id"], submission_id)
+            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(sample)})
+            status, content = db("select status, content from submissions where id = %d" % submission_id)[0]
+            self.assertEqual(status, "Judged, Waiting")
+            self.assertIn("first_test_config", json.loads(content))
+        uoj.wait_idle()
+        self.assertEqual(db("select status, score from submissions where id = %d" % submission_id)[0], ["Judged", "100"])
+
+
 if __name__ == "__main__":
     unittest.main()

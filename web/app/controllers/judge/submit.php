@@ -152,25 +152,26 @@
 				return false;
 			}
 		} else {
-			if (!storeJudgementResult($result, function($esc_result) use ($result, $held) {
-				if (isset($result["error"])) {
-					$esc_error = DB::escape($result['error']);
-					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = '$esc_error', result = '$esc_result', score = null, used_time = null, used_memory = null, ".CLAIM_DROPPED." where $held";
-				} else {
-					$score = judgedScore($result['score']);
-					return "update submissions set status = 'Judged', judge_attempts = 0, result_error = null, result = '$esc_result', score = $score, used_time = {$result['time']}, used_memory = {$result['memory']}, ".CLAIM_DROPPED." where $held";
-				}
-			})) {
-				return false;
-			}
-			
+			// The first of two tests: its result is stored, and the submission waits for the
+			// second, in one statement under the claim. Set apart, a rejudge asked for between
+			// them was overwritten, and the second test was judged on a first that was gone.
+			$next = "status = 'Judged'";
 			if (isset($content['final_test_config'])) {
 				$content['first_test_config'] = $content['config'];
 				$content['config'] = $content['final_test_config'];
 				unset($content['final_test_config']);
-				$esc_content = DB::escape(json_encode($content));
-			
-				DB::update("update submissions set status = 'Judged, Waiting', content = '$esc_content' where id = $id");
+				$next = "status = 'Judged, Waiting', content = '" . DB::escape(json_encode($content)) . "'";
+			}
+			if (!storeJudgementResult($result, function($esc_result) use ($result, $held, $next) {
+				if (isset($result["error"])) {
+					$esc_error = DB::escape($result['error']);
+					return "update submissions set $next, judge_attempts = 0, result_error = '$esc_error', result = '$esc_result', score = null, used_time = null, used_memory = null, ".CLAIM_DROPPED." where $held";
+				} else {
+					$score = judgedScore($result['score']);
+					return "update submissions set $next, judge_attempts = 0, result_error = null, result = '$esc_result', score = $score, used_time = {$result['time']}, used_memory = {$result['memory']}, ".CLAIM_DROPPED." where $held";
+				}
+			})) {
+				return false;
 			}
 		}
 		DB::update("update submissions set status_details = '' where id = $id");
