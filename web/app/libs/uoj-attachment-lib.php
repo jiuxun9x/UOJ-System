@@ -118,19 +118,27 @@ function attachmentAdd($owner_type, $owner_id, $path, $name, $actor, $keep = fal
 		}
 	}
 	$target = UOJ_ATTACHMENT_DIR . '/' . $id;
-	// the file is put in place under another name first: nobody is ever sent half of it
-	$staged = $target . '.new';
+	// The file is put in place under another name first: nobody is ever sent half of it. The name
+	// is of this request, and the file takes its place, and the row says what it is, holding the
+	// lock of the attachment: two that replaced it at once shared one name, and the file that was
+	// left was not always the one its row described.
+	$staged = $target . '.new-' . bin2hex(random_bytes(8));
 	$moved = $keep ? @copy($path, $staged) : (@move_uploaded_file($path, $staged) || @rename($path, $staged));
-	if (!$moved || !@rename($staged, $target)) {
+	$lock = DB::selectFirst("select get_lock('uoj_attachment_$id', 30)", MYSQLI_NUM);
+	$placed = $moved && $lock && $lock[0] == 1 && @rename($staged, $target);
+	if ($placed) {
+		chmod($target, 0644);
+		if ($existing) {
+			DB::update("update attachments set size = $size, sha256 = '$sha256', uploaded_by = '$esc_actor', uploaded_at = now() where id = $id");
+		}
+	}
+	DB::query("select release_lock('uoj_attachment_$id')");
+	if (!$placed) {
 		@unlink($staged);
 		if (!$existing) {
 			DB::delete("delete from attachments where id = $id");
 		}
 		return "保存 $name 失败";
-	}
-	chmod($target, 0644);
-	if ($existing) {
-		DB::update("update attachments set size = $size, sha256 = '$sha256', uploaded_by = '$esc_actor', uploaded_at = now() where id = $id");
 	}
 	auditLog('attachment.add', $owner_type, $owner_id, $existing ? array('name' => $name, 'sha256' => $existing['sha256']) : null, array('name' => $name, 'size' => $size, 'sha256' => $sha256), $actor);
 	return '';

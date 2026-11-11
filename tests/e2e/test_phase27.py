@@ -13,6 +13,7 @@ from test_phase13 import browser_with, who
 from test_phase3 import account
 from test_phase25 import classroom, published_homework
 from test_phase4 import homework_form, homework_row, tick
+from test_phase6 import attach, attachments_of
 from uoj import db, db_value
 
 
@@ -630,6 +631,36 @@ class ArchivePathsTest(unittest.TestCase):
         self.assertIn("是一个文件夹", said)
         self.assertEqual(files(), "old\n")
         self.assertEqual(uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/input2.txt" % problem_id), "1000 2000\n")
+
+
+class AttachmentReplacedTest(unittest.TestCase):
+    """Two people who replaced the same attachment at once shared the name it was put in place
+    under: the file that was left was not always the one its row described, and the one whose
+    file it was could be told that saving it failed. Each puts it under a name of its own, and
+    puts it in place, and describes it, holding the lock of the attachment."""
+
+    def test_two_replacements_at_once_leave_a_file_and_a_row_that_agree(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        page = "/problem/%d/manage/attachments" % problem_id
+        self.assertEqual(attach(admin, page, [("notes.txt", b"first\n")]), "")
+        attachment_id = attachments_of("problem", problem_id)["notes.txt"][0]
+        name = "uoj_attachment_%d" % attachment_id
+        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('%s', 0), sleep(4)" % name)
+        uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('%s') is not null" % name) == "1", timeout=30)
+        said = []
+        threads = [threading.Thread(target=lambda content=content: said.append(attach(admin, page, [("notes.txt", content)]))) for content in (b"second\n", b"third\n")]
+        started = time.time()
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        self.assertGreaterEqual(time.time() - started, 3)
+        self.assertEqual(said, ["", ""])
+        kept = uoj.docker_exec(uoj.WEB, "sha256sum /var/uoj_data/attachments/%d | cut -d' ' -f1" % attachment_id).strip()
+        self.assertEqual(attachments_of("problem", problem_id)["notes.txt"][2], kept)
+        self.assertIn(kept, (hashlib.sha256(b"second\n").hexdigest(), hashlib.sha256(b"third\n").hexdigest()))
+        self.assertEqual(uoj.docker_exec(uoj.WEB, "ls /var/uoj_data/attachments | grep -c '^%d\\.new' || true" % attachment_id).strip(), "0")
 
 
 if __name__ == "__main__":
