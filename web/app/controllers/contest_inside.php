@@ -219,10 +219,21 @@
 				ignore_user_abort(true);
 
 				global $contest;
+				// Published once: two people who press the button at the same time, or one who
+				// presses it twice, would rate the contest twice, the second time from the ratings
+				// the first made. Who publishes holds the lock of the contest until it is done
+				// (the connection lets go of it in any case), and looks at it again holding it.
+				$back = "<p><a href=\"/contest/{$contest['id']}\">返回</a></p>";
+				if (DB::selectFirst("select get_lock('uoj_contest_publish_{$contest['id']}', 0)", MYSQLI_NUM)[0] != 1) {
+					becomeMsgPage("<p>这场比赛的成绩正在公布，请稍候刷新。</p>$back");
+				}
+				if (DB::selectFirst("select status from contests where id = {$contest['id']}", MYSQLI_NUM)[0] === 'finished') {
+					becomeMsgPage("<p>这场比赛的成绩已经公布了。</p>$back");
+				}
 				// what is not judged yet would count for nothing
 				$unjudged = DB::selectCount("select count(*) from submissions where contest_id = {$contest['id']} and status != 'Judged'");
 				if ($unjudged > 0) {
-					becomeMsgPage("<p>还有 $unjudged 个提交没有评测完，现在公布的话它们不会计入成绩。请等评测结束后再公布。</p><p><a href=\"/contest/{$contest['id']}\">返回</a></p>");
+					becomeMsgPage("<p>还有 $unjudged 个提交没有评测完，现在公布的话它们不会计入成绩。请等评测结束后再公布。</p>$back");
 				}
 				// The ratings change from what they are now, not from what they were when each
 				// registered: a contest published in between changed them. (What a contestant
@@ -277,6 +288,7 @@ EOD;
 				$finished = queryContest($contest['id']);
 				genMoreContestInfo($finished);
 				contestRevealProblems($finished);
+				DB::selectFirst("select release_lock('uoj_contest_publish_{$contest['id']}')", MYSQLI_NUM);
 			};
 			$publish_result_form->submit_button_config['class_str'] = 'btn btn-danger btn-block';
 			$publish_result_form->submit_button_config['smart_confirm'] = '';

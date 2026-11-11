@@ -142,5 +142,34 @@ class HackOfASubmissionTest(unittest.TestCase):
             self.assertNotIn(listed, client.get("/hacks?submission_id=%d" % submission_id).text)
 
 
+class PublishOnceTest(unittest.TestCase):
+    """Two people who pressed "公布成绩" at the same time each rated the contest: the second from
+    the ratings the first had made. Who publishes holds the lock of the contest, and looks again
+    whether it was published, holding it."""
+
+    def test_a_contest_is_published_by_one_request(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p27 公布", rule="ICPC", problems=str(problem_id), rated="on")
+        pupil = account("p27_publish_pupil")
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 60)
+        uoj.wait_submission(pupil.submit_in_contest(contest_id, problem_id, AB))
+        uoj.move_contest(contest_id, -7200, 60)
+        rating = db_value("select rating from user_info where username = 'p27_publish_pupil'")
+        # (another request publishing it: it holds the lock for a while)
+        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('uoj_contest_publish_%d', 0), sleep(8)" % contest_id)
+        uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('uoj_contest_publish_%d') is not null" % contest_id) == "1", timeout=30)
+        said = admin.post("/contest/%d" % contest_id, {"submit-publish_result": "publish_result"})
+        self.assertIn("正在公布", uoj.text_of(said.text))
+        self.assertEqual(db_value("select status from contests where id = %d" % contest_id), "unfinished")
+        self.assertEqual(db_value("select rating from user_info where username = 'p27_publish_pupil'"), rating)
+        # once it is let go, the contest is published, once
+        uoj.wait_until("the lock is let go", lambda: db_value("select is_used_lock('uoj_contest_publish_%d') is null" % contest_id) == "1", timeout=30)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        self.assertEqual(db_value("select status from contests where id = %d" % contest_id), "finished")
+        self.assertEqual(int(db_value("select count(*) from audit_logs where action = 'contest.publish_results' and resource_id = '%d'" % contest_id)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
