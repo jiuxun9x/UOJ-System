@@ -1,5 +1,6 @@
 """Phase 27: what a review of the whole site found, put right one by one."""
 
+import hashlib
 import json
 import re
 import time
@@ -263,6 +264,49 @@ class HackKeptUntilAddedTest(unittest.TestCase):
         self.assertEqual(uoj.wait_data_version(problem_id), "")
         self.assertIn("n_ex_tests 2", uoj.docker_exec(uoj.WEB, "cat /var/uoj_data/upload/%d/problem.conf" % problem_id))
         self.assertEqual(kept(hack_id), "gone")
+
+
+# stands for a judger: what it is sent to update, written down
+UPDATE_LISTENER = r"""<?php
+$_SERVER['DOCUMENT_ROOT'] = '/opt/uoj/web';
+require '/opt/uoj/web/app/libs/uoj-lib.php';
+$server = stream_socket_server('tcp://127.0.0.1:' . UOJConfig::$data['judger']['socket']['port']);
+touch('/tmp/p27_listening');
+$connection = stream_socket_accept($server, 60);
+file_put_contents('/tmp/p27_update', $connection ? stream_get_contents($connection) : '');
+"""
+
+
+class JudgerUpdateTest(unittest.TestCase):
+    """Any judging account, a disabled one among them, could tell every judger to download, build
+    and restart, as often as it liked; and the first judger that could not be reached kept the
+    ones after it from being told. Only an enabled main_judger tells them, and all of them are."""
+
+    def test_only_main_judger_tells_the_others_and_tells_them_all(self):
+        self.assertEqual(uoj.judge_api("/judge/sync-judge-client").status_code, 403)
+        password = "p27-main-judger-password"
+        saved = db("select judger_name, ip from judger_info where ip != ''")
+        db("update judger_info set ip = ''")
+        try:
+            db("insert into judger_info (judger_name, password, ip, enabled, note, created_by, created_at) values ('main_judger', 'sha256:%s', '', 0, 'p27', 'e2e', now())"
+               % hashlib.sha256(password.encode()).hexdigest())  # fmt: skip
+            main = {"judger_name": "main_judger", "password": password}
+            self.assertEqual(uoj.judge_api("/judge/sync-judge-client", auth=main).status_code, 403)
+            db("update judger_info set enabled = 1 where judger_name = 'main_judger'")
+            # one judger that can not be reached, then one that can
+            db("insert into judger_info (judger_name, password, ip, enabled, note, created_by, created_at) values ('p27_a_lost', 'x', '192.0.2.1', 0, '', 'e2e', now())")
+            db("insert into judger_info (judger_name, password, ip, enabled, note, created_by, created_at) values ('p27_b_here', 'x', '127.0.0.1', 0, '', 'e2e', now())")
+            uoj.docker_exec(uoj.WEB, "rm -f /tmp/p27_listening /tmp/p27_update")
+            uoj.run("docker", "exec", "-i", uoj.WEB, "sh", "-c", "cat > /tmp/p27_listener.php", stdin=UPDATE_LISTENER.encode())
+            uoj.run("docker", "exec", "-d", uoj.WEB, "php", "/tmp/p27_listener.php")
+            uoj.wait_until("the listener listens", lambda: uoj.docker_exec(uoj.WEB, "test -f /tmp/p27_listening && echo yes || true").strip() == "yes", timeout=30)
+            r = uoj.judge_api("/judge/sync-judge-client", auth=main)
+            self.assertEqual(r.text, "judge clients lost: 192.0.2.1")
+            uoj.wait_until("the judger is told", lambda: '"cmd":"update"' in uoj.docker_exec(uoj.WEB, "cat /tmp/p27_update 2>/dev/null || true"), timeout=30)
+        finally:
+            db("delete from judger_info where judger_name in ('main_judger', 'p27_a_lost', 'p27_b_here')")
+            for name, ip in saved:
+                db("update judger_info set ip = '%s' where judger_name = '%s'" % (ip, name))
 
 
 if __name__ == "__main__":
