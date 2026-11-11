@@ -798,16 +798,16 @@ int main() {
 UNRULY_KINDS = ["spin", "more", "flood", "folder", "stray", "fine"]
 
 
-def unruly_checker_problem_files():
+def unruly_checker_problem_files(kinds=UNRULY_KINDS):
     files = {
         "problem.conf": conf(
-            use_builtin_judger="on", multi_pass=3, n_tests=len(UNRULY_KINDS), n_ex_tests=0, n_sample_tests=0,
+            use_builtin_judger="on", multi_pass=3, n_tests=len(kinds), n_ex_tests=0, n_sample_tests=0,
             input_pre="input", input_suf="txt", output_pre="output", output_suf="txt",
             time_limit=1, memory_limit=256,
         ),  # fmt: skip
         "chk.cpp": UNRULY_CHECKER,
     }
-    for num, kind in enumerate(UNRULY_KINDS, start=1):
+    for num, kind in enumerate(kinds, start=1):
         files["input%d.txt" % num] = "%s %d\n" % (kind, 10 * num)
         files["output%d.txt" % num] = "\n"
     return files

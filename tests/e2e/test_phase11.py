@@ -333,7 +333,8 @@ class DomjudgePassesTest(unittest.TestCase):
         files["chk.cpp"] = DOMJUDGE_VALIDATOR.replace('return verdict(42, "pass 2 fine, after "', 'std::ofstream(dir + "nextpass.in") << x << "\\n";\n    return verdict(42, "pass 2 fine, after "')
         problem_id = admin.create_problem(files)
         j = uoj.wait_submission(admin.submit(problem_id, DOUBLING))
-        self.assertEqual(j.infos, ["Checker Judgment Failed"] * 2, j)
+        # (since phase 27 the judgement fails as a whole)
+        self.assertEqual((j.score, j.error), (None, "Judgment Failed"), j)
         self.assertIn("asked for another pass after pass 2", j.details)
 
 

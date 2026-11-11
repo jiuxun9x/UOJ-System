@@ -337,7 +337,8 @@ int main(int argc, char **argv) {
 
 class CheckerFailTest(unittest.TestCase):
     """A testlib checker that says FAIL (quitf(_fail, ...)) went wrong itself: the program it
-    judged was given a wrong answer for it."""
+    judged was given a wrong answer for it. (Since phase 27 the whole judgement fails: nothing is
+    scored, and the problem is put right and its submissions judged again.)"""
 
     @classmethod
     def setUpClass(cls):
@@ -346,9 +347,8 @@ class CheckerFailTest(unittest.TestCase):
 
     def test_a_checker_that_fails_is_a_judgment_failure(self):
         judgement = uoj.wait_submission(self.student.submit(self.problem_id, AB.replace('"%lld\\n", a + b', '"-1\\n"')))
-        self.assertEqual(judgement.score, 0, judgement)
-        self.assertTrue(judgement.infos, judgement)
-        self.assertEqual(set(judgement.infos), {"Checker Judgment Failed"}, judgement)
+        self.assertEqual((judgement.score, judgement.error), (None, "Judgment Failed"), judgement)
+        self.assertIn("Checker Judgment Failed", judgement.details)
         self.assertIn("this checker can not judge a negative sum", judgement.details)
 
     def test_a_wrong_answer_is_one_still(self):
@@ -376,7 +376,8 @@ class InteractorTimeTest(unittest.TestCase):
         files["interactor.cpp"] = SLOW_INTERACTOR
         problem_id = uoj.admin().create_problem(files)
         judgement = uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE))
-        self.assertEqual(set(judgement.infos), {"Interactor Judgment Failed"}, judgement)
+        # (since phase 27 the whole judgement fails)
+        self.assertEqual((judgement.score, judgement.error), (None, "Judgment Failed"), judgement)
         self.assertIn("Interactor Time Limit Exceeded", judgement.details)
 
     def test_a_program_the_interactor_waits_for_exceeds_the_time(self):

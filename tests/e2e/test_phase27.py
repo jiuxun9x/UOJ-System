@@ -8,7 +8,7 @@ import time
 import unittest
 
 import uoj
-from fixtures import AB, AB_HACKABLE, ab_problem_files
+from fixtures import AB, AB_HACKABLE, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
 from test_phase3 import account
 from test_phase25 import classroom, published_homework
 from test_phase4 import homework_form, homework_row, tick
@@ -419,6 +419,36 @@ class HomeworkRacesTest(unittest.TestCase):
         )  # fmt: skip
         self.assertEqual(said, "现在不能认领这个作业")
         self.assertEqual(db_value("select status from homework_participants where homework_id = %d and username = '%s'" % (homework_id, ann.username)), "removed")
+
+
+# a checker that goes wrong on a sum of 3
+FAILING_ON_3 = r"""
+#include "testlib.h"
+int main(int argc, char **argv) {
+    registerTestlibCmd(argc, argv);
+    long long expected = ans.readLong(), found = ouf.readLong();
+    if (expected == 3) {
+        quitf(_fail, "p27: this checker can not judge 3");
+    }
+    if (found != expected) {
+        quitf(_wa, "expected %lld, found %lld", expected, found);
+    }
+    quitf(_ok, "fine");
+}
+"""
+
+
+class JudgeSideFailureTest(unittest.TestCase):
+    """A checker, an interactor or a validator that went wrong itself gave the program it judged a
+    zero on that test, and a total that was a score like any other. The judgement fails now, as a
+    whole, and says why."""
+
+    def test_a_checker_that_fails_fails_the_judgement(self):
+        problem_id = uoj.admin().create_problem(checker_problem_files(FAILING_ON_3))
+        j = uoj.wait_submission(uoj.admin().submit(problem_id, AB))
+        self.assertEqual((j.score, j.error), (None, "Judgment Failed"), j)
+        self.assertIn("Test #1", j.details)
+        self.assertIn("p27: this checker can not judge 3", j.details)
 
 
 if __name__ == "__main__":

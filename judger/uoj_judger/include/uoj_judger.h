@@ -1941,7 +1941,33 @@ PointInfo test_polygon_run_twice_point(const string &name, const int &num,
     return shown.point(num, chk_ret.scr, ust, usm, "default", chk_ret.info);
 }
 
+// Whether a point says that a program of the problem went wrong itself - its checker, its
+// interactor, its validator or its standard program crashed, ran out of time or said FAIL - so
+// that nothing is known of the program that was judged.
+inline bool judge_side_failed(const PointInfo &po) {
+    for (const char *who : {"Checker ", "Interactor ", "Validator ", "Standard Program "}) {
+        if (po.info.rfind(who, 0) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+PointInfo test_point_as_it_is(const string &name, const int &num, TestPointConfig tpc);
+
+// A test of the program. Where a program of the problem went wrong itself on it, the judgement
+// ends there: Judgment Failed, with what went wrong, and nothing is scored. (A zero on that test
+// put the fault of the problem on the program; the people of the problem judge it again once
+// they put it right.)
 PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = TestPointConfig()) {
+    PointInfo po = test_point_as_it_is(name, num, tpc);
+    if (judge_side_failed(po)) {
+        end_judge_judgement_failed("Test #" + vtos(num) + ": " + (po.res.empty() ? po.info : po.info + ": " + po.res));
+    }
+    return po;
+}
+
+PointInfo test_point_as_it_is(const string &name, const int &num, TestPointConfig tpc) {
     tpc.auto_complete(num);
 
     if (tpc.validate_input_before_test) {
@@ -2045,12 +2071,7 @@ PointInfo test_point(const string &name, const int &num, TestPointConfig tpc = T
 // known of the hacked program: the judgement failed, and the hack neither succeeded nor failed
 // (J03: a checker that said FAIL, or crashed, made a hack that succeeded).
 inline bool hack_judgement_failed(const PointInfo &po) {
-    for (const char *who : {"Checker ", "Interactor ", "Validator ", "Standard Program "}) {
-        if (po.info.rfind(who, 0) == 0) {
-            return true;
-        }
-    }
-    return false;
+    return judge_side_failed(po);
 }
 
 PointInfo test_hack_point(const string &name, TestPointConfig tpc) {

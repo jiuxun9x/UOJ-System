@@ -129,8 +129,9 @@ class MultiPassTest(unittest.TestCase):
     def test_checker_that_asks_for_more_passes_than_allowed_is_wrong_itself(self):
         problem_id = self.admin.create_problem(steps_problem_files(passes=2))
         j = uoj.wait_submission(self.admin.submit(problem_id, STEPS))
-        # the test that needs three passes fails for the checker, not for the program
-        self.assertEqual(j.infos, ["Checker Judgment Failed", "Accepted", "Accepted"], j)
+        # the test that needs three passes fails for the checker, not for the program: the
+        # judgement fails (since phase 27, as a whole)
+        self.assertEqual((j.score, j.error), (None, "Judgment Failed"), j)
         self.assertIn("asked for another pass after pass 2", j.details)
 
     def test_multi_pass_problem_is_what_it_can_be(self):
@@ -213,31 +214,32 @@ class JudgerIsLeftCleanTest(unittest.TestCase):
         # and the judgers go on judging
         self.assertEqual(uoj.wait_submission(self.admin.submit(problem_id, messages_solution())).score, 100)
 
-    def test_checker_that_misbehaves_ends_its_test_and_nothing_else(self):
-        problem_id = self.admin.create_problem(unruly_checker_problem_files())
-        j = uoj.wait_submission(self.admin.submit(problem_id, UNRULY))
-        expected = {
+    def test_checker_that_misbehaves_fails_the_judgement(self):
+        # (Since phase 27 a checker that goes wrong fails the whole judgement, which says how:
+        # it was a test of its own that failed, and the tests after it were judged.)
+        said = {
             "spin": "Checker Time Limit Exceeded",
             # asks for a fourth pass of three
-            "more": "Checker Judgment Failed",
+            "more": "asked for another pass after pass 3",
             # the input of a pass is no larger than a checker may write
             "flood": "Checker Output Limit Exceeded",
             # A checker may change its own folder as it likes, as on Hydro: a file of its own is
             # its own business. The input of the next pass has to be a plain file, though.
-            "folder": "Checker Judgment Failed",
-            "stray": "Accepted",
-            "fine": "Accepted",
+            "folder": "nextpass.in of the checker is not a plain file",
         }
-        self.assertEqual(j.infos, [expected[kind] for kind in UNRULY_KINDS], j)
-        self.assertIn("nextpass.in of the checker is not a plain file", j.details)
-        self.assertIn("asked for another pass after pass 3", j.details)
-        self.assertIn("3 passes", j.details)
-        # the 64 megabytes that the checker wrote are gone with the test they were written in
+        for kind, words in said.items():
+            problem_id = self.admin.create_problem(unruly_checker_problem_files([kind, "fine"]))
+            j = uoj.wait_submission(self.admin.submit(problem_id, UNRULY))
+            self.assertEqual((j.score, j.error), (None, "Judgment Failed"), (kind, j))
+            self.assertIn(words, j.details, kind)
+        problem_id = self.admin.create_problem(unruly_checker_problem_files(["stray", "fine"]))
+        j = uoj.wait_submission(self.admin.submit(problem_id, UNRULY))
+        self.assertEqual((j.score, j.infos), (100, ["Accepted"] * 2), j)
+        # the 64 megabytes that the checker wrote are gone with the judgement they were written in
         self.assert_nothing_is_left()
         for judger in uoj.JUDGERS:
             megabytes = int(docker_exec(judger, "du -sm /opt/uoj_judger/uoj_judger/result | cut -f1"))
             self.assertLess(megabytes, 8, judger)
-        self.assertEqual(uoj.wait_submission(self.admin.submit(problem_id, UNRULY)).infos, j.infos)
 
     def test_judger_that_hangs_is_killed_with_all_that_it_started(self):
         # The judger of this problem never ends, and it has started a process that left its
