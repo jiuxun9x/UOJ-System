@@ -352,11 +352,15 @@ class VirtualOfItsOwnTest(unittest.TestCase):
         self.assertEqual(len(virtual_cells(sat, cat.username)), 1)
 
 
-def hold_homework_lock(homework_id, seconds):
-    """hold the lock of a homework, as a settling of it holds it, for some seconds"""
-    name = "uoj_homework_%d" % homework_id
+def hold_lock(name, seconds):
+    """hold a lock of the site by its name for some seconds, as whoever holds it does"""
     uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('%s', 0), sleep(%d)" % (name, seconds))
     uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('%s') is not null" % name) == "1", timeout=30)
+
+
+def hold_homework_lock(homework_id, seconds):
+    """hold the lock of a homework, as a settling of it holds it, for some seconds"""
+    hold_lock("uoj_homework_%d" % homework_id, seconds)
 
 
 class HomeworkRacesTest(unittest.TestCase):
@@ -654,8 +658,7 @@ class AttachmentReplacedTest(unittest.TestCase):
         self.assertEqual(attach(admin, page, [("notes.txt", b"first\n")]), "")
         attachment_id = attachments_of("problem", problem_id)["notes.txt"][0]
         name = "uoj_attachment_%d" % attachment_id
-        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('%s', 0), sleep(4)" % name)
-        uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('%s') is not null" % name) == "1", timeout=30)
+        hold_lock(name, 4)
         said = []
         threads = [threading.Thread(target=lambda content=content: said.append(attach(admin, page, [("notes.txt", content)]))) for content in (b"second\n", b"third\n")]
         started = time.time()
@@ -783,8 +786,7 @@ class OneCopyTest(unittest.TestCase):
         other = account("p27_onecopy_co")
         self.assertEqual(member_form(teacher, slug, "add", username=other.username, role="teacher"), "")
         name = "uoj_domain_copy_%d_%d" % (did, public)
-        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('%s', 0), sleep(4)" % name)
-        uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('%s') is not null" % name) == "1", timeout=30)
+        hold_lock(name, 4)
         said = []
         threads = [threading.Thread(target=lambda n=n, client=client: said.append(client.form("/d/%s/homework/new" % slug, "save", **homework_settings(
             title="p27 同时选题 %d" % n, problem_id="s%d" % public, score="100", after="draft")))) for n, client in enumerate((teacher, other))]  # fmt: skip
@@ -806,15 +808,16 @@ class TagsSavedAtOnceTest(unittest.TestCase):
         admin, manager = uoj.admin(), uoj.manager()
         problem_id = admin.create_problem(ab_problem_files())
         db("insert ignore into problems_permissions (problem_id, username) values (%d, '%s')" % (problem_id, manager.username))
-        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e",
-                "start transaction; select id from problems where id = %d for update; select get_lock('p27_tags', 0); select sleep(3); commit;" % problem_id)  # fmt: skip
-        uoj.wait_until("the row is held", lambda: db_value("select is_used_lock('p27_tags') is not null") == "1", timeout=30)
+        # (its tables know no transactions: the two are held at the lock of the problem, and let go at once)
+        hold_lock("uoj_problem_%d" % problem_id, 4)
+        started = time.time()
         threads = [threading.Thread(target=lambda client=client, tags=tags: save_statement(client, problem_id, "p27 题面", title="p27 标签", tags=tags))
                    for client, tags in ((admin, "p27甲,p27乙"), (manager, "p27丙,p27丁"))]  # fmt: skip
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(60)
+        self.assertGreater(time.time() - started, 1.5)
         tags = sorted(row[0] for row in db("select tag from problems_tags where problem_id = %d" % problem_id))
         self.assertIn(tags, (["p27乙", "p27甲"], ["p27丁", "p27丙"]))
 

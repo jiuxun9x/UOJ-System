@@ -27,7 +27,7 @@ function problemSetHidden($problem_id, $hidden) {
 }
 // Who puts a problem into a contest, a homework or a training, and who deletes it, hold its lock:
 // a problem found used by nothing and deleted was put somewhere meanwhile, which was left with a
-// problem that was gone. $fun runs while the problem is there; $failed is returned where it is
+// problem that was gone. Who puts its tags in place holds it too. $fun runs while the problem is there; $failed is returned where it is
 // not, or where the lock was not had.
 function problemWithLock($problem_id, $fun, $failed = '这道题已经不存在了') {
 	$name = 'uoj_problem_' . (int)$problem_id;

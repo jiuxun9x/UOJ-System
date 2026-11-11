@@ -94,17 +94,22 @@
 			return array('extra' => '题面没有保存下来：数据库拒绝了这次写入。请把内容复制到别处留底，然后再试一次。');
 		}
 		
+		$tags_failed = null;
 		if ($data['tags'] !== $problem_tags) {
-			// put in place at once, holding the row of the problem: two who saved at once each took
-			// the tags away and each put theirs, and the problem had the tags of both
-			DB::transaction(function() use ($problem, $data) {
-				DB::selectFirst("select id from problems where id = {$problem['id']} for update");
+			// put in place under the lock of the problem: two who saved at once each took the tags
+			// away and each put theirs, and the problem had the tags of both (its tables know no
+			// transactions, so a row held in one holds nothing)
+			$tags_failed = problemWithLock($problem['id'], function() use ($problem, $data) {
 				DB::delete("delete from problems_tags where problem_id = {$problem['id']}");
 				foreach ($data['tags'] as $tag) {
 					DB::insert("insert into problems_tags (problem_id, tag) values ({$problem['id']}, '".DB::escape($tag)."')");
 				}
-				return true;
-			});
+				return null;
+			}, '标签没有保存下来：有人正在改这道题，请稍后再保存一次。');
+			if ($tags_failed !== null) {
+				// what is written down is what the problem has
+				$after['tags'] = queryProblemTags($problem['id']);
+			}
 		}
 		if ($data['is_hidden'] != $problem['is_hidden'] ) {
 			problemSetHidden($problem['id'], $data['is_hidden']);
@@ -124,7 +129,7 @@
 		if (!$written) {
 			auditLog('problem.edit_statement', 'problem', $problem['id'], $before, $after);
 		}
-		return array();
+		return $tags_failed !== null ? array('extra' => $tags_failed) : array();
 	};
 	
 	$problem_editor->runAtServer();
