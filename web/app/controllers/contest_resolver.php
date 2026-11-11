@@ -54,7 +54,8 @@
 	$data['duration'] = (int)$contest['last_min'] * 60;
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 滚榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-resolver.css?v=1') ?>
+<?= HTML::css_link('/fonts/roboto/roboto.css?v=1') ?>
+<?= HTML::css_link('/css/uoj-resolver.css?v=2') ?>
 <div class="uoj-rs" id="resolver" data-contest="/contest/<?= $contest['id'] ?>" style="--rs-problems: <?= count($data['problems']) ?>">
 	<div class="uoj-rs-bar" id="resolver-bar">
 		<div class="uoj-rs-state">

@@ -50,7 +50,8 @@
 	}
 ?>
 <?php echoUOJPageHeader(HTML::stripTags($contest['name']) . ' - 外榜', array('ShowPageHeader' => false)) ?>
-<?= HTML::css_link('/css/uoj-board.css?v=9') ?>
+<?= HTML::css_link('/fonts/roboto/roboto.css?v=1') ?>
+<?= HTML::css_link('/css/uoj-board.css?v=10') ?>
 <div class="uoj-ob" id="outer-board" data-url="<?= $here ?>?<?= HTML::escape($asked) ?>" data-here="<?= $here ?>" data-me="<?= Auth::check() ? Auth::id() : '' ?>" data-contest="/contest/<?= $contest['id'] ?>">
 	<div class="uoj-ob-top">
 		<h1 class="uoj-ob-title" id="outer-board-title"><?= HTML::escape($state['name']) ?></h1>

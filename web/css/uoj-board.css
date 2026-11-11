@@ -31,6 +31,8 @@
 	width: 98vw;
 	margin: 0.75rem calc(50% - 49vw) 2rem;
 	color: var(--ob-fg);
+	/* in the font of the scoreboard of DOMjudge (/fonts/roboto), Chinese in a Chinese sans-serif */
+	font-family: Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", sans-serif;
 	text-align: center;
 }
 body.uoj-ob-dark-page {
