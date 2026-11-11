@@ -497,8 +497,9 @@ function homeworkSave($domain, $homework, $input, $actor) {
 		return array($id, '');
 	}
 	// A homework whose end is moved into the future is open again: it is settled anew when
-	// the new end comes. The snapshots it has stay as they are.
-	if ($homework['settle_state'] !== 'open' && strtotime($settings['end_at']) > homeworkNow()) {
+	// the new end comes. The snapshots it has stay as they are. (Whatever the page read of it:
+	// it may have been settled since, and stayed settled with an end to come.)
+	if (strtotime($settings['end_at']) > homeworkNow()) {
 		$set .= ", settle_state = 'open', settle_waiting_since = null";
 	}
 	DB::update("update homeworks set $set where id = {$homework['id']}");

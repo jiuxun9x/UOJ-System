@@ -3,13 +3,15 @@
 import hashlib
 import json
 import re
+import threading
 import time
 import unittest
 
 import uoj
 from fixtures import AB, AB_HACKABLE, ab_problem_files
 from test_phase3 import account
-from test_phase25 import classroom
+from test_phase25 import classroom, published_homework
+from test_phase4 import homework_form, homework_row, tick
 from uoj import db, db_value
 
 
@@ -342,6 +344,35 @@ class VirtualOfItsOwnTest(unittest.TestCase):
         self.assertEqual(uoj.wait_submission(here).score, 100)
         self.assertIn('href="/submission/%d"' % here, cat.get("/contest/%d/submissions?mine=1" % sat).text)
         self.assertEqual(len(virtual_cells(sat, cat.username)), 1)
+
+
+def hold_homework_lock(homework_id, seconds):
+    """hold the lock of a homework, as a settling of it holds it, for some seconds"""
+    name = "uoj_homework_%d" % homework_id
+    uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('%s', 0), sleep(%d)" % (name, seconds))
+    uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('%s') is not null" % name) == "1", timeout=30)
+
+
+class HomeworkRacesTest(unittest.TestCase):
+    """What a homework is, and who takes part in it, was decided on what a request read when it
+    began: a settling in between was undone, or taken in, wrongly."""
+
+    def test_a_new_end_opens_a_homework_settled_meanwhile(self):
+        # The end moved on, on a page read before the homework was settled: it was saved with
+        # the new end, settled still, and never settled again.
+        slug, teacher, _, problem_id = classroom("p27_hw_end")
+        homework_id = published_homework(teacher, slug, problem_id, title="p27 延期")
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+        tick()
+        self.assertEqual(homework_row(homework_id, "settle_state")[0], "settled")
+        said = uoj.php(
+            "$h = queryHomework(%d); $h['settle_state'] = 'open';"
+            " $input = array('title' => 'p27 延期', 'description_md' => '', 'begin_at' => '%s', 'end_at' => '%s', 'claim_end_at' => '', 'allow_withdraw' => 'on');"
+            " list($id, $err) = homeworkSave(queryDomain($h['domain_id']), $h, $input, queryUser('%s')); echo $err;"
+            % (homework_id, uoj.web_time(-86400), uoj.web_time(86400), teacher.username)
+        )  # fmt: skip
+        self.assertEqual(said, "")
+        self.assertEqual(homework_row(homework_id, "settle_state")[0], "open")
 
 
 if __name__ == "__main__":
