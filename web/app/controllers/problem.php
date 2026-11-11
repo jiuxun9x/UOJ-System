@@ -190,8 +190,21 @@
 			$is_virtual = $running_virtual ? 1 : 0;
 			DB::query("insert into submissions (problem_id, domain_id, practice_contest_id, is_virtual, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, {$contest['id']}, $is_virtual, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
 		} elseif ($is_in_homework) {
-			// who sees it is decided by the homework, not by whether the problem is hidden
-			DB::query("insert into submissions (problem_id, domain_id, homework_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, {$homework['id']}, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
+			// Who sees it is decided by the homework, not by whether the problem is hidden. It goes
+			// in holding the lock of the homework, which settling holds: what comes in before the
+			// homework is settled is waited for, and what comes in after it was, from before its
+			// end, is of the scores no more, and is a correction as of now.
+			$insert = function() use ($problem, $domain_id, $homework, $submit_time, $myUser, $esc_content, $esc_language, $tot_size, $result, $result_json) {
+				$time = $submit_time;
+				$settled = queryHomework($homework['id']);
+				if ($settled && $settled['settle_state'] === 'settled' && strtotime($time) < strtotime($settled['end_at'])) {
+					$time = date('Y-m-d H:i:s');
+				}
+				DB::query("insert into submissions (problem_id, domain_id, homework_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, {$homework['id']}, '$time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', 0)");
+			};
+			if (!homeworkWithLock($homework['id'], $insert, 10)) {
+				$insert();
+			}
 		} else {
 			DB::query("insert into submissions (problem_id, domain_id, submit_time, submitter, content, language, tot_size, status, result, is_hidden) values ({$problem['id']}, $domain_id, '$submit_time', '{$myUser['username']}', '$esc_content', '$esc_language', $tot_size, '{$result['status']}', '$result_json', {$problem['is_hidden']})");
 		}

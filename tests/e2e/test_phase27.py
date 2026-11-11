@@ -388,6 +388,25 @@ class HomeworkRacesTest(unittest.TestCase):
         self.assertGreaterEqual(time.time() - started, 3)
         self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d and reason = 'p27'" % homework_id), "1")
 
+    def test_what_comes_in_after_the_settling_is_a_correction(self):
+        # Submitted before the end, and written down after the homework was settled: it was a
+        # submission of before the end that the scores did not have, and nobody waited for.
+        slug, teacher, (ann,), problem_id = classroom("p27_hw_late", ("ann",))
+        homework_id = published_homework(teacher, slug, problem_id, title="p27 截止边上")
+        here = "/d/%s/homework/%d" % (slug, homework_id)
+        self.assertEqual(ann.form(here, "claim"), "")
+        hold_homework_lock(homework_id, 6)
+        sent = []
+        submitting = threading.Thread(target=lambda: sent.append(ann.submit(problem_id, AB, path="%s/problem/%d" % (here, uoj.pid(problem_id)))))
+        submitting.start()
+        time.sleep(2)
+        # the end comes, and the homework is settled, while the submission waits to be written down
+        db("update homeworks set end_at = '%s', settle_state = 'settled' where id = %d" % (uoj.web_time(0), homework_id))
+        submitting.join(60)
+        self.assertEqual(len(sent), 1)
+        late = db_value("select submit_time >= (select end_at from homeworks where id = %d) from submissions where id = %d" % (homework_id, sent[0]))
+        self.assertEqual(late, "1")
+
 
 if __name__ == "__main__":
     unittest.main()
