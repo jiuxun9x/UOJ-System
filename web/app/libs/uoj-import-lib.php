@@ -824,28 +824,50 @@ function importUnpack($zip_path, $dir, $limits) {
 			$zip->close();
 			return "无法创建目录 " . dirname($name);
 		}
+		$stat = $zip->statName($name);
 		$in = $zip->getStream($name);
-		$out = $in ? fopen($path, 'wb') : false;
+		$out = $in && $stat ? fopen($path, 'wb') : false;
 		if (!$in || !$out) {
 			$zip->close();
 			return "解压 $name 失败";
 		}
+		// A file that is broken inside, or cut short, or that could not be written, is no file
+		// of the problem, as an upload has it: it was imported as far as it read, and was said
+		// to have been imported.
+		$crc = hash_init('crc32b');
+		$file_bytes = 0;
+		$whole = true;
 		while (!feof($in)) {
 			$chunk = fread($in, 1048576);
 			if ($chunk === false) {
+				$whole = false;
 				break;
 			}
 			$budget -= strlen($chunk);
+			$file_bytes += strlen($chunk);
 			if ($budget < 0) {
 				fclose($in);
 				fclose($out);
 				$zip->close();
 				return '解压时超过了大小上限，压缩包里记录的大小不真实';
 			}
-			fwrite($out, $chunk);
+			hash_update($crc, $chunk);
+			if ($chunk !== '' && fwrite($out, $chunk) !== strlen($chunk)) {
+				fclose($in);
+				fclose($out);
+				$zip->close();
+				return "写入 $name 失败，可能是磁盘满了";
+			}
 		}
 		fclose($in);
-		fclose($out);
+		if (!fclose($out)) {
+			$zip->close();
+			return "写入 $name 失败，可能是磁盘满了";
+		}
+		if (!$whole || $file_bytes !== (int)$stat['size'] || hash_final($crc) !== sprintf('%08x', $stat['crc'] & 0xffffffff)) {
+			$zip->close();
+			return "解压 $name 失败：压缩包里的这个文件已经损坏";
+		}
 	}
 	$zip->close();
 	return '';

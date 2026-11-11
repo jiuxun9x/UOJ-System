@@ -1,11 +1,13 @@
 """Phase 27: what a review of the whole site found, put right one by one."""
 
 import hashlib
+import io
 import json
 import re
 import threading
 import time
 import unittest
+import zipfile
 
 import uoj
 from fixtures import AB, AB_HACKABLE, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
@@ -742,6 +744,25 @@ class ImportLimitsTest(unittest.TestCase):
         made, page = import_files(admin, "/problems/import", [("p27.zip", uoj.make_zip(files))])
         self.assertEqual(made, [])
         self.assertIn("超过了一道题的上限（5000 个文件", uoj.text_of(page))
+        self.assertEqual(db_value("select count(*) from problems"), before)
+
+
+class BrokenPackageTest(unittest.TestCase):
+    """A file of a package that was broken inside was imported as far as it read, and the import
+    was said to have gone through: its sum and its length were not looked at, as an upload's are."""
+
+    def test_a_broken_file_of_a_package_is_not_imported(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
+            zf.writestr("p27/problem.yaml", "title: p27 坏的包\n")
+            zf.writestr("p27/problem_zh.md", "## 题目描述\n\n求和。\n")
+            zf.writestr("p27/testdata/1.in", "p27-broken-input\n")
+            zf.writestr("p27/testdata/1.out", "3\n")
+        broken = buffer.getvalue().replace(b"p27-broken-input", b"p27-broken-INPUT")
+        before = db_value("select count(*) from problems")
+        made, page = import_files(uoj.admin(), "/problems/import", [("p27-broken.zip", broken)])
+        self.assertEqual(made, [])
+        self.assertIn("压缩包里的这个文件已经损坏", uoj.text_of(page))
         self.assertEqual(db_value("select count(*) from problems"), before)
 
 
