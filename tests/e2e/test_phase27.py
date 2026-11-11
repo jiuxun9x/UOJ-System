@@ -9,6 +9,7 @@ import unittest
 
 import uoj
 from fixtures import AB, AB_HACKABLE, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
+from test_phase13 import browser_with, who
 from test_phase3 import account
 from test_phase25 import classroom, published_homework
 from test_phase4 import homework_form, homework_row, tick
@@ -563,6 +564,30 @@ class DomainContestStaffTest(unittest.TestCase):
         # joined as a student, a student they are
         self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username=stranger.username, role="member"), "")
         self.assertNotEqual(stranger.get("/contest/%d/manage" % contest_id).status_code, 200)
+
+
+class RenameRememberedTest(unittest.TestCase):
+    """A user who renamed themselves was given a second remembered login on the device they did it
+    on, and the first, renamed with them, was kept: logging out forgot the second, and the first
+    still logged in whoever had it. And another device that was logged in under the old name kept
+    its session of a name that was no more, which kept it out for good, remembered login or not."""
+
+    def test_a_rename_keeps_the_logins_as_they_were(self):
+        here, there = uoj.Client(), uoj.Client()
+        here.register("p27_rename_old", "p27-rename-password")
+        here.login("p27_rename_old", "p27-rename-password")
+        there.login("p27_rename_old", "p27-rename-password")
+        remembered = {k: v for k, v in here.http.cookies.get_dict().items() if k != "UOJSESSID"}
+        self.assertEqual(here.update_profile(username="p27_rename_new"), "ok")
+        self.assertEqual(db_value("select count(*) from user_remember_tokens where username = 'p27_rename_new'"), "2")
+        self.assertEqual(who(here), "p27_rename_new")
+        # the other device goes on, under the new name
+        self.assertEqual(who(there), "p27_rename_new")
+        # this one logs out: what it remembered is forgotten
+        here.get("/logout?_token=" + here.token)
+        self.assertIsNone(who(here))
+        self.assertIsNone(who(browser_with(remembered)))
+        self.assertEqual(db_value("select count(*) from user_remember_tokens where username = 'p27_rename_new'"), "1")
 
 
 if __name__ == "__main__":

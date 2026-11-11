@@ -31,6 +31,14 @@ class Auth {
 			Cookie::safeSet('uoj_remember_token', $remember_token, $expire, '/', array('httponly' => true));
 		}
 	}
+	// What a device that remembers a login says it is of, once its user was renamed: the token
+	// is the same, and was renamed with them (see applyUserRename()).
+	public static function rememberedUnder($username) {
+		$remember_token = Cookie::safeGet('uoj_remember_token', '/');
+		if (is_string($remember_token) && $remember_token !== '') {
+			Cookie::safeSet('uoj_username', $username, time() + 60 * 60 * 24 * 365 * 10, '/', array('httponly' => true));
+		}
+	}
 	public static function tokenHash($token) {
 		return hash('sha256', $token);
 	}
@@ -66,8 +74,16 @@ class Auth {
 				$myUser = null;
 				$_SESSION = array();
 				Session::renew();
+				return;
 			}
-			return;
+			if ($myUser) {
+				return;
+			}
+			// A session of a name that is no more: its user was renamed, on another device or by
+			// somebody else. It is let go, and the login this device remembers, which was renamed
+			// with them, is what it is: the session kept the device out for good.
+			$_SESSION = array();
+			Session::renew();
 		}
 
 		$remember_token = Cookie::safeGet('uoj_remember_token', '/');

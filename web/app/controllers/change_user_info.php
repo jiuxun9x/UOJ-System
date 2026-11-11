@@ -89,7 +89,11 @@
 			if ($err !== '') {
 				return "失败：{$err}。";
 			}
-			Auth::login($new_username);
+			// This device goes on under the new name, with the login it remembers, which was
+			// renamed with the user: it was given a second, and logging out forgot that one, while
+			// the first was good still.
+			Auth::login($new_username, false);
+			Auth::rememberedUnder($new_username);
 		}
 		
 		return "ok";
