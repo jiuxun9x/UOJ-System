@@ -1614,6 +1614,25 @@ function importCreate($package, $actor, $domain, $public) {
 	if ($err !== '') {
 		return array(null, $notes, $err);
 	}
+	// The data of a problem is held to the limits of one, as an upload of it is: the package was
+	// held to four times them, for a package of several problems, and a package of one went up
+	// to four times the files and the size an upload may have.
+	$limits = uploadLimits();
+	$n_files = count($package['data']) + 2 * count($package['samples']);
+	$n_bytes = 0;
+	foreach ($package['data'] as $path) {
+		$n_bytes += (int)@filesize($path);
+	}
+	foreach ($package['samples'] as $sample) {
+		foreach ($sample as $name) {
+			if ($name !== null && isset($package['data'][$name])) {
+				$n_bytes += (int)@filesize($package['data'][$name]);
+			}
+		}
+	}
+	if ($n_files > $limits['files'] || $n_bytes > $limits['bytes']) {
+		return array(null, $notes, "这道题的数据有 $n_files 个文件、" . uploadMegabytes($n_bytes) . " MB，超过了一道题的上限（{$limits['files']} 个文件、" . uploadMegabytes($limits['bytes']) . " MB）");
+	}
 	$settings = $package['settings'] + problemDefaultSettings();
 	$id = problemCreateWithBasics($basics, $actor, $domain);
 	if ($id === null) {

@@ -11,6 +11,7 @@ import uoj
 from fixtures import AB, AB_HACKABLE, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
 from test_phase13 import browser_with, who
 from test_phase3 import account
+from test_phase9 import import_files
 from test_phase25 import classroom, published_homework
 from test_phase4 import homework_form, homework_row, tick
 from test_phase6 import attach, attachments_of
@@ -724,6 +725,24 @@ class RatingHistoryTest(unittest.TestCase):
             self.assertEqual(after - change, rating, history)
             rating = after
         self.assertEqual(rating, int(db_value("select rating from user_info where username = '%s'" % winner.username)))
+
+
+class ImportLimitsTest(unittest.TestCase):
+    """A package that is imported is held to four times the limits of the data of a problem, for a
+    package of several problems: a package of one problem brought it four times the files and the
+    size an upload of its data may have. Each problem is held to the limits of one."""
+
+    def test_a_problem_of_a_package_is_held_to_the_limits_of_one(self):
+        admin = uoj.admin()
+        files = {"p27/problem.yaml": "title: p27 太多文件\n", "p27/problem_zh.md": "## 题目描述\n\n求和。\n"}
+        for n in range(1, 2502):
+            files["p27/testdata/%d.in" % n] = "1 2\n"
+            files["p27/testdata/%d.out" % n] = "3\n"
+        before = db_value("select count(*) from problems")
+        made, page = import_files(admin, "/problems/import", [("p27.zip", uoj.make_zip(files))])
+        self.assertEqual(made, [])
+        self.assertIn("超过了一道题的上限（5000 个文件", uoj.text_of(page))
+        self.assertEqual(db_value("select count(*) from problems"), before)
 
 
 if __name__ == "__main__":
