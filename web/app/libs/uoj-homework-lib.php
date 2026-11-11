@@ -116,17 +116,19 @@ function homeworkDescribePenalty($homework) {
 	$span = function($hours) {
 		return $hours > 0 && fmod($hours, 24) == 0 ? homeworkTrimNumber($hours / 24) . ' 天' : homeworkTrimNumber($hours) . ' 小时';
 	};
+	// A stretch begins where its rule says, and takes in its beginning: a submission exactly a
+	// day late is of "1 天起". (It read "超过 1 天" and "不超过 1 天", and was of neither.)
 	if (!$rules || $rules[0]['after_hours'] > 0) {
-		$lines[] = '迟交' . ($rules ? '不超过 ' . $span($rules[0]['after_hours']) : '') . '：按 100% 计分';
+		$lines[] = '迟交' . ($rules ? '不到 ' . $span($rules[0]['after_hours']) : '') . '：按 100% 计分';
 	}
 	foreach ($rules as $index => $rule) {
 		$percent = homeworkTrimNumber($rule['multiplier'] * 100) . '%';
 		if (isset($rules[$index + 1]) && $rule['after_hours'] == 0) {
-			$lines[] = '迟交不超过 ' . $span($rules[$index + 1]['after_hours']) . "：按 {$percent} 计分";
+			$lines[] = '迟交不到 ' . $span($rules[$index + 1]['after_hours']) . "：按 {$percent} 计分";
 		} elseif (isset($rules[$index + 1])) {
-			$lines[] = '迟交 ' . $span($rule['after_hours']) . ' 到 ' . $span($rules[$index + 1]['after_hours']) . "：按 {$percent} 计分";
+			$lines[] = '迟交 ' . $span($rule['after_hours']) . '及以上、不到 ' . $span($rules[$index + 1]['after_hours']) . "：按 {$percent} 计分";
 		} else {
-			$lines[] = '迟交' . ($rule['after_hours'] > 0 ? '超过 ' . $span($rule['after_hours']) : '') . "：按 {$percent} 计分";
+			$lines[] = '迟交' . ($rule['after_hours'] > 0 ? ' ' . $span($rule['after_hours']) . '及以上' : '') . "：按 {$percent} 计分";
 		}
 	}
 	$lines[] = substr($homework['end_at'], 0, 16) . ' 后提交：不计入正式成绩';

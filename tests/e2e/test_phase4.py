@@ -1067,8 +1067,8 @@ class HomeworkTest(unittest.TestCase):
                          [{"after_hours": 0, "multiplier": 0.8}, {"after_hours": 24, "multiplier": 0.5}])  # fmt: skip
         self.assertEqual(homework_row(homework_id, "status, settle_state"), ["draft", "open"])
         rules = uoj.text_of(teacher.get(self.url(homework_id)).text)
-        self.assertIn("迟交不超过 1 天：按 80% 计分", rules)
-        self.assertIn("迟交超过 1 天：按 50% 计分", rules)
+        self.assertIn("迟交不到 1 天：按 80% 计分", rules)
+        self.assertIn("迟交 1 天及以上：按 50% 计分", rules)
         # a homework that can not be handed in late has no steps
         strict = new_homework(teacher, slug, title="p4 不许迟交", allow_late="")
         self.assertEqual(homework_row(strict, "ifnull(penalty_since, 'NULL'), penalty_rules"), ["NULL", "[]"])

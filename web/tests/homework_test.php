@@ -32,6 +32,8 @@ check_same(1.0, homeworkMultiplier($homework, $at('2026-10-09 23:59:59')), 'the 
 check_same(0.8, homeworkMultiplier($homework, $at('2026-10-10 00:00:00')), 'the first second late');
 check_same(0.8, homeworkMultiplier($homework, $at('2026-10-10 23:59:59')), 'not yet a day late');
 check_same(0.6, homeworkMultiplier($homework, $at('2026-10-11 00:00:00')), 'a day late');
+// and the words say so: a stretch takes in its beginning, exactly a day late is of "1 天及以上"
+check_same(true, in_array('迟交 1 天及以上：按 60% 计分', homeworkDescribePenalty($homework), true), 'the words of exactly a day late');
 check_same(null, homeworkMultiplier($homework, $at('2026-10-12 00:00:00')), 'after the end');
 check_same(1.0, homeworkMultiplier(array('penalty_since' => null) + $homework, $at('2026-10-11 12:00:00')), 'without a penalty period');
 // rules that start later leave the time before them unpunished
@@ -75,12 +77,12 @@ check_same(
 );
 // and is told to the students in words
 check_same(
-	array('2026-10-10 00:00 前提交：按 100% 计分', '迟交不超过 1 天：按 80% 计分', '迟交超过 1 天：按 60% 计分', '2026-10-12 00:00 后提交：不计入正式成绩'),
+	array('2026-10-10 00:00 前提交：按 100% 计分', '迟交不到 1 天：按 80% 计分', '迟交 1 天及以上：按 60% 计分', '2026-10-12 00:00 后提交：不计入正式成绩'),
 	homeworkDescribePenalty($homework),
 	'the penalty in words'
 );
 check_same(
-	array('2026-10-10 00:00 前提交：按 100% 计分', '迟交不超过 12 小时：按 100% 计分', '迟交超过 12 小时：按 50% 计分', '2026-10-12 00:00 后提交：不计入正式成绩'),
+	array('2026-10-10 00:00 前提交：按 100% 计分', '迟交不到 12 小时：按 100% 计分', '迟交 12 小时及以上：按 50% 计分', '2026-10-12 00:00 后提交：不计入正式成绩'),
 	homeworkDescribePenalty($grace),
 	'rules that start later, in words'
 );
@@ -96,7 +98,7 @@ check_same(
 );
 $three = array('penalty_rules' => json_encode(array(array('after_hours' => 0, 'multiplier' => 0.9), array('after_hours' => 6, 'multiplier' => 0.7), array('after_hours' => 24, 'multiplier' => 0.5)))) + $homework;
 check_same(
-	array('2026-10-10 00:00 前提交：按 100% 计分', '迟交不超过 6 小时：按 90% 计分', '迟交 6 小时 到 1 天：按 70% 计分', '迟交超过 1 天：按 50% 计分', '2026-10-12 00:00 后提交：不计入正式成绩'),
+	array('2026-10-10 00:00 前提交：按 100% 计分', '迟交不到 6 小时：按 90% 计分', '迟交 6 小时及以上、不到 1 天：按 70% 计分', '迟交 1 天及以上：按 50% 计分', '2026-10-12 00:00 后提交：不计入正式成绩'),
 	homeworkDescribePenalty($three),
 	'three steps, in words'
 );

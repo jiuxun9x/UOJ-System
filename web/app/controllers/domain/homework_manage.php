@@ -312,7 +312,7 @@
 				<tbody>
 					<?php foreach ($rule_rows as $rule_row): ?>
 					<tr>
-						<td class="uoj-penalty-text">迟交超过</td>
+						<td class="uoj-penalty-text">迟交</td>
 						<td><input type="text" class="form-control form-control-sm" name="penalty_after[]" value="<?= HTML::escape($rule_row['after']) ?>" /></td>
 						<td>
 							<select class="form-control form-control-sm" name="penalty_unit[]">
@@ -391,7 +391,7 @@ $(document).ready(function() {
 	var $rows = $('#table-penalty-rules tbody');
 	function addRule(after, unit, percent) {
 		var $row = $('<tr>' +
-			'<td class="uoj-penalty-text">迟交超过</td>' +
+			'<td class="uoj-penalty-text">迟交</td>' +
 			'<td><input type="text" class="form-control form-control-sm" name="penalty_after[]" /></td>' +
 			'<td><select class="form-control form-control-sm" name="penalty_unit[]"><option value="hour">小时</option><option value="day">天</option></select></td>' +
 			'<td class="uoj-penalty-text">起，按</td>' +
@@ -423,15 +423,15 @@ $(document).ready(function() {
 		}
 		var lines = [show($('#input-penalty_since').val()) + ' 前提交：按 100% 计分'];
 		if (rules.length == 0 || rules[0].hours > 0) {
-			lines.push('迟交' + (rules.length ? '不超过 ' + span(rules[0].hours) : '') + '：按 100% 计分');
+			lines.push('迟交' + (rules.length ? '不到 ' + span(rules[0].hours) : '') + '：按 100% 计分');
 		}
 		for (var i = 0; i < rules.length; i++) {
 			if (i + 1 < rules.length && rules[i].hours == 0) {
-				lines.push('迟交不超过 ' + span(rules[i + 1].hours) + '：按 ' + rules[i].percent + '% 计分');
+				lines.push('迟交不到 ' + span(rules[i + 1].hours) + '：按 ' + rules[i].percent + '% 计分');
 			} else if (i + 1 < rules.length) {
-				lines.push('迟交 ' + span(rules[i].hours) + ' 到 ' + span(rules[i + 1].hours) + '：按 ' + rules[i].percent + '% 计分');
+				lines.push('迟交 ' + span(rules[i].hours) + '及以上、不到 ' + span(rules[i + 1].hours) + '：按 ' + rules[i].percent + '% 计分');
 			} else {
-				lines.push('迟交' + (rules[i].hours > 0 ? '超过 ' + span(rules[i].hours) : '') + '：按 ' + rules[i].percent + '% 计分');
+				lines.push('迟交' + (rules[i].hours > 0 ? ' ' + span(rules[i].hours) + '及以上' : '') + '：按 ' + rules[i].percent + '% 计分');
 			}
 		}
 		lines.push(show($('#input-end_at').val()) + ' 后提交：不计入正式成绩');
