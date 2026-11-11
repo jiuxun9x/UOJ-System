@@ -521,9 +521,16 @@ function homeworkAddProblem($homework, $problem, $score, $required, $actor) {
 	if ($score < 1 || $score > 10000) {
 		return '分值应在 1 到 10000 之间';
 	}
-	$position = 1 + (int)DB::selectFirst("select ifnull(max(position), 0) from homework_problems where homework_id = {$homework['id']}", MYSQLI_NUM)[0];
-	if (!DB::insert("insert into homework_problems (homework_id, problem_id, position, score, required) values ({$homework['id']}, {$problem['id']}, $position, ".(int)$score.", ".($required ? 1 : 0).")")) {
-		return '这道题已经在作业里了';
+	// (while the problem is there: see problemWithLock())
+	$err = problemWithLock($problem['id'], function() use ($homework, $problem, $score, $required) {
+		$position = 1 + (int)DB::selectFirst("select ifnull(max(position), 0) from homework_problems where homework_id = {$homework['id']}", MYSQLI_NUM)[0];
+		if (!DB::insert("insert into homework_problems (homework_id, problem_id, position, score, required) values ({$homework['id']}, {$problem['id']}, $position, ".(int)$score.", ".($required ? 1 : 0).")")) {
+			return '这道题已经在作业里了';
+		}
+		return '';
+	});
+	if ($err !== '') {
+		return $err;
 	}
 	auditLog('homework.add_problem', 'homework', $homework['id'], null, array('problem_id' => (int)$problem['id'], 'score' => (int)$score, 'required' => $required ? 1 : 0), $actor);
 	return '';

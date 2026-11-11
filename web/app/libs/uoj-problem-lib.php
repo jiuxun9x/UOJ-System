@@ -1259,17 +1259,26 @@ function problemDelete($problem, $actor) {
 	requirePHPLib('judger');
 	requirePHPLib('data');
 	$id = (int)$problem['id'];
-	$uses = problemUses($problem);
-	if ($uses) {
-		return '这道题还在 ' . join('、', array_slice($uses, 0, 5)) . (count($uses) > 5 ? ' 等 ' . count($uses) . ' 处' : '') . ' 里。先把它从那里移出，再删除';
-	}
 	set_time_limit(0);
 	ignore_user_abort(true);
 	$facts = problemDeletionFacts($problem);
-	// its number is not given to another problem, whatever becomes of the rest of this
-	DB::insert("insert ignore into problems_deleted (id, owner_domain_id, domain_pid, deleted_at) values ($id, ".($problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : 'null').", ".($problem['owner_domain_id'] ? (int)$problem['domain_pid'] : 'null').", now())");
-	// from here on there is no such problem; what follows clears away what was its own
-	DB::delete("delete from problems where id = $id");
+	// Found used by nothing, and deleted, holding the lock that whoever puts it somewhere holds
+	// (problemWithLock()): put into a contest in between, the contest was left with a problem
+	// that was gone.
+	$refused = problemWithLock($id, function() use ($problem, $id) {
+		$uses = problemUses($problem);
+		if ($uses) {
+			return '这道题还在 ' . join('、', array_slice($uses, 0, 5)) . (count($uses) > 5 ? ' 等 ' . count($uses) . ' 处' : '') . ' 里。先把它从那里移出，再删除';
+		}
+		// its number is not given to another problem, whatever becomes of the rest of this
+		DB::insert("insert ignore into problems_deleted (id, owner_domain_id, domain_pid, deleted_at) values ($id, ".($problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : 'null').", ".($problem['owner_domain_id'] ? (int)$problem['domain_pid'] : 'null').", now())");
+		// from here on there is no such problem; what follows clears away what was its own
+		DB::delete("delete from problems where id = $id");
+		return '';
+	}, '这道题已经被删除了');
+	if ($refused !== '') {
+		return $refused;
+	}
 	auditLog('problem.delete', 'problem', $id, array('title' => $problem['title'], 'is_hidden' => (int)$problem['is_hidden'], 'owner_domain_id' => $problem['owner_domain_id'] ? (int)$problem['owner_domain_id'] : null) + $facts, null, $actor);
 
 	// the files of what was submitted, then the rows

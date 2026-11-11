@@ -25,6 +25,25 @@ function problemSetHidden($problem_id, $hidden) {
 	DB::update("update submissions set is_hidden = $hidden where problem_id = $problem_id");
 	DB::update("update hacks set is_hidden = $hidden where problem_id = $problem_id");
 }
+// Who puts a problem into a contest, a homework or a training, and who deletes it, hold its lock:
+// a problem found used by nothing and deleted was put somewhere meanwhile, which was left with a
+// problem that was gone. $fun runs while the problem is there; $failed is returned where it is
+// not, or where the lock was not had.
+function problemWithLock($problem_id, $fun, $failed = '这道题已经不存在了') {
+	$name = 'uoj_problem_' . (int)$problem_id;
+	$lock = DB::selectFirst("select get_lock('$name', 10)", MYSQLI_NUM);
+	if (!$lock || $lock[0] != 1) {
+		return $failed;
+	}
+	try {
+		if (!DB::selectFirst("select id from problems where id = " . (int)$problem_id)) {
+			return $failed;
+		}
+		return $fun();
+	} finally {
+		DB::query("select release_lock('$name')");
+	}
+}
 function queryProblemBrief($id) {
 	return DB::selectFirst("select * from problems where id = $id", MYSQLI_ASSOC);
 }

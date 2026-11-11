@@ -113,9 +113,16 @@ function trainingAddProblem($training, $problem, $required, $actor) {
 	if (!$problem || $problem['owner_domain_id'] != $training['domain_id']) {
 		return '本域没有这个题号';
 	}
-	$position = 1 + (int)DB::selectFirst("select ifnull(max(position), 0) from training_problems where training_id = {$training['id']}", MYSQLI_NUM)[0];
-	if (!DB::insert("insert into training_problems (training_id, problem_id, position, required) values ({$training['id']}, {$problem['id']}, $position, ".($required ? 1 : 0).")")) {
-		return '这道题已经在训练里了';
+	// (while the problem is there: see problemWithLock())
+	$err = problemWithLock($problem['id'], function() use ($training, $problem, $required) {
+		$position = 1 + (int)DB::selectFirst("select ifnull(max(position), 0) from training_problems where training_id = {$training['id']}", MYSQLI_NUM)[0];
+		if (!DB::insert("insert into training_problems (training_id, problem_id, position, required) values ({$training['id']}, {$problem['id']}, $position, ".($required ? 1 : 0).")")) {
+			return '这道题已经在训练里了';
+		}
+		return '';
+	});
+	if ($err !== '') {
+		return $err;
 	}
 	auditLog('training.add_problem', 'training', $training['id'], null, array('problem_id' => (int)$problem['id'], 'required' => $required ? 1 : 0), $actor);
 	return '';

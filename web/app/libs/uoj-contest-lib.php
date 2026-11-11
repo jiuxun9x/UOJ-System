@@ -165,6 +165,10 @@ function contestAddProblem($contest, $problem, $actor) {
 		return '一场比赛最多 26 道题';
 	}
 	contestRenumberProblems($contest['id'], array_merge($ids, array((int)$problem['id'])));
+	// (a problem that was deleted meanwhile is put nowhere)
+	if (!DB::selectFirst("select 1 from contests_problems where contest_id = {$contest['id']} and problem_id = " . (int)$problem['id'])) {
+		return '这道题已经不存在了';
+	}
 	auditLog('contest.add_problem', 'contest', $contest['id'], null, array('problem_id' => (int)$problem['id']), $actor);
 	return '';
 }
@@ -196,9 +200,12 @@ function contestMoveProblem($contest, $problem_id, $down, $actor) {
 	return '';
 }
 // writes down the order of the problems of a contest, adding the ones that are not in it yet
+// (while they are there: see problemWithLock())
 function contestRenumberProblems($contest_id, $ids) {
 	foreach (array_values($ids) as $index => $problem_id) {
-		DB::insert("insert into contests_problems (contest_id, problem_id, position) values (".(int)$contest_id.", ".(int)$problem_id.", ".($index + 1).") on duplicate key update position = ".($index + 1));
+		problemWithLock($problem_id, function() use ($contest_id, $problem_id, $index) {
+			DB::insert("insert into contests_problems (contest_id, problem_id, position) values (".(int)$contest_id.", ".(int)$problem_id.", ".($index + 1).") on duplicate key update position = ".($index + 1));
+		});
 	}
 }
 // Under the OI rule a problem can be judged with all its data while the contest runs,

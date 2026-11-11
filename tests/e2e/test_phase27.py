@@ -590,5 +590,27 @@ class RenameRememberedTest(unittest.TestCase):
         self.assertEqual(db_value("select count(*) from user_remember_tokens where username = 'p27_rename_new'"), "1")
 
 
+class DeleteAndAddTest(unittest.TestCase):
+    """A problem was found used by nothing, and deleted, while it could be put into a contest, a
+    homework or a training in between: that was left with a problem that was gone. Both hold the
+    lock of the problem."""
+
+    def test_what_is_put_in_while_the_problem_is_deleted_is_not(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p27 删除时加题", rule="ICPC")
+        # (a deletion, which holds the lock of the problem, and deletes it a moment later)
+        deleting = "select get_lock('uoj_problem_%d', 0); select sleep(4); delete from problems where id = %d; select release_lock('uoj_problem_%d');" % (problem_id, problem_id, problem_id)
+        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e", deleting)
+        uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('uoj_problem_%d') is not null" % problem_id) == "1", timeout=30)
+        said = []
+        adding = threading.Thread(target=lambda: said.append(admin.contest_commands(contest_id, "problems", "+%d" % problem_id)))
+        adding.start()
+        adding.join(60)
+        self.assertIsNone(db_value("select id from problems where id = %d" % problem_id))
+        self.assertEqual(db_value("select count(*) from contests_problems where contest_id = %d" % contest_id), "0")
+        self.assertIn("这道题已经不存在了", said[0])
+
+
 if __name__ == "__main__":
     unittest.main()
