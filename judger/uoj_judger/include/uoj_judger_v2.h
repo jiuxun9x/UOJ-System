@@ -110,6 +110,14 @@ inline std::string trim_copy(std::string s) {
 
 /*========================== random  ====================== */
 
+// Whether a subtask passed, for the subtasks that depend on it: its tests said Accepted, and, of
+// a subtask of type min, no score it took from what it depends on was less than full. (A min
+// that took 50 from its dependency and passed its own tests said Accepted, and a packed subtask
+// that depended on it was judged as though everything before had passed.)
+inline bool v2_subtask_passed(const string &type, const string &info, int min_score) {
+    return info == "Accepted" && (type != "min" || min_score == 100);
+}
+
 inline string gen_token() {
     u64 seed = time(NULL);
     FILE *f = fopen("/dev/urandom", "r");
@@ -2256,7 +2264,7 @@ public:
                     }
                 }
 
-                subtasks[t] = SubtaskInfo(info == "Accepted", tscore);
+                subtasks[t] = SubtaskInfo(v2_subtask_passed(subtaskType, info, minScore[t]), tscore);
 
                 add_subtask_info(t, tscore, info, points);
             }
