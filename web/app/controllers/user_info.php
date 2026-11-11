@@ -126,24 +126,41 @@
 var rating_data = [[
 <?php
 	$user_rating_min = $user_rating_max = 1500;
-	$result = DB::query("select contest_id, `rank`, user_rating from contests_registrants where username = '{$user['username']}' and has_participated = 1 order by contest_id");
-	$is_first_row = true;
-	$last_rating = 1500;
-	while ($row = DB::fetch($result)) {
+	// The history of a rating is made of the contests of the site that rated it: published, and
+	// rated (not one that runs, or waits for its results, or was not to be rated), in the order
+	// they were published, which is the order the ratings changed in. What somebody did in a
+	// domain, or in a contest that is not for everybody, is not told here.
+	$rated = array();
+	foreach (DB::selectAll("select contest_id, `rank`, user_rating from contests_registrants where username = '{$user['username']}' and has_participated = 1") as $row) {
 		$contest = queryContest($row['contest_id']);
-		// The history of a rating is made of the contests of the site. What somebody did
-		// in a domain, or in a contest that is not for everybody, is not told here.
-		if (!$contest || $contest['domain_id'] || !can($myUser, 'contest.view', $contest)) {
+		if (!$contest || $contest['domain_id'] || $contest['status'] !== 'finished' || !can($myUser, 'contest.view', $contest)) {
 			continue;
 		}
+		genMoreContestInfo($contest);
+		if (!contestIsRated($contest)) {
+			continue;
+		}
+		// (a contest published before the audit log was kept is taken to be published at its end)
+		$published = DB::selectFirst("select min(created_at) from audit_logs where action = 'contest.publish_results' and resource_type = 'contest' and resource_id = '{$contest['id']}'", MYSQLI_NUM)[0];
+		$row['contest'] = $contest;
+		$row['order'] = $published !== null ? strtotime($published) : $contest['end_time']->getTimestamp();
+		$rated[] = $row;
+	}
+	usort($rated, function($a, $b) {
+		return $a['order'] != $b['order'] ? $a['order'] - $b['order'] : $a['contest_id'] - $b['contest_id'];
+	});
+	$is_first_row = true;
+	$last_rating = 1500;
+	foreach ($rated as $row) {
+		$contest = $row['contest'];
 		$rating_delta = $row['user_rating'] - $last_rating;
 		if (!$is_first_row) {
 			echo "[$last_contest_time, {$row['user_rating']}, $last_contest_id, $last_contest_name, $last_rank, $rating_delta],";
 		} else {
 			$is_first_row = false;
 		}
-		$contest_start_time = new DateTime($contest['start_time']);
-		$last_contest_time = ($contest_start_time->getTimestamp() + $contest_start_time->getOffset()) * 1000;
+		// (where the rating changed: when the results were published)
+		$last_contest_time = ($row['order'] + (int)date('Z', $row['order'])) * 1000;
 		$last_contest_name = json_encode($contest['name']);
 		$last_contest_id = $contest['id'];
 		$last_rank = $row['rank'];

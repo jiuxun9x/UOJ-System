@@ -686,5 +686,45 @@ class SettledRosterTest(unittest.TestCase):
         self.assertIn("未参加", uoj.text_of(bob.get(page).text))
 
 
+def rating_history(client, username):
+    """the points of the history of the rating on a profile: [contest id, rating, change]"""
+    page = client.get("/user/profile/" + username).text
+    points = json.loads(re.search(r"var rating_data = \[(\[.*?\])\];", page, re.S).group(1))
+    return [[point[2], point[1], point[5] if len(point) > 5 else None] for point in points]
+
+
+class RatingHistoryTest(unittest.TestCase):
+    """The history of a rating was drawn from every contest somebody took part in, in the order the
+    contests were made: one that ran still, or waited for its results, or was not to be rated, was
+    a change of the rating; and two contests published in another order than they were made had
+    their changes swapped. It is drawn from the contests that rated it, as they were published."""
+
+    def test_the_history_is_of_what_changed_the_rating(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        winner, loser = account("p27_rating_winner"), account("p27_rating_loser")
+        made_first, made_second, unrated, running = (
+            admin.new_contest(name, rule="ICPC", problems=str(problem_id), **settings)
+            for name, settings in (("p27 先建的", {}), ("p27 后建的", {}), ("p27 不计分", {"rated": None}), ("p27 进行中", {}))
+        )
+        for contest_id in (made_first, made_second, unrated, running):
+            for client in (winner, loser):
+                client.register_for_contest(contest_id)
+            uoj.move_contest(contest_id, -60, 600)
+            uoj.wait_submission(winner.submit_in_contest(contest_id, problem_id, AB))
+            uoj.wait_submission(loser.submit_in_contest(contest_id, problem_id, AB.replace("a + b", "a - b")))
+        # the one made second is published first
+        for contest_id in (made_second, made_first, unrated):
+            uoj.move_contest(contest_id, -7200, 60)
+            self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        history = rating_history(uoj.Client(), winner.username)
+        self.assertEqual([point[0] for point in history], [made_second, made_first])
+        rating = 1500
+        for contest_id, after, change in history:
+            self.assertEqual(after - change, rating, history)
+            rating = after
+        self.assertEqual(rating, int(db_value("select rating from user_info where username = '%s'" % winner.username)))
+
+
 if __name__ == "__main__":
     unittest.main()
