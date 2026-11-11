@@ -424,25 +424,50 @@
 		}
 	}
 	
+	// Takes a task that was found lost from its worker, in one statement that finds it lost
+	// still: the worker may have renewed its lease since it was looked at, and keeps it then.
+	// The task is given a claim of the taking, which nothing the worker sends of it any more
+	// has, and is released under it. Returns the row with that claim, or null.
+	function takeLostTask($kind, $table, $row, $lost) {
+		$taken = bin2hex(random_bytes(16));
+		if (!DB::update("update $table set judge_claim = '$taken' where id = {$row['id']} and " . claimIs($row['judge_claim']) . " and $lost") || DB::affected_rows() != 1) {
+			return null;
+		}
+		if ($kind !== null) {
+			DB::update("update submission_judgements set claim = '$taken' where kind = '$kind' and target_id = {$row['id']} and finished_at is null and claim <=> " . ($row['judge_claim'] === null ? 'null' : "'{$row['judge_claim']}'"));
+		}
+		$row['judge_claim'] = $taken;
+		return $row;
+	}
 	// Takes back what is not being worked on: a task whose lease ran out (one given out before
 	// the claims has none), and what this worker had, which asks for another task. What the
 	// other workers of the same account have is theirs.
 	function reclaimLostTasks($worker) {
 		$lost = "(judge_lease_until is null or judge_lease_until < now() or judger_name = '".DB::escape(judgerName())."' and judge_worker = '".DB::escape($worker)."')";
 		foreach (DB::selectAll("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts, judge_claim from submissions where status in ('Judging', 'Judged, Judging') and $lost") as $submission) {
-			releaseSubmission($submission);
+			if ($submission = takeLostTask('submission', 'submissions', $submission, $lost)) {
+				releaseSubmission($submission);
+			}
 		}
 		foreach (DB::selectAll("select id, judge_attempts, judge_claim from custom_test_submissions where status = 'Judging' and $lost") as $submission) {
-			releaseCustomTest($submission);
+			if ($submission = takeLostTask('custom_test', 'custom_test_submissions', $submission, $lost)) {
+				releaseCustomTest($submission);
+			}
 		}
 		foreach (DB::selectAll("select id, judge_attempts, judge_claim from hacks where success is null and judge_time is not null and $lost") as $hack) {
-			releaseHack($hack);
+			if ($hack = takeLostTask('hack', 'hacks', $hack, $lost)) {
+				releaseHack($hack);
+			}
 		}
 		foreach (DB::selectAll("select * from problem_data_versions where status = 'preparing' and $lost") as $version_row) {
-			releaseVersion($version_row);
+			if ($version_row = takeLostTask(null, 'problem_data_versions', $version_row, $lost)) {
+				releaseVersion($version_row);
+			}
 		}
 		foreach (DB::selectAll("select * from problem_answer_jobs where status = 'running' and $lost") as $job) {
-			releaseAnswerJob($job);
+			if ($job = takeLostTask(null, 'problem_answer_jobs', $job, $lost)) {
+				releaseAnswerJob($job);
+			}
 		}
 	}
 	

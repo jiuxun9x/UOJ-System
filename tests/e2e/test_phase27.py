@@ -207,5 +207,33 @@ class TwoTestsTest(unittest.TestCase):
         self.assertEqual(db("select status, score from submissions where id = %d" % submission_id)[0], ["Judged", "100"])
 
 
+class ReclaimAndHeartbeatTest(unittest.TestCase):
+    """A task whose lease ran out was looked up, then released with no look at its lease: a worker
+    that renewed it in between lost a task it was working on, which was judged again, and three
+    times over was failed. The task is taken in one statement that finds the lease out still."""
+
+    def test_a_lease_renewed_meanwhile_keeps_the_task(self):
+        problem_id = uoj.admin().create_problem(ab_problem_files())
+        pupil = account("p27_lease")
+        with uoj.judgers_paused():
+            submission_id = pupil.submit(problem_id, AB)
+            task = uoj.fake_fetch()
+            self.assertEqual(task["id"], submission_id)
+            uoj.expire_lease("submissions", submission_id)
+            # The worker reports while another worker asks for work and finds the task lost:
+            # the row is held, its lease renewed and let go while that one waits to take it.
+            renew = ("start transaction; select id from submissions where id = %d for update; select sleep(5);"
+                     " update submissions set judge_lease_until = now() + interval 300 second where id = %d; commit;") % (submission_id, submission_id)
+            uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e", renew)
+            time.sleep(1)
+            uoj.fake_fetch(worker="e2efakeworker0002")
+            status, claim, attempts = db("select status, judge_claim, judge_attempts from submissions where id = %d" % submission_id)[0]
+            self.assertEqual((status, claim, attempts), ("Judging", task["claim"], "0"))
+            # and what the worker sends is stored
+            result = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
+            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(result)})
+            self.assertEqual(db("select status, score from submissions where id = %d" % submission_id)[0], ["Judged", "100"])
+
+
 if __name__ == "__main__":
     unittest.main()
