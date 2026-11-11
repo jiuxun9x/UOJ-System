@@ -44,22 +44,11 @@ initProgress(){
     if [ -z "$UOJ_PROTOCOL" -o -z "$UOJ_HOST" -o -z "$JUDGER_NAME" -o -z "$JUDGER_PASSWORD" ]; then
         echo "!! Environment variables not set! Please edit config file by yourself!"
     else
-        # Set judge_client config file
-        cat >.conf.json <<UOJEOF
-{
-    "uoj_protocol": "$UOJ_PROTOCOL",
-    "uoj_host": "$UOJ_HOST",
-    "judger_name": "$JUDGER_NAME",
-    "judger_password": "$JUDGER_PASSWORD",
-    "socket_port": $SOCKET_PORT,
-    "socket_password": "$SOCKET_PASSWORD",
-    "max_judging_seconds": ${MAX_JUDGING_SECONDS:-3600},
-    "data_sync": ${DATA_SYNC:-true},
-    "data_cache_problems": ${DATA_CACHE_PROBLEMS:-300},
-    "long_poll_seconds": ${LONG_POLL_SECONDS:-20},
-    "worker_label": "$WORKER_LABEL"
-}
-UOJEOF
+        # Set judge_client config file: every value as JSON has it, whatever it is made of
+        UOJ_PROTOCOL="$UOJ_PROTOCOL" UOJ_HOST="$UOJ_HOST" JUDGER_NAME="$JUDGER_NAME" JUDGER_PASSWORD="$JUDGER_PASSWORD" \
+            SOCKET_PORT="$SOCKET_PORT" SOCKET_PASSWORD="$SOCKET_PASSWORD" WORKER_LABEL="$WORKER_LABEL" \
+            MAX_JUDGING_SECONDS="$MAX_JUDGING_SECONDS" DATA_SYNC="$DATA_SYNC" DATA_CACHE_PROBLEMS="$DATA_CACHE_PROBLEMS" \
+            LONG_POLL_SECONDS="$LONG_POLL_SECONDS" python3 /opt/uoj_judger/write_conf.py .conf.json || exit 1
         chmod 600 .conf.json && chown judger:judger .conf.json
         chown -R judger:judger ./log
         #Start services
