@@ -374,6 +374,20 @@ class HomeworkRacesTest(unittest.TestCase):
         self.assertEqual(said, "")
         self.assertEqual(homework_row(homework_id, "settle_state")[0], "open")
 
+    def test_settling_anew_waits_for_a_settling(self):
+        # The snapshot of a new settling was made before its submissions were set to be judged
+        # again: a settling in between found nothing to judge, and took the scores as they were.
+        slug, teacher, _, problem_id = classroom("p27_hw_resettle")
+        homework_id = published_homework(teacher, slug, problem_id, title="p27 重新结算")
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+        tick()
+        self.assertEqual(homework_row(homework_id, "settle_state")[0], "settled")
+        hold_homework_lock(homework_id, 5)
+        started = time.time()
+        self.assertEqual(homework_form(teacher, slug, homework_id, "resettle", scope="all", reason="p27"), "")
+        self.assertGreaterEqual(time.time() - started, 3)
+        self.assertEqual(db_value("select count(*) from homework_snapshots where homework_id = %d and reason = 'p27'" % homework_id), "1")
+
 
 if __name__ == "__main__":
     unittest.main()

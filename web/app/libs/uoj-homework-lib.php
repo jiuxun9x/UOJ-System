@@ -579,10 +579,11 @@ function homeworkMoveProblem($homework, $problem_id, $down = false) {
 // the command line only call it: whoever holds the lock of the homework does the work, and
 // everybody else returns at once and shows the state as it is.
 
-// Runs $fun if nobody else is working on the homework. Returns false if somebody is.
-function homeworkWithLock($homework_id, $fun) {
+// Runs $fun if nobody else is working on the homework, waiting up to $wait seconds for who is.
+// Returns false if somebody is still. (Who holds it takes it again freely.)
+function homeworkWithLock($homework_id, $fun, $wait = 0) {
 	$name = 'uoj_homework_' . (int)$homework_id;
-	$lock = DB::selectFirst("select get_lock('$name', 0)", MYSQLI_NUM);
+	$lock = DB::selectFirst("select get_lock('$name', " . (int)$wait . ")", MYSQLI_NUM);
 	if (!$lock || $lock[0] != 1) {
 		return false;
 	}
@@ -868,6 +869,16 @@ function homeworkStartResettle($homework, $actor, $reason, $problem_id) {
 		auditLog('homework.rejudge', 'homework', $homework['id'], null, array('reason' => $reason, 'problem_id' => $problem_id, 'submissions' => $count), $actor);
 		return '';
 	}
+	// The snapshot is made, and the submissions are set to be judged again, holding the lock
+	// of the homework, which settling holds as well: in between, a settling found nothing to
+	// judge, and made the snapshot of the scores as they were before.
+	$said = '作业正在结算，请稍后再试';
+	homeworkWithLock($homework['id'], function() use ($homework, $actor, $reason, $problem_id, &$said) {
+		$said = homeworkStartResettleHolding($homework, $actor, $reason, $problem_id);
+	}, 10);
+	return $said;
+}
+function homeworkStartResettleHolding($homework, $actor, $reason, $problem_id) {
 	$esc_reason = DB::escape($reason);
 	$esc_actor = DB::escape($actor['username']);
 	$snapshot_id = DB::transaction(function() use ($homework, $esc_reason, $esc_actor) {
