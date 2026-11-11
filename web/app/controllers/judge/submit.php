@@ -421,9 +421,9 @@
 			DB::update("update problem_answer_jobs set status = 'pending', judger_name = null, attempts = attempts + 1, ".CLAIM_DROPPED." where id = {$job['id']} and ".claimIs($job['judge_claim'])." and status = 'running'");
 		}
 	}
-	function releaseVersion($version_row) {
+	function releaseVersion($version_row, $why = 'the judgers stopped responding while building the programs of the problem') {
 		if ($version_row['attempts'] + 1 >= JUDGE_MAX_ATTEMPTS) {
-			dataFailVersion($version_row, 'the judgers stopped responding while building the programs of the problem');
+			dataFailVersion($version_row, $why);
 		} else {
 			DB::update("update problem_data_versions set status = 'pending', judger_name = null, attempts = attempts + 1, ".CLAIM_DROPPED." where id = {$version_row['id']} and ".claimIs($version_row['judge_claim'])." and status = 'preparing'");
 		}
@@ -524,7 +524,12 @@
 		}
 		$version_row = queryProblemDataVersionById($_POST['id']);
 		if ($version_row != null && $version_row['status'] == 'preparing' && $version_row['judge_claim'] === $claim) {
-			if (isset($_POST['ok']) && $_POST['ok'] === '1') {
+			if (isset($_POST['retry']) && $_POST['retry'] === '1') {
+				// the judger could not fetch the data, or went wrong itself: another one tries,
+				// and what it said is why, where they all gave up
+				$message = isset($_POST['message']) && is_string($_POST['message']) ? $_POST['message'] : '';
+				releaseVersion($version_row, 'the judgers could not build the data, the last one said: ' . uojTextEncode(substr($message, 0, 20000)));
+			} elseif (isset($_POST['ok']) && $_POST['ok'] === '1') {
 				dataPublishVersion($version_row);
 			} else {
 				$message = isset($_POST['message']) && is_string($_POST['message']) ? $_POST['message'] : '';

@@ -1126,10 +1126,17 @@ def prepare():
             submission.get("problem_data_sha256"),
             submission.get("problem_data_prepare"),
         )
-    except Exception as e:
+    except PrepareError as e:
+        # what does not build here builds nowhere: the version can not be used
         print_judge_client_status()
         traceback.print_exc()
         report.update({"ok": "0", "message": str(e)})
+    except Exception as e:
+        # the data could not be fetched, or the judger went wrong: not the data's doing, another
+        # judger tries (the site gives up after a few)
+        print_judge_client_status()
+        traceback.print_exc()
+        report.update({"retry": "1", "message": str(e)})
     else:
         report.update({"ok": "1", "message": ""})
     note_timing(data_ms=ms_since(started))

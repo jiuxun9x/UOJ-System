@@ -1212,6 +1212,16 @@ class BuildProblemProgramsTest(ProblemDataTestCase):
                 report = self.jc.prepare()
         self.assertEqual(report["ok"], "0")
         self.assertEqual(report["message"], "chk: compile error\nexpected ';'")
+        self.assertNotIn("retry", report)
+
+        # The data that could not be fetched, a judger that went wrong: not the data's doing, and
+        # the version is not failed for it. Another judger tries.
+        self.jc.submission["problem_data_version"] = 5
+        with mock.patch.object(self.jc, "update_problem_data", side_effect=self.jc.requests.ConnectionError("temporary outage")):
+            report = self.jc.prepare()
+        self.assertEqual(report["retry"], "1")
+        self.assertNotIn("ok", report)
+        self.assertEqual(report["message"], "temporary outage")
 
 
 class AnswerJobTest(JudgeClientTestCase):
