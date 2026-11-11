@@ -22,7 +22,7 @@ class BoardFontTest(unittest.TestCase):
         contest_id = admin.new_contest("p28 字体", rule="ICPC", problems=str(problem_id))
         uoj.move_contest(contest_id, -120 * 60, 60)
         for page, client in (("/contest/%d/board" % contest_id, uoj.Client()), ("/contest/%d/resolver" % contest_id, admin)):
-            self.assertIn('href="/fonts/roboto/roboto.css', client.get(page).text, page)
+            self.assertRegex(client.get(page).text, r'href="[^"]*/fonts/roboto/roboto\.css', page)
         anybody = uoj.Client()
         css = anybody.get("/fonts/roboto/roboto.css")
         self.assertEqual(css.status_code, 200)
