@@ -537,6 +537,10 @@ class ArchivedDomainTest(unittest.TestCase):
         bob.submit_form("/contest/%d/registrants" % contest_id, "unregister")
         ann.submit_form("/contest/%d/registrants" % contest_id, "unregister")
         self.assertEqual(db("select username from contests_registrants where contest_id = %d" % contest_id), [[ann.username]])
+        registrants = ann.get("/contest/%d/registrants" % contest_id)
+        self.assertEqual(registrants.status_code, 200)
+        self.assertIn("已报名", registrants.text)
+        self.assertNotIn("取消报名", registrants.text)
         # ---- and its homework shows nothing by itself when it ends
         db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
         tick()

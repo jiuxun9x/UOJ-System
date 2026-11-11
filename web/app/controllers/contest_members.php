@@ -58,9 +58,11 @@
 <h1 class="text-center"><?= $contest['name'] ?></h1>
 <?php if ($contest['cur_progress'] == CONTEST_NOT_STARTED): ?>
 	<?php if ($iHasRegistered): ?>
-		<div class="float-right">
-			<?php $unregister_form->printHTML(); ?>
-		</div>
+		<?php if (isset($unregister_form)): ?>
+			<div class="float-right">
+				<?php $unregister_form->printHTML(); ?>
+			</div>
+		<?php endif ?>
 		<div><a style="color:green">已报名</a></div>
 	<?php else: ?>
 		<div>当前尚未报名，您可以<a style="color:red" href="/contest/<?= $contest['id'] ?>/register">报名</a>。</div>
