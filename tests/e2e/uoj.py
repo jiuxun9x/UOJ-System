@@ -56,6 +56,23 @@ def docker_exec(container, script, check=True):
     )
 
 
+def php(code):
+    """run PHP in the web container with the libraries of the site loaded, return what it prints"""
+    script = "<?php\n$_SERVER['DOCUMENT_ROOT'] = '/opt/uoj/web';\nrequire '/opt/uoj/web/app/libs/uoj-lib.php';\n" + code
+    return run("docker", "exec", "-i", WEB, "php", stdin=script.encode()).stdout.decode(errors="replace")
+
+
+def hold_data_lock(problem_id, seconds):
+    """hold the lock of the files of a problem from outside the site for some seconds, as a request
+    that changes them or syncs them holds it; return once it is held"""
+    held = "/tmp/e2e_held_%d" % problem_id
+    docker_exec(WEB, "rm -f %s" % held)
+    code = '$f = fopen("/var/uoj_data/upload/%d.lock", "c"); flock($f, LOCK_EX); touch("%s"); sleep(%d);' % (problem_id, held, seconds)
+    # (as the user of the web server, which may have to make the file the lock is held on)
+    run("docker", "exec", "-d", "-u", "www-data", WEB, "php", "-r", code)
+    wait_until("the lock of problem #%d is held" % problem_id, lambda: docker_exec(WEB, "test -f %s && echo yes || true" % held).strip() == "yes", timeout=30)
+
+
 def db(sql):
     """run a query, return its rows as lists of strings"""
     p = run(

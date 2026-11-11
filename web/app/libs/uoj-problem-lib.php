@@ -751,25 +751,28 @@ function problemPlanSettings($problem, $settings) {
 // tests, calls them what the judgers call them, and writes problem.conf.
 // Returns array(what was found and done, as lines for people, '') or array(null, why not).
 function problemApplySettings($problem, $settings, $actor) {
-	list($plan, $err) = problemPlanSettings($problem, $settings);
-	if ($err !== '') {
-		return array(null, $err);
-	}
-	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
-	$conf_path = "$upload_dir/problem.conf";
-	$err = problemArrangeFiles($upload_dir, $plan['found']);
-	if ($err !== '') {
-		return array(null, $err);
-	}
-	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
-		return array(null, '无法创建保存数据的目录');
-	}
-	if (is_file($conf_path)) {
-		unlink($conf_path);
-	}
-	putUOJConf($conf_path, $plan['conf']);
-	auditLog('problem.edit_conf', 'problem', $problem['id'], $plan['old_conf'] ? $plan['old_conf'] : null, $plan['conf'], $actor);
-	return array($plan['notes'], '');
+	requirePHPLib('data');
+	return dataWithLock($problem['id'], function() use ($problem, $settings, $actor) {
+		list($plan, $err) = problemPlanSettings($problem, $settings);
+		if ($err !== '') {
+			return array(null, $err);
+		}
+		$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+		$conf_path = "$upload_dir/problem.conf";
+		$err = problemArrangeFiles($upload_dir, $plan['found']);
+		if ($err !== '') {
+			return array(null, $err);
+		}
+		if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
+			return array(null, '无法创建保存数据的目录');
+		}
+		if (is_file($conf_path)) {
+			unlink($conf_path);
+		}
+		putUOJConf($conf_path, $plan['conf']);
+		auditLog('problem.edit_conf', 'problem', $problem['id'], $plan['old_conf'] ? $plan['old_conf'] : null, $plan['conf'], $actor);
+		return array($plan['notes'], '');
+	}, array(null, '无法锁定题目的数据，请稍后再试'));
 }
 
 // ---- problem.conf as its text: for the people who would rather write it
@@ -840,19 +843,22 @@ function problemConfFromText($text) {
 // it is second-guessed. Whether it can be judged with is said by the sync that follows.
 // Returns '' or what is wrong with the text.
 function problemSaveConfText($problem, $text, $actor) {
-	requirePHPLib('judger');
-	list($conf, $err) = problemConfFromText($text);
-	if ($err !== '') {
-		return $err;
-	}
-	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
-	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
-		return '无法创建保存数据的目录';
-	}
-	$old_conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
-	putUOJConf("$upload_dir/problem.conf", $conf);
-	auditLog('problem.edit_conf', 'problem', $problem['id'], is_array($old_conf) ? $old_conf : null, $conf + array('written_as_text' => 1), $actor);
-	return '';
+	requirePHPLib('data');
+	return dataWithLock($problem['id'], function() use ($problem, $text, $actor) {
+		requirePHPLib('judger');
+		list($conf, $err) = problemConfFromText($text);
+		if ($err !== '') {
+			return $err;
+		}
+		$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+		if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
+			return '无法创建保存数据的目录';
+		}
+		$old_conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
+		putUOJConf("$upload_dir/problem.conf", $conf);
+		auditLog('problem.edit_conf', 'problem', $problem['id'], is_array($old_conf) ? $old_conf : null, $conf + array('written_as_text' => 1), $actor);
+		return '';
+	});
 }
 // A problem.conf that was uploaded with comments in it is written down without them, in the
 // place of the one that came. One that has none is left exactly as it came. Returns whether
@@ -989,142 +995,151 @@ function problemFilePath($problem, $name) {
 }
 // each of these returns '' or why it was refused
 function problemDeleteFile($problem, $name, $actor) {
-	$path = problemFilePath($problem, $name);
-	if ($path === null) {
-		return '没有这个文件';
-	}
-	$size = filesize($path);
-	if (!@unlink($path)) {
-		return '无法删除这个文件';
-	}
-	// a folder that holds nothing any more goes with its last file
-	$dir = dirname($path);
-	while ($dir !== "/var/uoj_data/upload/{$problem['id']}" && @rmdir($dir)) {
-		$dir = dirname($dir);
-	}
-	auditLog('problem.delete_file', 'problem', $problem['id'], array('name' => $name, 'size' => $size), null, $actor);
-	return '';
+	requirePHPLib('data');
+	return dataWithLock($problem['id'], function() use ($problem, $name, $actor) {
+		$path = problemFilePath($problem, $name);
+		if ($path === null) {
+			return '没有这个文件';
+		}
+		$size = filesize($path);
+		if (!@unlink($path)) {
+			return '无法删除这个文件';
+		}
+		// a folder that holds nothing any more goes with its last file
+		$dir = dirname($path);
+		while ($dir !== "/var/uoj_data/upload/{$problem['id']}" && @rmdir($dir)) {
+			$dir = dirname($dir);
+		}
+		auditLog('problem.delete_file', 'problem', $problem['id'], array('name' => $name, 'size' => $size), null, $actor);
+		return '';
+	});
 }
 function problemRenameFile($problem, $name, $new_name, $actor) {
-	requirePHPLib('judger');
-	$path = problemFilePath($problem, $name);
-	if ($path === null) {
-		return '没有这个文件';
-	}
-	$new_name = is_string($new_name) ? trim($new_name) : '';
-	$err = problemFileNameError($new_name);
-	if ($err !== '') {
-		return "新的名字不能用：$err";
-	}
-	if ($new_name === $name) {
-		return '';
-	}
-	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
-	$target = "$upload_dir/$new_name";
-	if (file_exists($target) || is_link($target)) {
-		return "已经有一个叫 $new_name 的文件了";
-	}
-	$dir = $upload_dir;
-	foreach (array_slice(explode('/', $new_name), 0, -1) as $part) {
-		$dir .= "/$part";
-		if (is_link($dir) || (file_exists($dir) && !is_dir($dir)) || (!is_dir($dir) && !@mkdir($dir, 0755))) {
-			return "无法把文件放进 $part";
+	requirePHPLib('data');
+	return dataWithLock($problem['id'], function() use ($problem, $name, $new_name, $actor) {
+		requirePHPLib('judger');
+		$path = problemFilePath($problem, $name);
+		if ($path === null) {
+			return '没有这个文件';
 		}
-	}
-	if (!@rename($path, $target)) {
-		return '无法给这个文件改名';
-	}
-	// a program that problem.conf names is still that program under its new name
-	$conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
-	if (is_array($conf)) {
-		$changed = false;
-		foreach (dataProgramKinds() as $kind => $label) {
-			if (isset($conf["{$kind}_source"]) && $conf["{$kind}_source"] === $name && dataProgramSourceError($new_name) === '') {
-				$conf["{$kind}_source"] = $new_name;
-				$changed = true;
+		$new_name = is_string($new_name) ? trim($new_name) : '';
+		$err = problemFileNameError($new_name);
+		if ($err !== '') {
+			return "新的名字不能用：$err";
+		}
+		if ($new_name === $name) {
+			return '';
+		}
+		$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+		$target = "$upload_dir/$new_name";
+		if (file_exists($target) || is_link($target)) {
+			return "已经有一个叫 $new_name 的文件了";
+		}
+		$dir = $upload_dir;
+		foreach (array_slice(explode('/', $new_name), 0, -1) as $part) {
+			$dir .= "/$part";
+			if (is_link($dir) || (file_exists($dir) && !is_dir($dir)) || (!is_dir($dir) && !@mkdir($dir, 0755))) {
+				return "无法把文件放进 $part";
 			}
 		}
-		if ($changed) {
-			putUOJConf("$upload_dir/problem.conf", $conf);
+		if (!@rename($path, $target)) {
+			return '无法给这个文件改名';
 		}
-	}
-	auditLog('problem.rename_file', 'problem', $problem['id'], array('name' => $name), array('name' => $new_name), $actor);
-	return '';
+		// a program that problem.conf names is still that program under its new name
+		$conf = is_file("$upload_dir/problem.conf") ? getUOJConf("$upload_dir/problem.conf") : null;
+		if (is_array($conf)) {
+			$changed = false;
+			foreach (dataProgramKinds() as $kind => $label) {
+				if (isset($conf["{$kind}_source"]) && $conf["{$kind}_source"] === $name && dataProgramSourceError($new_name) === '') {
+					$conf["{$kind}_source"] = $new_name;
+					$changed = true;
+				}
+			}
+			if ($changed) {
+				putUOJConf("$upload_dir/problem.conf", $conf);
+			}
+		}
+		auditLog('problem.rename_file', 'problem', $problem['id'], array('name' => $name), array('name' => $new_name), $actor);
+		return '';
+	});
 }
 // Takes the files a form sent as data of a problem, several at once. An archive is unpacked
 // into the folder of the problem; any other file is put there under its own name, in the
 // place of a file of that name. Returns array(how many files were written, what was refused
 // and why, as lines for people).
 function problemTakeUploadedFiles($problem, $field, $actor) {
-	if (!isset($_FILES[$field]) || !is_array($_FILES[$field]['name'])) {
-		return array(0, array());
-	}
-	$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
-	if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
-		return array(0, array('无法创建保存数据的目录'));
-	}
-	$limits = uploadLimits();
-	$written = 0;
-	$refused = array();
-	$taken = array();
-	// how much the folder of the problem holds: counted once, and kept up with what is written
-	list($existing_count, $existing_bytes) = backupTreeSize($upload_dir);
-	foreach ($_FILES[$field]['name'] as $index => $sent_name) {
-		if ($_FILES[$field]['error'][$index] == UPLOAD_ERR_NO_FILE) {
-			continue;
+	requirePHPLib('data');
+	return dataWithLock($problem['id'], function() use ($problem, $field, $actor) {
+		if (!isset($_FILES[$field]) || !is_array($_FILES[$field]['name'])) {
+			return array(0, array());
 		}
-		$name = uojFileBaseName(str_replace('\\', '/', (string)$sent_name));
-		if ($_FILES[$field]['error'][$index] > 0) {
-			$refused[] = "$name 没有传完（错误 " . (int)$_FILES[$field]['error'][$index] . "），可能是文件太大";
-			continue;
+		$upload_dir = "/var/uoj_data/upload/{$problem['id']}";
+		if (!is_dir($upload_dir) && !@mkdir($upload_dir, 0755, true)) {
+			return array(0, array('无法创建保存数据的目录'));
 		}
-		$tmp_name = $_FILES[$field]['tmp_name'][$index];
-		if (strtolower(substr($name, -4)) === '.zip') {
-			list($unpacked, $err) = uploadUnpack($tmp_name, $upload_dir, $limits);
-			$facts = array('archive' => $name, 'size' => filesize($tmp_name), 'sha256' => hash_file('sha256', $tmp_name));
+		$limits = uploadLimits();
+		$written = 0;
+		$refused = array();
+		$taken = array();
+		// how much the folder of the problem holds: counted once, and kept up with what is written
+		list($existing_count, $existing_bytes) = backupTreeSize($upload_dir);
+		foreach ($_FILES[$field]['name'] as $index => $sent_name) {
+			if ($_FILES[$field]['error'][$index] == UPLOAD_ERR_NO_FILE) {
+				continue;
+			}
+			$name = uojFileBaseName(str_replace('\\', '/', (string)$sent_name));
+			if ($_FILES[$field]['error'][$index] > 0) {
+				$refused[] = "$name 没有传完（错误 " . (int)$_FILES[$field]['error'][$index] . "），可能是文件太大";
+				continue;
+			}
+			$tmp_name = $_FILES[$field]['tmp_name'][$index];
+			if (strtolower(substr($name, -4)) === '.zip') {
+				list($unpacked, $err) = uploadUnpack($tmp_name, $upload_dir, $limits);
+				$facts = array('archive' => $name, 'size' => filesize($tmp_name), 'sha256' => hash_file('sha256', $tmp_name));
+				if ($err !== '') {
+					$refused[] = "{$name}：$err";
+					auditLog('problem.upload_refused', 'problem', $problem['id'], null, $facts + array('error' => $err), $actor);
+				} else {
+					$written += $unpacked;
+					auditLog('problem.upload_data', 'problem', $problem['id'], null, $facts + array('files' => $unpacked), $actor);
+				}
+				list($existing_count, $existing_bytes) = backupTreeSize($upload_dir);
+				continue;
+			}
+			$err = problemFileNameError($name);
 			if ($err !== '') {
 				$refused[] = "{$name}：$err";
-				auditLog('problem.upload_refused', 'problem', $problem['id'], null, $facts + array('error' => $err), $actor);
-			} else {
-				$written += $unpacked;
-				auditLog('problem.upload_data', 'problem', $problem['id'], null, $facts + array('files' => $unpacked), $actor);
+				continue;
 			}
-			list($existing_count, $existing_bytes) = backupTreeSize($upload_dir);
-			continue;
+			$size = filesize($tmp_name);
+			$is_new = !is_file("$upload_dir/$name");
+			$replaced = $is_new ? 0 : filesize("$upload_dir/$name");
+			if ($size > $limits['file_bytes']) {
+				$refused[] = "$name 有 " . uploadMegabytes($size) . " MB，超过了单个文件的上限 " . uploadMegabytes($limits['file_bytes']) . " MB";
+				continue;
+			}
+			if ($existing_bytes - $replaced + $size > $limits['bytes'] || ($is_new && $existing_count >= $limits['files'])) {
+				$refused[] = "{$name}：这道题的数据已经到了上限（" . uploadMegabytes($limits['bytes']) . " MB、{$limits['files']} 个文件）";
+				continue;
+			}
+			if (is_dir("$upload_dir/$name") || is_link("$upload_dir/$name") || !move_uploaded_file($tmp_name, "$upload_dir/$name")) {
+				$refused[] = "{$name}：无法保存";
+				continue;
+			}
+			chmod("$upload_dir/$name", 0644);
+			$existing_bytes += $size - $replaced;
+			$existing_count += $is_new ? 1 : 0;
+			$written++;
+			$taken[$name] = $size;
 		}
-		$err = problemFileNameError($name);
-		if ($err !== '') {
-			$refused[] = "{$name}：$err";
-			continue;
+		if ($taken) {
+			auditLog('problem.upload_data', 'problem', $problem['id'], null, array('files' => count($taken), 'names' => array_slice(array_keys($taken), 0, 50), 'size' => array_sum($taken)), $actor);
 		}
-		$size = filesize($tmp_name);
-		$is_new = !is_file("$upload_dir/$name");
-		$replaced = $is_new ? 0 : filesize("$upload_dir/$name");
-		if ($size > $limits['file_bytes']) {
-			$refused[] = "$name 有 " . uploadMegabytes($size) . " MB，超过了单个文件的上限 " . uploadMegabytes($limits['file_bytes']) . " MB";
-			continue;
+		if ($written > 0) {
+			problemConfCleanFile("$upload_dir/problem.conf");
 		}
-		if ($existing_bytes - $replaced + $size > $limits['bytes'] || ($is_new && $existing_count >= $limits['files'])) {
-			$refused[] = "{$name}：这道题的数据已经到了上限（" . uploadMegabytes($limits['bytes']) . " MB、{$limits['files']} 个文件）";
-			continue;
-		}
-		if (is_dir("$upload_dir/$name") || is_link("$upload_dir/$name") || !move_uploaded_file($tmp_name, "$upload_dir/$name")) {
-			$refused[] = "{$name}：无法保存";
-			continue;
-		}
-		chmod("$upload_dir/$name", 0644);
-		$existing_bytes += $size - $replaced;
-		$existing_count += $is_new ? 1 : 0;
-		$written++;
-		$taken[$name] = $size;
-	}
-	if ($taken) {
-		auditLog('problem.upload_data', 'problem', $problem['id'], null, array('files' => count($taken), 'names' => array_slice(array_keys($taken), 0, 50), 'size' => array_sum($taken)), $actor);
-	}
-	if ($written > 0) {
-		problemConfCleanFile("$upload_dir/problem.conf");
-	}
-	return array($written, $refused);
+		return array($written, $refused);
+	}, array(0, array('无法锁定题目的数据，请稍后再试')));
 }
 
 // ---- making a problem
@@ -1387,32 +1402,35 @@ function problemsBatchForm($domain = null) {
 // the problem. Returns array('none', '') when no file was sent, array('ok', how many files
 // were written) or array('refused', why).
 function problemTakeUploadedData($problem, $field, $actor) {
-	if (!isset($_FILES[$field]) || is_array($_FILES[$field]['name']) || $_FILES[$field]['error'] == UPLOAD_ERR_NO_FILE) {
-		return array('none', '');
-	}
-	if ($_FILES[$field]['error'] > 0) {
-		return array('refused', '数据包没有传完（错误 ' . (int)$_FILES[$field]['error'] . '），可能是文件太大');
-	}
-	$zip_mime_types = array('application/zip', 'application/x-zip', 'application/x-zip-compressed');
-	$is_zip = in_array($_FILES[$field]['type'], $zip_mime_types, true)
-		|| ($_FILES[$field]['type'] == 'application/octet-stream' && substr($_FILES[$field]['name'], -4) == '.zip');
-	if (!$is_zip) {
-		return array('refused', '请上传zip格式！');
-	}
-	$up_filename = tempnam(sys_get_temp_dir(), 'uoj_data_');
-	move_uploaded_file($_FILES[$field]['tmp_name'], $up_filename);
-	// The archive is looked at before anything of it is written: how much it holds, and
-	// where its files would go. Its files are then written one by one.
-	list($unpacked, $errmsg) = uploadUnpack($up_filename, "/var/uoj_data/upload/{$problem['id']}", uploadLimits());
-	$upload_facts = array('size' => filesize($up_filename), 'sha256' => hash_file('sha256', $up_filename));
-	unlink($up_filename);
-	if ($errmsg !== '') {
-		auditLog('problem.upload_refused', 'problem', $problem['id'], null, $upload_facts + array('error' => $errmsg), $actor);
-		return array('refused', $errmsg);
-	}
-	auditLog('problem.upload_data', 'problem', $problem['id'], null, $upload_facts + array('files' => $unpacked), $actor);
-	problemConfCleanFile("/var/uoj_data/upload/{$problem['id']}/problem.conf");
-	return array('ok', $unpacked);
+	requirePHPLib('data');
+	return dataWithLock($problem['id'], function() use ($problem, $field, $actor) {
+		if (!isset($_FILES[$field]) || is_array($_FILES[$field]['name']) || $_FILES[$field]['error'] == UPLOAD_ERR_NO_FILE) {
+			return array('none', '');
+		}
+		if ($_FILES[$field]['error'] > 0) {
+			return array('refused', '数据包没有传完（错误 ' . (int)$_FILES[$field]['error'] . '），可能是文件太大');
+		}
+		$zip_mime_types = array('application/zip', 'application/x-zip', 'application/x-zip-compressed');
+		$is_zip = in_array($_FILES[$field]['type'], $zip_mime_types, true)
+			|| ($_FILES[$field]['type'] == 'application/octet-stream' && substr($_FILES[$field]['name'], -4) == '.zip');
+		if (!$is_zip) {
+			return array('refused', '请上传zip格式！');
+		}
+		$up_filename = tempnam(sys_get_temp_dir(), 'uoj_data_');
+		move_uploaded_file($_FILES[$field]['tmp_name'], $up_filename);
+		// The archive is looked at before anything of it is written: how much it holds, and
+		// where its files would go. Its files are then written one by one.
+		list($unpacked, $errmsg) = uploadUnpack($up_filename, "/var/uoj_data/upload/{$problem['id']}", uploadLimits());
+		$upload_facts = array('size' => filesize($up_filename), 'sha256' => hash_file('sha256', $up_filename));
+		unlink($up_filename);
+		if ($errmsg !== '') {
+			auditLog('problem.upload_refused', 'problem', $problem['id'], null, $upload_facts + array('error' => $errmsg), $actor);
+			return array('refused', $errmsg);
+		}
+		auditLog('problem.upload_data', 'problem', $problem['id'], null, $upload_facts + array('files' => $unpacked), $actor);
+		problemConfCleanFile("/var/uoj_data/upload/{$problem['id']}/problem.conf");
+		return array('ok', $unpacked);
+	}, array('refused', '无法锁定题目的数据，请稍后再试'));
 }
 // whether the data that was uploaded for a problem says how it is to be judged
 function problemHasConf($problem) {
