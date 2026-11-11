@@ -27,8 +27,7 @@ function array2csv(array &$array) {
 
 	$df = fopen("php://output", 'w');
 
-	fputcsv($df, array_keys(reset($array)));
-
+	// (the first row is the header: the keys of the rows are numbers, and were written before it)
 	foreach ($array as $row) {
 		// (a nickname is whatever its user typed: see csvSafeRow())
 		fputcsv($df, csvSafeRow($row));

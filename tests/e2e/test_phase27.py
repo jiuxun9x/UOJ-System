@@ -490,5 +490,26 @@ class InteractiveOutputLimitTest(unittest.TestCase):
         self.assertEqual(uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE)).score, 100)
 
 
+class StandingsFileTest(unittest.TestCase):
+    """The file of the standings of a contest began with a row of numbers, 0,1,2,..., the keys of
+    its header, which came in the second row: whatever read the first row as the header read
+    the numbers."""
+
+    def test_the_first_row_is_the_header(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        contest_id = admin.new_contest("p27 导出", rule="ICPC", problems=str(problem_id))
+        pupil = account("p27_export_pupil")
+        pupil.register_for_contest(contest_id)
+        uoj.move_contest(contest_id, -60, 60)
+        uoj.wait_submission(pupil.submit_in_contest(contest_id, problem_id, AB))
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        rows = admin.get("/contest/%d/export_standings" % contest_id).text.lstrip("\ufeff").splitlines()
+        self.assertTrue(rows[0].startswith("Rank,Username,Nickname,"), rows[:2])
+        self.assertTrue(rows[1].startswith("1,p27_export_pupil,"), rows[:2])
+        self.assertEqual(len(rows), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
