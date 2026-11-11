@@ -941,8 +941,10 @@ function homeworkClaim($homework, $user) {
 	if (!can($user, 'homework.claim', $homework)) {
 		return '现在不能认领这个作业';
 	}
-	DB::insert("insert into homework_participants (homework_id, username, status, claimed_at) values ({$homework['id']}, '".DB::escape($user['username'])."', 'active', '".DB::escape(UOJTime::$time_now_str)."') on duplicate key update status = 'active'");
-	return '';
+	// (who was taken out meanwhile stays out)
+	DB::insert("insert into homework_participants (homework_id, username, status, claimed_at) values ({$homework['id']}, '".DB::escape($user['username'])."', 'active', '".DB::escape(UOJTime::$time_now_str)."') on duplicate key update status = if(status = 'removed', status, 'active')");
+	$participation = homeworkParticipation($homework['id'], $user['username']);
+	return $participation && $participation['status'] === 'active' ? '' : '现在不能认领这个作业';
 }
 // Before the homework begins, whoever claimed it may step back, unless the homework says otherwise.
 function homeworkWithdraw($homework, $user) {
@@ -953,8 +955,9 @@ function homeworkWithdraw($homework, $user) {
 	if (!$homework['allow_withdraw'] || homeworkNow() >= strtotime($homework['begin_at'])) {
 		return '这个作业不能退出。如有需要请联系老师';
 	}
-	DB::update("update homework_participants set status = 'withdrawn' where homework_id = {$homework['id']} and username = '".DB::escape($user['username'])."'");
-	return '';
+	// what is active steps back, and nothing else: who was taken out meanwhile stays out
+	DB::update("update homework_participants set status = 'withdrawn' where homework_id = {$homework['id']} and username = '".DB::escape($user['username'])."' and status = 'active'");
+	return DB::affected_rows() == 1 ? '' : '你没有认领这个作业';
 }
 // The people who manage a homework put a member of the domain into it, or take somebody out.
 function homeworkSetParticipant($homework, $target, $active, $actor) {

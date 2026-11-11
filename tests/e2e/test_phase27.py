@@ -407,6 +407,19 @@ class HomeworkRacesTest(unittest.TestCase):
         late = db_value("select submit_time >= (select end_at from homeworks where id = %d) from submissions where id = %d" % (homework_id, sent[0]))
         self.assertEqual(late, "1")
 
+    def test_who_was_taken_out_meanwhile_stays_out(self):
+        # Allowed to claim the homework on what was read before a teacher took them out, a
+        # pupil was put back in by claiming it.
+        slug, teacher, (ann,), problem_id = classroom("p27_hw_out", ("ann",))
+        homework_id = published_homework(teacher, slug, problem_id, title="p27 移出")
+        db("insert into homework_participants (homework_id, username, status, claimed_at) values (%d, '%s', 'removed', now())" % (homework_id, ann.username))
+        said = uoj.php(
+            "class P27Stale extends UOJPermissionFacts { public function homeworkParticipantStatus($u, $h) { return 'withdrawn'; } }"
+            " permissionFacts(new P27Stale()); echo homeworkClaim(queryHomework(%d), queryUser('%s'));" % (homework_id, ann.username)
+        )  # fmt: skip
+        self.assertEqual(said, "现在不能认领这个作业")
+        self.assertEqual(db_value("select status from homework_participants where homework_id = %d and username = '%s'" % (homework_id, ann.username)), "removed")
+
 
 if __name__ == "__main__":
     unittest.main()
