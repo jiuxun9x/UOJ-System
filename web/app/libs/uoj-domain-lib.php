@@ -545,6 +545,15 @@ function domainCopyProblem($source, $domain, $actor) {
 	if (!$source_version) {
 		return array(null, "题目 " . problemLabel($source) . " 还没有数据，不能复制");
 	}
+	// The copy is made of the files of the problem, which are what its published data was made
+	// of, or there is no copy: files that were uploaded and not synced are nobody's to take, and
+	// the copy says it is of the published version. (Looked at again when they are copied.)
+	$unpublished = "题目 " . problemLabel($source) . " 有还没同步的数据改动，暂时不能复制：等它的管理者同步之后再复制";
+	if (!dataWithLock($source['id'], function() use ($source) {
+		return dataFilesArePublished($source);
+	}, false)) {
+		return array(null, $unpublished);
+	}
 	$extra_config = json_decode($source['extra_config'], true);
 	$extra_config = is_array($extra_config) ? $extra_config : array();
 	unset($extra_config['custom_judger_fingerprint']);
@@ -579,8 +588,17 @@ function domainCopyProblem($source, $domain, $actor) {
 		return array(null, "复制题目 " . problemLabel($source) . " 失败：题面没有保存下来");
 	}
 	auditLog('problem.copy', 'problem', $id, null, array('domain_id' => (int)$domain['id'], 'source_problem_id' => (int)$source['id'], 'source_data_version' => (int)$source_version['version']), $actor);
-	exec("cp -a ".escapeshellarg("/var/uoj_data/upload/{$source['id']}/.")." ".escapeshellarg("/var/uoj_data/upload/$id/"), $output, $status);
-	$err = $status === 0 ? dataSyncProblemData(queryProblemBrief($id), $actor, array('reason' => 'copy')) : '复制数据文件失败';
+	$err = dataWithLock($source['id'], function() use ($source, $source_version, $id, $unpublished) {
+		$now = dataCurrentVersion($source);
+		if (!$now || (int)$now['version'] !== (int)$source_version['version'] || !dataFilesArePublished($source)) {
+			return $unpublished;
+		}
+		exec("cp -a ".escapeshellarg("/var/uoj_data/upload/{$source['id']}/.")." ".escapeshellarg("/var/uoj_data/upload/$id/"), $output, $status);
+		return $status === 0 ? '' : '复制数据文件失败';
+	}, '无法锁定来源题目的数据，请稍后再试');
+	if ($err === '') {
+		$err = dataSyncProblemData(queryProblemBrief($id), $actor, array('reason' => 'copy'));
+	}
 	if ($err) {
 		// a copy without data is of no use to anybody
 		DB::delete("delete from problems where id = $id");

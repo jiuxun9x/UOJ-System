@@ -752,7 +752,7 @@ function problemPlanSettings($problem, $settings) {
 // Returns array(what was found and done, as lines for people, '') or array(null, why not).
 function problemApplySettings($problem, $settings, $actor) {
 	requirePHPLib('data');
-	return dataWithLock($problem['id'], function() use ($problem, $settings, $actor) {
+	return dataChangeFiles($problem['id'], function() use ($problem, $settings, $actor) {
 		list($plan, $err) = problemPlanSettings($problem, $settings);
 		if ($err !== '') {
 			return array(null, $err);
@@ -844,7 +844,7 @@ function problemConfFromText($text) {
 // Returns '' or what is wrong with the text.
 function problemSaveConfText($problem, $text, $actor) {
 	requirePHPLib('data');
-	return dataWithLock($problem['id'], function() use ($problem, $text, $actor) {
+	return dataChangeFiles($problem['id'], function() use ($problem, $text, $actor) {
 		requirePHPLib('judger');
 		list($conf, $err) = problemConfFromText($text);
 		if ($err !== '') {
@@ -996,7 +996,7 @@ function problemFilePath($problem, $name) {
 // each of these returns '' or why it was refused
 function problemDeleteFile($problem, $name, $actor) {
 	requirePHPLib('data');
-	return dataWithLock($problem['id'], function() use ($problem, $name, $actor) {
+	return dataChangeFiles($problem['id'], function() use ($problem, $name, $actor) {
 		$path = problemFilePath($problem, $name);
 		if ($path === null) {
 			return '没有这个文件';
@@ -1016,7 +1016,7 @@ function problemDeleteFile($problem, $name, $actor) {
 }
 function problemRenameFile($problem, $name, $new_name, $actor) {
 	requirePHPLib('data');
-	return dataWithLock($problem['id'], function() use ($problem, $name, $new_name, $actor) {
+	return dataChangeFiles($problem['id'], function() use ($problem, $name, $new_name, $actor) {
 		requirePHPLib('judger');
 		$path = problemFilePath($problem, $name);
 		if ($path === null) {
@@ -1069,7 +1069,7 @@ function problemRenameFile($problem, $name, $new_name, $actor) {
 // and why, as lines for people).
 function problemTakeUploadedFiles($problem, $field, $actor) {
 	requirePHPLib('data');
-	return dataWithLock($problem['id'], function() use ($problem, $field, $actor) {
+	return dataChangeFiles($problem['id'], function() use ($problem, $field, $actor) {
 		if (!isset($_FILES[$field]) || !is_array($_FILES[$field]['name'])) {
 			return array(0, array());
 		}
@@ -1403,7 +1403,7 @@ function problemsBatchForm($domain = null) {
 // were written) or array('refused', why).
 function problemTakeUploadedData($problem, $field, $actor) {
 	requirePHPLib('data');
-	return dataWithLock($problem['id'], function() use ($problem, $field, $actor) {
+	return dataChangeFiles($problem['id'], function() use ($problem, $field, $actor) {
 		if (!isset($_FILES[$field]) || is_array($_FILES[$field]['name']) || $_FILES[$field]['error'] == UPLOAD_ERR_NO_FILE) {
 			return array('none', '');
 		}

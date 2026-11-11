@@ -43,6 +43,59 @@
 		}
 	}
 
+	// The state of the files of a problem: a new one is written down whenever they change, and a
+	// sync writes down which it read (problem_data_versions.upload_state). '' where nothing was
+	// ever written down.
+	function dataFilesState($problem_id) {
+		$state = @file_get_contents("/var/uoj_data/upload/" . (int)$problem_id . ".state");
+		return $state === false ? '' : trim($state);
+	}
+	function dataFilesChanged($problem_id) {
+		@file_put_contents("/var/uoj_data/upload/" . (int)$problem_id . ".state", bin2hex(random_bytes(16)));
+	}
+	// changes the files of a problem, holding its lock, and says they changed
+	function dataChangeFiles($problem_id, $fun, $failed = '无法锁定题目的数据，请稍后再试') {
+		return dataWithLock($problem_id, function() use ($problem_id, $fun) {
+			try {
+				return $fun();
+			} finally {
+				dataFilesChanged($problem_id);
+			}
+		}, $failed);
+	}
+	// Whether the files of a problem are still what its published data was made of. Of a version
+	// from before the files had a state, nothing of them may have changed after it was made.
+	// (Asked holding the lock of the problem.)
+	function dataFilesArePublished($problem) {
+		$version = dataCurrentVersion($problem);
+		if (!$version) {
+			return false;
+		}
+		if ($version['upload_state'] !== null) {
+			return $version['upload_state'] === dataFilesState($problem['id']);
+		}
+		$made = strtotime($version['created_at']);
+		$dirs = array("/var/uoj_data/upload/" . (int)$problem['id']);
+		clearstatcache();
+		while ($dirs) {
+			$dir = array_shift($dirs);
+			if (filemtime($dir) > $made) {
+				return false;
+			}
+			foreach (scandir($dir) as $name) {
+				if ($name === '.' || $name === '..') {
+					continue;
+				}
+				if (is_dir("$dir/$name") && !is_link("$dir/$name")) {
+					$dirs[] = "$dir/$name";
+				} elseif (@filemtime("$dir/$name") > $made) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
 	// ---- versions of the data of a problem
 	//
 	// Every sync makes a new version. Its archive waits in the staging folder until a judger
@@ -344,6 +397,7 @@
 			exec("rm /var/uoj_data/upload/$id -r");
 			exec("rm /var/uoj_data/$id -r");
 			dataNewProblem($id);
+			dataFilesChanged($id);
 
 			// judgers must not go on with the copy they have
 			DB::update("update problems set data_version = 0 where id = $id");
@@ -424,6 +478,7 @@
 		private $upload_dir, $data_dir, $stage_dir, $prepare_dir;
 		private $requirement, $problem_extra_config;
 		private $problem_conf, $final_problem_conf;
+		private $upload_state = '';
 		private $allow_files;
 		// what a judger has to build before the data can be used
 		private $prepare_steps = array();
@@ -554,6 +609,7 @@
 			}
 
 			$this->upload_dir = "/var/uoj_data/upload/$id";
+			$this->upload_state = dataFilesState($id);
 			$this->data_dir = "/var/uoj_data/$id";
 			// The data is prepared in a folder named after the problem inside a staging folder,
 			// so that the archive for the judgers can be built before anything is published.
@@ -850,7 +906,9 @@
 				'prepare' => DB::escape(json_encode($this->prepare_steps)),
 				'pending' => DB::escape(json_encode($this->pending_changes())),
 				'created_by' => $this->user ? DB::escape($this->user['username']) : '',
-				'reason' => DB::escape(isset($this->options['reason']) ? $this->options['reason'] : 'sync')
+				'reason' => DB::escape(isset($this->options['reason']) ? $this->options['reason'] : 'sync'),
+				// what the files were, which the sync read holding the lock
+				'upload_state' => DB::escape($this->upload_state)
 			));
 			if ($version_row == null) {
 				throw new Exception("failed to register the new version of the data");
@@ -1129,6 +1187,9 @@
 				fclose($in);
 				$written++;
 			}
+			if ($written > 0) {
+				dataFilesChanged($job['problem_id']);
+			}
 			return true;
 		}, null);
 		$zip->close();
@@ -1173,6 +1234,7 @@
 				return 'failed to save the data of the hack';
 			}
 			putUOJConf("$cur_dir/problem.conf", $problem_conf);
+			dataFilesChanged($problem['id']);
 
 			// nobody asked for this sync, so it runs without the permissions of any user
 			$ret = dataSyncProblemData($problem, null, array('reason' => 'hack', 'after' => 'rejudge_ac', 'hack_id' => (int)$hack_id));
