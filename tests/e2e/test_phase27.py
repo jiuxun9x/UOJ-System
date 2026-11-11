@@ -13,6 +13,7 @@ import uoj
 from fixtures import AB, AB_HACKABLE, DOUBLE, DOUBLE_INTERACTOR, ab_problem_files, checker_problem_files, interactive_problem_files
 from test_phase13 import browser_with, who
 from test_phase3 import account
+from test_phase8 import save_statement
 from test_phase9 import import_files
 from test_phase25 import classroom, published_homework
 from test_phase4 import homework_form, homework_row, homework_settings, member_form, tick
@@ -791,6 +792,27 @@ class OneCopyTest(unittest.TestCase):
         self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d and source_problem_id = %d" % (did, public)), "1")
         used = db("select distinct homework_problems.problem_id from homework_problems join homeworks on homeworks.id = homework_problems.homework_id where homeworks.domain_id = %d" % did)
         self.assertEqual(len(used), 1)
+
+
+class TagsSavedAtOnceTest(unittest.TestCase):
+    """Two people who saved the statement of a problem at once each took its tags away and each
+    put theirs: the problem had the tags of both, which neither had saved."""
+
+    def test_the_tags_are_those_of_one_saving(self):
+        admin, manager = uoj.admin(), uoj.manager()
+        problem_id = admin.create_problem(ab_problem_files())
+        db("insert ignore into problems_permissions (problem_id, username) values (%d, '%s')" % (problem_id, manager.username))
+        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e",
+                "start transaction; select id from problems where id = %d for update; select get_lock('p27_tags', 0); select sleep(3); commit;" % problem_id)  # fmt: skip
+        uoj.wait_until("the row is held", lambda: db_value("select is_used_lock('p27_tags') is not null") == "1", timeout=30)
+        threads = [threading.Thread(target=lambda client=client, tags=tags: save_statement(client, problem_id, "p27 题面", title="p27 标签", tags=tags))
+                   for client, tags in ((admin, "p27甲,p27乙"), (manager, "p27丙,p27丁"))]  # fmt: skip
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        tags = sorted(row[0] for row in db("select tag from problems_tags where problem_id = %d" % problem_id))
+        self.assertIn(tags, (["p27乙", "p27甲"], ["p27丁", "p27丙"]))
 
 
 if __name__ == "__main__":

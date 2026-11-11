@@ -95,10 +95,16 @@
 		}
 		
 		if ($data['tags'] !== $problem_tags) {
-			DB::delete("delete from problems_tags where problem_id = {$problem['id']}");
-			foreach ($data['tags'] as $tag) {
-				DB::insert("insert into problems_tags (problem_id, tag) values ({$problem['id']}, '".DB::escape($tag)."')");
-			}
+			// put in place at once, holding the row of the problem: two who saved at once each took
+			// the tags away and each put theirs, and the problem had the tags of both
+			DB::transaction(function() use ($problem, $data) {
+				DB::selectFirst("select id from problems where id = {$problem['id']} for update");
+				DB::delete("delete from problems_tags where problem_id = {$problem['id']}");
+				foreach ($data['tags'] as $tag) {
+					DB::insert("insert into problems_tags (problem_id, tag) values ({$problem['id']}, '".DB::escape($tag)."')");
+				}
+				return true;
+			});
 		}
 		if ($data['is_hidden'] != $problem['is_hidden'] ) {
 			problemSetHidden($problem['id'], $data['is_hidden']);
