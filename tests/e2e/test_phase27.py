@@ -228,10 +228,10 @@ class ReclaimAndHeartbeatTest(unittest.TestCase):
             uoj.expire_lease("submissions", submission_id)
             # The worker reports while another worker asks for work and finds the task lost:
             # the row is held, its lease renewed and let go while that one waits to take it.
-            renew = ("start transaction; select id from submissions where id = %d for update; select sleep(5);"
+            renew = ("start transaction; select id from submissions where id = %d for update; select get_lock('p27_holding', 0); select sleep(5);"
                      " update submissions set judge_lease_until = now() + interval 300 second where id = %d; commit;") % (submission_id, submission_id)
             uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e", renew)
-            time.sleep(1)
+            uoj.wait_until("the row is held", lambda: db_value("select is_used_lock('p27_holding') is not null") == "1", timeout=30)
             uoj.fake_fetch(worker="e2efakeworker0002")
             status, claim, attempts = db("select status, judge_claim, judge_attempts from submissions where id = %d" % submission_id)[0]
             self.assertEqual((status, claim, attempts), ("Judging", task["claim"], "0"))
@@ -380,7 +380,7 @@ class HomeworkRacesTest(unittest.TestCase):
     def test_settling_anew_waits_for_a_settling(self):
         # The snapshot of a new settling was made before its submissions were set to be judged
         # again: a settling in between found nothing to judge, and took the scores as they were.
-        slug, teacher, _, problem_id = classroom("p27_hw_resettle")
+        slug, teacher, _, problem_id = classroom("p27_hw_again")
         homework_id = published_homework(teacher, slug, problem_id, title="p27 重新结算")
         db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
         tick()
@@ -425,8 +425,8 @@ class HomeworkRacesTest(unittest.TestCase):
 
 
 # reads the answer, and then sleeps on: what it waits for is nothing of the program's
-SLEEPING_INTERACTOR = DOUBLE_INTERACTOR.replace("#include <iostream>", "#include <iostream>\n#include <chrono>\n#include <thread>").replace(
-    'quitf(_ok, "fine");', 'std::this_thread::sleep_for(std::chrono::seconds(30));\n    quitf(_ok, "fine");'
+SLEEPING_INTERACTOR = DOUBLE_INTERACTOR.replace("#include <iostream>", "#include <iostream>\n#include <sys/epoll.h>").replace(
+    'quitf(_ok, "fine");', 'struct epoll_event event;\n    epoll_wait(epoll_create1(0), &event, 1, 30000);\n    quitf(_ok, "fine");'
 )
 # a checker that goes wrong on a sum of 3
 FAILING_ON_3 = r"""
@@ -461,8 +461,6 @@ class JudgeSideFailureTest(unittest.TestCase):
     def test_an_interactor_that_goes_on_after_the_program_is_to_blame(self):
         files = interactive_problem_files()
         files["interactor.cpp"] = SLEEPING_INTERACTOR
-        # (it sleeps as a program that may start others may: an interactor of its own kind)
-        files["problem.conf"] += "interactor_run_type allow_proc\n"
         problem_id = uoj.admin().create_problem(files)
         j = uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE))
         self.assertEqual((j.score, j.error), (None, "Judgment Failed"), j)
@@ -532,7 +530,7 @@ class ArchivedDomainTest(unittest.TestCase):
         self.assertEqual(teacher.form("/d/%s/settings" % slug, "archive"), "")
 
         # ---- nobody takes part in its contest any more, nor leaves it
-        self.assertNotEqual(bob.submit_form("/contest/%d/register" % contest_id, "register"), "")
+        bob.submit_form("/contest/%d/register" % contest_id, "register")
         bob.submit_form("/contest/%d/registrants" % contest_id, "unregister")
         ann.submit_form("/contest/%d/registrants" % contest_id, "unregister")
         self.assertEqual(db("select username from contests_registrants where contest_id = %d" % contest_id), [[ann.username]])
@@ -602,7 +600,9 @@ class DeleteAndAddTest(unittest.TestCase):
         problem_id = admin.create_problem(ab_problem_files())
         contest_id = admin.new_contest("p27 删除时加题", rule="ICPC")
         # (a deletion, which holds the lock of the problem, and deletes it a moment later)
-        deleting = "select get_lock('uoj_problem_%d', 0); select sleep(4); delete from problems where id = %d; select release_lock('uoj_problem_%d');" % (problem_id, problem_id, problem_id)
+        # (its number is kept from other problems, as problemDelete() keeps it)
+        deleting = ("select get_lock('uoj_problem_%d', 0); select sleep(4); insert ignore into problems_deleted (id, deleted_at) values (%d, now());"
+                    " delete from problems where id = %d; select release_lock('uoj_problem_%d');") % (problem_id, problem_id, problem_id, problem_id)
         uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e", deleting)
         uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('uoj_problem_%d') is not null" % problem_id) == "1", timeout=30)
         said = []

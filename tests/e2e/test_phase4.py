@@ -753,7 +753,9 @@ class DomainProblemTest(unittest.TestCase):
 
         # changing the copy leaves the source alone
         stricter = ab_problem_files()
-        stricter["output1.txt"] = "no program prints this\n"
+        # (an answer no right program prints: a number, which the checker reads; one it can not
+        # read is the problem gone wrong, which fails the judgement since phase 27)
+        stricter["output1.txt"] = "4\n"
         self.assertIn("上传成功", self.teacher.upload_data(copy_id, stricter).text)
         self.assertEqual(self.teacher.sync(copy_id), "")
         self.assertEqual(self.data_version(copy_id)[0], "2")
@@ -1250,7 +1252,8 @@ class HomeworkTest(unittest.TestCase):
         manage = self.url(homework_id, "/manage?tab=scores")
         self.assertNotIn('id="alert-drift"', teacher.get(manage).text)
         stricter = ab_problem_files()
-        stricter["output3.txt"] = "no program prints this\n"
+        # (a number no right program prints, which the checker reads: see above)
+        stricter["output3.txt"] = "1\n"
         self.assertIn("上传成功", teacher.upload_data(copy_id, stricter).text)
         self.assertEqual(teacher.sync(copy_id), "")
         page = teacher.get(manage).text
