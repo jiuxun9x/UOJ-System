@@ -764,15 +764,24 @@
 	// what the worker can judge, which only an asking for work says: null for no limit
 	$memory_mb = isset($_POST['memory_mb']) && is_string($_POST['memory_mb']) && validateUInt($_POST['memory_mb']) && strlen($_POST['memory_mb']) <= 7 ? (int)$_POST['memory_mb'] : null;
 	DB::update("update judger_workers set memory_mb = ".($memory_mb === null ? 'null' : $memory_mb)." where $esc_worker_of");
-	$asked = DB::selectFirst("select last_fetch_id, last_claim, last_answer from judger_workers where $esc_worker_of");
-	if ($asked && $asked['last_fetch_id'] === $fetch_id) {
-		if ($asked['last_claim'] !== null && $asked['last_answer'] !== null && claimIsHeld($asked['last_claim'])) {
+	$answer_again = function() use ($esc_worker_of) {
+		$asked = DB::selectFirst("select last_claim, last_answer from judger_workers where $esc_worker_of");
+		if ($asked && $asked['last_claim'] !== null && $asked['last_answer'] !== null && claimIsHeld($asked['last_claim'])) {
 			renewLease($asked['last_claim']);
 			die($asked['last_answer']);
 		}
 		die("Nothing to judge");
+	};
+	$asked = DB::selectFirst("select last_fetch_id from judger_workers where $esc_worker_of");
+	if ($asked && $asked['last_fetch_id'] === $fetch_id) {
+		$answer_again();
 	}
-	DB::update("update judger_workers set last_fetch_id = '$fetch_id', last_claim = null, last_answer = null where $esc_worker_of");
+	// The asking is taken in one statement that finds it new still: two requests of the same asking
+	// at once (sent twice on the way, or asked again while the first was being answered) both found
+	// it new, and each took a task, the one of them the judger never heard of.
+	if (!DB::update("update judger_workers set last_fetch_id = '$fetch_id', last_claim = null, last_answer = null where $esc_worker_of and (last_fetch_id is null or last_fetch_id <> '$fetch_id')") || DB::affected_rows() != 1) {
+		$answer_again();
+	}
 	// what is answered with a task is kept, for the same asking again
 	function answerWith($answer) {
 		global $new_claim, $esc_worker_of;
