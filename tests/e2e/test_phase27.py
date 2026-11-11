@@ -112,5 +112,35 @@ class StatisticsChartTest(unittest.TestCase):
             self.assertEqual(full_marks_counted(client, problem_id), 0)
 
 
+class HackOfASubmissionTest(unittest.TestCase):
+    """A hack was shown as its problem is, whatever it hacked: a hack of what was submitted in a
+    contest with a password was everybody's, with the names, the result and the details of the
+    test, while what it hacked was not; and of a problem that stays hidden it was its hacker's no
+    more. A hack is shown where what it hacked is, and to its hacker."""
+
+    def test_a_hack_is_where_the_submission_is(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files(), extra_config={"view_content_type": "ALL", "view_all_details_type": "ALL"}, hackable=True)
+        contest_id = admin.new_contest("p27 Hack", rule="IOI", problems=str(problem_id), join_mode="password", join_password="p27 hack")
+        pupil, mate, stranger = account("p27_hack_pupil"), account("p27_hack_mate"), account("p27_hack_stranger")
+        for client in (pupil, mate):
+            self.assertEqual(client.submit_form("/contest/%d/register" % contest_id, "register", {"join_password": "p27 hack"}), "")
+        uoj.move_contest(contest_id, -60, 60)
+        submission_id = pupil.submit_in_contest(contest_id, problem_id, AB)
+        self.assertEqual(uoj.wait_submission(submission_id).score, 100)
+        uoj.move_contest(contest_id, -7200, 60)
+        self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        hack_id = mate.hack(submission_id, b"5 6\n")
+        uoj.wait_hack(hack_id)
+        listed = 'href="/hack/%d"' % hack_id
+        for client in (mate, pupil, admin):
+            self.assertEqual(client.get("/hack/%d" % hack_id).status_code, 200, client.username)
+            self.assertIn(listed, client.get("/hacks?submission_id=%d" % submission_id).text, client.username)
+        for client in (stranger, uoj.Client()):
+            self.assertNotEqual(client.get("/submission/%d" % submission_id).status_code, 200)
+            self.assertNotEqual(client.get("/hack/%d" % hack_id).status_code, 200)
+            self.assertNotIn(listed, client.get("/hacks?submission_id=%d" % submission_id).text)
+
+
 if __name__ == "__main__":
     unittest.main()

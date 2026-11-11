@@ -17,6 +17,8 @@
 		$contest = null;
 	}
 
+	// a hack is seen where the submission it hacked is
+	$hack['submission'] = $submission;
 	if (!can($myUser, 'hack.view', $hack)) {
 		become403Page();
 	}

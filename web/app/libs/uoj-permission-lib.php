@@ -974,6 +974,15 @@ function can($user, $ability, $resource = null) {
 			if (!empty($problem['owner_domain_id']) && !can($user, 'domain.view', $facts->domain($problem['owner_domain_id']))) {
 				return false;
 			}
+			// A hack is of a submission, and is for who may see the submission where it was made
+			// - in a contest for a list, through a contest, in a homework - and for who hacked it:
+			// of a problem that is hidden, its hacker and the owner of what was hacked see it.
+			if (isset($resource['submission'])) {
+				if (permissionIsStaffOf($user, $resource['submission']) || ($name !== null && $resource['hacker'] === $name)) {
+					return true;
+				}
+				return can($user, 'submission.view', $resource['submission']);
+			}
 			return !$resource['is_hidden'];
 		case 'hack.view_source':
 			return can($user, 'submission.view_source', $resource['submission']);
@@ -1255,15 +1264,17 @@ function visibleHacksCond($user) {
 	if (can($user, 'submission.view_all')) {
 		return '1';
 	}
-	// a hack of a problem of a domain is shown in the domain only
+	// a hack of a problem of a domain is shown in the domain only; and a hack is shown where the
+	// submission it hacked is, as 'hack.view' has it
 	$of_the_site = "problem_id in (select id from problems where owner_domain_id is null)";
+	$of_what_is_seen = "submission_id in (select submissions.id from submissions where " . visibleSubmissionsCond($user) . ")";
 	if ($user == null) {
-		return "is_hidden = false and $of_the_site";
+		return "$of_the_site and $of_what_is_seen";
 	}
 	$esc_username = DB::escape($user['username']);
 	$of_my_domain = "problem_id in (select id from problems where owner_domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
 	$i_teach = "problem_id in (select id from problems where owner_domain_id in (".domainIdsOfUserSql($esc_username, 'teacher')."))";
-	return "$i_teach or problem_id in (".managedProblemIdsSql($esc_username).") or (is_hidden = false and ($of_the_site or $of_my_domain))";
+	return "$i_teach or problem_id in (".managedProblemIdsSql($esc_username).") or (($of_the_site or $of_my_domain) and (hacker = '$esc_username' or $of_what_is_seen))";
 }
 // The problems a user was given to manage, as a query of their ids: the ones of a domain while
 // the user is in the domain (as permissionLooksAfterProblem() has it).

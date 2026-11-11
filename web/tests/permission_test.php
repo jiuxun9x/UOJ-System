@@ -735,6 +735,14 @@ check_ability('submission.view', array('practice_contest_id' => 30) + fake_submi
 $facts->registered[] = array('bob', 32);
 check_ability('submission.view_source', fake_submission('setter', 41, 32), array('bob' => true, 'alice' => false), 'what was submitted in a contest with a password, to another who took part');
 array_pop($facts->registered);
+// A hack is of a submission: where the submission is kept with who took part in the contest, so
+// is the hack of it, whose problem is open to everybody; and of a problem that is hidden, its
+// hacker sees it, and who sees what was hacked.
+$locked_hack = array('hacker' => 'alice', 'problem_id' => 41, 'is_hidden' => 0, 'submission' => fake_submission('setter', 41, 32));
+check_ability('hack.view', $locked_hack, array('nobody' => false, 'bob' => false, 'alice' => true, 'setter' => true, 'helper' => true, 'root' => true), 'a hack of what was submitted in a contest with a password');
+$hidden_hack = array('hacker' => 'bob', 'problem_id' => 2, 'is_hidden' => 1, 'submission' => fake_submission('alice', 2, null, 1));
+check_ability('hack.view', $hidden_hack, array('nobody' => false, 'teacher' => false, 'bob' => true, 'setter' => true), 'a hack of a hidden problem, to its hacker');
+check_ability('hack.view', array('submission' => fake_submission('alice', 41, 30)) + $hidden_hack, array('nobody' => true, 'alice' => true, 'teacher' => true), 'a hack of what was submitted in a contest for everybody, to a problem that is hidden');
 // a contest that says nothing about who may take part is one for everybody
 check_ability('contest.enter', fake_contest(11, CONTEST_FINISHED), array('nobody' => true, 'bob' => true), 'a contest from before there were lists');
 // The outer board is for everybody, also who is not logged in, whatever it takes to take part:
