@@ -81,7 +81,8 @@ core_of() {
     expand_cpus "$siblings" | head -n 1
 }
 
-# one CPU of every physical core but the one of CPU 0 (all of them where there is one core)
+# one CPU of every physical core but the one of CPU 0 (all of them where there is one core): the
+# first of its hyperthreads that is online (the first of them was taken, online or not)
 default_cpus() {
     local cpu first seen="" chosen="" zero=""
     for cpu in $(online_cpus); do
@@ -91,9 +92,9 @@ default_cpus() {
         esac
         seen="$seen $first"
         if [ "$first" = "$(core_of 0)" ]; then
-            zero="$first"
+            zero="$cpu"
         else
-            chosen="$chosen $first"
+            chosen="$chosen $cpu"
         fi
     done
     if [ -z "$chosen" ]; then

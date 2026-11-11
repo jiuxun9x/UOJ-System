@@ -99,6 +99,11 @@ class WorkersTest(unittest.TestCase):
         sys_cpu = self.topology("0-3", ["0-1", "2-3"])
         self.assertEqual(sorted(self.services(self.compose(sys_cpu=sys_cpu))), ["uoj-judger-cpu2"])
 
+    def test_a_core_is_taken_by_a_cpu_of_it_that_is_online(self):
+        # the first hyperthread of the second core is offline: its other one is taken
+        sys_cpu = self.topology("0,2-7", ["0,4", "1,5", "2,6", "3,7"])
+        self.assertEqual(sorted(self.services(self.compose(sys_cpu=sys_cpu))), ["uoj-judger-cpu2", "uoj-judger-cpu3", "uoj-judger-cpu5"])
+
     def test_as_many_judgers_as_asked_for_and_no_more_than_the_machine_takes(self):
         self.assertEqual(sorted(self.services(self.compose("--workers", "2"))), ["uoj-judger-cpu1", "uoj-judger-cpu2"])
         said = self.refused("--workers", "4")
