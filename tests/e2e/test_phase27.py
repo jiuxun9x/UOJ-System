@@ -225,23 +225,32 @@ class ReclaimAndHeartbeatTest(unittest.TestCase):
         problem_id = uoj.admin().create_problem(ab_problem_files())
         pupil = account("p27_lease")
         with uoj.judgers_paused():
-            submission_id = pupil.submit(problem_id, AB)
-            task = uoj.fake_fetch()
-            self.assertEqual(task["id"], submission_id)
-            uoj.expire_lease("submissions", submission_id)
-            # The worker reports while another worker asks for work and finds the task lost:
-            # the row is held, its lease renewed and let go while that one waits to take it.
-            renew = ("start transaction; select id from submissions where id = %d for update; select get_lock('p27_holding', 0); select sleep(5);"
-                     " update submissions set judge_lease_until = now() + interval 300 second where id = %d; commit;") % (submission_id, submission_id)
-            uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "app_uoj233", "-e", renew)
-            uoj.wait_until("the row is held", lambda: db_value("select is_used_lock('p27_holding') is not null") == "1", timeout=30)
-            uoj.fake_fetch(worker="e2efakeworker0002")
-            status, claim, attempts = db("select status, judge_claim, judge_attempts from submissions where id = %d" % submission_id)[0]
-            self.assertEqual((status, claim, attempts), ("Judging", task["claim"], "0"))
+            kept_id, lost_id = pupil.submit(problem_id, AB), pupil.submit(problem_id, AB)
+            kept, lost = uoj.fake_fetch(), uoj.fake_fetch(worker="e2efakeworker0002")
+            self.assertEqual((kept["id"], lost["id"]), (kept_id, lost_id))
+            # A third worker asks for work and finds both lost ...
+            for submission_id in (kept_id, lost_id):
+                uoj.expire_lease("submissions", submission_id)
+            judger_name = db_value("select judger_name from submissions where id = %d" % kept_id)
+            # ... the worker of the one is heard of meanwhile, which renews its lease ...
+            uoj.judge_api("/judge/submit", {"heartbeat": "1", "worker": uoj.FAKE_WORKER, "claim": kept["claim"]})
+            # ... and it takes them as it found them: the one renewed meanwhile is not taken.
+            # (Most tables are MyISAM, which knows no transactions, and no row is held while the
+            # taking waits: the taking is one statement, tried here with what was found.)
+            take = ("requirePHPLib('judger');\n"
+                    "foreach (array(%d => '%s', %d => '%s') as $id => $claim) {\n"
+                    "\techo takeLostTask('submission', 'submissions', array('id' => $id, 'judge_claim' => $claim), lostTaskCond('%s', 'e2efakeworker0003')) === null ? 'kept ' : 'taken ';\n"
+                    "}\n") % (kept_id, kept["claim"], lost_id, lost["claim"], judger_name)  # fmt: skip
+            self.assertEqual(uoj.php(take), "kept taken ")
+            status, claim, attempts = db("select status, judge_claim, judge_attempts from submissions where id = %d" % kept_id)[0]
+            self.assertEqual((status, claim, attempts), ("Judging", kept["claim"], "0"))
+            self.assertNotEqual(db_value("select judge_claim from submissions where id = %d" % lost_id), lost["claim"])
             # and what the worker sends is stored
             result = {"score": 100, "time": 1, "memory": 1, "details": "<tests></tests>"}
-            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": submission_id, "worker": uoj.FAKE_WORKER, "claim": task["claim"], "submit": "1", "result": json.dumps(result)})
-            self.assertEqual(db("select status, score from submissions where id = %d" % submission_id)[0], ["Judged", "100"])
+            uoj.judge_api("/judge/submit", {"fetch_new": "0", "id": kept_id, "worker": uoj.FAKE_WORKER, "claim": kept["claim"], "submit": "1", "result": json.dumps(result)})
+            self.assertEqual(db("select status, score from submissions where id = %d" % kept_id)[0], ["Judged", "100"])
+        # the one taken is given out again, and judged
+        self.assertEqual(uoj.wait_submission(lost_id).score, 100)
 
 
 class HackKeptUntilAddedTest(unittest.TestCase):

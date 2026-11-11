@@ -20,10 +20,6 @@
 	function postedClaim() {
 		return isset($_POST['claim']) && is_string($_POST['claim']) && preg_match('/^[0-9a-f]{32}$/D', $_POST['claim']) ? $_POST['claim'] : null;
 	}
-	// how a row is told to have a claim: one that has none is one of before the claims
-	function claimIs($claim) {
-		return $claim === null ? 'judge_claim is null' : "judge_claim = '$claim'";
-	}
 	// A claim lasts as long as its lease, which the worker renews whenever it reports, at least
 	// every few seconds; a worker not heard of for judger.task-timeout seconds has lost it.
 	function leaseUntil() {
@@ -428,27 +424,11 @@
 			DB::update("update problem_data_versions set status = 'pending', judger_name = null, attempts = attempts + 1, ".CLAIM_DROPPED." where id = {$version_row['id']} and ".claimIs($version_row['judge_claim'])." and status = 'preparing'");
 		}
 	}
-	
-	// Takes a task that was found lost from its worker, in one statement that finds it lost
-	// still: the worker may have renewed its lease since it was looked at, and keeps it then.
-	// The task is given a claim of the taking, which nothing the worker sends of it any more
-	// has, and is released under it. Returns the row with that claim, or null.
-	function takeLostTask($kind, $table, $row, $lost) {
-		$taken = bin2hex(random_bytes(16));
-		if (!DB::update("update $table set judge_claim = '$taken' where id = {$row['id']} and " . claimIs($row['judge_claim']) . " and $lost") || DB::affected_rows() != 1) {
-			return null;
-		}
-		if ($kind !== null) {
-			DB::update("update submission_judgements set claim = '$taken' where kind = '$kind' and target_id = {$row['id']} and finished_at is null and claim <=> " . ($row['judge_claim'] === null ? 'null' : "'{$row['judge_claim']}'"));
-		}
-		$row['judge_claim'] = $taken;
-		return $row;
-	}
 	// Takes back what is not being worked on: a task whose lease ran out (one given out before
 	// the claims has none), and what this worker had, which asks for another task. What the
 	// other workers of the same account have is theirs.
 	function reclaimLostTasks($worker) {
-		$lost = "(judge_lease_until is null or judge_lease_until < now() or judger_name = '".DB::escape(judgerName())."' and judge_worker = '".DB::escape($worker)."')";
+		$lost = lostTaskCond(judgerName(), $worker);
 		foreach (DB::selectAll("select id, submitter, status, content, result, problem_id, judger_name, judge_attempts, judge_claim from submissions where status in ('Judging', 'Judged, Judging') and $lost") as $submission) {
 			if ($submission = takeLostTask('submission', 'submissions', $submission, $lost)) {
 				releaseSubmission($submission);

@@ -136,6 +136,34 @@
 		auditLog('judger.delete', 'judger', $name, null, null, $actor);
 		return '';
 	}
+	// ---- the claims on what is given out to judge
+	
+	// how a row is told to have a claim: one that has none is one of before the claims
+	function claimIs($claim) {
+		return $claim === null ? 'judge_claim is null' : "judge_claim = '$claim'";
+	}
+	// what is lost to a worker of an account that asks for work: a task whose lease ran out (one
+	// given out before the claims has none), and what this worker had, which asks for another
+	function lostTaskCond($judger_name, $worker) {
+		return "(judge_lease_until is null or judge_lease_until < now() or judger_name = '".DB::escape($judger_name)."' and judge_worker = '".DB::escape($worker)."')";
+	}
+	// Takes a task that was found lost from its worker, in one statement that finds it lost
+	// still: the worker may have renewed its lease since it was looked at, and keeps it then.
+	// (One statement, for most of the tables are MyISAM, which knows no transactions.) The task
+	// is given a claim of the taking, which nothing the worker sends of it any more has, and is
+	// released under it. Returns the row with that claim, or null.
+	function takeLostTask($kind, $table, $row, $lost) {
+		$taken = bin2hex(random_bytes(16));
+		if (!DB::update("update $table set judge_claim = '$taken' where id = {$row['id']} and " . claimIs($row['judge_claim']) . " and $lost") || DB::affected_rows() != 1) {
+			return null;
+		}
+		if ($kind !== null) {
+			DB::update("update submission_judgements set claim = '$taken' where kind = '$kind' and target_id = {$row['id']} and finished_at is null and claim <=> " . ($row['judge_claim'] === null ? 'null' : "'{$row['judge_claim']}'"));
+		}
+		$row['judge_claim'] = $taken;
+		return $row;
+	}
+	
 	// What a worker of a judging account is called on the pages: the label it was started with
 	// (judger/workers.sh names each judger after its CPU, such as cpu3), or the start of its name.
 	function judgerWorkerLabel($worker) {
