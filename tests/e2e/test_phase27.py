@@ -548,5 +548,22 @@ class ArchivedDomainTest(unittest.TestCase):
         self.assertNotIn(listed, ann.get("/d/%s/problems" % slug).text)
 
 
+class DomainContestStaffTest(unittest.TestCase):
+    """Somebody who was not in a domain could be made the owner of a contest of it: it counted for
+    nothing while they were not, and made them its owner as soon as they joined, as a student even.
+    The staff of a contest of a domain are people of the domain."""
+
+    def test_who_is_not_in_the_domain_is_made_no_staff(self):
+        slug, teacher, _, problem_id = classroom("p27_staff")
+        contest_id = teacher.new_contest("p27 域内比赛管理者", domain=slug, problems=str(uoj.pid(problem_id)))
+        stranger = account("p27_staff_stranger")
+        said = teacher.form("/contest/%d/manage" % contest_id, "add_manager", username=stranger.username, role="owner", tab="managers")
+        self.assertIn("管理者要先是域的成员", said)
+        self.assertIsNone(db_value("select role from contests_permissions where contest_id = %d and username = '%s'" % (contest_id, stranger.username)))
+        # joined as a student, a student they are
+        self.assertEqual(teacher.form("/d/%s/members" % slug, "add", username=stranger.username, role="member"), "")
+        self.assertNotEqual(stranger.get("/contest/%d/manage" % contest_id).status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

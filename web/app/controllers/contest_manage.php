@@ -143,6 +143,11 @@
 			if (!$user) {
 				return '没有这个用户';
 			}
+			// The staff of a contest of a domain are people of the domain. Who is not was made
+			// staff all the same, and became it on joining the domain, as a student even.
+			if ($contest['domain_id'] && permissionDomainRole($user, queryDomain($contest['domain_id'])) === null) {
+				return '这是域内的比赛，管理者要先是域的成员';
+			}
 			// (a tester made staff is staff, and tests no more)
 			$esc_username = DB::escape($user['username']);
 			DB::insert("insert into contests_permissions (contest_id, username, role) values ({$contest['id']}, '$esc_username', '$role') on duplicate key update role = '$role'");
