@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -160,17 +161,33 @@ private:
                     break;
                 }
             }
+        } catch (system_error &e) {
+            // The one it was passed on to went away (EPIPE): it was done, and there is nothing
+            // more to pass on. Anything else is an error of the passing on.
+            if (e.code().value() != EPIPE) {
+                cerr << e.what() << endl;
+                pipes[pipe_id].eptr = current_exception();
+            }
         } catch (exception &e) {
             cerr << e.what() << endl;
             pipes[pipe_id].eptr = current_exception();
         }
 
-        if (sf) {
-            if (sbuf_len > 0) {
-                write_all_or_throw(sfd, sbuf, sbuf_len);
-                sbuf_len = 0;
+        // (what is left of the copy is written as well, and an error of it is one of the pipe:
+        // thrown from here, it ended the whole run without a word)
+        try {
+            if (sf) {
+                if (sbuf_len > 0) {
+                    write_all_or_throw(sfd, sbuf, sbuf_len);
+                    sbuf_len = 0;
+                }
+                if (fclose(sf) != 0) {
+                    throw system_error(errno, system_category());
+                }
             }
-            fclose(sf);
+        } catch (exception &e) {
+            cerr << e.what() << endl;
+            pipes[pipe_id].eptr = current_exception();
         }
         if (over_the_limit && !pipes[pipe_id].config.saving_file_name.empty()) {
             FILE *mark = fopen((pipes[pipe_id].config.saving_file_name + ".over_limit").c_str(), "w");
@@ -219,13 +236,21 @@ public:
         }
     }
 
-    void join() {
+    // Waits for the programs and the pipes. Returns whether everything was passed on: a pipe
+    // that went wrong lost what the programs wrote to each other, and what they made of it is
+    // nothing to judge by.
+    bool join() {
         int status;
         while (wait(&status) > 0);
 
+        bool passed_on = true;
         for (int i = 0; i < (int)pipes.size(); i++) {
             pipes[i].io_thread.join();
+            if (pipes[i].eptr) {
+                passed_on = false;
+            }
         }
+        return passed_on;
     }
 };
 
@@ -291,7 +316,5 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     interaction_runner ri(parse_args(argc, argv));
-    ri.join();
-
-    return 0;
+    return ri.join() ? 0 : 1;
 }

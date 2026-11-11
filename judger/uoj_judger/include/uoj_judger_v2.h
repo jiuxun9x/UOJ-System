@@ -1019,7 +1019,7 @@ run_simple_interaction_result run_simple_interaction(const string &input_file_na
     std::string over_limit_file_name = std::string(real_output_file_name) + ".over_limit";
     unlink(over_limit_file_name.c_str());
 
-    runp::interaction::run(ric);
+    bool passed_on = runp::interaction::run(ric) == 0;
 
     run_simple_interaction_result rires;
     runp::result res = runp::result::from_file(rpc.result_file_name);
@@ -1056,6 +1056,12 @@ run_simple_interaction_result run_simple_interaction(const string &input_file_na
         ires.info = ires.info == "Checker Failed" ? "Interactor Judgment Failed" : "Interactor Judgment Failed: " + ires.info;
     }
 
+    if (!passed_on) {
+        // what the program and the interactor wrote to each other was not all passed on: what
+        // they made of it is nothing to judge by
+        ires.type = runp::RS_JGF;
+        ires.info = "Interactor Judgment Failed: what the program and the interactor wrote to each other could not all be passed on";
+    }
     rires.res = res;
     rires.ires = ires;
     return rires;

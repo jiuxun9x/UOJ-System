@@ -1461,7 +1461,7 @@ RunSimpleInteractionResult run_interaction_to(
     string over_limit_file_name = real_output_file_name + ".over_limit";
     unlink(over_limit_file_name.c_str());
 
-    run_interaction(ric);
+    bool passed_on = run_interaction(ric) == 0;
 
     RunSimpleInteractionResult rires;
     RunResult res = RunResult::from_file(rpc.result_file_name);
@@ -1496,6 +1496,13 @@ RunSimpleInteractionResult run_interaction_to(
     if (ires.type == runp::RS_JGF && ires.info.compare(0, 11, "Interactor ") != 0) {
         // what a testlib interactor said of why it failed (quitf(_fail, ...)) stays with it
         ires.info = ires.info == "Checker Judgment Failed" ? "Interactor Judgment Failed" : "Interactor Judgment Failed: " + ires.info;
+    }
+
+    if (!passed_on) {
+        // what the program and the interactor wrote to each other was not all passed on: what
+        // they made of it is nothing to judge by
+        ires.type = runp::RS_JGF;
+        ires.info = "Interactor Judgment Failed: what the program and the interactor wrote to each other could not all be passed on";
     }
 
     rires.res = res;
