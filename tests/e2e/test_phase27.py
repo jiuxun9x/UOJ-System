@@ -309,5 +309,40 @@ class JudgerUpdateTest(unittest.TestCase):
                 db("update judger_info set ip = '%s' where judger_name = '%s'" % (ip, name))
 
 
+def virtual_cells(contest_id, username):
+    """what the board of a virtual participation counts of somebody who sat the contest virtually"""
+    return json.loads(uoj.php(
+        "$c = queryContest(%d); genMoreContestInfo($c); list($s, $score) = virtualBoard($c, 7200, true);"
+        " echo json_encode(isset($score['*%s']) ? $score['*%s'] : null);" % (contest_id, username, username)
+    ))  # fmt: skip
+
+
+class VirtualOfItsOwnTest(unittest.TestCase):
+    """What somebody sitting a contest virtually submitted to one of its problems in the time was
+    counted for it, wherever it was submitted: practising the same problem through another contest
+    that was over, or for a homework, was a solution on the board of the virtual participation.
+    What counts is what was submitted through the contest while sitting it."""
+
+    def test_what_is_submitted_through_another_contest_is_not_of_it(self):
+        admin = uoj.admin()
+        problem_id = admin.create_problem(ab_problem_files())
+        sat, other = (admin.new_contest(name, rule="ICPC", problems=str(problem_id)) for name in ("p27 虚拟参赛", "p27 另一场"))
+        for contest_id in (sat, other):
+            uoj.move_contest(contest_id, -7200, 60)
+            self.assertEqual(admin.submit_form("/contest/%d" % contest_id, "publish_result"), "")
+        cat = account("p27_vp_own")
+        self.assertEqual(cat.form("/contest/%d/virtual" % sat, "start"), "")
+        elsewhere = cat.submit(problem_id, AB, path="/contest/%d/problem/%d" % (other, problem_id))
+        self.assertEqual(uoj.wait_submission(elsewhere).score, 100)
+        self.assertEqual(db("select practice_contest_id, is_virtual from submissions where id = %d" % elsewhere)[0], [str(other), "0"])
+        self.assertNotIn('href="/submission/%d"' % elsewhere, cat.get("/contest/%d/submissions?mine=1" % sat).text)
+        self.assertEqual(virtual_cells(sat, cat.username), [])
+        # what is submitted through it is of it
+        here = cat.submit(problem_id, AB, path="/contest/%d/problem/%d" % (sat, problem_id))
+        self.assertEqual(uoj.wait_submission(here).score, 100)
+        self.assertIn('href="/submission/%d"' % here, cat.get("/contest/%d/submissions?mine=1" % sat).text)
+        self.assertEqual(len(virtual_cells(sat, cat.username)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

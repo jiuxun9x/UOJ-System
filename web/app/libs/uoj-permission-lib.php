@@ -95,14 +95,8 @@ class UOJPermissionFacts {
 	// The contest a submission was made in by somebody who sat it virtually (it is not of the
 	// contest itself: see virtualSubmissionsCond()), or null.
 	public function virtualContestOf($submission) {
-		if (!empty($submission['contest_id']) || !isset($submission['submit_time'], $submission['submitter'], $submission['problem_id'])) {
-			return null;
-		}
-		$time = DB::escape($submission['submit_time']);
-		$row = DB::selectFirst("select contest_virtuals.contest_id from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
-			." where contest_virtuals.username = '".DB::escape($submission['submitter'])."' and contests_problems.problem_id = ".(int)$submission['problem_id']
-			." and contest_virtuals.start_time <= '$time' and '$time' < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute) limit 1");
-		return $row ? (int)$row['contest_id'] : null;
+		// (what was submitted in a virtual participation says so, since migration 1048)
+		return !empty($submission['is_virtual']) && !empty($submission['practice_contest_id']) ? (int)$submission['practice_contest_id'] : null;
 	}
 
 	private $virtual_now = array();
@@ -1214,9 +1208,7 @@ function visibleSubmissionsCond($user) {
 		." where homework_maintainers.username = '$esc_username' and homeworks.domain_id in (".domainIdsOfUserSql($esc_username, 'member')."))";
 	$in_open_homework = "submissions.homework_id in (select id from homeworks where end_at > '".UOJTime::$time_now_str."')";
 	// what the user submitted while they sat a contest virtually, to a problem of it that is hidden
-	$my_virtual = "(submissions.submitter = '$esc_username' and submissions.contest_id is null and exists (select 1 from contest_virtuals join contests_problems on contests_problems.contest_id = contest_virtuals.contest_id"
-		." where contest_virtuals.username = submissions.submitter and contests_problems.problem_id = submissions.problem_id"
-		." and submissions.submit_time >= contest_virtuals.start_time and submissions.submit_time < date_add(contest_virtuals.start_time, interval contest_virtuals.last_min minute)))";
+	$my_virtual = "(submissions.submitter = '$esc_username' and submissions.is_virtual = 1)";
 	$my_contests = "select contest_id from contests_registrants where username = '$esc_username'";
 	// what the user submitted to a hidden problem of a contest they are staff of, or test
 	$my_tested = "(submissions.submitter = '$esc_username' and submissions.problem_id in (select contests_problems.problem_id from contests_problems"
