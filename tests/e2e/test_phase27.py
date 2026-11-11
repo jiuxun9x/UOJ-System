@@ -15,7 +15,7 @@ from test_phase13 import browser_with, who
 from test_phase3 import account
 from test_phase9 import import_files
 from test_phase25 import classroom, published_homework
-from test_phase4 import homework_form, homework_row, tick
+from test_phase4 import homework_form, homework_row, homework_settings, member_form, tick
 from test_phase6 import attach, attachments_of
 from uoj import db, db_value
 
@@ -764,6 +764,33 @@ class BrokenPackageTest(unittest.TestCase):
         self.assertEqual(made, [])
         self.assertIn("压缩包里的这个文件已经损坏", uoj.text_of(page))
         self.assertEqual(db_value("select count(*) from problems"), before)
+
+
+class OneCopyTest(unittest.TestCase):
+    """A problem of the site named in a domain (s12) is copied into it once, and used afterwards:
+    two who named it at once each found no copy, and each made one."""
+
+    def test_two_at_once_make_one_copy(self):
+        public = uoj.admin().create_problem(ab_problem_files())
+        slug, teacher, _, _ = classroom("p27_onecopy")
+        did = int(db_value("select id from domains where slug = '%s'" % slug))
+        # (two people: the requests of one are one after the other, as their session has it)
+        other = account("p27_onecopy_co")
+        self.assertEqual(member_form(teacher, slug, "add", username=other.username, role="teacher"), "")
+        name = "uoj_domain_copy_%d_%d" % (did, public)
+        uoj.run("docker", "exec", "-d", uoj.DB, "mysql", "-uroot", "-proot", "-e", "select get_lock('%s', 0), sleep(4)" % name)
+        uoj.wait_until("the lock is held", lambda: db_value("select is_used_lock('%s') is not null" % name) == "1", timeout=30)
+        said = []
+        threads = [threading.Thread(target=lambda n=n, client=client: said.append(client.form("/d/%s/homework/new" % slug, "save", **homework_settings(
+            title="p27 同时选题 %d" % n, problem_id="s%d" % public, score="100", after="draft")))) for n, client in enumerate((teacher, other))]  # fmt: skip
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(120)
+        self.assertEqual(said, ["", ""])
+        self.assertEqual(db_value("select count(*) from problems where owner_domain_id = %d and source_problem_id = %d" % (did, public)), "1")
+        used = db("select distinct homework_problems.problem_id from homework_problems join homeworks on homeworks.id = homework_problems.homework_id where homeworks.domain_id = %d" % did)
+        self.assertEqual(len(used), 1)
 
 
 if __name__ == "__main__":

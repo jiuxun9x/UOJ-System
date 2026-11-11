@@ -679,19 +679,30 @@ function domainProblemOfToken($domain, $token, $actor) {
 	if (!$source || $source['owner_domain_id'] || !can($actor, 'problem.copy', $source)) {
 		return array(null, '', "主站没有题号为 {$number} 的题，或者你不能复制它");
 	}
-	$copy = domainCopyOfProblem($domain, $source['id']);
-	if ($copy) {
-		return array($copy, "主站 #{$number} 在本域已经有副本 #" . problemNumber($copy) . '，用的是它', '');
+	// Looked for, and made where there is none, holding a lock of the problem in the domain: two
+	// who named it at once each found no copy, and each made one.
+	$name = "uoj_domain_copy_{$domain['id']}_{$source['id']}";
+	$lock = DB::selectFirst("select get_lock('$name', 60)", MYSQLI_NUM);
+	if (!$lock || $lock[0] != 1) {
+		return array(null, '', "主站 #{$number} 正在复制到本域，请稍后再试");
 	}
-	if (!can($actor, 'domain.teach', $domain)) {
-		return array(null, '', "主站 #{$number} 还没有复制到本域：只有本域的教师可以复制");
+	try {
+		$copy = domainCopyOfProblem($domain, $source['id']);
+		if ($copy) {
+			return array($copy, "主站 #{$number} 在本域已经有副本 #" . problemNumber($copy) . '，用的是它', '');
+		}
+		if (!can($actor, 'domain.teach', $domain)) {
+			return array(null, '', "主站 #{$number} 还没有复制到本域：只有本域的教师可以复制");
+		}
+		list($id, $err) = domainCopyProblem($source, $domain, $actor);
+		if ($err !== '') {
+			return array(null, '', $err);
+		}
+		$copy = queryProblemBrief($id);
+		return array($copy, "主站 #{$number} 已复制为本域 #" . problemNumber($copy), '');
+	} finally {
+		DB::query("select release_lock('$name')");
 	}
-	list($id, $err) = domainCopyProblem($source, $domain, $actor);
-	if ($err !== '') {
-		return array(null, '', $err);
-	}
-	$copy = queryProblemBrief($id);
-	return array($copy, "主站 #{$number} 已复制为本域 #" . problemNumber($copy), '');
 }
 // The problems a form named: array(the problems, what is to be said of them as lines, '') or
 // array(null, the lines so far, why not).
