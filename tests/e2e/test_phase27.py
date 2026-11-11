@@ -61,5 +61,26 @@ class CopyOfWhatWasPublishedTest(unittest.TestCase):
         self.assertEqual(self.copies(source), 2)
 
 
+class ContestStatisticsTest(unittest.TestCase):
+    """The statistics of a problem in a contest were shown for any problem by its number: through a
+    contest that was over and open to everybody, the title and the scores of a hidden problem that
+    was in no contest at all, or of a problem of a domain, were everybody's."""
+
+    def test_only_a_problem_of_the_contest(self):
+        admin = uoj.admin()
+        own = admin.create_problem(ab_problem_files())
+        hidden = admin.create_problem(ab_problem_files())
+        db("update problems set is_hidden = 1, title = 'p27 隐藏的题' where id = %d" % hidden)
+        contest_id = admin.new_contest("p27 统计", rule="ICPC", problems=str(own))
+        uoj.move_contest(contest_id, -7200, 60)
+        visitor = uoj.Client()
+        self.assertEqual(visitor.get("/contest/%d/problem/%d/statistics" % (contest_id, own)).status_code, 200)
+        self.assertEqual(visitor.get("/contest/%d/problem/A/statistics" % contest_id).status_code, 200)
+        for path in ("/contest/%d/problem/%d/statistics" % (contest_id, hidden), "/problem/%d/statistics" % hidden):
+            page = visitor.get(path)
+            self.assertEqual(page.status_code, 404, path)
+            self.assertNotIn("p27 隐藏的题", page.text, path)
+
+
 if __name__ == "__main__":
     unittest.main()

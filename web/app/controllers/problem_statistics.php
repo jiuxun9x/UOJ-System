@@ -8,6 +8,11 @@
 	$contest = isset($_GET['contest_id']) && validateUInt($_GET['contest_id']) ? queryContest($_GET['contest_id']) : null;
 	if ($contest != null) {
 		genMoreContestInfo($contest);
+		// a problem of the contest, as the page of the problem in the contest has it: what the
+		// contest lets one read is its own problems, and no other one by its number
+		if (queryContestProblemRank($contest, $problem) == null) {
+			become404Page();
+		}
 		if (!can($myUser, 'contest.view', $contest) || !canViewContestProblem($myUser, $problem, $contest)) {
 			become404Page();
 		}
