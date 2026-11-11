@@ -102,6 +102,12 @@ private:
 
         int iflags = fcntl(ifd, F_GETFL);
 
+        // What the program writes to the interactor goes through a pipe, which no limit of the
+        // size of a file holds: it is counted here, and cut off at the limit of the pipe.
+        long long limit = pipes[pipe_id].config.limit;
+        long long passed = 0;
+        bool over_the_limit = false;
+
         const int L = 4096;
         char buf[L];
 
@@ -131,15 +137,27 @@ private:
                     cnt2 = 0;
                 }
 
-                write_all_or_throw(ofd, buf, cnt2 + 1);
+                int n = cnt2 + 1;
+                bool over = limit >= 0 && passed + n > limit;
+                if (over) {
+                    n = (int)(limit - passed);
+                }
+                if (n > 0) {
+                    write_all_or_throw(ofd, buf, n);
+                    passed += n;
 
-                if (sf) {
-                    memcpy(sbuf + sbuf_len, buf, cnt2 + 1);
-                    sbuf_len += cnt2 + 1;
-                    if (sbuf_len > L) {
-                        write_all_or_throw(sfd, sbuf, sbuf_len);
-                        sbuf_len = 0;
+                    if (sf) {
+                        memcpy(sbuf + sbuf_len, buf, n);
+                        sbuf_len += n;
+                        if (sbuf_len > L) {
+                            write_all_or_throw(sfd, sbuf, sbuf_len);
+                            sbuf_len = 0;
+                        }
                     }
+                }
+                if (over) {
+                    over_the_limit = true;
+                    break;
                 }
             }
         } catch (exception &e) {
@@ -153,6 +171,12 @@ private:
                 sbuf_len = 0;
             }
             fclose(sf);
+        }
+        if (over_the_limit && !pipes[pipe_id].config.saving_file_name.empty()) {
+            FILE *mark = fopen((pipes[pipe_id].config.saving_file_name + ".over_limit").c_str(), "w");
+            if (mark) {
+                fclose(mark);
+            }
         }
 
         close(ifd);
@@ -219,6 +243,12 @@ error_t run_interaction_argp_parse_opt(int key, char *arg, struct argp_state *st
                 }
                 config->pipes.back().saving_file_name = arg;
                 break;
+            case 'l':
+                if (config->pipes.empty()) {
+                    argp_usage(state);
+                }
+                config->pipes.back().limit = atoll(arg);
+                break;
             case ARGP_KEY_ARG:
                 config->cmds.push_back(arg);
                 break;
@@ -241,6 +271,7 @@ runp::interaction::config parse_args(int argc, char **argv) {
     argp_option run_interaction_argp_options[] = {
         {"add-pipe", 'p', "PIPE", 0, "Add a pipe <from>:<fd>-<to>:<fd> (fd < 128)", 1},
         {"save-pipe", 's', "FILE", 0, "Set last pipe saving file", 2},
+        {"limit-pipe", 'l', "BYTES", 0, "Set how many bytes the last pipe passes on, at most", 3},
         {0}};
     char run_interaction_argp_args_doc[] = "cmd1 cmd2 ...";
     char run_interaction_argp_doc[] =

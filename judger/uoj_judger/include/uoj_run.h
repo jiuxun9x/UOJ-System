@@ -447,6 +447,9 @@ struct pipe_config {
     int from, from_fd;
     int to, to_fd;
     std::string saving_file_name;
+    // How many bytes are passed on, at most (-1: as many as come). What comes beyond is not:
+    // the pipe is closed, and <saving_file_name>.over_limit says so.
+    long long limit = -1;
 
     pipe_config() = default;
     pipe_config(int _from, int _from_fd, int _to, int _to_fd,
@@ -481,6 +484,9 @@ struct config {
             if (!pipe.saving_file_name.empty()) {
                 sout << " " << "-s";
                 sout << " " << escapeshellarg(pipe.saving_file_name);
+            }
+            if (pipe.limit >= 0) {
+                sout << " " << "-l" << " " << pipe.limit;
             }
         }
         return sout.str();

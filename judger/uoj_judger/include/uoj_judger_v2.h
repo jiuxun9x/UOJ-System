@@ -1006,6 +1006,10 @@ run_simple_interaction_result run_simple_interaction(const string &input_file_na
     // from:fd, to:fd
     ric.pipes.push_back(runp::interaction::pipe_config(2, 1, 1, 0, real_input_file_name));
     ric.pipes.push_back(runp::interaction::pipe_config(1, 1, 2, 0, real_output_file_name));
+    // what the program writes is held to its limit of output, as a file it wrote would be
+    ric.pipes.back().limit = (long long)rpc.limits.output * 1024 * 1024;
+    std::string over_limit_file_name = std::string(real_output_file_name) + ".over_limit";
+    unlink(over_limit_file_name.c_str());
 
     runp::interaction::run(ric);
 
@@ -1016,6 +1020,12 @@ run_simple_interaction_result run_simple_interaction(const string &input_file_na
 
     if (res.type == runp::RS_AC && res.exit_code != 0) {
         res.type = runp::RS_RE;
+    }
+    if (access(over_limit_file_name.c_str(), F_OK) == 0) {
+        // The program wrote more than its limit of output: it was cut off there, and whatever
+        // the interactor made of what it had is of no account.
+        res.type = runp::RS_OLE;
+        ires.type = runp::RS_AC;
     }
 
     if (ires.type == runp::RS_TLE && iret.used_up_its_cpu_time()) {

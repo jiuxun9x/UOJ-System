@@ -466,5 +466,29 @@ class JudgeSideFailureTest(unittest.TestCase):
         self.assertIn("Interactor Time Limit Exceeded after the program had finished", j.details)
 
 
+# reads the answer, and whatever comes after it, to the end
+DRAINING_INTERACTOR = DOUBLE_INTERACTOR.replace("int answer = ouf.readInt();", "int answer = ouf.readInt();\n    while (!ouf.seekEof()) {\n        ouf.readToken();\n    }")
+# the answer, and three megabytes more
+DOUBLE_FLOODING = DOUBLE.replace("fflush(stdout);", "for (int i = 0; i < 3 * 1024 * 1024 / 2; i++) {\n        fputs(\"0 \", stdout);\n    }\n    fflush(stdout);")
+
+
+class InteractiveOutputLimitTest(unittest.TestCase):
+    """What a program writes to an interactor goes through a pipe, which no limit of the size of a
+    file holds: a program could write any amount past its output limit, while the interactor read
+    it, and be accepted; and all of it was kept on the disk of the judger. It is cut off at the
+    limit, and the program exceeded it."""
+
+    def test_the_output_to_an_interactor_is_held_to_the_limit(self):
+        self.assertIn("ouf.readToken()", DRAINING_INTERACTOR)
+        self.assertIn('fputs("0 "', DOUBLE_FLOODING)
+        files = interactive_problem_files()
+        files["interactor.cpp"] = DRAINING_INTERACTOR
+        files["problem.conf"] += "output_limit 1\n"
+        problem_id = uoj.admin().create_problem(files)
+        j = uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE_FLOODING))
+        self.assertEqual((j.score, j.infos), (0, ["Output Limit Exceeded"] * 2), j)
+        self.assertEqual(uoj.wait_submission(uoj.admin().submit(problem_id, DOUBLE)).score, 100)
+
+
 if __name__ == "__main__":
     unittest.main()
