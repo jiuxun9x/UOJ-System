@@ -1059,7 +1059,8 @@ function homeworkDataDrift($homework, $scores) {
 // begun, in the order they began, and for every student what counts of it, which is the
 // official score once the homework is settled and the score so far before that.
 // Returns array('homeworks' => rows with 'points' and 'settled', 'students' => names,
-// 'cells' => username => homework id => array('total' => number or null, 'state' => 'official', 'live' or 'unclaimed'),
+// 'cells' => username => homework id => array('total' => number or null, 'state' => 'official', 'live', 'unclaimed' or
+// 'absent' (put into a settled homework after it was settled)),
 // 'sums' => username => the official scores added up).
 function domainGrades($domain) {
 	$students = array();
@@ -1080,7 +1081,15 @@ function domainGrades($domain) {
 		$homework['settled'] = $official !== null;
 		$grades['homeworks'][] = $homework;
 		foreach ($students as $username) {
-			if (!isset($participants[$username]) && !isset($scores[$username])) {
+			// A homework that was settled is of the people it was settled with, as its board is:
+			// who was put into it afterwards did not take part in it (absent), and who was taken
+			// out keeps the score they were settled with. (Somebody put in after the end counted
+			// for a nought in the total; and the board did not have them.)
+			if ($official !== null && !isset($official[$username])) {
+				$grades['cells'][$username][$homework['id']] = array('total' => null, 'state' => isset($participants[$username]) ? 'absent' : 'unclaimed');
+				continue;
+			}
+			if ($official === null && !isset($participants[$username]) && !isset($scores[$username])) {
 				$grades['cells'][$username][$homework['id']] = array('total' => null, 'state' => 'unclaimed');
 				continue;
 			}

@@ -175,7 +175,12 @@
 				<p class="text-muted small mb-0">作业开始后就可以做题了。</p>
 				<?php else: ?>
 				<div class="text-muted small"><?= $official !== null ? '正式成绩' : '当前得分' ?></div>
+				<?php if ($official !== null && !isset($official[Auth::id()])): ?>
+				<?php // (put into it after it was settled: it was settled without them, as the grades of the domain say) ?>
+				<div class="uoj-homework-total text-muted" id="my-official-score">未参加</div>
+				<?php else: ?>
 				<div class="uoj-homework-total" id="my-official-score"><?= homeworkTrimNumber($my_total) ?> <small class="text-muted">/ <?= $total_points ?></small></div>
+				<?php endif ?>
 				<?php if ($official !== null): ?>
 				<div class="text-muted small mt-2">当前订正进度</div>
 				<div class="h4 mb-0" id="my-correction-score"><?= homeworkTrimNumber($my_correction_total) ?> <small class="text-muted">/ <?= $total_points ?></small></div>

@@ -663,5 +663,28 @@ class AttachmentReplacedTest(unittest.TestCase):
         self.assertEqual(uoj.docker_exec(uoj.WEB, "ls /var/uoj_data/attachments | grep -c '^%d\\.new' || true" % attachment_id).strip(), "0")
 
 
+class SettledRosterTest(unittest.TestCase):
+    """Who was put into a homework after it was settled was not on its board, and counted for a
+    nought in the grades of the domain; who was taken out was on the board still. A settled
+    homework is of the people it was settled with, in the grades as on its board."""
+
+    def test_the_grades_go_by_the_people_it_was_settled_with(self):
+        slug, teacher, (ann, bob), problem_id = classroom("p27_roster", ("ann", "bob"))
+        homework_id = published_homework(teacher, slug, problem_id, title="p27 名单", allow_late=None, penalty_since="")
+        page = "/d/%s/homework/%d" % (slug, homework_id)
+        self.assertEqual(ann.form(page, "claim"), "")
+        uoj.wait_submission(ann.submit(problem_id, AB, path="%s/problem/%d" % (page, uoj.pid(problem_id))))
+        db("update homeworks set end_at = '%s' where id = %d" % (uoj.web_time(-60), homework_id))
+        uoj.wait_until("the homework is settled", lambda: tick() is not None and homework_row(homework_id, "settle_state")[0] == "settled")
+        # bob is put in, ann taken out, after it was settled
+        self.assertEqual(homework_form(teacher, slug, homework_id, "add_participant", username=bob.username), "")
+        self.assertEqual(homework_form(teacher, slug, homework_id, "remove_participant", username=ann.username), "")
+        grades = teacher.get("/d/%s/grades" % slug).text
+        cell = lambda name: re.search(r'(?s)%s.*?data-homework="%d" data-state="(\w+)"' % (name, homework_id), grades).group(1)
+        self.assertEqual((cell(ann.username), cell(bob.username)), ("official", "absent"))
+        self.assertIn("未参加", uoj.text_of(grades))
+        self.assertIn("未参加", uoj.text_of(bob.get(page).text))
+
+
 if __name__ == "__main__":
     unittest.main()

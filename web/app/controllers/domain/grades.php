@@ -96,6 +96,8 @@
 				<td class="<?= $class ?>" data-homework="<?= $homework['id'] ?>" data-state="<?= $cell['state'] ?>">
 					<?php if ($cell['state'] === 'unclaimed'): ?>
 					<span class="text-muted small">未认领</span>
+					<?php elseif ($cell['state'] === 'absent'): ?>
+					<span class="text-muted small">未参加</span>
 					<?php elseif ($cell['state'] === 'live'): ?>
 					<em><?= homeworkTrimNumber($cell['total']) ?></em>
 					<?php else: ?>
